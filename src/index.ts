@@ -30,6 +30,7 @@ async function main(): Promise<void> {
   console.log('  WhatsApp Status Bot – starting up…');
   console.log('─'.repeat(50));
   console.log(`  My card : ${config.MY_CONTACT.name} ${config.MY_CONTACT.phone}`);
+  console.log(`  Storage  : ${path.resolve(config.STORAGE_PATH)}`);
   console.log('─'.repeat(50) + '\n');
 
   removeSingletonLocks(config.SESSION_PATH);

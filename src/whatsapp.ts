@@ -69,6 +69,9 @@ export function createWhatsAppClient(storage: Storage): Client {
   );
 
   client.on('message', async (message: Message) => {
+    if (!message.from.endsWith('@g.us')) {
+      console.log(`[MSG] from=${message.from} body="${message.body.slice(0, 80)}"`);
+    }
     await handleMessage(message, storage, client);
   });
 

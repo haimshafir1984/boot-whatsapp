@@ -12,14 +12,22 @@ export interface TriggerResult {
   campaignName: string;
 }
 
+// Strip invisible Unicode direction/zero-width chars that WhatsApp sometimes injects
+function normalize(s: string): string {
+  return s
+    .replace(/[​-‏﻿‪-‮⁦-⁩]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function detectTrigger(
   messageBody: string,
   activeCampaigns: Campaign[],
 ): TriggerResult {
-  const text = messageBody.trim();
+  const text = normalize(messageBody);
 
   for (const campaign of activeCampaigns) {
-    if (text === campaign.triggerPhrase) {
+    if (text === normalize(campaign.triggerPhrase)) {
       return {
         matched: true,
         suffix: campaign.suffix,
