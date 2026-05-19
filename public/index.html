@@ -375,6 +375,8 @@
           </div>
           <button class="btn-save" id="googleConnectBtn" style="width:auto;padding:9px 18px;display:none"
             onclick="connectGoogle()">חבר Google</button>
+          <button class="btn-save" id="googleDisconnectBtn" style="width:auto;padding:9px 18px;background:#e53e3e;display:none"
+            onclick="disconnectGoogle()">נתק</button>
         </div>
       </div>
 
@@ -748,18 +750,27 @@
   async function loadGoogleStatus() {
     const res  = await fetch('/api/google/status');
     const data = await res.json();
-    const label = document.getElementById('googleStatusLabel');
-    const sub   = document.getElementById('googleStatusSub');
-    const btn   = document.getElementById('googleConnectBtn');
+    const label       = document.getElementById('googleStatusLabel');
+    const sub         = document.getElementById('googleStatusSub');
+    const connectBtn  = document.getElementById('googleConnectBtn');
+    const disconnectBtn = document.getElementById('googleDisconnectBtn');
     if (data.connected) {
-      label.textContent = '✅ Google Contacts מחובר';
-      sub.textContent   = 'אנשי קשר נשמרים אוטומטית';
-      btn.style.display = 'none';
+      label.textContent       = '✅ Google Contacts מחובר';
+      sub.textContent         = 'אנשי קשר נשמרים אוטומטית';
+      connectBtn.style.display    = 'none';
+      disconnectBtn.style.display = '';
     } else {
-      label.textContent = '🔴 לא מחובר';
-      sub.textContent   = 'לחץ כדי לחבר את חשבון Google';
-      btn.style.display = '';
+      label.textContent       = '🔴 לא מחובר';
+      sub.textContent         = 'לחץ כדי לחבר את חשבון Google';
+      connectBtn.style.display    = '';
+      disconnectBtn.style.display = 'none';
     }
+  }
+
+  async function disconnectGoogle() {
+    if (!confirm('לנתק את חשבון Google?')) return;
+    await fetch('/api/google/disconnect', { method: 'DELETE' });
+    await loadGoogleStatus();
   }
 
   async function connectGoogle() {

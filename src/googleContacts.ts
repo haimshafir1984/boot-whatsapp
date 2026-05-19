@@ -72,6 +72,12 @@ export function isGoogleConnected(): boolean {
   return fs.existsSync(config.GOOGLE_TOKEN_PATH);
 }
 
+export function disconnectGoogle(): void {
+  if (fs.existsSync(config.GOOGLE_TOKEN_PATH)) {
+    fs.unlinkSync(config.GOOGLE_TOKEN_PATH);
+  }
+}
+
 export function getGoogleAuthUrl(baseUrl = 'http://localhost:3001'): string {
   const redirectUri = `${baseUrl}/oauth2callback`;
   const auth = makeOAuth2Client(redirectUri);

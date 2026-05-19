@@ -9,7 +9,7 @@ import path from 'path';
 import { Storage, AdminSettings, Campaign } from './storage';
 import { config } from './config';
 import { botState } from './botState';
-import { isGoogleConnected, getGoogleAuthUrl, handleGoogleCallback } from './googleContacts';
+import { isGoogleConnected, getGoogleAuthUrl, handleGoogleCallback, disconnectGoogle } from './googleContacts';
 import { testICloudConnection } from './icloudContacts';
 
 export function startAdminServer(storage: Storage): void {
@@ -46,6 +46,11 @@ export function startAdminServer(storage: Storage): void {
 
   app.get('/api/google/status', (_req, res) => {
     res.json({ connected: isGoogleConnected() });
+  });
+
+  app.delete('/api/google/disconnect', (_req, res) => {
+    disconnectGoogle();
+    res.json({ ok: true });
   });
 
   app.get('/api/google/auth-url', (req, res) => {
