@@ -38,7 +38,7 @@ export const config = {
   ADMIN_PORT: Number(process.env.PORT) || 3001,
 
   // ─── File paths ───────────────────────────────────────────────────────────────
-  SESSION_PATH: './session',
+  SESSION_PATH: './data/session',
   STORAGE_PATH: './data/contacts.json',
   GOOGLE_TOKEN_PATH: './data/google-token.json',
   GOOGLE_CREDENTIALS_PATH: './credentials.json',
