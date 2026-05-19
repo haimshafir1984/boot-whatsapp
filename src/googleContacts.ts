@@ -60,7 +60,8 @@ async function buildAuthClient(): Promise<OAuth2Client> {
   auth.setCredentials(token);
 
   auth.on('tokens', (tokens) => {
-    if (tokens.refresh_token) persistToken({ ...token, ...tokens });
+    // Always persist – access_token refreshes don't include refresh_token
+    persistToken({ ...token, ...tokens });
   });
 
   return auth;
