@@ -3,10 +3,27 @@
  * Entry point – starts the admin HTTP server then the WhatsApp client.
  */
 
+import fs from 'fs';
+import path from 'path';
 import { createWhatsAppClient } from './whatsapp';
 import { Storage } from './storage';
 import { startAdminServer } from './adminServer';
 import { config } from './config';
+
+function removeSingletonLocks(dir: string): void {
+  if (!fs.existsSync(dir)) return;
+  try {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        removeSingletonLocks(full);
+      } else if (entry.name.startsWith('Singleton')) {
+        fs.unlinkSync(full);
+        console.log(`  Removed stale lock: ${entry.name}`);
+      }
+    }
+  } catch { /* ignore */ }
+}
 
 async function main(): Promise<void> {
   console.log('─'.repeat(50));
@@ -14,6 +31,8 @@ async function main(): Promise<void> {
   console.log('─'.repeat(50));
   console.log(`  My card : ${config.MY_CONTACT.name} ${config.MY_CONTACT.phone}`);
   console.log('─'.repeat(50) + '\n');
+
+  removeSingletonLocks(config.SESSION_PATH);
 
   const storage = new Storage(config.STORAGE_PATH);
 
