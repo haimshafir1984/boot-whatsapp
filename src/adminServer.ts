@@ -22,7 +22,7 @@ export function startAdminServer(storage: Storage): void {
   // ── QR code status ────────────────────────────────────────────────────────
 
   app.get('/api/qr', (_req, res) => {
-    res.json({ qr: botState.qrDataUrl, authenticated: botState.authenticated });
+    res.json({ qr: botState.qrDataUrl, authenticated: botState.authenticated, ready: botState.ready });
   });
 
   // ── Pairing code ──────────────────────────────────────────────────────────

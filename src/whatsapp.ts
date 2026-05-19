@@ -50,6 +50,7 @@ export function createWhatsAppClient(storage: Storage): Client {
   });
 
   client.on('ready', () => {
+    botState.ready = true;
     const s = storage.getAdminSettings();
     const campaigns = storage.getActiveCampaigns();
     console.log('\n✅ WhatsApp bot is ready.');
@@ -63,10 +64,24 @@ export function createWhatsAppClient(storage: Storage): Client {
     console.log('');
   });
 
-  client.on('auth_failure', (msg) => console.error('❌ Auth failure:', msg));
-  client.on('disconnected', (reason) =>
-    console.warn('⚠️  Disconnected:', reason),
-  );
+  client.on('auth_failure', (msg) => {
+    console.error('\u274c Auth failure:', msg);
+    botState.authenticated = false;
+    botState.ready = false;
+  });
+
+  client.on('disconnected', (reason) => {
+    console.warn('\u26a0\ufe0f  Disconnected:', reason);
+    botState.authenticated = false;
+    botState.ready = false;
+    console.log('   Reconnecting in 10s...');
+    setTimeout(() => {
+      console.log('   Reconnecting now...');
+      client.initialize().catch((err) =>
+        console.error('   Reconnect failed:', err),
+      );
+    }, 10_000);
+  });
 
   client.on('message', async (message: Message) => {
     if (!message.from.endsWith('@g.us')) {

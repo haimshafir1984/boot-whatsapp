@@ -5,4 +5,5 @@ export const botState = {
   pairingCode: null as string | null,
   client: null as Client | null,
   authenticated: false,
+  ready: false,
 };
