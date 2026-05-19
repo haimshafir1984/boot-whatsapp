@@ -37,18 +37,25 @@ export function createWhatsAppClient(storage: Storage): Client {
     },
   });
 
+  // Listen for code_received event (fires on first code + every 3-min refresh)
+  client.on('code' as any, (code: string) => {
+    botState.pairingCode = code;
+    console.log(`🔑 Pairing code received: ${code}`);
+  });
+
   client.on('qr', async (qr) => {
     botState.qrDataUrl = await QRCode.toDataURL(qr);
-    botState.pairingCode = null; // reset stale code on each new QR
     console.log('\n📱 פתח את דף הניהול כדי לחבר את WhatsApp\n');
-    // Auto-request pairing code if a phone was pre-configured
-    if (botState.pairingPhone) {
+    // Auto-request pairing code ONCE per session when a phone is pre-configured
+    if (botState.pairingPhone && !botState.pairingAttempted) {
+      botState.pairingAttempted = true;
       try {
         const code = await (client as any).requestPairingCode(botState.pairingPhone);
         botState.pairingCode = code;
-        console.log(`🔑 Pairing code auto-generated: ${code}`);
+        console.log(`🔑 Pairing code generated: ${code}`);
       } catch (err) {
-        console.error('❌ Auto pairing code request failed:', err);
+        console.error('❌ Pairing code request failed:', err);
+        botState.pairingAttempted = false; // allow retry after manual click
       }
     }
   });
@@ -79,12 +86,16 @@ export function createWhatsAppClient(storage: Storage): Client {
     console.error('\u274c Auth failure:', msg);
     botState.authenticated = false;
     botState.ready = false;
+    botState.pairingAttempted = false;
+    botState.pairingCode = null;
   });
 
   client.on('disconnected', (reason) => {
     console.warn('\u26a0\ufe0f  Disconnected:', reason);
     botState.authenticated = false;
     botState.ready = false;
+    botState.pairingAttempted = false;
+    botState.pairingCode = null;
     console.log('   Reconnecting in 10s...');
     setTimeout(() => {
       console.log('   Reconnecting now...');
