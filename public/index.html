@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ניהול בוט WhatsApp</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #f0f2f5;
+      min-height: 100vh;
+      padding: 32px 16px 64px;
+      color: #111;
+    }
+
+    .page { max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+
+    /* ── Card ── */
+    .card { background: #fff; border-radius: 16px; box-shadow: 0 2px 12px rgba(0,0,0,.09); overflow: hidden; }
+
+    .card-header {
+      background: #25d366; color: #fff;
+      padding: 18px 24px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    .card-header h1 { font-size: 1.1rem; font-weight: 700; }
+    .card-header p  { font-size: .8rem; opacity: .85; margin-top: 2px; }
+
+    .card-body { padding: 24px; }
+
+    /* ── Section title ── */
+    .sec-title {
+      font-size: .72rem; font-weight: 700; letter-spacing: .07em;
+      text-transform: uppercase; color: #888; margin-bottom: 14px;
+    }
+
+    /* ── Campaign list ── */
+    #campaign-list { display: flex; flex-direction: column; gap: 10px; }
+
+    .campaign-card {
+      border: 1.5px solid #e5e7eb; border-radius: 12px;
+      padding: 14px 16px;
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+      transition: border-color .15s;
+    }
+    .campaign-card.inactive { opacity: .55; }
+
+    .campaign-info { flex: 1; min-width: 0; }
+    .campaign-name { font-weight: 700; font-size: .95rem; }
+    .campaign-phrase {
+      font-size: .78rem; color: #6b7280; margin-top: 3px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .campaign-meta { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+    .badge {
+      font-size: .7rem; font-weight: 700; padding: 2px 8px;
+      border-radius: 99px;
+    }
+    .badge-bot { background: #dbeafe; color: #1e40af; }
+    .badge-ref { background: #fef3c7; color: #92400e; }
+    .suffix-tag { font-size: .72rem; color: #6b7280; }
+
+    .campaign-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+    .btn-icon {
+      border: none; border-radius: 8px; padding: 6px 10px;
+      font-size: .8rem; cursor: pointer; transition: background .15s;
+    }
+    .btn-toggle  { background: #f3f4f6; color: #374151; }
+    .btn-toggle:hover { background: #e5e7eb; }
+    .btn-edit    { background: #eff6ff; color: #1d4ed8; }
+    .btn-edit:hover { background: #dbeafe; }
+    .btn-delete  { background: #fff1f2; color: #be123c; }
+    .btn-delete:hover { background: #ffe4e6; }
+
+    /* ── Add button ── */
+    .btn-add {
+      width: 100%; padding: 11px;
+      border: 2px dashed #25d366; background: #f0fdf4;
+      color: #16a34a; font-size: .9rem; font-weight: 700;
+      border-radius: 10px; cursor: pointer;
+      transition: background .15s;
+      margin-top: 4px;
+    }
+    .btn-add:hover { background: #dcfce7; }
+
+    /* ── Divider ── */
+    hr { border: none; border-top: 1px solid #e5e7eb; margin: 20px 0; }
+
+    /* ── Toggle row ── */
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .toggle-label { font-weight: 600; font-size: .9rem; }
+    .toggle-sub   { font-size: .78rem; color: #6b7280; margin-top: 2px; }
+
+    .switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; inset: 0; background: #d1d5db; border-radius: 24px; cursor: pointer; transition: background .2s; }
+    .slider::before {
+      content: ''; position: absolute;
+      width: 18px; height: 18px; right: 3px; bottom: 3px;
+      background: #fff; border-radius: 50%;
+      transition: transform .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2);
+    }
+    .switch input:checked + .slider { background: #25d366; }
+    .switch input:checked + .slider::before { transform: translateX(-20px); }
+
+    .timeout-row { display: flex; align-items: center; gap: 8px; font-size: .88rem; color: #374151; margin-top: 14px; }
+    .timeout-row input[type=number] {
+      width: 60px; border: 2px solid #e5e7eb; border-radius: 8px;
+      padding: 5px 8px; font-size: .9rem; text-align: center;
+    }
+    .timeout-row input:focus { outline: none; border-color: #25d366; }
+
+    .btn-save {
+      width: 100%; padding: 12px;
+      background: #25d366; color: #fff; border: none;
+      border-radius: 10px; font-size: .95rem; font-weight: 700;
+      cursor: pointer; transition: background .15s;
+    }
+    .btn-save:hover { background: #1ebe5d; }
+
+    /* ── Toast ── */
+    .toast {
+      display: none; margin-top: 12px; padding: 9px 14px;
+      border-radius: 8px; font-size: .85rem; font-weight: 600; text-align: center;
+    }
+    .toast.success { background: #dcfce7; color: #166534; display: block; }
+    .toast.error   { background: #fee2e2; color: #991b1b; display: block; }
+
+    /* ── Modal overlay ── */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.45); z-index: 100;
+      align-items: center; justify-content: center; padding: 16px;
+    }
+    .modal-overlay.open { display: flex; }
+
+    .modal {
+      background: #fff; border-radius: 16px;
+      width: 100%; max-width: 440px;
+      padding: 28px; position: relative;
+      box-shadow: 0 8px 32px rgba(0,0,0,.2);
+    }
+    .modal h2 { font-size: 1.05rem; font-weight: 700; margin-bottom: 20px; }
+
+    .field { margin-bottom: 16px; }
+    .field label { display: block; font-size: .82rem; font-weight: 600; color: #374151; margin-bottom: 5px; }
+    .field input[type=text] {
+      width: 100%; border: 2px solid #e5e7eb; border-radius: 8px;
+      padding: 9px 12px; font-size: .9rem;
+      transition: border-color .15s;
+    }
+    .field input:focus { outline: none; border-color: #25d366; }
+    .field .hint { font-size: .75rem; color: #6b7280; margin-top: 4px; }
+    .field .preview {
+      font-size: .8rem; background: #f3f4f6; border-radius: 6px;
+      padding: 6px 10px; margin-top: 6px; color: #374151;
+      font-family: monospace;
+    }
+    .field .required { color: #dc2626; }
+
+    .radio-group { display: flex; gap: 10px; }
+    .radio-btn {
+      flex: 1; border: 2px solid #e5e7eb; border-radius: 10px;
+      padding: 10px 12px; cursor: pointer;
+      display: flex; align-items: center; gap: 8px;
+      transition: border-color .15s, background .15s;
+    }
+    .radio-btn.selected { border-color: #25d366; background: #f0fdf4; }
+    .radio-btn input { accent-color: #25d366; }
+    .radio-btn span  { font-size: .88rem; font-weight: 600; }
+
+    .modal-footer { display: flex; gap: 10px; margin-top: 20px; }
+    .btn-cancel {
+      flex: 1; padding: 10px; border: 2px solid #e5e7eb;
+      background: #fff; border-radius: 8px;
+      font-size: .9rem; font-weight: 600; cursor: pointer;
+    }
+    .btn-confirm {
+      flex: 2; padding: 10px; background: #25d366;
+      color: #fff; border: none; border-radius: 8px;
+      font-size: .9rem; font-weight: 700; cursor: pointer;
+    }
+    .btn-confirm:hover { background: #1ebe5d; }
+
+    .modal-error { font-size: .8rem; color: #dc2626; margin-top: 8px; }
+
+    /* ── WhatsApp links ── */
+    #links-list { display: flex; flex-direction: column; gap: 12px; }
+
+    .link-row {}
+    .link-label { font-weight: 600; font-size: .88rem; margin-bottom: 5px; }
+    .link-box {
+      display: flex; align-items: center; gap: 8px;
+      background: #f3f4f6; border-radius: 8px; padding: 8px 12px;
+    }
+    .link-url {
+      flex: 1; font-size: .75rem; color: #1d4ed8;
+      word-break: break-all; text-decoration: none;
+      font-family: monospace;
+    }
+    .link-url:hover { text-decoration: underline; }
+    .btn-copy {
+      flex-shrink: 0; border: none; background: #25d366; color: #fff;
+      border-radius: 6px; padding: 5px 12px; font-size: .8rem;
+      font-weight: 600; cursor: pointer; transition: background .15s;
+    }
+    .btn-copy:hover { background: #1ebe5d; }
+
+    /* ── Provider tabs ── */
+    .provider-tabs { display: flex; gap: 8px; margin-bottom: 18px; }
+    .provider-tab {
+      flex: 1; padding: 10px 6px; border: 2px solid #e5e7eb; border-radius: 10px;
+      text-align: center; cursor: pointer; font-size: .82rem; font-weight: 600;
+      color: #6b7280; background: #fff; transition: all .15s;
+    }
+    .provider-tab.active { border-color: #25d366; background: #f0fdf4; color: #16a34a; }
+    .provider-panel { display: none; }
+    .provider-panel.active { display: block; }
+    .icloud-form .field { margin-bottom: 12px; }
+    .icloud-hint { font-size: .75rem; color: #6b7280; margin-top: 4px; }
+    .manual-info { font-size: .82rem; color: #6b7280; margin-bottom: 14px; line-height: 1.6; }
+
+    /* ── QR card ── */
+    #qr-card { display: none; }
+    .auth-tabs { display: flex; border-bottom: 2px solid #e5e7eb; margin-bottom: 20px; }
+    .auth-tab {
+      flex: 1; padding: 10px; text-align: center; font-size: .88rem; font-weight: 600;
+      cursor: pointer; color: #6b7280; border-bottom: 2px solid transparent; margin-bottom: -2px;
+      transition: color .15s, border-color .15s;
+    }
+    .auth-tab.active { color: #25d366; border-bottom-color: #25d366; }
+    .auth-panel { display: none; text-align: center; }
+    .auth-panel.active { display: block; }
+    #qr-img { width: 220px; height: 220px; border: 3px solid #25d366; border-radius: 12px; }
+    .qr-spinner { font-size: .85rem; color: #9ca3af; padding: 20px 0; }
+    .pair-steps { font-size: .78rem; color: #6b7280; margin-bottom: 16px; text-align: right; line-height: 1.8; }
+    .pair-input-row { display: flex; gap: 8px; margin-bottom: 12px; }
+    .pair-input-row input {
+      flex: 1; border: 2px solid #e5e7eb; border-radius: 8px;
+      padding: 9px 12px; font-size: .9rem; direction: ltr;
+    }
+    .pair-input-row input:focus { outline: none; border-color: #25d366; }
+    .pair-code-box {
+      font-size: 2rem; font-weight: 800; letter-spacing: .2em;
+      color: #25d366; padding: 14px; background: #f0fdf4;
+      border-radius: 10px; margin: 12px 0; font-family: monospace;
+    }
+    .pair-error { font-size: .82rem; color: #dc2626; margin-top: 6px; }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- QR card (shown only when not authenticated) -->
+  <div class="card" id="qr-card">
+    <div class="card-header">
+      <svg width="30" height="30" viewBox="0 0 32 32" fill="none">
+        <circle cx="16" cy="16" r="16" fill="white" fill-opacity=".2"/>
+        <path d="M16 6C10.477 6 6 10.477 6 16c0 1.85.504 3.58 1.38 5.06L6 26l5.09-1.36A9.95 9.95 0 0016 26c5.523 0 10-4.477 10-10S21.523 6 16 6z" fill="white"/>
+      </svg>
+      <div>
+        <h1>חיבור WhatsApp</h1>
+        <p>סרקי את הקוד כדי לחבר את החשבון</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="auth-tabs">
+        <div class="auth-tab active" id="tab-qr"    onclick="switchTab('qr')">📷 סריקת QR</div>
+        <div class="auth-tab"        id="tab-phone" onclick="switchTab('phone')">📱 קוד טלפון</div>
+      </div>
+
+      <!-- QR panel -->
+      <div class="auth-panel active" id="panel-qr">
+        <p style="font-size:.8rem;color:#6b7280;margin-bottom:16px">
+          WhatsApp → הגדרות → מכשירים מקושרים → קשר מכשיר
+        </p>
+        <div id="qr-content">
+          <div class="qr-spinner">⏳ ממתין לקוד QR...</div>
+        </div>
+      </div>
+
+      <!-- Phone pairing panel -->
+      <div class="auth-panel" id="panel-phone">
+        <div class="pair-steps">
+          1. הזיני את מספר הטלפון שלך<br>
+          2. קבלי קוד 8 ספרות<br>
+          3. WhatsApp → הגדרות → מכשירים מקושרים → קשר מכשיר → קשר עם מספר טלפון<br>
+          4. הזיני את הקוד
+        </div>
+        <div class="pair-input-row">
+          <input type="tel" id="pairPhone" placeholder="972508522907" />
+          <button class="btn-save" style="width:auto;padding:9px 18px" onclick="requestPairingCode()">קבל קוד</button>
+        </div>
+        <div id="pair-result"></div>
+        <div class="pair-error" id="pair-error"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main content -->
+  <div id="main-content">
+
+  <!-- Header card -->
+  <div class="card">
+    <div class="card-header">
+      <svg width="30" height="30" viewBox="0 0 32 32" fill="none">
+        <circle cx="16" cy="16" r="16" fill="white" fill-opacity=".2"/>
+        <path d="M16 6C10.477 6 6 10.477 6 16c0 1.85.504 3.58 1.38 5.06L6 26l5.09-1.36A9.95 9.95 0 0016 26c5.523 0 10-4.477 10-10S21.523 6 16 6z" fill="white"/>
+      </svg>
+      <div>
+        <h1>ניהול בוט WhatsApp</h1>
+        <p>שינויים נכנסים לתוקף מיד – ללא הפעלה מחדש</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Campaigns card -->
+  <div class="card">
+    <div class="card-body">
+      <div class="sec-title">קמפיינים</div>
+      <div id="campaign-list">
+        <!-- filled by JS -->
+      </div>
+      <button class="btn-add" style="margin-top:14px" onclick="openModal()">+ הוסף קמפיין</button>
+    </div>
+  </div>
+
+  <!-- Global settings card -->
+  <div class="card">
+    <div class="card-body">
+      <div class="sec-title">הגדרות כלליות</div>
+
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">שאלת שם מועדף</div>
+          <div class="toggle-sub">הבוט ישאל את המשתמש באיזה שם לשמור אותו</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="askName" onchange="updateTimeoutVisibility()" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="timeout-row" id="timeoutRow">
+        <span>זמן המתנה לתשובה:</span>
+        <input type="number" id="timeout" min="1" max="60" value="5" />
+        <span>דקות</span>
+      </div>
+
+      <hr />
+      <button class="btn-save" onclick="saveSettings()">שמור הגדרות</button>
+      <div class="toast" id="settingsToast"></div>
+    </div>
+  </div>
+
+  <!-- Contacts provider card -->
+  <div class="card">
+    <div class="card-body">
+      <div class="sec-title">שמירת אנשי קשר</div>
+      <div class="provider-tabs">
+        <div class="provider-tab" id="ptab-google" onclick="selectProvider('google')">🟢 Google</div>
+        <div class="provider-tab" id="ptab-icloud" onclick="selectProvider('icloud')">🍎 iCloud</div>
+        <div class="provider-tab" id="ptab-manual" onclick="selectProvider('manual')">📋 ידני</div>
+      </div>
+
+      <!-- Google panel -->
+      <div class="provider-panel" id="ppanel-google">
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label" id="googleStatusLabel">⏳ בודק חיבור...</div>
+            <div class="toggle-sub" id="googleStatusSub"></div>
+          </div>
+          <button class="btn-save" id="googleConnectBtn" style="width:auto;padding:9px 18px;display:none"
+            onclick="connectGoogle()">חבר Google</button>
+        </div>
+      </div>
+
+      <!-- iCloud panel -->
+      <div class="provider-panel" id="ppanel-icloud">
+        <div class="icloud-form">
+          <div class="field">
+            <label>Apple ID (מייל) <span class="required">*</span></label>
+            <input type="email" id="icloudEmail" placeholder="you@icloud.com" />
+          </div>
+          <div class="field">
+            <label>App-Specific Password <span class="required">*</span></label>
+            <input type="password" id="icloudPassword" placeholder="xxxx-xxxx-xxxx-xxxx" />
+            <div class="icloud-hint">
+              צור סיסמה ב-<strong>appleid.apple.com</strong> → Sign-In and Security → App-Specific Passwords
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn-save" style="width:auto;padding:9px 18px" onclick="saveICloud()">שמור ובדוק חיבור</button>
+            <span id="icloudStatus" style="font-size:.82rem"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Manual panel -->
+      <div class="provider-panel" id="ppanel-manual">
+        <div class="manual-info">
+          אנשי קשר נשמרים <strong>מקומית</strong> בלבד.<br>
+          ניתן להוריד קובץ CSV בכל עת ולייבא אותו ידנית לאנשי הקשר.
+        </div>
+        <a href="/api/contacts/export" download="contacts.csv">
+          <button class="btn-save" style="width:auto;padding:9px 18px">⬇️ הורד CSV</button>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- WhatsApp links card -->
+  <div class="card">
+    <div class="card-body">
+      <div class="sec-title">קישורי WhatsApp לשיתוף</div>
+      <p style="font-size:.8rem;color:#6b7280;margin-bottom:14px">
+        שלח את הקישור הרלוונטי ללקוחות שלך — לחיצה תפתח צ'אט עם הטקסט מוכן לשליחה.
+      </p>
+      <div id="links-list"></div>
+    </div>
+  </div>
+
+  </div> <!-- /main-content -->
+
+</div>
+
+<!-- ── Modal ───────────────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h2 id="modalTitle">הוסף קמפיין</h2>
+
+    <div class="field">
+      <label>שם הקמפיין <span class="required">*</span></label>
+      <input type="text" id="fName" placeholder='למשל: "פייסבוק ינואר"' />
+    </div>
+
+    <div class="field">
+      <label>סוג טריגר <span class="required">*</span></label>
+      <div class="radio-group">
+        <label class="radio-btn selected" id="rBtn1" onclick="selectType(1)">
+          <input type="radio" name="triggerType" value="1" checked />
+          <span>טיפוס 1 – Bot</span>
+        </label>
+        <label class="radio-btn" id="rBtn2" onclick="selectType(2)">
+          <input type="radio" name="triggerType" value="2" />
+          <span>טיפוס 2 – ממליץ</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Type 1: free phrase -->
+    <div id="type1Fields">
+      <div class="field">
+        <label>משפט הטריגר <span class="required">*</span></label>
+        <input type="text" id="fPhrase" placeholder='הטקסט המדויק שהמשתמש ישלח' />
+        <div class="hint">המשתמש צריך לשלוח את הטקסט הזה בדיוק</div>
+      </div>
+    </div>
+
+    <!-- Type 2: base phrase + referrer name -->
+    <div id="type2Fields" style="display:none">
+      <div class="field">
+        <label>משפט הטריגר <span class="required">*</span></label>
+        <input type="text" id="fBasePhrase" placeholder='למשל: "אשמח לעקוב אחרי הסטטוס שלך"' oninput="updatePreview()" />
+      </div>
+      <div class="field">
+        <label>שם הממליץ <span class="required">*</span></label>
+        <input type="text" id="fReferrer" placeholder='למשל: "משה שפיר"' oninput="updatePreview()" />
+        <div class="hint">הטריגר המלא שהמשתמש ישלח:</div>
+        <div class="preview" id="triggerPreview">[משפט] הגעתי דרך [שם הממליץ]</div>
+        <div class="hint" style="margin-top:4px">סיומת: <strong id="suffixPreview">- ([שם הממליץ])</strong></div>
+      </div>
+    </div>
+
+    <div class="modal-error" id="modalError"></div>
+
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal()">ביטול</button>
+      <button class="btn-confirm" onclick="submitCampaign()">שמור קמפיין</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const REFERRAL_PREFIX = 'הגעתי דרך ';
+  let editingId = null;
+
+  // ── Campaigns ───────────────────────────────────────────────────────────────
+
+  async function loadCampaigns() {
+    const res  = await fetch('/api/campaigns');
+    const list = await res.json();
+    renderCampaigns(list);
+    renderLinks(list); // keep links in sync
+  }
+
+  function renderCampaigns(list) {
+    const el = document.getElementById('campaign-list');
+    if (!list.length) {
+      el.innerHTML = '<p style="color:#9ca3af;font-size:.85rem;text-align:center;padding:12px 0">אין קמפיינים עדיין</p>';
+      return;
+    }
+    el.innerHTML = list.map(c => `
+      <div class="campaign-card ${c.active ? '' : 'inactive'}" id="c-${c.id}">
+        <div class="campaign-info">
+          <div class="campaign-name">${esc(c.name)}</div>
+          <div class="campaign-phrase">"${esc(c.triggerPhrase)}"</div>
+          <div class="campaign-meta">
+            <span class="badge ${c.triggerType === 1 ? 'badge-bot' : 'badge-ref'}">
+              ${c.triggerType === 1 ? 'Bot' : 'ממליץ'}
+            </span>
+            <span class="suffix-tag">→ סיומת: "${esc(c.suffix)}"</span>
+            <span style="font-size:.7rem;color:${c.active ? '#16a34a' : '#9ca3af'}">
+              ${c.active ? '● פעיל' : '○ מושבת'}
+            </span>
+          </div>
+        </div>
+        <div class="campaign-actions">
+          <button class="btn-icon btn-toggle" onclick="toggleCampaign('${c.id}', ${c.active})" title="${c.active ? 'השבת' : 'הפעל'}">
+            ${c.active ? '⏸' : '▶'}
+          </button>
+          <button class="btn-icon btn-edit" onclick="openEditModal('${c.id}')" title="עריכה">✏️</button>
+          <button class="btn-icon btn-delete" onclick="deleteCampaign('${c.id}', '${esc(c.name)}')" title="מחק">🗑</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  async function toggleCampaign(id) {
+    await fetch(`/api/campaigns/${id}/toggle`, { method: 'PATCH' });
+    loadCampaigns();
+  }
+
+  async function deleteCampaign(id, name) {
+    if (!confirm(`למחוק את הקמפיין "${name}"?`)) return;
+    await fetch(`/api/campaigns/${id}`, { method: 'DELETE' });
+    loadCampaigns();
+  }
+
+  // ── Modal ───────────────────────────────────────────────────────────────────
+
+  function openModal() {
+    editingId = null;
+    document.getElementById('modalTitle').textContent = 'הוסף קמפיין';
+    document.getElementById('fName').value      = '';
+    document.getElementById('fPhrase').value    = '';
+    document.getElementById('fBasePhrase').value = '';
+    document.getElementById('fReferrer').value  = '';
+    document.getElementById('modalError').textContent = '';
+    selectType(1);
+    document.getElementById('modalOverlay').classList.add('open');
+  }
+
+  async function openEditModal(id) {
+    const res  = await fetch('/api/campaigns');
+    const list = await res.json();
+    const c    = list.find(x => x.id === id);
+    if (!c) return;
+
+    editingId = id;
+    document.getElementById('modalTitle').textContent = 'עריכת קמפיין';
+    document.getElementById('fName').value = c.name;
+    document.getElementById('modalError').textContent = '';
+
+    if (c.triggerType === 1) {
+      selectType(1);
+      document.getElementById('fPhrase').value = c.triggerPhrase;
+    } else {
+      selectType(2);
+      document.getElementById('fBasePhrase').value = c.basePhrase || '';
+      document.getElementById('fReferrer').value   = c.referrerName || '';
+      updatePreview();
+    }
+    document.getElementById('modalOverlay').classList.add('open');
+  }
+
+  function closeModal() {
+    document.getElementById('modalOverlay').classList.remove('open');
+    editingId = null;
+  }
+
+  function selectType(t) {
+    document.querySelectorAll('.radio-btn').forEach(b => b.classList.remove('selected'));
+    document.getElementById(`rBtn${t}`).classList.add('selected');
+    document.querySelector(`input[name=triggerType][value="${t}"]`).checked = true;
+    document.getElementById('type1Fields').style.display = t === 1 ? '' : 'none';
+    document.getElementById('type2Fields').style.display = t === 2 ? '' : 'none';
+  }
+
+  function updatePreview() {
+    const base = document.getElementById('fBasePhrase').value.trim();
+    const ref  = document.getElementById('fReferrer').value.trim();
+    const basePart = base || '[משפט הטריגר]';
+    const refPart  = ref  || '[שם הממליץ]';
+    document.getElementById('triggerPreview').textContent =
+      `${basePart} ${REFERRAL_PREFIX}${refPart}`;
+    document.getElementById('suffixPreview').textContent =
+      ref ? `- (${ref})` : '- ([שם הממליץ])';
+  }
+
+  async function submitCampaign() {
+    const name        = document.getElementById('fName').value.trim();
+    const triggerType = Number(document.querySelector('input[name=triggerType]:checked').value);
+    const errEl       = document.getElementById('modalError');
+    errEl.textContent = '';
+
+    if (!name) { errEl.textContent = 'נא להזין שם קמפיין'; return; }
+
+    let body;
+    if (triggerType === 1) {
+      const phrase = document.getElementById('fPhrase').value.trim();
+      if (!phrase) { errEl.textContent = 'נא להזין משפט טריגר'; return; }
+      body = { name, triggerType, triggerPhrase: phrase };
+    } else {
+      const basePhrase   = document.getElementById('fBasePhrase').value.trim();
+      const referrerName = document.getElementById('fReferrer').value.trim();
+      if (!basePhrase)   { errEl.textContent = 'נא להזין משפט טריגר'; return; }
+      if (!referrerName) { errEl.textContent = 'שם הממליץ הוא שדה חובה'; return; }
+      body = { name, triggerType, basePhrase, referrerName };
+    }
+
+    const url    = editingId ? `/api/campaigns/${editingId}` : '/api/campaigns';
+    const method = editingId ? 'PUT' : 'POST';
+    const res    = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const data   = await res.json();
+
+    if (!res.ok) { errEl.textContent = data.error || 'שגיאה'; return; }
+
+    closeModal();
+    loadCampaigns();
+  }
+
+  // Close modal on overlay click
+  document.getElementById('modalOverlay').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeModal();
+  });
+
+  // ── Settings ────────────────────────────────────────────────────────────────
+
+  async function loadSettings() {
+    const res = await fetch('/api/settings');
+    const s   = await res.json();
+    document.getElementById('askName').checked = s.askNameEnabled;
+    document.getElementById('timeout').value   = s.nameTimeoutMinutes;
+    updateTimeoutVisibility();
+
+    // Load provider
+    const provider = s.contactsProvider || 'google';
+    selectProvider(provider);
+    if (provider === 'icloud') {
+      document.getElementById('icloudEmail').value    = s.icloudEmail    || '';
+      document.getElementById('icloudPassword').value = s.icloudPassword || '';
+    }
+    if (provider === 'google') loadGoogleStatus();
+  }
+
+  function updateTimeoutVisibility() {
+    document.getElementById('timeoutRow').style.opacity =
+      document.getElementById('askName').checked ? '1' : '0.35';
+  }
+
+  async function saveSettings() {
+    const askNameEnabled     = document.getElementById('askName').checked;
+    const nameTimeoutMinutes = Number(document.getElementById('timeout').value);
+    const res  = await fetch('/api/settings', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ askNameEnabled, nameTimeoutMinutes }),
+    });
+    const data = await res.json();
+    showToast('settingsToast', data.ok ? 'success' : 'error',
+      data.ok ? '✅ נשמר בהצלחה' : '❌ שגיאה בשמירה');
+  }
+
+  // ── Helpers ─────────────────────────────────────────────────────────────────
+
+  function showToast(id, type, msg) {
+    const t = document.getElementById(id);
+    t.textContent = msg; t.className = `toast ${type}`;
+    setTimeout(() => { t.className = 'toast'; t.textContent = ''; }, 3000);
+  }
+
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── WhatsApp links ──────────────────────────────────────────────────────────
+
+  let myPhone = '';
+
+  async function loadLinks() {
+    const [cfgRes, campRes] = await Promise.all([
+      fetch('/api/config'),
+      fetch('/api/campaigns'),
+    ]);
+    const cfg  = await cfgRes.json();
+    const list = await campRes.json();
+    myPhone = cfg.phone;
+    renderLinks(list);
+  }
+
+  function renderLinks(campaigns) {
+    const active = campaigns.filter(c => c.active);
+    const el = document.getElementById('links-list');
+
+    if (!active.length) {
+      el.innerHTML = '<p style="color:#9ca3af;font-size:.85rem;text-align:center;padding:8px 0">אין קמפיינים פעילים</p>';
+      return;
+    }
+
+    el.innerHTML = active.map(c => {
+      const link        = `https://wa.me/${myPhone}?text=${encodeURIComponent(c.triggerPhrase)}`;
+      const displayLink = `https://wa.me/${myPhone}?text=${c.triggerPhrase}`;
+      return `
+        <div class="link-row">
+          <div class="link-label">${esc(c.name)}</div>
+          <div class="link-box">
+            <a href="${link}" target="_blank" class="link-url">${esc(displayLink)}</a>
+            <button class="btn-copy" onclick="copyLink(this, '${link.replace(/'/g,"\\'")}')">העתק</button>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  function copyLink(btn, link) {
+    navigator.clipboard.writeText(link).then(() => {
+      btn.textContent = '✅';
+      setTimeout(() => btn.textContent = 'העתק', 2000);
+    });
+  }
+
+  // ── Contacts provider ────────────────────────────────────────────────────────
+
+  function selectProvider(p) {
+    ['google','icloud','manual'].forEach(x => {
+      document.getElementById('ptab-' + x).classList.toggle('active', x === p);
+      document.getElementById('ppanel-' + x).classList.toggle('active', x === p);
+    });
+    fetch('/api/settings', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ contactsProvider: p }),
+    });
+  }
+
+  async function loadGoogleStatus() {
+    const res  = await fetch('/api/google/status');
+    const data = await res.json();
+    const label = document.getElementById('googleStatusLabel');
+    const sub   = document.getElementById('googleStatusSub');
+    const btn   = document.getElementById('googleConnectBtn');
+    if (data.connected) {
+      label.textContent = '✅ Google Contacts מחובר';
+      sub.textContent   = 'אנשי קשר נשמרים אוטומטית';
+      btn.style.display = 'none';
+    } else {
+      label.textContent = '🔴 לא מחובר';
+      sub.textContent   = 'לחץ כדי לחבר את חשבון Google';
+      btn.style.display = '';
+    }
+  }
+
+  async function connectGoogle() {
+    const res  = await fetch('/api/google/auth-url');
+    const data = await res.json();
+    if (data.error) { alert(data.error); return; }
+    const popup = window.open(data.url, '_blank', 'width=600,height=700');
+    const check = setInterval(async () => {
+      if (popup?.closed) { clearInterval(check); await loadGoogleStatus(); }
+    }, 1000);
+  }
+
+  async function saveICloud() {
+    const email    = document.getElementById('icloudEmail').value.trim();
+    const password = document.getElementById('icloudPassword').value.trim();
+    const status   = document.getElementById('icloudStatus');
+    status.textContent = '⏳ בודק...';
+    const res  = await fetch('/api/icloud/test', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      status.textContent = '✅ מחובר';
+      status.style.color = '#16a34a';
+      await fetch('/api/settings', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ icloudEmail: email, icloudPassword: password }),
+      });
+    } else {
+      status.textContent = '❌ ' + (data.error || 'שגיאה');
+      status.style.color = '#dc2626';
+    }
+  }
+
+  // ── Auth tabs ────────────────────────────────────────────────────────────────
+
+  function switchTab(tab) {
+    document.querySelectorAll('.auth-tab, .auth-panel').forEach(el => el.classList.remove('active'));
+    document.getElementById('tab-' + tab).classList.add('active');
+    document.getElementById('panel-' + tab).classList.add('active');
+  }
+
+  async function requestPairingCode() {
+    const phone = document.getElementById('pairPhone').value.trim().replace(/\D/g, '');
+    const errEl = document.getElementById('pair-error');
+    const resEl = document.getElementById('pair-result');
+    errEl.textContent = '';
+    resEl.innerHTML   = '<div class="qr-spinner">⏳ מבקש קוד...</div>';
+
+    const res  = await fetch('/api/pair', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      errEl.textContent = data.error || 'שגיאה';
+      resEl.innerHTML   = '';
+    } else {
+      resEl.innerHTML = `<div class="pair-code-box">${data.code}</div>
+        <p style="font-size:.78rem;color:#6b7280">הזיני את הקוד ב-WhatsApp. הקוד תקף לכמה דקות.</p>`;
+    }
+  }
+
+  // ── QR polling ──────────────────────────────────────────────────────────────
+
+  let qrInterval = null;
+
+  async function checkQR() {
+    try {
+      const res  = await fetch('/api/qr');
+      const data = await res.json();
+
+      const qrCard      = document.getElementById('qr-card');
+      const mainContent = document.getElementById('main-content');
+
+      if (data.qr) {
+        qrCard.style.display = 'block';
+        document.getElementById('qr-content').innerHTML =
+          `<img id="qr-img" src="${data.qr}" alt="QR Code" />`;
+      } else if (data.authenticated) {
+        qrCard.style.display = 'none';
+        clearInterval(qrInterval);
+        qrInterval = null;
+        loadCampaigns();
+        loadSettings();
+        loadLinks();
+      }
+      // else: still starting up — keep polling
+    } catch (_) {}
+  }
+
+  // ── Init ────────────────────────────────────────────────────────────────────
+  loadCampaigns();
+  loadSettings();
+  loadLinks();
+  qrInterval = setInterval(checkQR, 2000);
+  checkQR();
+</script>
+</body>
+</html>

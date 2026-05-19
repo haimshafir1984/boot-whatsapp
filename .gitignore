@@ -1,0 +1,8 @@
+node_modules/
+dist/
+session/
+data/
+credentials.json
+data/google-token.json
+.env
+*.vcf

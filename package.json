@@ -1,0 +1,25 @@
+{
+  "name": "whatsapp-status-bot",
+  "version": "1.0.0",
+  "description": "Personal WhatsApp automation bot - saves contacts and sends vCard reply",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "googleapis": "^140.0.0",
+    "open": "^8.4.2",
+    "qrcode": "^1.5.4",
+    "whatsapp-web.js": "^1.23.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^20.0.0",
+    "@types/qrcode": "^1.5.6",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}
