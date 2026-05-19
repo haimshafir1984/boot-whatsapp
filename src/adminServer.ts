@@ -22,7 +22,7 @@ export function startAdminServer(storage: Storage): void {
   // ── QR code status ────────────────────────────────────────────────────────
 
   app.get('/api/qr', (_req, res) => {
-    res.json({ qr: botState.qrDataUrl, authenticated: botState.authenticated, ready: botState.ready });
+    res.json({ qr: botState.qrDataUrl, authenticated: botState.authenticated, ready: botState.ready, pairingCode: botState.pairingCode });
   });
 
   // ── Pairing code ──────────────────────────────────────────────────────────
@@ -32,13 +32,17 @@ export function startAdminServer(storage: Storage): void {
     if (phone.startsWith('0')) phone = '972' + phone.slice(1);
     if (!phone) { res.status(400).json({ error: 'מספר טלפון חסר' }); return; }
     if (!botState.client) { res.status(503).json({ error: 'הבוט עדיין לא מוכן' }); return; }
+    // Store phone so the qr event can auto-request the code on next cycle
+    botState.pairingPhone = phone;
+    botState.pairingCode  = null;
     try {
       const code = await (botState.client as any).requestPairingCode(phone);
       botState.pairingCode = code;
       res.json({ code });
     } catch (err: any) {
-      console.error('❌ requestPairingCode error:', err);
-      res.status(500).json({ error: err?.message ?? 'שגיאה בהפקת קוד' });
+      console.error('❌ requestPairingCode error (will retry on next QR):', err);
+      // Phone saved — the qr event will auto-request on the next QR cycle
+      res.json({ waiting: true });
     }
   });
 

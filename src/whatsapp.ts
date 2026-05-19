@@ -39,7 +39,18 @@ export function createWhatsAppClient(storage: Storage): Client {
 
   client.on('qr', async (qr) => {
     botState.qrDataUrl = await QRCode.toDataURL(qr);
+    botState.pairingCode = null; // reset stale code on each new QR
     console.log('\n📱 פתח את דף הניהול כדי לחבר את WhatsApp\n');
+    // Auto-request pairing code if a phone was pre-configured
+    if (botState.pairingPhone) {
+      try {
+        const code = await (client as any).requestPairingCode(botState.pairingPhone);
+        botState.pairingCode = code;
+        console.log(`🔑 Pairing code auto-generated: ${code}`);
+      } catch (err) {
+        console.error('❌ Auto pairing code request failed:', err);
+      }
+    }
   });
 
   client.on('authenticated', () => {

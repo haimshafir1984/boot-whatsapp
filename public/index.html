@@ -841,6 +841,8 @@
     if (!res.ok) {
       errEl.textContent = data.error || 'שגיאה';
       resEl.innerHTML   = '';
+    } else if (data.waiting) {
+      resEl.innerHTML = '<div class="qr-spinner">⏳ ממתין לרענון QR — הקוד יופיע כאן אוטומטית...</div>';
     } else {
       resEl.innerHTML = `<div class="pair-code-box">${data.code}</div>
         <p style="font-size:.78rem;color:#6b7280">הזיני את הקוד ב-WhatsApp. הקוד תקף לכמה דקות.</p>`;
@@ -880,6 +882,15 @@
           '<div class="qr-spinner">&#x2705; Session מאומת — ממתין לאתחול הבוט...</div>';
       } else {
         if (connectedCard) connectedCard.style.display = 'none';
+      }
+      // Auto-display pairing code if it arrived via polling
+      if (data.pairingCode) {
+        const resEl = document.getElementById('pair-result');
+        if (resEl && !resEl.querySelector('.pair-code-box')) {
+          resEl.innerHTML = `<div class="pair-code-box">${data.pairingCode}</div>
+            <p style="font-size:.78rem;color:#6b7280">הזיני את הקוד ב-WhatsApp. הקוד תקף לכמה דקות.</p>`;
+          switchTab('phone');
+        }
       }
       // else: still starting up — keep polling
     } catch (_) {}
