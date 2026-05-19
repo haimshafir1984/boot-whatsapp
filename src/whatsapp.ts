@@ -23,8 +23,8 @@ import { botState } from './botState';
 
 // ─── Client factory ──────────────────────────────────────────────────────────
 
-export function createWhatsAppClient(storage: Storage): Client {
-  const client = new Client({
+export function createWhatsAppClient(storage: Storage, pairingPhone?: string): Client {
+  const clientOptions: any = {
     authStrategy: new LocalAuth({ dataPath: config.SESSION_PATH }),
     puppeteer: {
       headless: true,
@@ -35,7 +35,12 @@ export function createWhatsAppClient(storage: Storage): Client {
         '--disable-dev-shm-usage',
       ],
     },
-  });
+  };
+  if (pairingPhone) {
+    clientOptions.pairWithPhoneNumber = { phoneNumber: pairingPhone };
+    console.log(`🔑 Client starting in pairing-code mode for ${pairingPhone}`);
+  }
+  const client = new Client(clientOptions);
 
   // Listen for code_received event (fires on first code + every 3-min refresh)
   client.on('code' as any, (code: string) => {
@@ -96,13 +101,15 @@ export function createWhatsAppClient(storage: Storage): Client {
     botState.ready = false;
     botState.pairingAttempted = false;
     botState.pairingCode = null;
-    console.log('   Reconnecting in 10s...');
-    setTimeout(() => {
-      console.log('   Reconnecting now...');
-      client.initialize().catch((err) =>
-        console.error('   Reconnect failed:', err),
-      );
-    }, 10_000);
+    if (!botState.intentionalRestart) {
+      console.log('   Reconnecting in 10s...');
+      setTimeout(() => {
+        console.log('   Reconnecting now...');
+        client.initialize().catch((err) =>
+          console.error('   Reconnect failed:', err),
+        );
+      }, 10_000);
+    }
   });
 
   client.on('message', async (message: Message) => {

@@ -5,6 +5,7 @@ export const botState = {
   pairingCode: null as string | null,
   pairingPhone: null as string | null,
   pairingAttempted: false,
+  intentionalRestart: false,
   client: null as Client | null,
   authenticated: false,
   ready: false,
