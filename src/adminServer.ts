@@ -42,6 +42,23 @@ export function startAdminServer(storage: Storage): void {
     }
   });
 
+  // ── WhatsApp logout ──────────────────────────────────────────────────────
+
+  app.post('/api/whatsapp/logout', async (_req, res) => {
+    if (!botState.client) { res.status(503).json({ error: 'הבוט לא מוכן' }); return; }
+    try {
+      await botState.client.logout();
+      botState.authenticated = false;
+      botState.ready = false;
+      botState.qrDataUrl = null;
+      console.log('🔓 WhatsApp logged out – session cleared.');
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error('❌ logout error:', err);
+      res.status(500).json({ error: err?.message ?? 'שגיאה בניתוק' });
+    }
+  });
+
   // ── Google Contacts OAuth ─────────────────────────────────────────────────
 
   app.get('/api/google/status', (_req, res) => {
