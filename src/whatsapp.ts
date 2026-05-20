@@ -244,13 +244,4 @@ async function saveAndReply(
     console.error('   ❌ Failed to send text reply:', err);
   }
 
-  // 3. Contact card (tap-to-save UI)
-  try {
-    const myPhone = config.MY_CONTACT.phone.replace('+', '');
-    const myContact = await client.getContactById(`${myPhone}@c.us`);
-    await client.sendMessage(senderJid, myContact as any);
-    console.log('   ✅ Contact card sent.');
-  } catch (err) {
-    console.error('   ❌ Failed to send contact card:', err);
-  }
 }
