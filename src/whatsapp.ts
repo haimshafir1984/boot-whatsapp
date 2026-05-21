@@ -68,10 +68,12 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
 
   client.on('ready', () => {
     botState.ready = true;
+    botState.connectedPhone = (client.info?.wid?.user ?? null) as string | null;
     const settings = storage.getAdminSettings();
     const campaigns = storage.getActiveCampaigns();
 
     console.log('\nWhatsApp bot is ready.');
+    console.log(`   Connected phone  : ${botState.connectedPhone ?? 'unknown'}`);
     console.log(`   Active campaigns : ${campaigns.length}`);
     campaigns.forEach((campaign) =>
       console.log(`     - [${campaign.triggerType === 1 ? 'Bot' : 'Ref'}] "${campaign.triggerPhrase}"`),
@@ -86,6 +88,7 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
     console.error('Auth failure:', msg);
     botState.authenticated = false;
     botState.ready = false;
+    botState.connectedPhone = null;
     botState.pairingAttempted = false;
     botState.pairingCode = null;
   });
@@ -94,6 +97,7 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
     console.warn('Disconnected:', reason);
     botState.authenticated = false;
     botState.ready = false;
+    botState.connectedPhone = null;
     botState.pairingAttempted = false;
     botState.pairingCode = null;
 
@@ -136,6 +140,7 @@ async function handleMessage(
   storage: Storage,
   client: Client,
 ): Promise<void> {
+  if (message.from === 'status@broadcast') return;
   if (message.from.endsWith('@g.us')) return;
 
   const senderJid = message.from;

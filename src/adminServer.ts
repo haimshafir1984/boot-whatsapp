@@ -23,7 +23,13 @@ export function startAdminServer(storage: Storage): void {
   // ── QR code status ────────────────────────────────────────────────────────
 
   app.get('/api/qr', (_req, res) => {
-    res.json({ qr: botState.qrDataUrl, authenticated: botState.authenticated, ready: botState.ready, pairingCode: botState.pairingCode });
+    res.json({
+      qr: botState.qrDataUrl,
+      authenticated: botState.authenticated,
+      ready: botState.ready,
+      pairingCode: botState.pairingCode,
+      connectedPhone: botState.connectedPhone,
+    });
   });
 
   // ── Pairing code ──────────────────────────────────────────────────────────
@@ -115,7 +121,7 @@ export function startAdminServer(storage: Storage): void {
   // ── Public config (phone number for wa.me links) ─────────────────────────
 
   app.get('/api/config', (_req, res) => {
-    res.json({ phone: config.MY_CONTACT.phone.replace('+', '') });
+    res.json({ phone: botState.connectedPhone ?? config.MY_CONTACT.phone.replace('+', '') });
   });
 
   // ── Settings ──────────────────────────────────────────────────────────────

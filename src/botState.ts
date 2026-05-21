@@ -9,4 +9,5 @@ export const botState = {
   client: null as Client | null,
   authenticated: false,
   ready: false,
+  connectedPhone: null as string | null,
 };
