@@ -16,6 +16,8 @@ import { detectTrigger } from './triggerDetector';
 import { conversationState } from './conversationState';
 import { botState } from './botState';
 
+const handledMessageIds = new Set<string>();
+
 export function createWhatsAppClient(storage: Storage, pairingPhone?: string): Client {
   const clientOptions: any = {
     authStrategy: new LocalAuth({ dataPath: config.SESSION_PATH }),
@@ -113,15 +115,14 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
   });
 
   client.on('message', async (message: Message) => {
-    try {
-      await handleMessage(message, storage, client);
-    } catch (err) {
-      console.error('[MSG] handler failed:', err);
-    }
+    await handleIncomingMessage(message, storage, client, 'message');
   });
 
   client.on('message_create', async (message: Message) => {
-    if (!message.fromMe) return;
+    if (!message.fromMe) {
+      await handleIncomingMessage(message, storage, client, 'message_create');
+      return;
+    }
     if (!message.body?.trim()) return;
     if (message.to?.endsWith('@g.us')) return;
 
@@ -135,10 +136,43 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
   return client;
 }
 
+function rememberMessage(message: Message): boolean {
+  const id =
+    (message.id as any)?._serialized ??
+    `${message.from}:${message.timestamp}:${message.body}`;
+
+  if (handledMessageIds.has(id)) return false;
+  handledMessageIds.add(id);
+
+  if (handledMessageIds.size > 1000) {
+    const first = handledMessageIds.values().next().value;
+    if (first) handledMessageIds.delete(first);
+  }
+
+  return true;
+}
+
+async function handleIncomingMessage(
+  message: Message,
+  storage: Storage,
+  client: Client,
+  source: 'message' | 'message_create',
+): Promise<void> {
+  if (!message.body?.trim()) return;
+  if (!rememberMessage(message)) return;
+
+  try {
+    await handleMessage(message, storage, client, source);
+  } catch (err) {
+    console.error(`[MSG] handler failed via ${source}:`, err);
+  }
+}
+
 async function handleMessage(
   message: Message,
   storage: Storage,
   client: Client,
+  source: 'message' | 'message_create',
 ): Promise<void> {
   if (message.from === 'status@broadcast') return;
   if (message.from.endsWith('@g.us')) return;
@@ -163,10 +197,10 @@ async function handleMessage(
   const activeCampaigns = storage.getActiveCampaigns();
   const trigger = detectTrigger(message.body, activeCampaigns);
   if (!trigger.matched) {
-    console.log(`[MSG] no trigger match from=${senderJid} body="${message.body.slice(0, 120)}" active=${activeCampaigns.length}`);
+    console.log(`[MSG] no trigger match via=${source} from=${senderJid} body="${message.body.slice(0, 120)}" active=${activeCampaigns.length}`);
     return;
   }
-  console.log(`[MSG] trigger matched campaign="${trigger.campaignName}" from=${senderJid}`);
+  console.log(`[MSG] trigger matched via=${source} campaign="${trigger.campaignName}" from=${senderJid}`);
 
   const contact = await message.getContact();
   let senderPhone: string;
