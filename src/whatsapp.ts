@@ -17,6 +17,7 @@ import { conversationState } from './conversationState';
 import { botState } from './botState';
 
 const handledMessageIds = new Set<string>();
+const MAX_TRIGGER_AGE_MS = 2 * 60 * 1000;
 
 export function createWhatsAppClient(storage: Storage, pairingPhone?: string): Client {
   const clientOptions: any = {
@@ -178,6 +179,9 @@ async function handleMessage(
   if (message.from.endsWith('@g.us')) return;
 
   const senderJid = message.from;
+  const messageAgeMs = message.timestamp
+    ? Date.now() - message.timestamp * 1000
+    : 0;
   const pending = conversationState.get(senderJid);
 
   if (pending) {
@@ -197,10 +201,14 @@ async function handleMessage(
   const activeCampaigns = storage.getActiveCampaigns();
   const trigger = detectTrigger(message.body, activeCampaigns);
   if (!trigger.matched) {
-    console.log(`[MSG] no trigger match via=${source} from=${senderJid} body="${message.body.slice(0, 120)}" active=${activeCampaigns.length}`);
+    console.log(`[MSG] no trigger match via=${source} age=${Math.round(messageAgeMs / 1000)}s from=${senderJid} body="${message.body.slice(0, 120)}" active=${activeCampaigns.length}`);
     return;
   }
-  console.log(`[MSG] trigger matched via=${source} campaign="${trigger.campaignName}" from=${senderJid}`);
+  if (messageAgeMs > MAX_TRIGGER_AGE_MS) {
+    console.warn(`[MSG] stale trigger ignored via=${source} age=${Math.round(messageAgeMs / 1000)}s campaign="${trigger.campaignName}" from=${senderJid}`);
+    return;
+  }
+  console.log(`[MSG] trigger matched via=${source} age=${Math.round(messageAgeMs / 1000)}s campaign="${trigger.campaignName}" from=${senderJid}`);
 
   const contact = await message.getContact();
   let senderPhone: string;
