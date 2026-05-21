@@ -109,7 +109,22 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
   });
 
   client.on('message', async (message: Message) => {
-    await handleMessage(message, storage, client);
+    try {
+      await handleMessage(message, storage, client);
+    } catch (err) {
+      console.error('[MSG] handler failed:', err);
+    }
+  });
+
+  client.on('message_create', async (message: Message) => {
+    if (!message.fromMe) return;
+    if (!message.body?.trim()) return;
+    if (message.to?.endsWith('@g.us')) return;
+
+    const trigger = detectTrigger(message.body, storage.getActiveCampaigns());
+    if (trigger.matched) {
+      console.log(`[SELF-TEST] Outgoing trigger detected for "${trigger.campaignName}". Incoming messages use the normal message handler.`);
+    }
   });
 
   botState.client = client;
@@ -142,7 +157,11 @@ async function handleMessage(
 
   const activeCampaigns = storage.getActiveCampaigns();
   const trigger = detectTrigger(message.body, activeCampaigns);
-  if (!trigger.matched) return;
+  if (!trigger.matched) {
+    console.log(`[MSG] no trigger match from=${senderJid} body="${message.body.slice(0, 120)}" active=${activeCampaigns.length}`);
+    return;
+  }
+  console.log(`[MSG] trigger matched campaign="${trigger.campaignName}" from=${senderJid}`);
 
   const contact = await message.getContact();
   let senderPhone: string;
