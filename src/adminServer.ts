@@ -136,6 +136,12 @@ export function startAdminServer(storage: Storage): void {
       patch.contactsProvider = body.contactsProvider;
     if (typeof body.icloudEmail === 'string')    patch.icloudEmail    = body.icloudEmail;
     if (typeof body.icloudPassword === 'string') patch.icloudPassword = body.icloudPassword;
+    if (typeof body.askNameText === 'string')    patch.askNameText    = body.askNameText;
+    if (typeof body.replyText === 'string')      patch.replyText      = body.replyText;
+    if (Array.isArray(body.followupMessages))
+      patch.followupMessages = body.followupMessages.filter((message): message is string => typeof message === 'string');
+    if (typeof body.referralPrefix === 'string') patch.referralPrefix = body.referralPrefix;
+    if (typeof body.botSuffix === 'string')      patch.botSuffix      = body.botSuffix;
 
     const updated = storage.updateAdminSettings(patch);
     res.json({ ok: true, settings: updated });
@@ -168,6 +174,14 @@ export function startAdminServer(storage: Storage): void {
 
   // ── Campaigns ─────────────────────────────────────────────────────────────
 
+  app.get('/api/contacts/queue', (req, res) => {
+    const limit = Math.min(Number(req.query.limit) || 20, 100);
+    res.json({
+      stats: storage.getContactQueueStats(),
+      items: storage.getContactQueue(limit),
+    });
+  });
+
   app.get('/api/campaigns', (_req, res) => {
     res.json(storage.getCampaigns());
   });
@@ -187,14 +201,14 @@ export function startAdminServer(storage: Storage): void {
     if (triggerType === 1) {
       if (!triggerPhrase?.trim()) { res.status(400).json({ error: 'משפט הטריגר חסר' }); return; }
       phrase = triggerPhrase.trim();
-      suffix = config.BOT_SUFFIX;
+      suffix = storage.getAdminSettings().botSuffix;
     } else {
       if (!basePhrase?.trim()) { res.status(400).json({ error: 'משפט הטריגר חסר' }); return; }
       if (!referrerName?.trim()) { res.status(400).json({ error: 'שם הממליץ חובה לטיפוס 2' }); return; }
       basePhraseVal = basePhrase.trim();
       refName = referrerName.trim();
       // Full trigger: "[base phrase] הגעתי דרך [referrer name]"
-      phrase = `${basePhraseVal} ${config.TRIGGER_REFERRAL_PREFIX}${refName}`;
+      phrase = `${basePhraseVal} ${storage.getAdminSettings().referralPrefix}${refName}`;
       suffix = ` - (${refName})`;
     }
 
@@ -223,7 +237,7 @@ export function startAdminServer(storage: Storage): void {
       patch.triggerType = 1;
       if (triggerPhrase?.trim()) {
         patch.triggerPhrase = triggerPhrase.trim();
-        patch.suffix = config.BOT_SUFFIX;
+        patch.suffix = storage.getAdminSettings().botSuffix;
         patch.basePhrase = undefined;
         patch.referrerName = undefined;
       }
@@ -235,7 +249,7 @@ export function startAdminServer(storage: Storage): void {
       patch.triggerType = 2;
       patch.basePhrase = basePhraseVal;
       patch.referrerName = refName;
-      patch.triggerPhrase = `${basePhraseVal} ${config.TRIGGER_REFERRAL_PREFIX}${refName}`;
+      patch.triggerPhrase = `${basePhraseVal} ${storage.getAdminSettings().referralPrefix}${refName}`;
       patch.suffix = ` - (${refName})`;
     }
 

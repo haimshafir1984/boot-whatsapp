@@ -32,6 +32,11 @@ export interface AdminSettings {
   contactsProvider: 'google' | 'icloud' | 'manual';
   icloudEmail: string;
   icloudPassword: string;
+  askNameText: string;
+  replyText: string;
+  followupMessages: string[];
+  referralPrefix: string;
+  botSuffix: string;
 }
 
 export interface SavedContact {
@@ -40,9 +45,25 @@ export interface SavedContact {
   savedAt: string;
 }
 
+export type ContactSaveStatus = 'pending' | 'saved' | 'failed';
+
+export interface ContactSaveJob {
+  id: string;
+  phone: string;
+  name: string;
+  provider: AdminSettings['contactsProvider'];
+  status: ContactSaveStatus;
+  attempts: number;
+  createdAt: string;
+  updatedAt: string;
+  nextAttemptAt?: string;
+  lastError?: string;
+}
+
 interface StorageData {
   savedContacts: string[];
   contactsList: SavedContact[];
+  contactQueue: ContactSaveJob[];
   adminSettings: AdminSettings;
   campaigns: Campaign[];
 }
@@ -55,6 +76,11 @@ const DEFAULT_SETTINGS: AdminSettings = {
   contactsProvider: 'google',
   icloudEmail: '',
   icloudPassword: '',
+  askNameText: config.ASK_NAME_TEXT,
+  replyText: config.REPLY_TEXT,
+  followupMessages: [],
+  referralPrefix: config.TRIGGER_REFERRAL_PREFIX,
+  botSuffix: config.BOT_SUFFIX,
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -82,6 +108,7 @@ export class Storage {
       return {
         savedContacts: [],
         contactsList: [],
+        contactQueue: [],
         adminSettings: { ...DEFAULT_SETTINGS },
         campaigns: [],
       };
@@ -93,11 +120,28 @@ export class Storage {
 
       // Migrate: drop legacy triggerType field from adminSettings
       const { triggerType: _legacy, ...cleanSettings } = parsed.adminSettings ?? {};
+      const migratedSettings: Partial<AdminSettings> = cleanSettings;
+
+      const contactsList = (parsed as any).contactsList ?? [];
+      const existingQueue = (parsed as any).contactQueue;
+      const contactQueue = Array.isArray(existingQueue)
+        ? existingQueue
+        : contactsList.map((contact: SavedContact) => ({
+            id: generateId(),
+            phone: contact.phone,
+            name: contact.name,
+            provider: migratedSettings.contactsProvider ?? DEFAULT_SETTINGS.contactsProvider,
+            status: 'saved' as const,
+            attempts: 1,
+            createdAt: contact.savedAt,
+            updatedAt: contact.savedAt,
+          }));
 
       return {
         savedContacts: parsed.savedContacts ?? [],
-        contactsList: (parsed as any).contactsList ?? [],
-        adminSettings: { ...DEFAULT_SETTINGS, ...cleanSettings },
+        contactsList,
+        contactQueue,
+        adminSettings: { ...DEFAULT_SETTINGS, ...migratedSettings },
         campaigns: parsed.campaigns ?? [],
       };
     } catch {
@@ -105,6 +149,7 @@ export class Storage {
       return {
         savedContacts: [],
         contactsList: [],
+        contactQueue: [],
         adminSettings: { ...DEFAULT_SETTINGS },
         campaigns: [],
       };
@@ -129,12 +174,109 @@ export class Storage {
     if (!this.isContactSaved(phone)) {
       this.data.savedContacts.push(phone);
       this.data.contactsList.push({ phone, name, savedAt: new Date().toISOString() });
-      this.persist();
     }
+    const job = this.data.contactQueue.find((item) => item.phone === phone);
+    if (job) {
+      const now = new Date().toISOString();
+      job.status = 'saved';
+      job.name = name || job.name;
+      job.updatedAt = now;
+      job.nextAttemptAt = undefined;
+      job.lastError = undefined;
+    }
+    this.persist();
   }
 
   getAllContacts(): SavedContact[] {
     return [...this.data.contactsList];
+  }
+
+  enqueueContactSave(phone: string, name: string): ContactSaveJob | null {
+    const provider = this.getAdminSettings().contactsProvider;
+    const now = new Date().toISOString();
+
+    if (this.isContactSaved(phone)) {
+      return null;
+    }
+
+    const existing = this.data.contactQueue.find((item) => item.phone === phone);
+    if (existing) {
+      if (existing.status === 'saved') return existing;
+      if (existing.status === 'failed') existing.attempts = 0;
+      existing.name = name;
+      existing.provider = provider;
+      existing.status = 'pending';
+      existing.updatedAt = now;
+      existing.nextAttemptAt = now;
+      existing.lastError = undefined;
+      this.persist();
+      return { ...existing };
+    }
+
+    const job: ContactSaveJob = {
+      id: generateId(),
+      phone,
+      name,
+      provider,
+      status: 'pending',
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+      nextAttemptAt: now,
+    };
+    this.data.contactQueue.push(job);
+    this.persist();
+    return { ...job };
+  }
+
+  getDueContactSaveJob(now = new Date()): ContactSaveJob | null {
+    const due = this.data.contactQueue
+      .filter((job) => {
+        if (job.status !== 'pending') return false;
+        if (!job.nextAttemptAt) return true;
+        return new Date(job.nextAttemptAt).getTime() <= now.getTime();
+      })
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+    return due[0] ? { ...due[0] } : null;
+  }
+
+  markContactSaveAttempt(jobId: string): ContactSaveJob | null {
+    const job = this.data.contactQueue.find((item) => item.id === jobId);
+    if (!job) return null;
+    job.attempts += 1;
+    job.updatedAt = new Date().toISOString();
+    this.persist();
+    return { ...job };
+  }
+
+  markContactSaveFailed(jobId: string, error: string, maxAttempts: number, retryDelayMs: number): ContactSaveJob | null {
+    const job = this.data.contactQueue.find((item) => item.id === jobId);
+    if (!job) return null;
+    const now = Date.now();
+    job.status = job.attempts >= maxAttempts ? 'failed' : 'pending';
+    job.lastError = error.slice(0, 500);
+    job.updatedAt = new Date(now).toISOString();
+    job.nextAttemptAt = job.status === 'pending'
+      ? new Date(now + retryDelayMs).toISOString()
+      : undefined;
+    this.persist();
+    return { ...job };
+  }
+
+  getContactQueueStats(): Record<ContactSaveStatus, number> & { total: number } {
+    const stats = { pending: 0, saved: 0, failed: 0, total: this.data.contactQueue.length };
+    for (const job of this.data.contactQueue) {
+      stats[job.status] += 1;
+    }
+    return stats;
+  }
+
+  getContactQueue(limit = 50): ContactSaveJob[] {
+    return [...this.data.contactQueue]
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .slice(0, limit)
+      .map((job) => ({ ...job }));
   }
 
   // ─── Admin settings ────────────────────────────────────────────────────────

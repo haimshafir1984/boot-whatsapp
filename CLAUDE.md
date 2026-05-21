@@ -1,140 +1,398 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code when working with this repository.
+מסמך עבודה למפתח/סוכן שעובד על הפרויקט.
 
-## Commands
+המטרה של המסמך היא להסביר בפשטות מה המערכת עושה היום, איך היא בנויה, מה המגבלות שלה, ומה חשוב לדעת לפני שמבצעים שינוי בקוד.
+
+## תקציר המערכת
+
+המערכת היא דשבורד ניהול + בוט WhatsApp.
+
+הלקוחה מתחברת עם חשבון ה-WhatsApp שלה דרך QR או קוד קישור, בונה קמפיין, מקבלת לינק לשליחה, ומי ששולח את הודעת הטריגר מקבל תגובה אוטומטית.
+
+המערכת יודעת:
+
+1. להתחבר לחשבון WhatsApp קיים דרך `whatsapp-web.js`.
+2. לבנות קמפיינים עם הודעת טריגר.
+3. לזהות הודעת טריגר שנשלחה ל-WhatsApp של הלקוחה.
+4. לשאול את המשתמש באיזה שם לשמור אותו, אם האפשרות פעילה.
+5. לשמור איש קשר ב-Google Contacts, ב-iCloud Contacts, או רק לנהל רישום מקומי.
+6. לשלוח הודעת תשובה אוטומטית.
+7. לשלוח הודעות המשך נוספות לפי מה שהלקוחה הגדירה בדף הניהול.
+8. להציג תצוגה מקדימה של השיחה בדף הניהול.
+
+חשוב: המערכת הנוכחית אינה WhatsApp Business Platform רשמי. היא עובדת כמו מכשיר מקושר של WhatsApp Web. זה מתאים לדמו, פיילוט ולשימוש שבו הלקוחה ממשיכה לעבוד מתוך אפליקציית WhatsApp Business בטלפון.
+
+## פקודות
 
 ```bash
-npm run dev        # Run with ts-node (development, no build step)
-npm run build      # Compile TypeScript → dist/
-npm start          # Run compiled JS from dist/
+npm run dev
+npm run build
+npm start
 ```
 
-No tests or linting scripts.
+פירוט:
 
-## What this project does
+- `npm run dev` מריץ את המערכת ישירות מ-TypeScript בעזרת `ts-node`.
+- `npm run build` מקמפל את TypeScript לתיקיית `dist`.
+- `npm start` מריץ את הקוד המקומפל מתוך `dist`.
 
-A WhatsApp bot that:
-1. Listens for trigger phrases (defined in campaigns)
-2. Optionally asks the sender for their preferred name
-3. Saves the sender as a contact (Google / iCloud / manual CSV)
-4. Replies with a text message + the owner's vCard contact
+אין כרגע סקריפט בדיקות או lint.
 
-A web admin dashboard (Express + vanilla JS) manages campaigns and settings at runtime without restarting the process.
+## פריסה
 
-## Deployment
+Production רץ ב-Railway מתוך הריפו:
 
-**Production**: Railway (Docker). GitHub repo: `haimshafir1984/boot-whatsapp`.
-Every push to `master` triggers an automatic deploy.
+```text
+haimshafir1984/boot-whatsapp
+```
 
-**Local dev**: `npm run dev` → dashboard at `http://localhost:3001`
+הענף הפעיל לפריסה הוא:
 
-### Railway configuration
-- One **Volume** mounted at `/app/data` — persists contacts.json, google-token.json, and the WhatsApp session (at `./data/session`)
-- **Environment variables**:
-  - `PORT=3001`
-  - `GOOGLE_CREDENTIALS_BASE64` — base64 of `credentials.json` (Google OAuth client)
-- **Dockerfile** uses `node:20-slim` + system Chromium (`PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium`)
+```text
+master
+```
 
-### Google Cloud Console
-Authorized redirect URIs must include:
-- `https://boot-whatsapp-production-e6d7.up.railway.app/oauth2callback`
-- `http://localhost:3001/oauth2callback` (for local dev)
+כל push ל-`master` מפעיל פריסה אוטומטית.
 
-## Architecture
+בדיקה מקומית:
 
-### Boot sequence (`src/index.ts`)
-1. Removes stale Chromium `Singleton*` lock files from the session dir (prevents crash-on-restart)
-2. Creates a `Storage` instance (loads/creates `data/contacts.json`)
-3. Calls `startAdminServer(storage)` — Express on `PORT` (default 3001)
-4. Calls `createWhatsAppClient(storage)` — starts Puppeteer/WhatsApp session
+```text
+http://localhost:3001
+```
 
-### Message flow (`src/whatsapp.ts`)
+## משתני סביבה ותיקיות מידע
 
-Every incoming **private** message (groups filtered by `@g.us`):
+המערכת שומרת מידע בתיקיית `data`.
 
-1. **Pending name reply?** — If `conversationState` has an entry for this JID, treat the message as the chosen name. Cancel the auto-save timeout, call `saveAndReply`.
-2. **Trigger match?** — Call `detectTrigger` (normalized exact match against active campaigns).
-   - `askNameEnabled` ON — send ask-name message, register `PendingConversation` with `setTimeout` fallback
-   - `askNameEnabled` OFF — call `saveAndReply` immediately
-3. **No match** — silently ignored
+קבצים חשובים:
 
-`saveAndReply` sequence:
-1. Skip if phone already saved (`storage.isContactSaved`)
-2. Save to Google Contacts / iCloud CardDAV / log locally (based on `contactsProvider` setting)
-3. Send `config.REPLY_TEXT`
-4. Send owner's vCard (`client.getContactById`)
+| נתיב | תפקיד |
+| --- | --- |
+| `data/contacts.json` | הגדרות דשבורד, קמפיינים, ואנשי קשר שכבר נשמרו |
+| `data/google-token.json` | טוקן OAuth של Google Contacts |
+| `data/session/` | סשן WhatsApp Web של `whatsapp-web.js` |
+| `credentials.json` | פרטי OAuth של Google בסביבה מקומית |
 
-### Trigger detection (`src/triggerDetector.ts`)
+ב-Railway צריך Volume שמחובר ל-`/app/data`, אחרת הסשן, הקמפיינים והחיבורים יאבדו אחרי restart.
 
-`normalize()` strips invisible Unicode chars (RTL markers, zero-width spaces) and collapses whitespace before comparing — needed because WhatsApp injects these into Hebrew text.
+משתני סביבה חשובים:
 
-Match is **exact** after normalization. Case-sensitive.
+| משתנה | תפקיד |
+| --- | --- |
+| `PORT` | פורט השרת. ברירת מחדל: `3001` |
+| `GOOGLE_CREDENTIALS_BASE64` | גרסת base64 של `credentials.json` עבור Railway |
+| `PUPPETEER_EXECUTABLE_PATH` | נתיב Chromium בסביבת Docker |
 
-### Campaign model (`src/storage.ts`)
+## מבנה ארכיטקטורה
 
-- **Type 1 (Bot):** `triggerPhrase` entered freely; suffix = ` - (Bot)`
-- **Type 2 (Referral):** trigger auto-built as `${basePhrase} הגעתי דרך ${referrerName}`; suffix = ` - (referrerName)`
+המערכת בנויה משלושה חלקים עיקריים:
 
-`Storage` reads/writes a single JSON file synchronously on every mutation. All runtime changes are reflected immediately because `whatsapp.ts` calls `storage.getActiveCampaigns()` and `storage.getAdminSettings()` on every message — no restart needed.
+1. שרת Express
+2. לקוח WhatsApp Web
+3. שכבת אחסון JSON מקומית
 
-### Admin dashboard (`src/adminServer.ts` + `public/index.html`)
+### `src/index.ts`
 
-REST API:
-- `GET /api/qr` — QR data URL + authenticated status
-- `POST /api/pair` — request WhatsApp pairing code (phone number alternative to QR)
-- `GET/POST /api/settings` — `AdminSettings`
-- `GET/POST/PUT/DELETE /api/campaigns/:id` — campaign CRUD
-- `PATCH /api/campaigns/:id/toggle` — toggle active
-- `GET /api/config` — owner phone for wa.me link generation
-- `GET /api/google/status` — is Google token present
-- `GET /api/google/auth-url` — generates OAuth URL (dynamic baseUrl from request)
-- `DELETE /api/google/disconnect` — deletes token file
-- `GET /oauth2callback` — Google OAuth redirect handler
-- `POST /api/icloud/test` — verify iCloud credentials
-- `GET /api/contacts/export` — CSV download
+נקודת הכניסה של המערכת.
 
-`public/index.html` is a single self-contained HTML file (vanilla JS, no build). Dashboard sections (top to bottom): WhatsApp connection → Contacts provider → Campaigns → Settings → Share links.
+בעלייה הוא:
 
-### Google Contacts (`src/googleContacts.ts`)
+1. מדפיס פרטי startup.
+2. מוחק קבצי `Singleton*` ישנים מתוך תיקיית הסשן, כדי למנוע קריסות Chromium אחרי restart.
+3. יוצר מופע `Storage`.
+4. מפעיל את דף הניהול עם `startAdminServer(storage)`.
+5. מפעיל את לקוח ה-WhatsApp עם `createWhatsAppClient(storage)`.
 
-OAuth 2.0 with offline access. Credentials loaded from:
-1. `GOOGLE_CREDENTIALS_BASE64` env var (base64 JSON) — used on Railway
-2. `credentials.json` file — used locally
+### `src/adminServer.ts`
 
-Token saved to `data/google-token.json`. Refreshed automatically on expiry.
+שרת Express שמשרת את דף הניהול ואת ה-API.
 
-### iCloud Contacts (`src/icloudContacts.ts`)
+השרת אחראי על:
 
-CardDAV via native `https` module:
-- `testICloudConnection` — PROPFIND to verify App Password
-- `saveContactToICloud` — discovers principal → addressbook URL → PUT vCard
+- חיבור WhatsApp דרך QR.
+- חיבור WhatsApp דרך pairing code.
+- ניתוק WhatsApp.
+- הגדרות כלליות.
+- יצירה, עריכה, הפעלה וכיבוי של קמפיינים.
+- חיבור Google Contacts.
+- ניתוק Google Contacts.
+- בדיקת iCloud Contacts.
+- ייצוא אנשי קשר ל-CSV.
 
-Requires an Apple ID **App Password** (not the main password).
+נקודות API מרכזיות:
 
-## Configuration (`src/config.ts`)
+| נתיב | תפקיד |
+| --- | --- |
+| `GET /api/qr` | מחזיר QR, מצב התחברות וקוד pairing אם קיים |
+| `POST /api/pair` | מבקש קוד התחברות לפי מספר טלפון |
+| `POST /api/whatsapp/logout` | מנתק את חשבון ה-WhatsApp |
+| `GET /api/settings` | מחזיר הגדרות דשבורד |
+| `POST /api/settings` | שומר הגדרות דשבורד |
+| `GET /api/campaigns` | מחזיר קמפיינים |
+| `POST /api/campaigns` | יוצר קמפיין |
+| `PUT /api/campaigns/:id` | עורך קמפיין |
+| `DELETE /api/campaigns/:id` | מוחק קמפיין |
+| `PATCH /api/campaigns/:id/toggle` | מפעיל/מכבה קמפיין |
+| `GET /api/google/status` | בודק אם Google מחובר |
+| `GET /api/google/auth-url` | יוצר קישור OAuth ל-Google |
+| `DELETE /api/google/disconnect` | מנתק Google |
+| `POST /api/icloud/test` | בודק פרטי iCloud |
+| `GET /api/contacts/export` | מוריד CSV של אנשי קשר |
 
-Edit before deploying for a new client:
-- `MY_CONTACT` — owner name, phone (E.164), optional email/organization
-- `REPLY_TEXT` — message sent to every user who triggers the bot
-- `ASK_NAME_TEXT` — message asking for preferred name (`{timeout}` replaced at runtime)
-- `BOT_SUFFIX` / `TRIGGER_REFERRAL_PREFIX` — contact name formatting
+### `public/index.html`
 
-`ADMIN_PORT` reads `process.env.PORT` first (for Railway).
-`SESSION_PATH` is `./data/session` — inside the volume on Railway.
+דף הניהול.
 
-## Runtime data (gitignored)
+זה קובץ HTML אחד עם CSS ו-JavaScript פנימיים, בלי build frontend.
 
-| Path | Contents |
-|------|----------|
-| `credentials.json` | Google OAuth client credentials (use env var on Railway) |
-| `data/contacts.json` | Saved phones, campaigns, admin settings |
-| `data/google-token.json` | Google OAuth token (auto-created after first auth) |
-| `data/session/` | WhatsApp Puppeteer session |
+הדף כולל:
 
-## Known issues / gotchas
+1. חיבור WhatsApp.
+2. חיבור אנשי קשר: Google, iCloud או מצב ידני.
+3. בניית קמפיין.
+4. ניהול ניסוחים ותצוגת שיחה.
+5. קמפיינים קיימים וקישורי שיתוף.
 
-- **Chromium SingletonLock**: Railway kills the process but the lock file stays on the volume. Fixed by `removeSingletonLocks()` in `index.ts`.
-- **Invisible Unicode in Hebrew messages**: WhatsApp adds RTL/LTR markers. `normalize()` in `triggerDetector.ts` strips them before matching.
-- **"Active campaigns: 0" in startup log**: Normal if campaigns were created after the last restart. `storage.getActiveCampaigns()` is called on every message, so new campaigns work immediately without restart.
-- **Volume not mounted at `/app/data`**: All data is ephemeral — campaigns, contacts, Google token, and WA session are lost on every restart. Verify by checking the startup log line `Storage : /app/data/contacts.json`.
+הדף מאפשר ללקוחה להגדיר:
+
+- האם לשאול את המשתמש באיזה שם לשמור אותו.
+- כמה דקות להמתין לתשובה לפני שמירה אוטומטית.
+- נוסח הודעת השאלה.
+- נוסח הודעת הסיום.
+- הודעות המשך נוספות.
+- ניסוח קבוע לקמפיין המלצה.
+- סיומת שם לקמפיין בוט.
+
+התצוגה המקדימה בדף היא ויזואלית בלבד. היא לא שולחת הודעות אמיתיות.
+
+### `src/whatsapp.ts`
+
+הלב של הבוט.
+
+הקובץ יוצר את לקוח WhatsApp בעזרת `whatsapp-web.js` ו-Puppeteer, מאזין להודעות נכנסות, ומחליט מה לעשות איתן.
+
+זרימת הודעה:
+
+1. אם ההודעה מגיעה מקבוצה, מתעלמים.
+2. אם המשתמש נמצא במצב המתנה לשם, ההודעה נחשבת לשם שהוא בחר.
+3. אם זו לא תשובה לשם, בודקים האם ההודעה תואמת טריגר של קמפיין פעיל.
+4. אם אין התאמה לטריגר, מתעלמים.
+5. אם יש התאמה:
+   - אם `askNameEnabled` פעיל, שולחים הודעת שאלה ושומרים מצב המתנה.
+   - אם `askNameEnabled` כבוי, שומרים מיד את איש הקשר.
+6. מכניסים את שמירת איש הקשר לתור רקע ושולחים הודעת תשובה.
+7. אם הוגדרו הודעות המשך, שולחים גם אותן לפי הסדר.
+
+בגרסה הנוכחית שמירת איש הקשר מתבצעת דרך תור ברקע:
+
+- המשתמש מקבל תגובה בלי להמתין ל-Google/iCloud.
+- איש הקשר נרשם מיד מקומית כמשימת `pending`.
+- עובד רקע שומר את איש הקשר בפועל.
+- אם השמירה נכשלת, המערכת מנסה שוב.
+- אחרי כמה כשלונות המשימה מסומנת `failed`.
+
+המערכת לא שולחת כרגע כרטיס איש קשר vCard. ההתנהגות הזו הוסרה.
+
+### `src/conversationState.ts`
+
+מחזיק בזיכרון זמני שיחות שממתינות לתשובת שם.
+
+לדוגמה:
+
+- משתמש שלח טריגר.
+- הבוט שאל: "באיזה שם תרצי שאשמור אותך?"
+- עד שהמשתמש עונה, המצב נשמר בזיכרון.
+
+אם השרת נופל או עושה restart באמצע, המצב הזמני הזה אובד.
+
+### `src/triggerDetector.ts`
+
+אחראי לבדוק אם הודעה נכנסת שווה בדיוק לאחד הטריגרים הפעילים.
+
+ההשוואה היא exact match אחרי ניקוי תווים בלתי נראים ש-WhatsApp לפעמים מוסיף, במיוחד בטקסט עברי.
+
+המערכת לא מבצעת fuzzy matching. אם המשתמש משנה מילה, מוסיף סימן, או שולח טקסט לא זהה, הטריגר לא יזוהה.
+
+### `src/storage.ts`
+
+שכבת שמירת המידע.
+
+המערכת שומרת הכל בקובץ JSON אחד:
+
+```text
+data/contacts.json
+```
+
+הקובץ כולל:
+
+- אנשי קשר שכבר נשמרו.
+- רשימת אנשי קשר לייצוא.
+- הגדרות דשבורד.
+- קמפיינים.
+
+כל שינוי נכתב מיידית לקובץ.
+
+יתרון: פשוט מאוד ומתאים לדמו.
+
+חיסרון: לא מתאים למערכת מסחרית עם הרבה לקוחות, הרשאות, משתמשים ונפח פעילות גבוה.
+
+### `src/contactQueue.ts`
+
+עובד רקע לשמירת אנשי קשר.
+
+המטרה שלו היא למנוע מצב שבו הבוט מחכה ל-Google או iCloud לפני שהוא עונה למשתמש.
+
+הזרימה:
+
+1. `whatsapp.ts` מכניס איש קשר לתור דרך `storage.enqueueContactSave`.
+2. המשימה נשמרת בקובץ עם status `pending`.
+3. `contactQueue.ts` לוקח משימה אחת בכל פעם.
+4. אם הספק הוא Google, הוא קורא ל-`saveContactToGoogle`.
+5. אם הספק הוא iCloud, הוא קורא ל-`saveContactToICloud`.
+6. אם הספק הוא manual, הוא מסמן את המשימה כנשמרה בלי קריאה חיצונית.
+7. בהצלחה, המשימה עוברת ל-`saved`.
+8. בכשלון, המשימה נשארת `pending` לניסיון נוסף, עד מספר ניסיונות מוגבל.
+9. אחרי יותר מדי כשלונות, המשימה עוברת ל-`failed`.
+
+הדשבורד קורא ל-`GET /api/contacts/queue` כדי להציג כמה משימות ממתינות, כמה נשמרו וכמה נכשלו.
+
+## מודל קמפיינים
+
+יש שני סוגי קמפיינים.
+
+### סוג 1: בוט
+
+הלקוחה כותבת את משפט הטריגר בעצמה.
+
+לדוגמה:
+
+```text
+אני רוצה להצטרף
+```
+
+כאשר מישהו שולח בדיוק את המשפט הזה, המערכת מזהה את הקמפיין.
+
+בשם איש הקשר תתווסף סיומת קבועה, למשל:
+
+```text
+ - (Bot)
+```
+
+### סוג 2: תוספת שם / המלצה
+
+הלקוחה כותבת משפט בסיס ושם ממליץ.
+
+המערכת בונה מזה טריגר מלא.
+
+לדוגמה:
+
+```text
+אני רוצה להצטרף הגעתי דרך דנה
+```
+
+בשם איש הקשר תתווסף סיומת עם שם הממליץ:
+
+```text
+ - (דנה)
+```
+
+## שמירת אנשי קשר
+
+המערכת תומכת בשלושה מצבים.
+
+### Google Contacts
+
+המערכת מתחברת דרך OAuth ושומרת אנשי קשר לחשבון Google שמחובר בדף הניהול.
+
+חשוב: כרגע אין הפרדה אמיתית בין לקוחות ברמת מערכת. מי שמחובר ל-Google בדף הניהול הוא החשבון שאליו יישמרו אנשי הקשר.
+
+### iCloud Contacts
+
+המערכת משתמשת ב-CardDAV כדי לשמור אנשי קשר ל-iCloud.
+
+נדרש App Password של Apple ID, לא הסיסמה הרגילה.
+
+### Manual
+
+המערכת לא שומרת בפועל ל-Google או iCloud, אלא רק רושמת את איש הקשר בקובץ המקומי ומאפשרת ייצוא CSV.
+
+## חיבור WhatsApp
+
+המערכת משתמשת ב-`whatsapp-web.js`, כלומר היא מתחברת כמו WhatsApp Web.
+
+המשמעות:
+
+- הלקוחה ממשיכה לעבוד באפליקציית WhatsApp או WhatsApp Business בטלפון.
+- המערכת מחוברת כמו מכשיר נוסף.
+- השיחות נשארות באפליקציה של הלקוחה.
+- אפשר לעבוד עם לקוחות שיש להן WhatsApp Business App.
+
+מגבלות:
+
+- זה לא API רשמי של WhatsApp Business Platform.
+- החיבור יכול להתנתק.
+- אין תמיכה אמיתית בכפתורי WhatsApp Business Platform, templates, webhooks רשמיים או conversation windows.
+- שימוש אגרסיבי מדי עלול להיתקל במגבלות מצד WhatsApp.
+
+## WhatsApp Business Platform
+
+המערכת כרגע לא משתמשת ב-WhatsApp Business Platform.
+
+מעבר ל-Platform אומר להחליף את שכבת WhatsApp Web בשכבה רשמית של Meta Cloud API.
+
+זה יכול לתת:
+
+- API רשמי.
+- Webhooks מסודרים.
+- Templates מאושרים.
+- הודעות אינטראקטיביות עם כפתורים במקרים נתמכים.
+- יציבות טובה יותר למערכת מסחרית.
+
+אבל יש לזה מחיר מוצרי חשוב:
+
+- ב-Full Migration המספר לא ממשיך להתנהל באפליקציית WhatsApp Business בטלפון.
+- הלקוחה תצטרך לנהל שיחות דרך המערכת או דרך Inbox/CRM.
+- זה לא מתאים לחזון הנוכחי שבו הלקוחה ממשיכה לנהל הכל מהטלפון.
+
+לכן הכיוון הנוכחי של המוצר הוא:
+
+1. להישאר בשלב ראשון עם WhatsApp Web / Linked Device.
+2. לבנות חוויית דשבורד טובה ליצירת קמפיינים ונוסחים.
+3. לבדוק בהמשך אם יש מסלול Coexistence רשמי שעדיין משאיר את אפליקציית WhatsApp Business כמרכז העבודה של הלקוחה.
+
+## מגבלות ידועות
+
+1. אין כרגע מערכת משתמשים והרשאות.
+2. אין הפרדה מלאה בין לקוחות שונים באותה התקנה.
+3. האחסון הוא JSON מקומי ולא Database.
+4. מצב שיחה שממתין לשם נשמר בזיכרון בלבד.
+5. זיהוי טריגר דורש התאמה מדויקת.
+6. יש תור בסיסי לשמירת אנשי קשר, אבל עדיין אין תור הודעות מלא או ניטור production מלא.
+7. אין בדיקות אוטומטיות.
+8. החיבור ל-WhatsApp Web תלוי בסשן וביציבות של `whatsapp-web.js`.
+
+## כיוון שיפור מומלץ
+
+לפני הפיכה למוצר מסחרי כדאי לשקול:
+
+1. להוסיף מערכת משתמשים ולקוחות.
+2. להפריד מידע לפי לקוחה.
+3. לעבור מ-JSON ל-Database כמו PostgreSQL.
+4. לשמור סשנים, קמפיינים ואנשי קשר במבנה רב-לקוחות.
+5. להוסיף מסך לוגים ברור: מה התקבל, איזה טריגר זוהה, האם נשמר איש קשר, ואיזו הודעה נשלחה.
+6. להוסיף בדיקות אוטומטיות לזרימת טריגר ושמירת איש קשר.
+7. להוסיף ניטור שגיאות וחיבור WhatsApp.
+8. לבנות שכבת `WhatsAppProvider` פנימית, כדי שבעתיד יהיה אפשר להחליף בין:
+   - `whatsapp-web.js`
+   - WhatsApp Business Platform
+   בלי לשכתב את כל הדשבורד.
+
+## הערות פיתוח חשובות
+
+- לא לשנות את ענף הפריסה מ-`master` ל-`main` בלי החלטה מפורשת.
+- לא להניח ש-Google המחובר הוא של בעל המערכת. זה החשבון שחובר דרך הדשבורד.
+- לא לשלוח vCard בלי בקשה מפורשת. ההתנהגות הנוכחית היא הודעות טקסט בלבד.
+- כשמשנים נוסחים, לבדוק גם את `config.ts` וגם את `AdminSettings`, כי ההגדרות נשמרות בפועל ב-`data/contacts.json`.
+- שינוי defaults ב-`config.ts` לא בהכרח ישפיע על התקנה שכבר יש לה `contacts.json`, כי ההגדרות הקיימות נטענות מהקובץ.
+- לאחר שינוי frontend, להריץ `npm run build` ולבדוק את הדשבורד בדפדפן.

@@ -1,27 +1,20 @@
 /**
  * whatsapp.ts
- * WhatsApp client setup and the full message-handling flow.
+ * WhatsApp client setup and message-handling flow.
  *
  * Message flow:
- *   1. Is this a reply to a pending "what name?" conversation?
- *      → resolve name, save contact, send replies.
- *   2. Is this a valid trigger (type 1 or 2, per admin settings)?
- *      → if askName is ON: ask user for name, register pending state + timeout.
- *      → if askName is OFF: save immediately, send replies.
- *   3. Otherwise: ignore.
+ * 1. Pending name reply? Resolve name, queue contact save, send replies.
+ * 2. Trigger match? Ask for name or queue save immediately, then send replies.
+ * 3. No match: ignore.
  */
 
 import { Client, LocalAuth, Message } from 'whatsapp-web.js';
 import QRCode from 'qrcode';
 import { config } from './config';
 import { Storage } from './storage';
-import { saveContactToGoogle } from './googleContacts';
-import { saveContactToICloud } from './icloudContacts';
 import { detectTrigger } from './triggerDetector';
 import { conversationState } from './conversationState';
 import { botState } from './botState';
-
-// ─── Client factory ──────────────────────────────────────────────────────────
 
 export function createWhatsAppClient(storage: Storage, pairingPhone?: string): Client {
   const clientOptions: any = {
@@ -36,59 +29,61 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
       ],
     },
   };
+
   if (pairingPhone) {
     clientOptions.pairWithPhoneNumber = { phoneNumber: pairingPhone };
-    console.log(`🔑 Client starting in pairing-code mode for ${pairingPhone}`);
+    console.log(`Client starting in pairing-code mode for ${pairingPhone}`);
   }
+
   const client = new Client(clientOptions);
 
-  // Listen for code_received event (fires on first code + every 3-min refresh)
   client.on('code' as any, (code: string) => {
     botState.pairingCode = code;
-    console.log(`🔑 Pairing code received: ${code}`);
+    console.log(`Pairing code received: ${code}`);
   });
 
   client.on('qr', async (qr) => {
     botState.qrDataUrl = await QRCode.toDataURL(qr);
-    console.log('\n📱 פתח את דף הניהול כדי לחבר את WhatsApp\n');
-    // Auto-request pairing code ONCE per session when a phone is pre-configured
+    console.log('\nOpen the admin dashboard to connect WhatsApp.\n');
+
     if (botState.pairingPhone && !botState.pairingAttempted) {
       botState.pairingAttempted = true;
       try {
         const code = await (client as any).requestPairingCode(botState.pairingPhone);
         botState.pairingCode = code;
-        console.log(`🔑 Pairing code generated: ${code}`);
+        console.log(`Pairing code generated: ${code}`);
       } catch (err) {
-        console.error('❌ Pairing code request failed:', err);
-        botState.pairingAttempted = false; // allow retry after manual click
+        console.error('Pairing code request failed:', err);
+        botState.pairingAttempted = false;
       }
     }
   });
 
   client.on('authenticated', () => {
-    botState.qrDataUrl   = null;
+    botState.qrDataUrl = null;
     botState.pairingCode = null;
     botState.authenticated = true;
-    console.log('🔐 Session authenticated – saved to disk.');
+    console.log('Session authenticated and saved to disk.');
   });
 
   client.on('ready', () => {
     botState.ready = true;
-    const s = storage.getAdminSettings();
+    const settings = storage.getAdminSettings();
     const campaigns = storage.getActiveCampaigns();
-    console.log('\n✅ WhatsApp bot is ready.');
+
+    console.log('\nWhatsApp bot is ready.');
     console.log(`   Active campaigns : ${campaigns.length}`);
-    campaigns.forEach((c) =>
-      console.log(`     • [${c.triggerType === 1 ? 'Bot' : 'Ref'}] "${c.triggerPhrase}"`),
+    campaigns.forEach((campaign) =>
+      console.log(`     - [${campaign.triggerType === 1 ? 'Bot' : 'Ref'}] "${campaign.triggerPhrase}"`),
     );
     console.log(
-      `   Ask for name     : ${s.askNameEnabled ? `yes (${s.nameTimeoutMinutes}m)` : 'no'}`,
+      `   Ask for name     : ${settings.askNameEnabled ? `yes (${settings.nameTimeoutMinutes}m)` : 'no'}`,
     );
     console.log('');
   });
 
   client.on('auth_failure', (msg) => {
-    console.error('\u274c Auth failure:', msg);
+    console.error('Auth failure:', msg);
     botState.authenticated = false;
     botState.ready = false;
     botState.pairingAttempted = false;
@@ -96,11 +91,12 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
   });
 
   client.on('disconnected', (reason) => {
-    console.warn('\u26a0\ufe0f  Disconnected:', reason);
+    console.warn('Disconnected:', reason);
     botState.authenticated = false;
     botState.ready = false;
     botState.pairingAttempted = false;
     botState.pairingCode = null;
+
     if (!botState.intentionalRestart) {
       console.log('   Reconnecting in 10s...');
       setTimeout(() => {
@@ -113,9 +109,6 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
   });
 
   client.on('message', async (message: Message) => {
-    if (!message.from.endsWith('@g.us')) {
-      console.log(`[MSG] from=${message.from} body="${message.body.slice(0, 80)}"`);
-    }
     await handleMessage(message, storage, client);
   });
 
@@ -123,39 +116,34 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
   return client;
 }
 
-// ─── Main message handler ────────────────────────────────────────────────────
-
 async function handleMessage(
   message: Message,
   storage: Storage,
   client: Client,
 ): Promise<void> {
-  if (message.from.endsWith('@g.us')) return; // ignore groups
+  if (message.from.endsWith('@g.us')) return;
 
   const senderJid = message.from;
-
-  // ── Step 1: pending name reply? ──────────────────────────────────────────
   const pending = conversationState.get(senderJid);
+
   if (pending) {
     const chosenName = message.body.trim();
-    clearTimeout(pending.timeoutHandle); // cancel the auto-save timer
+    clearTimeout(pending.timeoutHandle);
     conversationState.remove(senderJid);
 
     const finalName = chosenName
       ? `${chosenName}${pending.suffix}`
       : `${pending.whatsappName}${pending.suffix}`;
 
-    console.log(`\n📝 Name reply from ${pending.senderPhone}: "${finalName}"`);
-    await saveAndReply(client, storage, senderJid, pending.senderPhone, finalName);
+    console.log(`\nName reply from ${pending.senderPhone}: "${finalName}"`);
+    await queueAndReply(client, storage, senderJid, pending.senderPhone, finalName);
     return;
   }
 
-  // ── Step 2: is this a trigger? ───────────────────────────────────────────
   const activeCampaigns = storage.getActiveCampaigns();
   const trigger = detectTrigger(message.body, activeCampaigns);
   if (!trigger.matched) return;
 
-  // Resolve real phone number (handles @lid format)
   const contact = await message.getContact();
   let senderPhone: string;
   try {
@@ -171,26 +159,22 @@ async function handleMessage(
     contact.name?.trim() ||
     config.CONTACT_NAME_FALLBACK.replace('{phone}', senderPhone);
 
-  console.log(
-    `\n📩 [${trigger.campaignName}] from ${senderPhone} (${pushname})`,
-  );
+  console.log(`\n[${trigger.campaignName}] from ${senderPhone} (${pushname})`);
 
   const settings = storage.getAdminSettings();
   if (settings.askNameEnabled) {
-    // ── Ask for preferred name ─────────────────────────────────────────────
-    const askText = config.ASK_NAME_TEXT.replace(
+    const askText = settings.askNameText.replace(
       '{timeout}',
       String(settings.nameTimeoutMinutes),
     );
     await client.sendMessage(senderJid, askText);
-    console.log('   💬 Asked for preferred name.');
+    console.log('   Asked for preferred name.');
 
-    // Register timeout: auto-save with pushname if no reply comes
     const timeoutHandle = setTimeout(async () => {
       conversationState.remove(senderJid);
       const finalName = `${pushname}${trigger.suffix}`;
-      console.log(`\n   ⏰ Timeout – saving ${senderPhone} as "${finalName}"`);
-      await saveAndReply(client, storage, senderJid, senderPhone, finalName);
+      console.log(`\n   Timeout - saving ${senderPhone} as "${finalName}"`);
+      await queueAndReply(client, storage, senderJid, senderPhone, finalName);
     }, settings.nameTimeoutMinutes * 60 * 1000);
 
     conversationState.set(senderJid, {
@@ -202,46 +186,37 @@ async function handleMessage(
       timeoutHandle,
     });
   } else {
-    // ── Save immediately ───────────────────────────────────────────────────
     const contactName = `${pushname}${trigger.suffix}`;
-    await saveAndReply(client, storage, senderJid, senderPhone, contactName);
+    await queueAndReply(client, storage, senderJid, senderPhone, contactName);
   }
 }
 
-// ─── Shared save + reply helper ──────────────────────────────────────────────
-
-async function saveAndReply(
+async function queueAndReply(
   client: Client,
   storage: Storage,
   senderJid: string,
   senderPhone: string,
   contactName: string,
 ): Promise<void> {
-  // 1. Save contact (skip duplicates)
   if (storage.isContactSaved(senderPhone)) {
-    console.log(`   ℹ️  ${senderPhone} already saved – skipping.`);
+    console.log(`   ${senderPhone} already saved - skipping contact queue.`);
   } else {
-    const { contactsProvider, icloudEmail, icloudPassword } = storage.getAdminSettings();
-    try {
-      if (contactsProvider === 'google') {
-        await saveContactToGoogle(contactName, `+${senderPhone}`);
-      } else if (contactsProvider === 'icloud') {
-        await saveContactToICloud(icloudEmail, icloudPassword, contactName, `+${senderPhone}`);
-      } else {
-        console.log(`   📋 Manual mode: contact recorded locally.`);
-      }
-      storage.markContactSaved(senderPhone, contactName);
-    } catch (err) {
-      console.error('   ❌ Contacts save error:', err);
-    }
+    const job = storage.enqueueContactSave(senderPhone, contactName);
+    if (job) console.log(`   Contact queued for background save: ${senderPhone}`);
   }
 
-  // 2. Text reply
   try {
-    await client.sendMessage(senderJid, config.REPLY_TEXT);
-    console.log('   ✅ Text reply sent.');
-  } catch (err) {
-    console.error('   ❌ Failed to send text reply:', err);
-  }
+    const { replyText, followupMessages } = storage.getAdminSettings();
+    await client.sendMessage(senderJid, replyText);
+    console.log('   Text reply sent.');
 
+    for (const followupText of followupMessages) {
+      const text = followupText.trim();
+      if (!text) continue;
+      await client.sendMessage(senderJid, text);
+      console.log('   Follow-up reply sent.');
+    }
+  } catch (err) {
+    console.error('   Failed to send text reply:', err);
+  }
 }

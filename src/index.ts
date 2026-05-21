@@ -9,6 +9,7 @@ import { createWhatsAppClient } from './whatsapp';
 import { Storage } from './storage';
 import { startAdminServer } from './adminServer';
 import { config } from './config';
+import { startContactSaveQueue } from './contactQueue';
 
 function removeSingletonLocks(dir: string): void {
   if (!fs.existsSync(dir)) return;
@@ -36,6 +37,8 @@ async function main(): Promise<void> {
   removeSingletonLocks(config.SESSION_PATH);
 
   const storage = new Storage(config.STORAGE_PATH);
+
+  startContactSaveQueue(storage);
 
   startAdminServer(storage);
 
