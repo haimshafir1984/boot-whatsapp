@@ -171,13 +171,19 @@ export class Storage {
   }
 
   markContactSaved(phone: string, name = ''): void {
+    const now = new Date().toISOString();
+    const contact = this.data.contactsList.find((item) => item.phone === phone);
     if (!this.isContactSaved(phone)) {
       this.data.savedContacts.push(phone);
-      this.data.contactsList.push({ phone, name, savedAt: new Date().toISOString() });
+    }
+    if (contact) {
+      contact.name = name || contact.name;
+      contact.savedAt = now;
+    } else {
+      this.data.contactsList.push({ phone, name, savedAt: now });
     }
     const job = this.data.contactQueue.find((item) => item.phone === phone);
     if (job) {
-      const now = new Date().toISOString();
       job.status = 'saved';
       job.name = name || job.name;
       job.updatedAt = now;
@@ -195,14 +201,9 @@ export class Storage {
     const provider = this.getAdminSettings().contactsProvider;
     const now = new Date().toISOString();
 
-    if (this.isContactSaved(phone)) {
-      return null;
-    }
-
     const existing = this.data.contactQueue.find((item) => item.phone === phone);
     if (existing) {
-      if (existing.status === 'saved') return existing;
-      if (existing.status === 'failed') existing.attempts = 0;
+      if (existing.status === 'saved' || existing.status === 'failed') existing.attempts = 0;
       existing.name = name;
       existing.provider = provider;
       existing.status = 'pending';

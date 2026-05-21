@@ -198,12 +198,8 @@ async function queueAndReply(
   senderPhone: string,
   contactName: string,
 ): Promise<void> {
-  if (storage.isContactSaved(senderPhone)) {
-    console.log(`   ${senderPhone} already saved - skipping contact queue.`);
-  } else {
-    const job = storage.enqueueContactSave(senderPhone, contactName);
-    if (job) console.log(`   Contact queued for background save: ${senderPhone}`);
-  }
+  const job = storage.enqueueContactSave(senderPhone, contactName);
+  if (job) console.log(`   Contact queued for background save/update: ${senderPhone}`);
 
   try {
     const { replyText, followupMessages } = storage.getAdminSettings();

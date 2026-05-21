@@ -4,7 +4,7 @@
  * Auth flow is driven by the admin dashboard (no terminal interaction needed).
  */
 
-import { google } from 'googleapis';
+import { google, people_v1 } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 import fs from 'fs';
 import path from 'path';
@@ -67,6 +67,62 @@ async function buildAuthClient(): Promise<OAuth2Client> {
   return auth;
 }
 
+function normalizePhone(phone: string): string {
+  return phone.replace(/\D/g, '');
+}
+
+async function findContactByPhone(
+  people: people_v1.People,
+  phone: string,
+): Promise<people_v1.Schema$Person | null> {
+  const readMask = 'metadata,names,phoneNumbers';
+  const normalizedTarget = normalizePhone(phone);
+
+  await people.people.searchContacts({ query: '', pageSize: 1, readMask });
+
+  const res = await people.people.searchContacts({
+    query: phone,
+    pageSize: 30,
+    readMask,
+  });
+
+  for (const result of res.data.results ?? []) {
+    const person = result.person;
+    if (!person?.resourceName) continue;
+
+    const hasPhone = (person.phoneNumbers ?? []).some((entry) =>
+      normalizePhone(entry.value ?? '') === normalizedTarget,
+    );
+    if (hasPhone) return person;
+  }
+
+  return null;
+}
+
+async function updateGoogleContactName(
+  people: people_v1.People,
+  person: people_v1.Schema$Person,
+  displayName: string,
+): Promise<void> {
+  if (!person.resourceName) throw new Error('Google contact resourceName is missing.');
+  if (!person.metadata?.sources?.length) {
+    throw new Error('Google contact metadata source is missing.');
+  }
+
+  await people.people.updateContact({
+    resourceName: person.resourceName,
+    updatePersonFields: 'names',
+    personFields: 'metadata,names,phoneNumbers',
+    requestBody: {
+      resourceName: person.resourceName,
+      etag: person.etag,
+      metadata: person.metadata,
+      names: [{ givenName: displayName }],
+      phoneNumbers: person.phoneNumbers,
+    },
+  });
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export function isGoogleConnected(): boolean {
@@ -99,6 +155,13 @@ export async function handleGoogleCallback(code: string, baseUrl = 'http://local
 export async function saveContactToGoogle(displayName: string, phone: string): Promise<void> {
   const auth   = await buildAuthClient();
   const people = google.people({ version: 'v1', auth });
+  const existing = await findContactByPhone(people, phone);
+
+  if (existing) {
+    await updateGoogleContactName(people, existing, displayName);
+    console.log(`ג… Google Contacts: updated "${displayName}" (${phone})`);
+    return;
+  }
 
   await people.people.createContact({
     requestBody: {
