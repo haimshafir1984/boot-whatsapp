@@ -390,9 +390,14 @@
   <div class="card" id="connected-card" style="display:none">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:16px 20px">
       <span style="font-size:1rem;font-weight:600">&#x2705; WhatsApp מחובר ופעיל</span>
-      <button onclick="logoutWhatsApp()" style="background:#ef4444;color:white;border:none;border-radius:8px;padding:8px 16px;cursor:pointer;font-size:.85rem">
-        &#x1F512; החלף חשבון / התנתק
-      </button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button onclick="stopWhatsApp()" style="background:#f59e0b;color:white;border:none;border-radius:8px;padding:8px 16px;cursor:pointer;font-size:.85rem">
+          כבה עד קמפיין פעיל
+        </button>
+        <button onclick="logoutWhatsApp()" style="background:#ef4444;color:white;border:none;border-radius:8px;padding:8px 16px;cursor:pointer;font-size:.85rem">
+          &#x1F512; החלף חשבון / התנתק
+        </button>
+      </div>
     </div>
   </div>
 
@@ -624,6 +629,21 @@
       </div>
     </div>
 
+    <div class="field">
+      <label>חלון זמן לקמפיין</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div>
+          <div class="hint">התחלה</div>
+          <input type="datetime-local" id="fStartAt" />
+        </div>
+        <div>
+          <div class="hint">סיום</div>
+          <input type="datetime-local" id="fEndAt" />
+        </div>
+      </div>
+      <div class="hint">אם לא מוגדרים תאריכים, הקמפיין ימשיך לעבוד כמו היום כל עוד הוא פעיל.</div>
+    </div>
+
     <div class="modal-error" id="modalError"></div>
 
     <div class="modal-footer">
@@ -654,13 +674,49 @@
     renderLinks(list); // keep links in sync
   }
 
+  function formatDateTimeLocal(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const pad = n => String(n).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+
+  function localDateTimeToIso(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+  }
+
+  function formatSchedule(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' });
+  }
+
+  function statusLabel(status) {
+    return {
+      active: 'פעיל עכשיו',
+      scheduled: 'מתוזמן',
+      ended: 'הסתיים',
+      disabled: 'מושבת',
+      draft: 'טיוטה',
+    }[status] || 'פעיל';
+  }
+
   function renderCampaigns(list) {
     const el = document.getElementById('campaign-list');
     if (!list.length) {
       el.innerHTML = '<p style="color:#9ca3af;font-size:.85rem;text-align:center;padding:12px 0">אין קמפיינים עדיין</p>';
       return;
     }
-    el.innerHTML = list.map(c => `
+    el.innerHTML = list.map(c => {
+      const scheduleText = [
+        c.startAt ? `התחלה: ${formatSchedule(c.startAt)}` : '',
+        c.endAt ? `סיום: ${formatSchedule(c.endAt)}` : '',
+      ].filter(Boolean).join(' · ');
+      return `
       <div class="campaign-card ${c.active ? '' : 'inactive'}" id="c-${c.id}">
         <div class="campaign-info">
           <div class="campaign-name">${esc(c.name)}</div>
@@ -673,7 +729,9 @@
             <span style="font-size:.7rem;color:${c.active ? '#16a34a' : '#9ca3af'}">
               ${c.active ? '● פעיל' : '○ מושבת'}
             </span>
+            <span style="font-size:.7rem;color:#2563eb">${statusLabel(c.runtimeStatus)}</span>
           </div>
+          ${scheduleText ? `<div style="font-size:.72rem;color:#6b7280;margin-top:5px">${esc(scheduleText)}</div>` : ''}
         </div>
         <div class="campaign-actions">
           <button class="btn-icon btn-toggle" onclick="toggleCampaign('${c.id}', ${c.active})" title="${c.active ? 'השבת' : 'הפעל'}">
@@ -683,7 +741,8 @@
           <button class="btn-icon btn-delete" onclick="deleteCampaign('${c.id}', '${esc(c.name)}')" title="מחק">🗑</button>
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
   }
 
   async function toggleCampaign(id) {
@@ -706,6 +765,8 @@
     document.getElementById('fPhrase').value    = '';
     document.getElementById('fBasePhrase').value = '';
     document.getElementById('fReferrer').value  = '';
+    document.getElementById('fStartAt').value = '';
+    document.getElementById('fEndAt').value = '';
     document.getElementById('modalError').textContent = '';
     selectType(1);
     document.getElementById('modalOverlay').classList.add('open');
@@ -720,6 +781,8 @@
     editingId = id;
     document.getElementById('modalTitle').textContent = 'עריכת קמפיין';
     document.getElementById('fName').value = c.name;
+    document.getElementById('fStartAt').value = formatDateTimeLocal(c.startAt);
+    document.getElementById('fEndAt').value = formatDateTimeLocal(c.endAt);
     document.getElementById('modalError').textContent = '';
 
     if (c.triggerType === 1) {
@@ -765,18 +828,26 @@
     errEl.textContent = '';
 
     if (!name) { errEl.textContent = 'נא להזין שם קמפיין'; return; }
+    const startAtLocal = document.getElementById('fStartAt').value;
+    const endAtLocal = document.getElementById('fEndAt').value;
+    if (startAtLocal && endAtLocal && new Date(startAtLocal).getTime() >= new Date(endAtLocal).getTime()) {
+      errEl.textContent = 'שעת הסיום חייבת להיות אחרי שעת ההתחלה';
+      return;
+    }
+    const startAt = localDateTimeToIso(startAtLocal);
+    const endAt = localDateTimeToIso(endAtLocal);
 
     let body;
     if (triggerType === 1) {
       const phrase = document.getElementById('fPhrase').value.trim();
       if (!phrase) { errEl.textContent = 'נא להזין משפט טריגר'; return; }
-      body = { name, triggerType, triggerPhrase: phrase };
+      body = { name, triggerType, triggerPhrase: phrase, startAt, endAt };
     } else {
       const basePhrase   = document.getElementById('fBasePhrase').value.trim();
       const referrerName = document.getElementById('fReferrer').value.trim();
       if (!basePhrase)   { errEl.textContent = 'נא להזין משפט טריגר'; return; }
       if (!referrerName) { errEl.textContent = 'שם הממליץ הוא שדה חובה'; return; }
-      body = { name, triggerType, basePhrase, referrerName };
+      body = { name, triggerType, basePhrase, referrerName, startAt, endAt };
     }
 
     const url    = editingId ? `/api/campaigns/${editingId}` : '/api/campaigns';
@@ -946,7 +1017,7 @@
   }
 
   function renderLinks(campaigns) {
-    const active = campaigns.filter(c => c.active);
+    const active = campaigns.filter(c => c.active && c.runtimeStatus !== 'ended');
     const el = document.getElementById('links-list');
 
     if (!active.length) {
@@ -1115,6 +1186,8 @@
       } else if (data.ready) {
         qrCard.style.display = 'none';
         if (connectedCard) connectedCard.style.display = 'block';
+        const connectedText = connectedCard?.querySelector('span');
+        if (connectedText) connectedText.textContent = `✅ WhatsApp מחובר ופעיל${data.connectedPhone ? ` (${data.connectedPhone})` : ''}`;
         // Load data only once per connection (not every 2s)
         if (!_dataLoaded) {
           _dataLoaded = true;
@@ -1129,6 +1202,12 @@
         if (connectedCard) connectedCard.style.display = 'none';
         document.getElementById('qr-content').innerHTML =
           '<div class="qr-spinner">&#x2705; Session מאומת — ממתין לאתחול הבוט...</div>';
+      } else if (data.lifecycle === 'stopped' && !data.shouldRun) {
+        _dataLoaded = false;
+        qrCard.style.display = 'block';
+        if (connectedCard) connectedCard.style.display = 'none';
+        document.getElementById('qr-content').innerHTML =
+          '<div class="qr-spinner">WhatsApp כבוי כרגע כי אין קמפיין פעיל.</div><button class="btn-save" style="width:auto;padding:9px 18px;margin-top:10px" onclick="startWhatsApp()">הפעל לבדיקה / חיבור</button>';
       } else {
         // Not connected yet / disconnected — show reconnecting message
         _dataLoaded = false;
@@ -1164,6 +1243,18 @@
       if (!qrInterval) qrInterval = setInterval(checkQR, 2000);
       checkQR();
     } catch (e) { alert('שגיאה בניתוק'); }
+  }
+
+  async function startWhatsApp() {
+    await fetch('/api/whatsapp/start', { method: 'POST' });
+    document.getElementById('qr-content').innerHTML = '<div class="qr-spinner">&#x23F3; מפעיל WhatsApp...</div>';
+    checkQR();
+  }
+
+  async function stopWhatsApp() {
+    if (!confirm('לכבות את WhatsApp/Chromium עד הקמפיין הבא?')) return;
+    await fetch('/api/whatsapp/stop', { method: 'POST' });
+    checkQR();
   }
 
   // ── Init ────────────────────────────────────────────────────────────────────

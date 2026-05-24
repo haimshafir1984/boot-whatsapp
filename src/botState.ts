@@ -10,4 +10,6 @@ export const botState = {
   authenticated: false,
   ready: false,
   connectedPhone: null as string | null,
+  lifecycle: 'stopped' as 'stopped' | 'starting' | 'running' | 'stopping',
+  listeningReason: 'startup' as string,
 };

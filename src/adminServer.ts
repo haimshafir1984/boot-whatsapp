@@ -9,7 +9,7 @@ import path from 'path';
 import { Storage, AdminSettings, Campaign } from './storage';
 import { config } from './config';
 import { botState } from './botState';
-import { createWhatsAppClient } from './whatsapp';
+import { startWhatsAppBot, stopWhatsAppBot } from './whatsappLifecycle';
 import { isGoogleConnected, getGoogleAuthUrl, handleGoogleCallback, disconnectGoogle } from './googleContacts';
 import { testICloudConnection } from './icloudContacts';
 
@@ -29,6 +29,9 @@ export function startAdminServer(storage: Storage): void {
       ready: botState.ready,
       pairingCode: botState.pairingCode,
       connectedPhone: botState.connectedPhone,
+      lifecycle: botState.lifecycle,
+      listeningReason: botState.listeningReason,
+      shouldRun: storage.hasCampaignsNeedingBot(),
     });
   });
 
@@ -38,25 +41,42 @@ export function startAdminServer(storage: Storage): void {
     let phone = String(req.body.phone ?? '').replace(/\D/g, '');
     if (phone.startsWith('0')) phone = '972' + phone.slice(1);
     if (!phone) { res.status(400).json({ error: 'מספר טלפון חסר' }); return; }
-    if (!botState.client) { res.status(503).json({ error: 'הבוט עדיין לא מוכן' }); return; }
     // Store phone and restart client in pairing-code mode
     botState.pairingPhone      = phone;
     botState.pairingCode       = null;
     botState.pairingAttempted  = false;
     botState.intentionalRestart = true;
 
-    // Destroy current client (suppress auto-reconnect)
-    if (botState.client) {
-      try { await botState.client.destroy(); } catch { /* ignore */ }
+    try {
+      await stopWhatsAppBot('pairing restart');
+      startWhatsAppBot(storage, 'pairing code request', phone)
+        .catch((err) => console.error('❌ Pairing-mode init error:', err))
+        .finally(() => { botState.intentionalRestart = false; });
+    } catch (err: any) {
+      botState.intentionalRestart = false;
+      res.status(500).json({ error: err?.message ?? 'שגיאה בהפעלת הבוט' });
+      return;
     }
 
-    // Start fresh client in pairing-code mode
-    const newClient = createWhatsAppClient(storage, phone);
-    newClient.initialize()
-      .catch((err) => console.error('❌ Pairing-mode init error:', err))
-      .finally(() => { botState.intentionalRestart = false; });
-
     res.json({ waiting: true });
+  });
+
+  app.post('/api/whatsapp/start', async (_req, res) => {
+    try {
+      await startWhatsAppBot(storage, 'manual dashboard start');
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message ?? 'שגיאה בהפעלת הבוט' });
+    }
+  });
+
+  app.post('/api/whatsapp/stop', async (_req, res) => {
+    try {
+      await stopWhatsAppBot('manual dashboard stop');
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message ?? 'שגיאה בכיבוי הבוט' });
+    }
   });
 
   // ── WhatsApp logout ──────────────────────────────────────────────────────
@@ -193,11 +213,15 @@ export function startAdminServer(storage: Storage): void {
   });
 
   app.post('/api/campaigns', (req, res) => {
-    const { name, triggerType, triggerPhrase, basePhrase, referrerName } =
+    const { name, triggerType, triggerPhrase, basePhrase, referrerName, startAt, endAt } =
       req.body as Partial<Campaign>;
 
     if (!name?.trim()) { res.status(400).json({ error: 'שם הקמפיין חסר' }); return; }
     if (triggerType !== 1 && triggerType !== 2) { res.status(400).json({ error: 'סוג טריגר לא תקין' }); return; }
+    if (startAt && endAt && new Date(startAt).getTime() >= new Date(endAt).getTime()) {
+      res.status(400).json({ error: 'שעת הסיום חייבת להיות אחרי שעת ההתחלה' });
+      return;
+    }
 
     let phrase: string;
     let suffix: string;
@@ -226,18 +250,26 @@ export function startAdminServer(storage: Storage): void {
       referrerName: refName,
       suffix,
       active: true,
+      startAt: typeof startAt === 'string' && startAt ? startAt : undefined,
+      endAt: typeof endAt === 'string' && endAt ? endAt : undefined,
     });
     res.json(campaign);
   });
 
   app.put('/api/campaigns/:id', (req, res) => {
-    const { name, triggerType, triggerPhrase, basePhrase, referrerName, active } =
+    const { name, triggerType, triggerPhrase, basePhrase, referrerName, active, startAt, endAt } =
       req.body as Partial<Campaign>;
 
     const patch: Partial<Omit<Campaign, 'id'>> = {};
 
     if (name?.trim()) patch.name = name.trim();
     if (typeof active === 'boolean') patch.active = active;
+    if (startAt && endAt && new Date(startAt).getTime() >= new Date(endAt).getTime()) {
+      res.status(400).json({ error: 'שעת הסיום חייבת להיות אחרי שעת ההתחלה' });
+      return;
+    }
+    if ('startAt' in req.body) patch.startAt = typeof startAt === 'string' && startAt ? startAt : undefined;
+    if ('endAt' in req.body) patch.endAt = typeof endAt === 'string' && endAt ? endAt : undefined;
 
     if (triggerType === 1) {
       patch.triggerType = 1;

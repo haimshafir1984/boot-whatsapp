@@ -24,7 +24,13 @@ export interface Campaign {
   /** Appended to the saved Google Contact name. */
   suffix: string;
   active: boolean;
+  /** Optional scheduled campaign window. Existing campaigns without dates stay always-on while active. */
+  startAt?: string;
+  endAt?: string;
+  runtimeStatus?: CampaignRuntimeStatus;
 }
+
+export type CampaignRuntimeStatus = 'draft' | 'scheduled' | 'active' | 'ended' | 'disabled';
 
 export interface AdminSettings {
   askNameEnabled: boolean;
@@ -295,11 +301,51 @@ export class Storage {
   // ─── Campaigns ─────────────────────────────────────────────────────────────
 
   getCampaigns(): Campaign[] {
-    return [...this.data.campaigns];
+    return this.data.campaigns.map((campaign) => ({
+      ...campaign,
+      runtimeStatus: this.getCampaignRuntimeStatus(campaign),
+    }));
   }
 
   getActiveCampaigns(): Campaign[] {
-    return this.data.campaigns.filter((c) => c.active);
+    return this.data.campaigns
+      .filter((campaign) => this.isCampaignListeningNow(campaign))
+      .map((campaign) => ({
+        ...campaign,
+        runtimeStatus: this.getCampaignRuntimeStatus(campaign),
+      }));
+  }
+
+  hasCampaignsNeedingBot(now = new Date(), leadMs = 15 * 60 * 1000): boolean {
+    return this.data.campaigns.some((campaign) => {
+      if (!campaign.active) return false;
+      if (!campaign.startAt && !campaign.endAt) return true;
+
+      const time = now.getTime();
+      const start = campaign.startAt ? new Date(campaign.startAt).getTime() : Number.NEGATIVE_INFINITY;
+      const end = campaign.endAt ? new Date(campaign.endAt).getTime() : Number.POSITIVE_INFINITY;
+
+      if (Number.isNaN(start) || Number.isNaN(end)) return true;
+      return time >= start - leadMs && time <= end;
+    });
+  }
+
+  getCampaignRuntimeStatus(campaign: Campaign, now = new Date()): CampaignRuntimeStatus {
+    if (!campaign.active) return 'disabled';
+    if (!campaign.startAt && !campaign.endAt) return 'active';
+
+    const time = now.getTime();
+    const start = campaign.startAt ? new Date(campaign.startAt).getTime() : Number.NEGATIVE_INFINITY;
+    const end = campaign.endAt ? new Date(campaign.endAt).getTime() : Number.POSITIVE_INFINITY;
+
+    if (Number.isNaN(start) || Number.isNaN(end)) return 'active';
+    if (time < start) return 'scheduled';
+    if (time > end) return 'ended';
+    return 'active';
+  }
+
+  private isCampaignListeningNow(campaign: Campaign, now = new Date()): boolean {
+    return this.getCampaignRuntimeStatus(campaign, now) === 'active';
   }
 
   addCampaign(data: Omit<Campaign, 'id'>): Campaign {

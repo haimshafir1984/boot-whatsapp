@@ -5,11 +5,11 @@
 
 import fs from 'fs';
 import path from 'path';
-import { createWhatsAppClient } from './whatsapp';
 import { Storage } from './storage';
 import { startAdminServer } from './adminServer';
 import { config } from './config';
 import { startContactSaveQueue } from './contactQueue';
+import { startWhatsAppScheduler } from './whatsappLifecycle';
 
 function removeSingletonLocks(dir: string): void {
   if (!fs.existsSync(dir)) return;
@@ -42,8 +42,7 @@ async function main(): Promise<void> {
 
   startAdminServer(storage);
 
-  const client = createWhatsAppClient(storage);
-  await client.initialize();
+  startWhatsAppScheduler(storage);
 }
 
 main().catch((err) => {
