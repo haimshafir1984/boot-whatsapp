@@ -66,7 +66,14 @@ async function handleMessage(
       : `${pending.whatsappName}${pending.suffix}`;
 
     console.log(`\nName reply from ${pending.senderPhone}: "${finalName}"`);
-    await queueAndReply(transport, storage, senderJid, pending.senderPhone, finalName);
+    await queueAndReply(
+      transport,
+      storage,
+      senderJid,
+      pending.senderPhone,
+      finalName,
+      pending.campaignResultId,
+    );
     return;
   }
 
@@ -87,6 +94,7 @@ async function handleMessage(
   const pushname =
     displayName.trim() ||
     config.CONTACT_NAME_FALLBACK.replace('{phone}', senderPhone);
+  const campaignResult = storage.recordCampaignTrigger(trigger.campaignId, senderPhone);
 
   console.log(`\n[${trigger.campaignName}] from ${senderPhone} (${pushname})`);
 
@@ -103,12 +111,20 @@ async function handleMessage(
       conversationState.remove(senderJid);
       const finalName = `${pushname}${trigger.suffix}`;
       console.log(`\n   Timeout - saving ${senderPhone} as "${finalName}"`);
-      await queueAndReply(transport, storage, senderJid, senderPhone, finalName);
+      await queueAndReply(
+        transport,
+        storage,
+        senderJid,
+        senderPhone,
+        finalName,
+        campaignResult.id,
+      );
     }, settings.nameTimeoutMinutes * 60 * 1000);
 
     conversationState.set(senderJid, {
       senderJid,
       senderPhone,
+      campaignResultId: campaignResult.id,
       suffix: trigger.suffix,
       whatsappName: pushname,
       timestamp: Date.now(),
@@ -116,7 +132,14 @@ async function handleMessage(
     });
   } else {
     const contactName = `${pushname}${trigger.suffix}`;
-    await queueAndReply(transport, storage, senderJid, senderPhone, contactName);
+    await queueAndReply(
+      transport,
+      storage,
+      senderJid,
+      senderPhone,
+      contactName,
+      campaignResult.id,
+    );
   }
 }
 
@@ -126,8 +149,9 @@ async function queueAndReply(
   senderJid: string,
   senderPhone: string,
   contactName: string,
+  campaignResultId?: string,
 ): Promise<void> {
-  const job = storage.enqueueContactSave(senderPhone, contactName);
+  const job = storage.enqueueContactSave(senderPhone, contactName, campaignResultId);
   if (job) console.log(`   Contact queued for background save/update: ${senderPhone}`);
 
   try {

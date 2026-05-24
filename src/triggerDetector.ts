@@ -8,6 +8,7 @@ import { Campaign } from './storage';
 
 export interface TriggerResult {
   matched: boolean;
+  campaignId: string;
   suffix: string;
   campaignName: string;
 }
@@ -30,11 +31,12 @@ export function detectTrigger(
     if (text === normalize(campaign.triggerPhrase)) {
       return {
         matched: true,
+        campaignId: campaign.id,
         suffix: campaign.suffix,
         campaignName: campaign.name,
       };
     }
   }
 
-  return { matched: false, suffix: '', campaignName: '' };
+  return { matched: false, campaignId: '', suffix: '', campaignName: '' };
 }

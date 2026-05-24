@@ -92,6 +92,23 @@
     }
     .btn-add:hover { background: #dcfce7; }
 
+    .results-list { display: flex; flex-direction: column; gap: 10px; }
+    .result-row {
+      border: 1px solid #e5e7eb; border-radius: 8px;
+      padding: 11px 12px;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .result-info { min-width: 0; flex: 1; }
+    .result-title { font-weight: 700; font-size: .85rem; margin-bottom: 7px; }
+    .result-stats { display: flex; flex-wrap: wrap; gap: 10px; font-size: .73rem; color: #6b7280; }
+    .result-stats strong { color: #111827; font-size: .82rem; }
+    .result-export {
+      color: #166534; background: #f0fdf4; border-radius: 7px;
+      font-size: .76rem; font-weight: 700; text-decoration: none; padding: 7px 10px;
+      flex-shrink: 0;
+    }
+    .result-export:hover { background: #dcfce7; }
+
     /* ── Divider ── */
     hr { border: none; border-top: 1px solid #e5e7eb; margin: 20px 0; }
 
@@ -426,6 +443,11 @@
         <!-- filled by JS -->
       </div>
       <button class="btn-add" style="margin-top:14px" onclick="openModal()">+ הוסף קמפיין</button>
+      <hr />
+      <div class="sec-title">תוצאות קמפיינים</div>
+      <div class="results-list" id="campaign-results">
+        <p style="color:#9ca3af;font-size:.85rem;text-align:center;padding:8px 0">אין תוצאות עדיין</p>
+      </div>
     </div>
   </div>
 
@@ -672,6 +694,7 @@
     const list = await res.json();
     renderCampaigns(list);
     renderLinks(list); // keep links in sync
+    loadCampaignResults();
   }
 
   function formatDateTimeLocal(value) {
@@ -743,6 +766,40 @@
       </div>
     `;
     }).join('');
+  }
+
+  async function loadCampaignResults() {
+    try {
+      const res = await fetch('/api/campaign-results');
+      const data = await res.json();
+      renderCampaignResults(data.summaries || []);
+    } catch (_) {}
+  }
+
+  function renderCampaignResults(summaries) {
+    const el = document.getElementById('campaign-results');
+    const withResults = summaries
+      .filter(item => item.total > 0)
+      .sort((a, b) => b.total - a.total);
+    if (!withResults.length) {
+      el.innerHTML = '<p style="color:#9ca3af;font-size:.85rem;text-align:center;padding:8px 0">אין תוצאות עדיין</p>';
+      return;
+    }
+    el.innerHTML = withResults.map(item => `
+      <div class="result-row">
+        <div class="result-info">
+          <div class="result-title">${esc(item.campaignName)}${item.referrerName ? ` · ${esc(item.referrerName)}` : ''}</div>
+          <div class="result-stats">
+            <span><strong>${item.total}</strong> טריגרים</span>
+            <span><strong>${item.saved}</strong> נשמרו</span>
+            <span><strong>${item.pending}</strong> ממתינים לשמירה</span>
+            <span><strong>${item.awaitingName}</strong> ממתינים לשם</span>
+            <span><strong>${item.failed}</strong> נכשלו</span>
+          </div>
+        </div>
+        <a class="result-export" href="/api/campaign-results/${item.campaignId}/export" download>CSV</a>
+      </div>
+    `).join('');
   }
 
   async function toggleCampaign(id) {
@@ -1263,6 +1320,7 @@
   loadLinks();
   loadContactQueueStats();
   setInterval(loadContactQueueStats, 5000);
+  setInterval(loadCampaignResults, 5000);
   qrInterval = setInterval(checkQR, 2000);
   checkQR();
 </script>

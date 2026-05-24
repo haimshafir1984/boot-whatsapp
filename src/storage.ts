@@ -64,12 +64,25 @@ export interface ContactSaveJob {
   updatedAt: string;
   nextAttemptAt?: string;
   lastError?: string;
+  campaignResultIds?: string[];
+}
+
+export type CampaignResultStatus = 'awaiting_name' | ContactSaveStatus;
+
+export interface CampaignResult {
+  id: string;
+  campaignId: string;
+  phone: string;
+  status: CampaignResultStatus;
+  triggeredAt: string;
+  updatedAt: string;
 }
 
 interface StorageData {
   savedContacts: string[];
   contactsList: SavedContact[];
   contactQueue: ContactSaveJob[];
+  campaignResults: CampaignResult[];
   adminSettings: AdminSettings;
   campaigns: Campaign[];
 }
@@ -115,6 +128,7 @@ export class Storage {
         savedContacts: [],
         contactsList: [],
         contactQueue: [],
+        campaignResults: [],
         adminSettings: { ...DEFAULT_SETTINGS },
         campaigns: [],
       };
@@ -147,6 +161,7 @@ export class Storage {
         savedContacts: parsed.savedContacts ?? [],
         contactsList,
         contactQueue,
+        campaignResults: parsed.campaignResults ?? [],
         adminSettings: { ...DEFAULT_SETTINGS, ...migratedSettings },
         campaigns: parsed.campaigns ?? [],
       };
@@ -156,6 +171,7 @@ export class Storage {
         savedContacts: [],
         contactsList: [],
         contactQueue: [],
+        campaignResults: [],
         adminSettings: { ...DEFAULT_SETTINGS },
         campaigns: [],
       };
@@ -195,6 +211,7 @@ export class Storage {
       job.updatedAt = now;
       job.nextAttemptAt = undefined;
       job.lastError = undefined;
+      this.updateCampaignResultStatuses(job.campaignResultIds, 'saved', now);
     }
     this.persist();
   }
@@ -203,7 +220,7 @@ export class Storage {
     return [...this.data.contactsList];
   }
 
-  enqueueContactSave(phone: string, name: string): ContactSaveJob | null {
+  enqueueContactSave(phone: string, name: string, campaignResultId?: string): ContactSaveJob | null {
     const provider = this.getAdminSettings().contactsProvider;
     const now = new Date().toISOString();
 
@@ -216,6 +233,10 @@ export class Storage {
       existing.updatedAt = now;
       existing.nextAttemptAt = now;
       existing.lastError = undefined;
+      if (campaignResultId && !existing.campaignResultIds?.includes(campaignResultId)) {
+        existing.campaignResultIds = [...(existing.campaignResultIds ?? []), campaignResultId];
+      }
+      this.updateCampaignResultStatuses(existing.campaignResultIds, 'pending', now);
       this.persist();
       return { ...existing };
     }
@@ -230,7 +251,9 @@ export class Storage {
       createdAt: now,
       updatedAt: now,
       nextAttemptAt: now,
+      campaignResultIds: campaignResultId ? [campaignResultId] : [],
     };
+    this.updateCampaignResultStatuses(job.campaignResultIds, 'pending', now);
     this.data.contactQueue.push(job);
     this.persist();
     return { ...job };
@@ -267,6 +290,7 @@ export class Storage {
     job.nextAttemptAt = job.status === 'pending'
       ? new Date(now + retryDelayMs).toISOString()
       : undefined;
+    this.updateCampaignResultStatuses(job.campaignResultIds, job.status, job.updatedAt);
     this.persist();
     return { ...job };
   }
@@ -284,6 +308,51 @@ export class Storage {
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .slice(0, limit)
       .map((job) => ({ ...job }));
+  }
+
+  // Campaign results
+
+  recordCampaignTrigger(campaignId: string, phone: string): CampaignResult {
+    const now = new Date().toISOString();
+    const result: CampaignResult = {
+      id: generateId(),
+      campaignId,
+      phone,
+      status: 'awaiting_name',
+      triggeredAt: now,
+      updatedAt: now,
+    };
+    this.data.campaignResults.push(result);
+    this.persist();
+    return { ...result };
+  }
+
+  getCampaignResults(campaignId?: string): CampaignResult[] {
+    return this.data.campaignResults
+      .filter((result) => !campaignId || result.campaignId === campaignId)
+      .sort((a, b) => b.triggeredAt.localeCompare(a.triggeredAt))
+      .map((result) => ({ ...result }));
+  }
+
+  getCampaignResultSummary(campaignId: string): { total: number; awaitingName: number; pending: number; saved: number; failed: number } {
+    const results = this.data.campaignResults.filter((result) => result.campaignId === campaignId);
+    return results.reduce((stats, result) => {
+      stats.total += 1;
+      if (result.status === 'awaiting_name') stats.awaitingName += 1;
+      else stats[result.status] += 1;
+      return stats;
+    }, { total: 0, awaitingName: 0, pending: 0, saved: 0, failed: 0 });
+  }
+
+  private updateCampaignResultStatuses(resultIds: string[] | undefined, status: ContactSaveStatus, updatedAt: string): void {
+    if (!resultIds?.length) return;
+    const ids = new Set(resultIds);
+    for (const result of this.data.campaignResults) {
+      if (ids.has(result.id)) {
+        result.status = status;
+        result.updatedAt = updatedAt;
+      }
+    }
   }
 
   // ─── Admin settings ────────────────────────────────────────────────────────

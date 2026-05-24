@@ -212,6 +212,39 @@ export function startAdminServer(storage: Storage): void {
     res.json(storage.getCampaigns());
   });
 
+  app.get('/api/campaign-results', (_req, res) => {
+    const summaries = storage.getCampaigns().map((campaign) => ({
+      campaignId: campaign.id,
+      campaignName: campaign.name,
+      referrerName: campaign.referrerName,
+      ...storage.getCampaignResultSummary(campaign.id),
+    }));
+    res.json({ summaries });
+  });
+
+  app.get('/api/campaign-results/:id/export', (req, res) => {
+    const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
+    if (!campaign) {
+      res.status(404).json({ error: 'קמפיין לא נמצא' });
+      return;
+    }
+
+    const csvValue = (value: string) => `"${value.replace(/"/g, '""')}"`;
+    const rows = [
+      'campaign,phone,status,triggeredAt,updatedAt',
+      ...storage.getCampaignResults(campaign.id).map((result) => [
+        csvValue(campaign.name),
+        csvValue(result.phone),
+        csvValue(result.status),
+        csvValue(result.triggeredAt),
+        csvValue(result.updatedAt),
+      ].join(',')),
+    ];
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="campaign-${campaign.id}-results.csv"`);
+    res.send('\uFEFF' + rows.join('\n'));
+  });
+
   app.post('/api/campaigns', (req, res) => {
     const { name, triggerType, triggerPhrase, basePhrase, referrerName, startAt, endAt } =
       req.body as Partial<Campaign>;
