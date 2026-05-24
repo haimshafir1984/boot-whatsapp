@@ -1,6 +1,6 @@
 import { Storage } from './storage';
-import { createWhatsAppClient } from './whatsapp';
 import { botState } from './botState';
+import { createWebJsProvider } from './providers/WebJsProvider';
 
 const SCHEDULER_INTERVAL_MS = 60 * 1000;
 const CAMPAIGN_START_LEAD_MS = 15 * 60 * 1000;
@@ -13,14 +13,16 @@ export async function startWhatsAppBot(storage: Storage, reason = 'manual', pair
   if (botState.lifecycle === 'running' || botState.lifecycle === 'starting') return;
 
   transition = (async () => {
+    console.log(`WhatsApp client starting: ${reason}.`);
     botState.lifecycle = 'starting';
     botState.listeningReason = reason;
     botState.intentionalRestart = false;
 
-    const client = createWhatsAppClient(storage, pairingPhone);
-    botState.client = client;
-    await client.initialize();
+    const provider = createWebJsProvider(storage, pairingPhone);
+    botState.client = provider.client;
+    await provider.initialize();
     botState.lifecycle = 'running';
+    console.log(`WhatsApp client start requested: ${reason}.`);
   })();
 
   try {
@@ -35,6 +37,7 @@ export async function stopWhatsAppBot(reason = 'manual'): Promise<void> {
   if (!botState.client || botState.lifecycle === 'stopped' || botState.lifecycle === 'stopping') return;
 
   transition = (async () => {
+    console.log(`WhatsApp client stopping: ${reason}.`);
     botState.lifecycle = 'stopping';
     botState.listeningReason = reason;
     botState.intentionalRestart = true;
@@ -53,6 +56,7 @@ export async function stopWhatsAppBot(reason = 'manual'): Promise<void> {
       botState.connectedPhone = null;
       botState.lifecycle = 'stopped';
       botState.intentionalRestart = false;
+      console.log(`WhatsApp client stopped: ${reason}.`);
     }
   })();
 
@@ -69,10 +73,16 @@ export function startWhatsAppScheduler(storage: Storage): void {
   const tick = () => {
     const shouldRun = storage.hasCampaignsNeedingBot(new Date(), CAMPAIGN_START_LEAD_MS);
     if (shouldRun) {
+      if (botState.lifecycle === 'stopped') {
+        console.log('Scheduled campaign window found - starting WhatsApp client.');
+      }
       startWhatsAppBot(storage, 'scheduled campaign window').catch((err) =>
         console.error('Scheduled WhatsApp start failed:', err),
       );
     } else {
+      if (botState.lifecycle === 'running') {
+        console.log('No active campaign window - stopping WhatsApp client.');
+      }
       stopWhatsAppBot('no active campaign window').catch((err) =>
         console.error('Scheduled WhatsApp stop failed:', err),
       );
@@ -82,4 +92,3 @@ export function startWhatsAppScheduler(storage: Storage): void {
   tick();
   scheduler = setInterval(tick, SCHEDULER_INTERVAL_MS);
 }
-

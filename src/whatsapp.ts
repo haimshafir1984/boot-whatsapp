@@ -13,11 +13,9 @@ import QRCode from 'qrcode';
 import { config } from './config';
 import { Storage } from './storage';
 import { detectTrigger } from './triggerDetector';
-import { conversationState } from './conversationState';
 import { botState } from './botState';
-
-const handledMessageIds = new Set<string>();
-const MAX_TRIGGER_AGE_MS = 2 * 60 * 1000;
+import { handleIncomingWhatsAppMessage } from './messageFlow';
+import { IncomingWhatsAppMessage, WhatsAppTransport } from './types/whatsapp';
 
 export function createWhatsAppClient(storage: Storage, pairingPhone?: string): Client {
   const clientOptions: any = {
@@ -137,148 +135,44 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
   return client;
 }
 
-function rememberMessage(message: Message): boolean {
-  const id =
-    (message.id as any)?._serialized ??
-    `${message.from}:${message.timestamp}:${message.body}`;
-
-  if (handledMessageIds.has(id)) return false;
-  handledMessageIds.add(id);
-
-  if (handledMessageIds.size > 1000) {
-    const first = handledMessageIds.values().next().value;
-    if (first) handledMessageIds.delete(first);
-  }
-
-  return true;
-}
-
 async function handleIncomingMessage(
   message: Message,
   storage: Storage,
   client: Client,
   source: 'message' | 'message_create',
 ): Promise<void> {
-  if (!message.body?.trim()) return;
-  if (!rememberMessage(message)) return;
-
-  try {
-    await handleMessage(message, storage, client, source);
-  } catch (err) {
-    console.error(`[MSG] handler failed via ${source}:`, err);
-  }
+  const incoming = toIncomingMessage(message);
+  const transport = createWebJsTransport(client);
+  await handleIncomingWhatsAppMessage(incoming, storage, transport, source);
 }
 
-async function handleMessage(
-  message: Message,
-  storage: Storage,
-  client: Client,
-  source: 'message' | 'message_create',
-): Promise<void> {
-  if (message.from === 'status@broadcast') return;
-  if (message.from.endsWith('@g.us')) return;
-
-  const senderJid = message.from;
-  const messageAgeMs = message.timestamp
-    ? Date.now() - message.timestamp * 1000
-    : 0;
-  const pending = conversationState.get(senderJid);
-
-  if (pending) {
-    const chosenName = message.body.trim();
-    clearTimeout(pending.timeoutHandle);
-    conversationState.remove(senderJid);
-
-    const finalName = chosenName
-      ? `${chosenName}${pending.suffix}`
-      : `${pending.whatsappName}${pending.suffix}`;
-
-    console.log(`\nName reply from ${pending.senderPhone}: "${finalName}"`);
-    await queueAndReply(client, storage, senderJid, pending.senderPhone, finalName);
-    return;
-  }
-
-  const activeCampaigns = storage.getActiveCampaigns();
-  const trigger = detectTrigger(message.body, activeCampaigns);
-  if (!trigger.matched) {
-    console.log(`[MSG] no trigger match via=${source} age=${Math.round(messageAgeMs / 1000)}s from=${senderJid} body="${message.body.slice(0, 120)}" active=${activeCampaigns.length}`);
-    return;
-  }
-  if (messageAgeMs > MAX_TRIGGER_AGE_MS) {
-    console.warn(`[MSG] stale trigger ignored via=${source} age=${Math.round(messageAgeMs / 1000)}s campaign="${trigger.campaignName}" from=${senderJid}`);
-    return;
-  }
-  console.log(`[MSG] trigger matched via=${source} age=${Math.round(messageAgeMs / 1000)}s campaign="${trigger.campaignName}" from=${senderJid}`);
-
-  const contact = await message.getContact();
-  let senderPhone: string;
-  try {
-    const resolved = await (client as any).getContactLidAndPhone([senderJid]);
-    const pnJid: string | undefined = resolved?.[0]?.pn;
-    senderPhone = pnJid ? pnJid.split('@')[0] : senderJid.split('@')[0];
-  } catch {
-    senderPhone = senderJid.split('@')[0];
-  }
-
-  const pushname =
-    contact.pushname?.trim() ||
-    contact.name?.trim() ||
-    config.CONTACT_NAME_FALLBACK.replace('{phone}', senderPhone);
-
-  console.log(`\n[${trigger.campaignName}] from ${senderPhone} (${pushname})`);
-
-  const settings = storage.getAdminSettings();
-  if (settings.askNameEnabled) {
-    const askText = settings.askNameText.replace(
-      '{timeout}',
-      String(settings.nameTimeoutMinutes),
-    );
-    await client.sendMessage(senderJid, askText);
-    console.log('   Asked for preferred name.');
-
-    const timeoutHandle = setTimeout(async () => {
-      conversationState.remove(senderJid);
-      const finalName = `${pushname}${trigger.suffix}`;
-      console.log(`\n   Timeout - saving ${senderPhone} as "${finalName}"`);
-      await queueAndReply(client, storage, senderJid, senderPhone, finalName);
-    }, settings.nameTimeoutMinutes * 60 * 1000);
-
-    conversationState.set(senderJid, {
-      senderJid,
-      senderPhone,
-      suffix: trigger.suffix,
-      whatsappName: pushname,
-      timestamp: Date.now(),
-      timeoutHandle,
-    });
-  } else {
-    const contactName = `${pushname}${trigger.suffix}`;
-    await queueAndReply(client, storage, senderJid, senderPhone, contactName);
-  }
+function toIncomingMessage(message: Message): IncomingWhatsAppMessage {
+  return {
+    id: (message.id as any)?._serialized ?? `${message.from}:${message.timestamp ?? ''}`,
+    from: message.from,
+    to: message.to,
+    body: message.body,
+    timestamp: message.timestamp,
+    async getDisplayName() {
+      const contact = await message.getContact();
+      return contact.pushname?.trim() || contact.name?.trim() || '';
+    },
+  };
 }
 
-async function queueAndReply(
-  client: Client,
-  storage: Storage,
-  senderJid: string,
-  senderPhone: string,
-  contactName: string,
-): Promise<void> {
-  const job = storage.enqueueContactSave(senderPhone, contactName);
-  if (job) console.log(`   Contact queued for background save/update: ${senderPhone}`);
-
-  try {
-    const { replyText, followupMessages } = storage.getAdminSettings();
-    await client.sendMessage(senderJid, replyText);
-    console.log('   Text reply sent.');
-
-    for (const followupText of followupMessages) {
-      const text = followupText.trim();
-      if (!text) continue;
-      await client.sendMessage(senderJid, text);
-      console.log('   Follow-up reply sent.');
-    }
-  } catch (err) {
-    console.error('   Failed to send text reply:', err);
-  }
+function createWebJsTransport(client: Client): WhatsAppTransport {
+  return {
+    sendMessage: async (to, text) => {
+      await client.sendMessage(to, text);
+    },
+    resolvePhone: async (jid) => {
+      try {
+        const resolved = await (client as any).getContactLidAndPhone([jid]);
+        const pnJid: string | undefined = resolved?.[0]?.pn;
+        return pnJid ? pnJid.split('@')[0] : jid.split('@')[0];
+      } catch {
+        return jid.split('@')[0];
+      }
+    },
+  };
 }

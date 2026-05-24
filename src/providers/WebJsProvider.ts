@@ -1,0 +1,43 @@
+import type { Client } from 'whatsapp-web.js';
+import { Storage } from '../storage';
+import { WhatsAppProvider } from '../types/whatsapp';
+import { createWhatsAppClient } from '../whatsapp';
+
+export class WebJsProvider implements WhatsAppProvider {
+  readonly client: Client;
+
+  constructor(storage: Storage, pairingPhone?: string) {
+    this.client = createWhatsAppClient(storage, pairingPhone);
+  }
+
+  async initialize(): Promise<void> {
+    await this.client.initialize();
+  }
+
+  async destroy(): Promise<void> {
+    await this.client.destroy();
+  }
+
+  async logout(): Promise<void> {
+    await this.client.logout();
+  }
+
+  async sendMessage(to: string, message: string): Promise<void> {
+    await this.client.sendMessage(to, message);
+  }
+
+  async sendInteractiveButtons(
+    to: string,
+    text: string,
+    buttons: Array<{ id: string; text: string }>,
+  ): Promise<void> {
+    const buttonText = buttons.length
+      ? `${text}\n\n${buttons.map((button, index) => `${index + 1}. ${button.text}`).join('\n')}`
+      : text;
+    await this.sendMessage(to, buttonText);
+  }
+}
+
+export function createWebJsProvider(storage: Storage, pairingPhone?: string): WebJsProvider {
+  return new WebJsProvider(storage, pairingPhone);
+}
