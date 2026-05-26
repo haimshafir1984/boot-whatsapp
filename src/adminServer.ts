@@ -148,7 +148,7 @@ export function startAdminServer(storage: Storage): void {
       res.status(404).json({ error: 'לקוחה לא נמצאה' });
       return;
     }
-    if (!client.managementUrl || client.provisioningStatus === 'failed') {
+    if (!client.managementUrl) {
       res.json(client);
       return;
     }

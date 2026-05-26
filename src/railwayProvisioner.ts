@@ -10,6 +10,7 @@ export interface ClientProvisioningPatch {
   railwayServiceId?: string;
   railwayVolumeId?: string;
   railwayDeploymentId?: string;
+  railwayWorkflowId?: string;
   managementUrl?: string;
 }
 
@@ -34,6 +35,7 @@ function serviceName(client: ManagedClient): string {
 
 export class RailwayProvisioner {
   private readonly config: RailwayProvisioningConfig | null;
+  private provisioningQueue: Promise<void> = Promise.resolve();
   readonly configurationError: string | null;
 
   constructor(env: NodeJS.ProcessEnv = process.env) {
@@ -73,6 +75,15 @@ export class RailwayProvisioner {
   }
 
   async provision(
+    client: ManagedClient,
+    saveProgress: (patch: ClientProvisioningPatch) => ManagedClient,
+  ): Promise<ManagedClient> {
+    const pending = this.provisioningQueue.then(() => this.runProvision(client, saveProgress));
+    this.provisioningQueue = pending.then(() => undefined, () => undefined);
+    return pending;
+  }
+
+  private async runProvision(
     client: ManagedClient,
     saveProgress: (patch: ClientProvisioningPatch) => ManagedClient,
   ): Promise<ManagedClient> {
@@ -169,7 +180,7 @@ export class RailwayProvisioner {
     }
 
     // Retry can repair a service created before new services were created with a source.
-    if (!createdWithSource && !current.railwayDeploymentId) {
+    if (!createdWithSource && !current.railwayDeploymentId && !current.railwayWorkflowId) {
       await this.graphql<{ serviceConnect: { id: string } }>(
         `mutation serviceConnect($id: String!, $input: ServiceConnectInput!) {
           serviceConnect(id: $id, input: $input) { id }
@@ -183,16 +194,19 @@ export class RailwayProvisioner {
       );
     }
 
-    const deployment = await this.graphql<{ serviceInstanceDeployV2: string }>(
-      `mutation serviceInstanceDeployV2($serviceId: String!, $environmentId: String!) {
-        serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId)
+    const workflow = await this.graphql<{ environmentPatchCommitStaged: string }>(
+      `mutation environmentPatchCommitStaged($environmentId: String!, $message: String) {
+        environmentPatchCommitStaged(
+          environmentId: $environmentId
+          commitMessage: $message
+        )
       }`,
       {
-        serviceId: current.railwayServiceId,
         environmentId: this.config.environmentId,
+        message: `Provision ${serviceName(current)}`,
       },
     );
-    current = saveProgress({ railwayDeploymentId: deployment.serviceInstanceDeployV2 });
+    current = saveProgress({ railwayWorkflowId: workflow.environmentPatchCommitStaged });
 
     return current;
   }

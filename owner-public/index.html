@@ -128,7 +128,7 @@
               <td><strong>${esc(client.name)}</strong></td>
               <td>
                 <span class="status ${esc(client.provisioningStatus)}">${statusLabel(client.provisioningStatus)}</span>
-                ${client.provisioningStatus === 'failed' ? `<div><button class="retry" onclick="retryProvision('${encodeURIComponent(client.id)}')">נסה שוב</button></div>` : ''}
+                ${client.provisioningStatus === 'failed' ? `<div><button class="retry" onclick="retryProvision('${encodeURIComponent(client.id)}')">נסה שוב</button>${client.managementUrl ? ` <button class="check-ready" onclick="checkReady('${encodeURIComponent(client.id)}')">בדוק מוכנות</button>` : ''}</div>` : ''}
                 ${client.provisioningStatus === 'deploying' ? `<div><button class="check-ready" onclick="checkReady('${encodeURIComponent(client.id)}')">בדוק מוכנות</button></div>` : ''}
               </td>
               <td>${client.managementUrl ? `<a class="client-link" href="${esc(client.managementUrl)}" target="_blank">${esc(client.managementUrl)}</a>` : '-'}</td>

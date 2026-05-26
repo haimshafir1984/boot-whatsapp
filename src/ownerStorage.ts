@@ -13,6 +13,7 @@ export interface ManagedClient {
   railwayServiceId?: string;
   railwayVolumeId?: string;
   railwayDeploymentId?: string;
+  railwayWorkflowId?: string;
   provisioningError?: string;
   createdAt: string;
 }

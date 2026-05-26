@@ -69,7 +69,7 @@
           </div>
           <div class="line"><span class="label">לינק ראשוני ללקוחה</span><span class="value" id="managementUrl">מוקם כעת...</span></div>
           <div class="line"><span class="label">Railway Service</span><span class="value code" id="railwayServiceId">-</span></div>
-          <div class="line"><span class="label">Deployment אחרון</span><span class="value code" id="railwayDeploymentId">-</span></div>
+          <div class="line"><span class="label">תהליך פריסה אחרון</span><span class="value code" id="railwayDeploymentId">-</span></div>
         </section>
         <section>
           <h2>קמפיינים ותוצאות</h2>
@@ -137,7 +137,7 @@
         managementEl.textContent = 'יופיע לאחר הקמת Railway';
       }
       document.getElementById('railwayServiceId').textContent = currentClient.railwayServiceId || '-';
-      document.getElementById('railwayDeploymentId').textContent = currentClient.railwayDeploymentId || '-';
+      document.getElementById('railwayDeploymentId').textContent = currentClient.railwayDeploymentId || currentClient.railwayWorkflowId || '-';
       if (currentClient.provisioningStatus === 'ready') {
         document.getElementById('railwayDot').style.background = '#22c55e';
         document.getElementById('railwayState').textContent = 'שירות Railway מבודד נוצר';
@@ -149,6 +149,9 @@
         document.getElementById('railwayDot').style.background = '#ef4444';
         document.getElementById('railwayState').textContent = currentClient.provisioningError || 'ההקמה נכשלה';
         document.getElementById('retryButton').style.display = '';
+        if (currentClient.managementUrl) {
+          document.getElementById('readyButton').style.display = '';
+        }
       }
     }
 
