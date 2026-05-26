@@ -9,6 +9,7 @@ interface RailwayGraphQLResponse<T> {
 export interface ClientProvisioningPatch {
   railwayServiceId?: string;
   railwayVolumeId?: string;
+  railwaySourceAttached?: boolean;
   railwayDeploymentId?: string;
   railwayWorkflowId?: string;
   managementUrl?: string;
@@ -64,7 +65,7 @@ export class RailwayProvisioner {
 
     this.configurationError = null;
     this.config = {
-      endpoint: env.RAILWAY_API_URL?.trim() || 'https://backboard.railway.app/graphql/v2',
+      endpoint: env.RAILWAY_API_URL?.trim() || 'https://backboard.railway.com/graphql/v2',
       token: token!,
       tokenHeader: projectToken ? 'Project-Access-Token' : 'Authorization',
       projectId: projectId!,
@@ -90,7 +91,8 @@ export class RailwayProvisioner {
     if (!this.config) throw new Error(this.configurationError ?? 'Railway is not configured');
 
     let current = client;
-    let createdWithSource = false;
+    const name = serviceName(current);
+    console.log(`Railway provisioning started: ${name}.`);
     if (!current.railwayServiceId) {
       const service = await this.graphql<{ serviceCreate: { id: string } }>(
         `mutation serviceCreate($input: ServiceCreateInput!) {
@@ -101,14 +103,11 @@ export class RailwayProvisioner {
             projectId: this.config.projectId,
             environmentId: this.config.environmentId,
             name: serviceName(current),
-            source: {
-              repo: this.config.repo,
-            },
           },
         },
       );
       current = saveProgress({ railwayServiceId: service.serviceCreate.id });
-      createdWithSource = true;
+      console.log(`Railway provisioning: service created for ${name}.`);
     }
 
     if (!current.railwayVolumeId) {
@@ -127,6 +126,7 @@ export class RailwayProvisioner {
         },
       );
       current = saveProgress({ railwayVolumeId: volume.volumeCreate.id });
+      console.log(`Railway provisioning: volume created for ${name}.`);
     }
 
     const clientOwnerToken = crypto.randomBytes(32).toString('base64url');
@@ -163,6 +163,7 @@ export class RailwayProvisioner {
         variables,
       },
     );
+    console.log(`Railway provisioning: private variables configured for ${name}.`);
 
     if (!current.managementUrl) {
       const domain = await this.graphql<{ serviceDomainCreate: { domain: string } }>(
@@ -177,10 +178,10 @@ export class RailwayProvisioner {
         },
       );
       current = saveProgress({ managementUrl: `https://${domain.serviceDomainCreate.domain}/client/` });
+      console.log(`Railway provisioning: domain created for ${name}.`);
     }
 
-    // Retry can repair a service created before new services were created with a source.
-    if (!createdWithSource && !current.railwayDeploymentId && !current.railwayWorkflowId) {
+    if (!current.railwaySourceAttached) {
       await this.graphql<{ serviceConnect: { id: string } }>(
         `mutation serviceConnect($id: String!, $input: ServiceConnectInput!) {
           serviceConnect(id: $id, input: $input) { id }
@@ -192,6 +193,8 @@ export class RailwayProvisioner {
           },
         },
       );
+      current = saveProgress({ railwaySourceAttached: true });
+      console.log(`Railway provisioning: source connected for ${name}.`);
     }
 
     const workflow = await this.graphql<{ environmentPatchCommitStaged: string }>(
@@ -207,6 +210,7 @@ export class RailwayProvisioner {
       },
     );
     current = saveProgress({ railwayWorkflowId: workflow.environmentPatchCommitStaged });
+    console.log(`Railway provisioning: deployment triggered for ${name}.`);
 
     return current;
   }

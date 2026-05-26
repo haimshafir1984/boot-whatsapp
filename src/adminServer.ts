@@ -54,7 +54,10 @@ export function startAdminServer(storage: Storage): void {
     res.sendFile(path.join(ownerPublicDir, 'login.html'));
   });
   app.get('/health', (_req, res) => {
-    res.json({ ok: true });
+    res.json({
+      ok: true,
+      clientConfigured: Boolean(process.env.CLIENT_ACCESS_TOKEN?.trim()),
+    });
   });
   app.post('/auth/client/login', access.clientLogin);
   app.post('/auth/client/logout', access.requireClient, access.clientLogout);
@@ -95,6 +98,7 @@ export function startAdminServer(storage: Storage): void {
       })!;
     } catch (err: any) {
       const message = err?.message ?? String(err);
+      console.error(`Railway provisioning failed for client ${id}: ${message}`);
       ownerStorage.updateClient(id, {
         provisioningStatus: 'failed',
         provisioningError: message,
@@ -155,7 +159,8 @@ export function startAdminServer(storage: Storage): void {
     try {
       const healthUrl = new URL('/health', client.managementUrl).toString();
       const response = await fetch(healthUrl, { signal: AbortSignal.timeout(8_000) });
-      if (response.ok) {
+      const health = await response.json().catch(() => null) as { clientConfigured?: boolean } | null;
+      if (response.ok && health?.clientConfigured === true) {
         res.json(ownerStorage.updateClient(client.id, { provisioningStatus: 'ready' }));
         return;
       }
