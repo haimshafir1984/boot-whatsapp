@@ -30,7 +30,7 @@ async function main(): Promise<void> {
   console.log('─'.repeat(50));
   console.log('  WhatsApp Status Bot – starting up…');
   console.log('─'.repeat(50));
-  console.log(`  My card : ${config.MY_CONTACT.name} ${config.MY_CONTACT.phone}`);
+  console.log(`  Contact card configured : ${config.MY_CONTACT.phone ? 'yes' : 'no'}`);
   console.log(`  Storage  : ${path.resolve(config.STORAGE_PATH)}`);
   console.log('─'.repeat(50) + '\n');
 

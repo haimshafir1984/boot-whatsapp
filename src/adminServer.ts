@@ -6,19 +6,91 @@
 
 import express from 'express';
 import path from 'path';
-import { Storage, AdminSettings, Campaign } from './storage';
+import { Storage, AdminSettings, Campaign, CampaignConversationSettings } from './storage';
 import { config } from './config';
 import { botState } from './botState';
 import { startWhatsAppBot, stopWhatsAppBot } from './whatsappLifecycle';
 import { isGoogleConnected, getGoogleAuthUrl, handleGoogleCallback, disconnectGoogle } from './googleContacts';
 import { testICloudConnection } from './icloudContacts';
+import { createAccessControl } from './accessControl';
+import { OwnerStorage } from './ownerStorage';
+
+function conversationSettings(
+  input: Partial<CampaignConversationSettings> | undefined,
+  defaults: CampaignConversationSettings,
+): CampaignConversationSettings {
+  return {
+    askNameEnabled: typeof input?.askNameEnabled === 'boolean' ? input.askNameEnabled : defaults.askNameEnabled,
+    nameTimeoutMinutes: typeof input?.nameTimeoutMinutes === 'number' && input.nameTimeoutMinutes > 0
+      ? input.nameTimeoutMinutes
+      : defaults.nameTimeoutMinutes,
+    askNameText: typeof input?.askNameText === 'string' ? input.askNameText : defaults.askNameText,
+    replyText: typeof input?.replyText === 'string' ? input.replyText : defaults.replyText,
+    followupMessages: Array.isArray(input?.followupMessages)
+      ? input.followupMessages.filter((message): message is string => typeof message === 'string')
+      : defaults.followupMessages,
+  };
+}
 
 export function startAdminServer(storage: Storage): void {
   const app = express();
+  const publicDir = path.join(__dirname, '..', 'public');
+  const ownerPublicDir = path.join(__dirname, '..', 'owner-public');
+  const ownerStorage = new OwnerStorage(config.OWNER_STORAGE_PATH);
+  const access = createAccessControl();
 
   app.set('trust proxy', 1);
   app.use(express.json());
-  app.use(express.static(path.join(__dirname, '..', 'public')));
+
+  app.get('/client/login', (_req, res) => {
+    res.sendFile(path.join(publicDir, 'login.html'));
+  });
+  app.get('/login', (_req, res) => {
+    res.redirect('/client/login');
+  });
+  app.get('/owner/login', (_req, res) => {
+    res.sendFile(path.join(ownerPublicDir, 'login.html'));
+  });
+  app.post('/auth/client/login', access.clientLogin);
+  app.post('/auth/client/logout', access.requireClient, access.clientLogout);
+  app.post('/auth/owner/login', access.ownerLogin);
+  app.post('/auth/owner/logout', access.requireOwner, access.ownerLogout);
+
+  app.use('/owner/api', access.requireOwner);
+
+  app.get('/owner/api/clients', (_req, res) => {
+    res.json(ownerStorage.getClients());
+  });
+
+  app.post('/owner/api/clients', (req, res) => {
+    const name = String(req.body?.name ?? '').trim();
+    const accessCode = String(req.body?.accessCode ?? '').trim();
+    if (!name) {
+      res.status(400).json({ error: 'שם לקוחה חסר' });
+      return;
+    }
+    if (accessCode.length < 8) {
+      res.status(400).json({ error: 'הסיסמה ללקוחה חייבת להכיל לפחות 8 תווים' });
+      return;
+    }
+    if (accessCode.length > 128) {
+      res.status(400).json({ error: 'הסיסמה ללקוחה ארוכה מדי' });
+      return;
+    }
+    res.status(201).json(ownerStorage.addClient(name, accessCode));
+  });
+
+  app.get('/owner/api/clients/:id', (req, res) => {
+    const client = ownerStorage.getClient(req.params.id);
+    if (!client) {
+      res.status(404).json({ error: 'לקוחה לא נמצאה' });
+      return;
+    }
+    res.json(client);
+  });
+
+  app.use('/owner', access.requireOwner, express.static(ownerPublicDir));
+  app.use('/api', access.requireClient);
 
   // ── QR code status ────────────────────────────────────────────────────────
 
@@ -116,7 +188,7 @@ export function startAdminServer(storage: Storage): void {
     }
   });
 
-  app.get('/oauth2callback', async (req, res) => {
+  app.get('/oauth2callback', access.requireClient, async (req, res) => {
     const code  = String(req.query.code  ?? '');
     const error = String(req.query.error ?? '');
     if (error || !code) {
@@ -141,7 +213,9 @@ export function startAdminServer(storage: Storage): void {
   // ── Public config (phone number for wa.me links) ─────────────────────────
 
   app.get('/api/config', (_req, res) => {
-    res.json({ phone: botState.connectedPhone ?? config.MY_CONTACT.phone.replace('+', '') });
+    const profile = storage.getClientProfile();
+    const fallbackPhone = config.MY_CONTACT.phone.replace('+', '');
+    res.json({ phone: botState.connectedPhone ?? (profile.whatsappPhone || fallbackPhone) });
   });
 
   // ── Settings ──────────────────────────────────────────────────────────────
@@ -209,7 +283,10 @@ export function startAdminServer(storage: Storage): void {
   });
 
   app.get('/api/campaigns', (_req, res) => {
-    res.json(storage.getCampaigns());
+    res.json(storage.getCampaigns().map((campaign) => ({
+      ...campaign,
+      conversation: storage.getCampaignConversationSettings(campaign),
+    })));
   });
 
   app.get('/api/campaign-results', (_req, res) => {
@@ -246,7 +323,7 @@ export function startAdminServer(storage: Storage): void {
   });
 
   app.post('/api/campaigns', (req, res) => {
-    const { name, triggerType, triggerPhrase, basePhrase, referrerName, startAt, endAt } =
+    const { name, triggerType, triggerPhrase, basePhrase, referrerName, startAt, endAt, conversation } =
       req.body as Partial<Campaign>;
 
     if (!name?.trim()) { res.status(400).json({ error: 'שם הקמפיין חסר' }); return; }
@@ -285,12 +362,13 @@ export function startAdminServer(storage: Storage): void {
       active: true,
       startAt: typeof startAt === 'string' && startAt ? startAt : undefined,
       endAt: typeof endAt === 'string' && endAt ? endAt : undefined,
+      conversation: conversationSettings(conversation, storage.getAdminSettings()),
     });
     res.json(campaign);
   });
 
   app.put('/api/campaigns/:id', (req, res) => {
-    const { name, triggerType, triggerPhrase, basePhrase, referrerName, active, startAt, endAt } =
+    const { name, triggerType, triggerPhrase, basePhrase, referrerName, active, startAt, endAt, conversation } =
       req.body as Partial<Campaign>;
 
     const patch: Partial<Omit<Campaign, 'id'>> = {};
@@ -303,6 +381,13 @@ export function startAdminServer(storage: Storage): void {
     }
     if ('startAt' in req.body) patch.startAt = typeof startAt === 'string' && startAt ? startAt : undefined;
     if ('endAt' in req.body) patch.endAt = typeof endAt === 'string' && endAt ? endAt : undefined;
+    if ('conversation' in req.body) {
+      const existing = storage.getCampaigns().find((campaign) => campaign.id === req.params.id);
+      const defaults = existing
+        ? storage.getCampaignConversationSettings(existing)
+        : conversationSettings(undefined, storage.getAdminSettings());
+      patch.conversation = conversationSettings(conversation, defaults);
+    }
 
     if (triggerType === 1) {
       patch.triggerType = 1;
@@ -347,6 +432,17 @@ export function startAdminServer(storage: Storage): void {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
+
+  app.get('/', (_req, res) => {
+    res.redirect('/owner/');
+  });
+  app.get('/client', access.requireClient, (_req, res) => {
+    res.sendFile(path.join(publicDir, 'index.html'));
+  });
+  app.get('/client/', access.requireClient, (_req, res) => {
+    res.sendFile(path.join(publicDir, 'index.html'));
+  });
+  app.use('/client', access.requireClient, express.static(publicDir));
 
   app.listen(config.ADMIN_PORT, () => {
     console.log(`🖥️  Admin dashboard → http://localhost:${config.ADMIN_PORT}`);

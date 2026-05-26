@@ -2,7 +2,10 @@ node_modules
 dist
 session/
 data/
+owner-data/
 credentials.json
 .env
 *.vcf
 .git
+.wwebjs_cache/
+docs/

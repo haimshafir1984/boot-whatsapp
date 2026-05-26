@@ -70,8 +70,13 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
   client.on('ready', () => {
     botState.ready = true;
     botState.connectedPhone = (client.info?.wid?.user ?? null) as string | null;
-    const settings = storage.getAdminSettings();
+    if (botState.connectedPhone) {
+      storage.updateClientProfile({ whatsappPhone: botState.connectedPhone });
+    }
     const campaigns = storage.getActiveCampaigns();
+    const namePromptCount = campaigns.filter(
+      (campaign) => storage.getCampaignConversationSettings(campaign).askNameEnabled,
+    ).length;
 
     console.log('\nWhatsApp bot is ready.');
     console.log(`   Connected phone  : ${botState.connectedPhone ?? 'unknown'}`);
@@ -79,9 +84,7 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
     campaigns.forEach((campaign) =>
       console.log(`     - [${campaign.triggerType === 1 ? 'Bot' : 'Ref'}] "${campaign.triggerPhrase}"`),
     );
-    console.log(
-      `   Ask for name     : ${settings.askNameEnabled ? `yes (${settings.nameTimeoutMinutes}m)` : 'no'}`,
-    );
+    console.log(`   Ask for name     : ${namePromptCount}/${campaigns.length} active campaigns`);
     console.log('');
   });
 

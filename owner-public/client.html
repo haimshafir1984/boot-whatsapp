@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>עמוד לקוחה</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f5f6f8; color: #111827; font-family: 'Segoe UI', Arial, sans-serif; }
+    header {
+      height: 62px; background: #fff; border-bottom: 1px solid #e5e7eb;
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 0 max(20px, calc((100vw - 1050px) / 2));
+    }
+    header a { color: #374151; text-decoration: none; font-size: .88rem; }
+    header strong { font-size: 1rem; }
+    main { max-width: 1050px; margin: 0 auto; padding: 28px 20px; }
+    .heading { display: flex; justify-content: space-between; align-items: start; gap: 14px; margin-bottom: 24px; }
+    h1 { font-size: 1.45rem; margin: 0 0 5px; }
+    .muted { color: #6b7280; font-size: .86rem; }
+    .badge { color: #92400e; background: #fef3c7; border-radius: 99px; padding: 6px 12px; font-size: .78rem; font-weight: 700; }
+    .grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 18px; }
+    section { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin-bottom: 18px; }
+    h2 { font-size: .96rem; margin: 0 0 16px; }
+    .line { display: flex; justify-content: space-between; gap: 14px; padding: 11px 0; border-bottom: 1px solid #f3f4f6; font-size: .86rem; }
+    .line:last-child { border-bottom: 0; }
+    .label { color: #6b7280; }
+    .value { font-weight: 600; text-align: left; direction: ltr; }
+    .code { font-family: Consolas, monospace; }
+    .copy { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; padding: 5px 8px; cursor: pointer; margin-right: 8px; }
+    .check { display: flex; align-items: center; gap: 10px; padding: 10px 0; font-size: .87rem; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #d1d5db; flex-shrink: 0; }
+    .future {
+      background: #eff6ff; border: 1px solid #dbeafe; border-radius: 8px;
+      color: #1e3a8a; padding: 13px 14px; line-height: 1.55; font-size: .84rem;
+    }
+    .empty { border: 1px dashed #d1d5db; color: #6b7280; border-radius: 8px; padding: 28px 16px; text-align: center; font-size: .86rem; }
+    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .heading { flex-direction: column; } }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>דשבורד מנהלים</strong>
+    <a href="/owner/">חזרה לרשימת הלקוחות</a>
+  </header>
+  <main>
+    <div class="heading">
+      <div>
+        <h1 id="clientName">טוען...</h1>
+        <div class="muted">עמוד ניהול פנימי של הלקוחה</div>
+      </div>
+      <span class="badge" id="status">ממתין להקמה ב-Railway</span>
+    </div>
+    <div class="grid">
+      <div>
+        <section>
+          <h2>פרטי יחידה</h2>
+          <div class="line"><span class="label">נוצרה</span><span class="value" id="createdAt"></span></div>
+          <div class="line">
+            <span class="label">סיסמת כניסה ללקוחה</span>
+            <span><span class="value code" id="accessCode"></span><button class="copy" onclick="copyAccessCode()">העתק</button></span>
+          </div>
+          <div class="line"><span class="label">לינק ראשוני ללקוחה</span><span class="value" id="managementUrl">יופיע לאחר הקמת Railway</span></div>
+        </section>
+        <section>
+          <h2>קמפיינים ותוצאות</h2>
+          <div class="empty">לאחר הקמת היחידה ב-Railway יוצגו כאן הקמפיינים והתוצאות שלה בלבד.</div>
+        </section>
+      </div>
+      <div>
+        <section>
+          <h2>מוכנות להפעלה</h2>
+          <div class="check"><span class="dot"></span>התקנת Railway נפרדת טרם נוצרה</div>
+          <div class="check"><span class="dot"></span>WhatsApp טרם חובר</div>
+          <div class="check"><span class="dot"></span>Google Contacts טרם חובר</div>
+          <div class="check"><span class="dot"></span>אין קמפיין פעיל</div>
+        </section>
+        <div class="future">
+          בשלב הבא הכפתור ליצירת לקוחה יקים עבורה התקנה מבודדת. אז העמוד הזה יציג סטטוס אמת, קישור כניסה, קמפיינים ותוצאות, ללא גישה לנתונים של לקוחות אחרות.
+        </div>
+      </div>
+    </div>
+    <div id="error" class="muted"></div>
+  </main>
+  <script>
+    let currentClient = null;
+
+    function statusLabel(status) {
+      return status === 'pending_railway_setup' ? 'ממתין להקמה ב-Railway' : status;
+    }
+
+    async function loadClient() {
+      const id = new URLSearchParams(window.location.search).get('id');
+      if (!id) {
+        document.getElementById('error').textContent = 'חסרה בחירת לקוחה.';
+        return;
+      }
+      const response = await fetch(`/owner/api/clients/${encodeURIComponent(id)}`);
+      if (response.status === 401) {
+        window.location.href = '/owner/login';
+        return;
+      }
+      if (!response.ok) {
+        document.getElementById('error').textContent = 'הלקוחה לא נמצאה.';
+        return;
+      }
+      currentClient = await response.json();
+      document.getElementById('clientName').textContent = currentClient.name;
+      document.getElementById('status').textContent = statusLabel(currentClient.provisioningStatus);
+      document.getElementById('createdAt').textContent = new Date(currentClient.createdAt).toLocaleString('he-IL');
+      document.getElementById('accessCode').textContent = currentClient.accessCode;
+      document.getElementById('managementUrl').textContent = currentClient.managementUrl || 'יופיע לאחר הקמת Railway';
+    }
+
+    function copyAccessCode() {
+      if (currentClient) navigator.clipboard.writeText(currentClient.accessCode);
+    }
+
+    loadClient();
+  </script>
+</body>
+</html>

@@ -27,10 +27,20 @@ export interface Campaign {
   /** Optional scheduled campaign window. Existing campaigns without dates stay always-on while active. */
   startAt?: string;
   endAt?: string;
+  /** Conversation copy for this campaign. Older campaigns fall back to legacy admin settings. */
+  conversation?: CampaignConversationSettings;
   runtimeStatus?: CampaignRuntimeStatus;
 }
 
 export type CampaignRuntimeStatus = 'draft' | 'scheduled' | 'active' | 'ended' | 'disabled';
+
+export interface CampaignConversationSettings {
+  askNameEnabled: boolean;
+  nameTimeoutMinutes: number;
+  askNameText: string;
+  replyText: string;
+  followupMessages: string[];
+}
 
 export interface AdminSettings {
   askNameEnabled: boolean;
@@ -43,6 +53,10 @@ export interface AdminSettings {
   followupMessages: string[];
   referralPrefix: string;
   botSuffix: string;
+}
+
+export interface ClientProfile {
+  whatsappPhone: string;
 }
 
 export interface SavedContact {
@@ -83,6 +97,7 @@ interface StorageData {
   contactsList: SavedContact[];
   contactQueue: ContactSaveJob[];
   campaignResults: CampaignResult[];
+  clientProfile: ClientProfile;
   adminSettings: AdminSettings;
   campaigns: Campaign[];
 }
@@ -100,6 +115,10 @@ const DEFAULT_SETTINGS: AdminSettings = {
   followupMessages: [],
   referralPrefix: config.TRIGGER_REFERRAL_PREFIX,
   botSuffix: config.BOT_SUFFIX,
+};
+
+const DEFAULT_CLIENT_PROFILE: ClientProfile = {
+  whatsappPhone: '',
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -129,6 +148,7 @@ export class Storage {
         contactsList: [],
         contactQueue: [],
         campaignResults: [],
+        clientProfile: { ...DEFAULT_CLIENT_PROFILE },
         adminSettings: { ...DEFAULT_SETTINGS },
         campaigns: [],
       };
@@ -162,6 +182,7 @@ export class Storage {
         contactsList,
         contactQueue,
         campaignResults: parsed.campaignResults ?? [],
+        clientProfile: { ...DEFAULT_CLIENT_PROFILE, ...parsed.clientProfile },
         adminSettings: { ...DEFAULT_SETTINGS, ...migratedSettings },
         campaigns: parsed.campaigns ?? [],
       };
@@ -172,6 +193,7 @@ export class Storage {
         contactsList: [],
         contactQueue: [],
         campaignResults: [],
+        clientProfile: { ...DEFAULT_CLIENT_PROFILE },
         adminSettings: { ...DEFAULT_SETTINGS },
         campaigns: [],
       };
@@ -367,7 +389,28 @@ export class Storage {
     return this.getAdminSettings();
   }
 
+  getClientProfile(): ClientProfile {
+    return { ...this.data.clientProfile };
+  }
+
+  updateClientProfile(patch: Partial<ClientProfile>): ClientProfile {
+    this.data.clientProfile = { ...this.data.clientProfile, ...patch };
+    this.persist();
+    return this.getClientProfile();
+  }
+
   // ─── Campaigns ─────────────────────────────────────────────────────────────
+
+  getCampaignConversationSettings(campaign: Campaign): CampaignConversationSettings {
+    const defaults = this.getAdminSettings();
+    return {
+      askNameEnabled: campaign.conversation?.askNameEnabled ?? defaults.askNameEnabled,
+      nameTimeoutMinutes: campaign.conversation?.nameTimeoutMinutes ?? defaults.nameTimeoutMinutes,
+      askNameText: campaign.conversation?.askNameText ?? defaults.askNameText,
+      replyText: campaign.conversation?.replyText ?? defaults.replyText,
+      followupMessages: campaign.conversation?.followupMessages ?? defaults.followupMessages,
+    };
+  }
 
   getCampaigns(): Campaign[] {
     return this.data.campaigns.map((campaign) => ({

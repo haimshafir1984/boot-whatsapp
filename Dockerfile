@@ -25,6 +25,7 @@ ENV NODE_ENV=production
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/public ./public
+COPY --from=builder /app/owner-public ./owner-public
 COPY package*.json ./
 RUN npm ci --omit=dev
 

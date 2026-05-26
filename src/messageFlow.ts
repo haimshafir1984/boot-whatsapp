@@ -73,6 +73,8 @@ async function handleMessage(
       pending.senderPhone,
       finalName,
       pending.campaignResultId,
+      pending.replyText,
+      pending.followupMessages,
     );
     return;
   }
@@ -94,11 +96,13 @@ async function handleMessage(
   const pushname =
     displayName.trim() ||
     config.CONTACT_NAME_FALLBACK.replace('{phone}', senderPhone);
+  const campaign = activeCampaigns.find((item) => item.id === trigger.campaignId);
+  if (!campaign) return;
   const campaignResult = storage.recordCampaignTrigger(trigger.campaignId, senderPhone);
 
   console.log(`\n[${trigger.campaignName}] from ${senderPhone} (${pushname})`);
 
-  const settings = storage.getAdminSettings();
+  const settings = storage.getCampaignConversationSettings(campaign);
   if (settings.askNameEnabled) {
     const askText = settings.askNameText.replace(
       '{timeout}',
@@ -118,6 +122,8 @@ async function handleMessage(
         senderPhone,
         finalName,
         campaignResult.id,
+        settings.replyText,
+        settings.followupMessages,
       );
     }, settings.nameTimeoutMinutes * 60 * 1000);
 
@@ -125,6 +131,8 @@ async function handleMessage(
       senderJid,
       senderPhone,
       campaignResultId: campaignResult.id,
+      replyText: settings.replyText,
+      followupMessages: settings.followupMessages,
       suffix: trigger.suffix,
       whatsappName: pushname,
       timestamp: Date.now(),
@@ -139,6 +147,8 @@ async function handleMessage(
       senderPhone,
       contactName,
       campaignResult.id,
+      settings.replyText,
+      settings.followupMessages,
     );
   }
 }
@@ -150,12 +160,13 @@ async function queueAndReply(
   senderPhone: string,
   contactName: string,
   campaignResultId?: string,
+  replyText = storage.getAdminSettings().replyText,
+  followupMessages = storage.getAdminSettings().followupMessages,
 ): Promise<void> {
   const job = storage.enqueueContactSave(senderPhone, contactName, campaignResultId);
   if (job) console.log(`   Contact queued for background save/update: ${senderPhone}`);
 
   try {
-    const { replyText, followupMessages } = storage.getAdminSettings();
     await transport.sendMessage(senderJid, replyText);
     console.log('   Text reply sent.');
 

@@ -11,6 +11,8 @@ export interface PendingConversation {
   senderJid: string;
   senderPhone: string;
   campaignResultId?: string;
+  replyText: string;
+  followupMessages: string[];
   /** Suffix to append to the final contact name (" - Bot" or " - [referrer]"). */
   suffix: string;
   /** Fallback: the sender's WhatsApp pushname, used if they don't reply. */

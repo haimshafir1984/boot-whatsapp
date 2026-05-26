@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>דשבורד מנהלים</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; background: #f5f6f8; color: #111827;
+      font-family: 'Segoe UI', Arial, sans-serif;
+    }
+    header {
+      height: 62px; background: #fff; border-bottom: 1px solid #e5e7eb;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 max(20px, calc((100vw - 1080px) / 2));
+    }
+    header h1 { font-size: 1.05rem; margin: 0; }
+    header button { border: 1px solid #d1d5db; background: #fff; border-radius: 7px; padding: 8px 12px; cursor: pointer; }
+    main { max-width: 1080px; margin: 0 auto; padding: 26px 20px; }
+    .top {
+      display: flex; align-items: end; justify-content: space-between; gap: 18px;
+      margin-bottom: 22px;
+    }
+    h2 { font-size: 1.38rem; margin: 0 0 5px; }
+    .sub { color: #6b7280; font-size: .88rem; }
+    .create {
+      display: grid; grid-template-columns: minmax(150px, 1fr) minmax(180px, 1fr) auto;
+      gap: 8px; min-width: min(620px, 100%);
+    }
+    input {
+      flex: 1; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 7px;
+      font-size: .9rem;
+    }
+    .primary {
+      background: #16a34a; color: #fff; border: none; padding: 10px 16px;
+      border-radius: 7px; font-weight: 700; cursor: pointer; white-space: nowrap;
+    }
+    .notice {
+      border: 1px solid #dbeafe; background: #eff6ff; color: #1e3a8a;
+      padding: 12px 14px; border-radius: 8px; font-size: .84rem; margin-bottom: 18px;
+    }
+    table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e5e7eb; }
+    th, td { text-align: right; padding: 12px 13px; border-bottom: 1px solid #e5e7eb; font-size: .84rem; }
+    th { background: #f9fafb; color: #6b7280; font-size: .75rem; }
+    .status { background: #fef3c7; color: #92400e; border-radius: 99px; padding: 4px 9px; font-weight: 600; white-space: nowrap; }
+    .code { font-family: Consolas, monospace; direction: ltr; display: inline-block; font-size: .78rem; color: #374151; }
+    .copy { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; padding: 5px 8px; cursor: pointer; margin-right: 8px; }
+    .open {
+      display: inline-block; border: 1px solid #d1d5db; background: #fff; color: #111827;
+      border-radius: 6px; padding: 7px 10px; text-decoration: none; font-weight: 600;
+    }
+    .empty { background: #fff; border: 1px solid #e5e7eb; padding: 42px; text-align: center; color: #6b7280; border-radius: 8px; }
+    #error { color: #b91c1c; font-size: .8rem; margin-top: 8px; min-height: 18px; }
+    @media (max-width: 760px) {
+      .top { flex-direction: column; align-items: stretch; }
+      .create { min-width: 0; flex-direction: column; }
+      table, thead, tbody, tr, th, td { display: block; }
+      thead { display: none; }
+      tr { padding: 10px 0; border-bottom: 1px solid #e5e7eb; }
+      td { border: none; padding: 5px 12px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>דשבורד מנהלים</h1>
+    <button onclick="logout()">יציאה</button>
+  </header>
+  <main>
+    <div class="top">
+      <div>
+        <h2>יחידות לקוחה</h2>
+        <div class="sub">לקוחות מבודדים המוכנים להקמה והפצה.</div>
+      </div>
+      <form class="create" id="createForm">
+        <input id="clientName" type="text" placeholder="שם הלקוחה" required />
+        <input id="clientAccessCode" type="password" minlength="8" placeholder="סיסמת כניסה ללקוחה" autocomplete="new-password" required />
+        <button class="primary" type="submit">צור יחידת לקוחה</button>
+      </form>
+    </div>
+    <div class="notice">
+      בעת יצירת לקוחה את בוחר סיסמת כניסה ושולח אותה בנפרד. כתובת כניסה אמיתית ומבודדת תופיע לאחר הקמת היחידה שלה ב-Railway.
+    </div>
+    <div id="error"></div>
+    <div id="clients"></div>
+  </main>
+  <script>
+    function esc(value) {
+      return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function statusLabel(status) {
+      return status === 'pending_railway_setup' ? 'ממתין להקמה ב-Railway' : status;
+    }
+
+    async function loadClients() {
+      const response = await fetch('/owner/api/clients');
+      if (response.status === 401) {
+        window.location.href = '/owner/login';
+        return;
+      }
+      const clients = await response.json();
+      const el = document.getElementById('clients');
+      if (!clients.length) {
+        el.innerHTML = '<div class="empty">עדיין לא נוצרו יחידות לקוחה.</div>';
+        return;
+      }
+      el.innerHTML = `
+        <table>
+          <thead><tr><th>לקוחה</th><th>סטטוס</th><th>נוצרה</th><th>סיסמת כניסה</th><th>ניהול</th></tr></thead>
+          <tbody>${clients.map(client => `
+            <tr>
+              <td><strong>${esc(client.name)}</strong></td>
+              <td><span class="status">${statusLabel(client.provisioningStatus)}</span></td>
+              <td>${new Date(client.createdAt).toLocaleString('he-IL')}</td>
+              <td>
+                <span class="code">${esc(client.accessCode)}</span>
+                <button class="copy" onclick="copyCode('${esc(client.accessCode)}')">העתק</button>
+              </td>
+              <td><a class="open" href="/owner/client.html?id=${encodeURIComponent(client.id)}">פתח עמוד לקוחה</a></td>
+            </tr>`).join('')}</tbody>
+        </table>`;
+    }
+
+    document.getElementById('createForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const error = document.getElementById('error');
+      error.textContent = '';
+      const response = await fetch('/owner/api/clients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: document.getElementById('clientName').value,
+          accessCode: document.getElementById('clientAccessCode').value,
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        error.textContent = body.error || 'יצירת הלקוחה נכשלה';
+        return;
+      }
+      document.getElementById('clientName').value = '';
+      document.getElementById('clientAccessCode').value = '';
+      loadClients();
+    });
+
+    function copyCode(code) {
+      navigator.clipboard.writeText(code);
+    }
+
+    async function logout() {
+      await fetch('/auth/owner/logout', { method: 'POST' });
+      window.location.href = '/owner/login';
+    }
+
+    loadClients();
+  </script>
+</body>
+</html>

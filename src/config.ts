@@ -16,17 +16,17 @@ export const config = {
   /** Fallback display name when the sender has no WhatsApp pushname. */
   CONTACT_NAME_FALLBACK: 'New Contact {phone}',
 
-  // ─── Your contact card (sent as vCard to every user who triggers the bot) ────
+  // ─── Optional contact-card values; configure per client via environment only ─
   MY_CONTACT: {
-    name: 'hadas gigi',        // <── EDIT: your full name
-    phone: '+972508522907',    // <── EDIT: your phone in E.164 format
-    email: '',                 // optional – leave '' to omit
-    organization: '',          // optional – leave '' to omit
+    name: process.env.CLIENT_CONTACT_NAME ?? '',
+    phone: process.env.CLIENT_PHONE ?? '',
+    email: process.env.CLIENT_CONTACT_EMAIL ?? '',
+    organization: process.env.CLIENT_CONTACT_ORGANIZATION ?? '',
   },
 
   // ─── Reply messages ───────────────────────────────────────────────────────────
   REPLY_TEXT:
-    'שמרתי אותך. כדי שתהני מהסטטוס שלי, אשמח שתשמרי אותי גם בשם: פרפר סגול -הלבשה אישית 💜',
+    'שמרתי אותך. כדי ליהנות מהסטטוסים שלי, אשמח שתשמרי אותי גם באנשי הקשר.',
 
   /** Sent when "ask for name" mode is enabled. {timeout} is replaced at runtime. */
   ASK_NAME_TEXT:
@@ -37,8 +37,9 @@ export const config = {
   ADMIN_PORT: Number(process.env.PORT) || 3001,
 
   // ─── File paths ───────────────────────────────────────────────────────────────
-  SESSION_PATH: './data/session',
-  STORAGE_PATH: './data/contacts.json',
-  GOOGLE_TOKEN_PATH: './data/google-token.json',
-  GOOGLE_CREDENTIALS_PATH: './credentials.json',
+  SESSION_PATH: process.env.SESSION_PATH ?? './data/session',
+  STORAGE_PATH: process.env.STORAGE_PATH ?? './data/contacts.json',
+  GOOGLE_TOKEN_PATH: process.env.GOOGLE_TOKEN_PATH ?? './data/google-token.json',
+  GOOGLE_CREDENTIALS_PATH: process.env.GOOGLE_CREDENTIALS_PATH ?? './credentials.json',
+  OWNER_STORAGE_PATH: process.env.OWNER_STORAGE_PATH ?? './owner-data/clients.json',
 } as const;

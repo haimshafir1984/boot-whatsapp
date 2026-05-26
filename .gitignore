@@ -2,6 +2,7 @@ node_modules/
 dist/
 session/
 data/
+owner-data/
 credentials.json
 data/google-token.json
 .env
