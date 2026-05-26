@@ -8,6 +8,7 @@ interface RailwayGraphQLResponse<T> {
 
 export interface ClientProvisioningPatch {
   railwayServiceId?: string;
+  railwayServiceCommitted?: boolean;
   railwayVolumeId?: string;
   railwaySourceAttached?: boolean;
   railwayDeploymentId?: string;
@@ -112,6 +113,12 @@ export class RailwayProvisioner {
       console.log(`Railway provisioning: service created for ${name}.`);
     }
 
+    if (!current.railwayServiceCommitted) {
+      await this.commitStagedChanges(`Create isolated service ${name}`);
+      current = saveProgress({ railwayServiceCommitted: true });
+      console.log(`Railway provisioning: empty service activated for ${name}.`);
+    }
+
     if (!current.railwayVolumeId) {
       const volume = await this.graphql<{ volumeCreate: { id: string } }>(
         `mutation volumeCreate($input: VolumeCreateInput!) {
@@ -200,6 +207,14 @@ export class RailwayProvisioner {
       console.log(`Railway provisioning: source connected for ${name}.`);
     }
 
+    const workflowId = await this.commitStagedChanges(`Provision ${name}`);
+    current = saveProgress({ railwayWorkflowId: workflowId });
+    console.log(`Railway provisioning: deployment triggered for ${name}.`);
+
+    return current;
+  }
+
+  private async commitStagedChanges(message: string): Promise<string> {
     const workflow = await this.graphql<{ environmentPatchCommitStaged: string }>(
       `mutation environmentPatchCommitStaged($environmentId: String!, $message: String) {
         environmentPatchCommitStaged(
@@ -208,14 +223,11 @@ export class RailwayProvisioner {
         )
       }`,
       {
-        environmentId: this.config.environmentId,
-        message: `Provision ${serviceName(current)}`,
+        environmentId: this.config!.environmentId,
+        message,
       },
     );
-    current = saveProgress({ railwayWorkflowId: workflow.environmentPatchCommitStaged });
-    console.log(`Railway provisioning: deployment triggered for ${name}.`);
-
-    return current;
+    return workflow.environmentPatchCommitStaged;
   }
 
   private async graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
