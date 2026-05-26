@@ -3,7 +3,7 @@ import { ManagedClient } from './ownerStorage';
 
 interface RailwayGraphQLResponse<T> {
   data?: T;
-  errors?: Array<{ message?: string }>;
+  errors?: Array<{ message?: string; traceId?: string }>;
 }
 
 export interface ClientProvisioningPatch {
@@ -233,7 +233,9 @@ export class RailwayProvisioner {
     if (!response.ok || result.errors?.length || !result.data) {
       const message = result.errors?.map((error) => error.message).filter(Boolean).join('; ')
         || `Railway API request failed (${response.status})`;
-      throw new Error(message);
+      const traceIds = [...new Set(result.errors?.map((error) => error.traceId).filter(Boolean) ?? [])];
+      const traceSuffix = traceIds.length ? ` (Railway traceId: ${traceIds.join(', ')})` : '';
+      throw new Error(`${message}${traceSuffix}`);
     }
     return result.data;
   }
