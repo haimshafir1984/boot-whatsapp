@@ -51,6 +51,9 @@ export function startAdminServer(storage: Storage): void {
   app.get('/owner/login', (_req, res) => {
     res.sendFile(path.join(ownerPublicDir, 'login.html'));
   });
+  app.get('/health', (_req, res) => {
+    res.json({ ok: true });
+  });
   app.post('/auth/client/login', access.clientLogin);
   app.post('/auth/client/logout', access.requireClient, access.clientLogout);
   app.post('/auth/owner/login', access.ownerLogin);
