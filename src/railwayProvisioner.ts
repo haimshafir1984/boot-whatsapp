@@ -8,7 +8,6 @@ interface RailwayGraphQLResponse<T> {
 
 export interface ClientProvisioningPatch {
   railwayServiceId?: string;
-  railwayServiceCommitted?: boolean;
   railwayVolumeId?: string;
   railwaySourceAttached?: boolean;
   railwayDeploymentId?: string;
@@ -106,17 +105,33 @@ export class RailwayProvisioner {
             projectId: this.config.projectId,
             environmentId: this.config.environmentId,
             name: serviceName(current),
+            source: {
+              repo: this.config.repo,
+            },
           },
         },
       );
-      current = saveProgress({ railwayServiceId: service.serviceCreate.id });
+      current = saveProgress({
+        railwayServiceId: service.serviceCreate.id,
+        railwaySourceAttached: true,
+      });
       console.log(`Railway provisioning: service created for ${name}.`);
     }
 
-    if (!current.railwayServiceCommitted) {
-      await this.commitStagedChanges(`Create isolated service ${name}`);
-      current = saveProgress({ railwayServiceCommitted: true });
-      console.log(`Railway provisioning: empty service activated for ${name}.`);
+    if (!current.railwaySourceAttached) {
+      await this.graphql<{ serviceConnect: { id: string } }>(
+        `mutation serviceConnect($id: String!, $input: ServiceConnectInput!) {
+          serviceConnect(id: $id, input: $input) { id }
+        }`,
+        {
+          id: current.railwayServiceId,
+          input: {
+            repo: this.config.repo,
+          },
+        },
+      );
+      current = saveProgress({ railwaySourceAttached: true });
+      console.log(`Railway provisioning: source connected for ${name}.`);
     }
 
     if (!current.railwayVolumeId) {
@@ -189,22 +204,6 @@ export class RailwayProvisioner {
       );
       current = saveProgress({ managementUrl: `https://${domain.serviceDomainCreate.domain}/client/` });
       console.log(`Railway provisioning: domain created for ${name}.`);
-    }
-
-    if (!current.railwaySourceAttached) {
-      await this.graphql<{ serviceConnect: { id: string } }>(
-        `mutation serviceConnect($id: String!, $input: ServiceConnectInput!) {
-          serviceConnect(id: $id, input: $input) { id }
-        }`,
-        {
-          id: current.railwayServiceId,
-          input: {
-            repo: this.config.repo,
-          },
-        },
-      );
-      current = saveProgress({ railwaySourceAttached: true });
-      console.log(`Railway provisioning: source connected for ${name}.`);
     }
 
     const workflowId = await this.commitStagedChanges(`Provision ${name}`);

@@ -11,7 +11,6 @@ export interface ManagedClient {
   managementUrl: string;
   provisioningStatus: ClientProvisioningStatus;
   railwayServiceId?: string;
-  railwayServiceCommitted?: boolean;
   railwayVolumeId?: string;
   railwaySourceAttached?: boolean;
   railwayDeploymentId?: string;
