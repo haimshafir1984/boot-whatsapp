@@ -88,6 +88,7 @@ http://localhost:3001
 | `RAILWAY_PROJECT_TOKEN` | Project Token לשירות המנהל, המשמש להקמת התקנות מבודדות ללקוחות חדשות |
 | `RAILWAY_SOURCE_REPO` | ריפו מקור להקמת לקוחות, רק אם Railway אינו מספק את פרטי Git אוטומטית |
 | `RAILWAY_API_URL` | אופציונלי בלבד; ברירת המחדל היא `https://backboard.railway.com/graphql/v2` |
+| `RAILWAY_VOLUME_REGION` | אופציונלי; אזור ה-Volume ללקוחות חדשות. ברירת מחדל `europe-west4-drams3a` (`EU West`) |
 
 ### הקמת לקוחות מבודדות
 

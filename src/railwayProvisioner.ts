@@ -22,6 +22,7 @@ interface RailwayProvisioningConfig {
   projectId: string;
   environmentId: string;
   repo: string;
+  volumeRegion: string;
   googleCredentialsBase64?: string;
 }
 
@@ -71,6 +72,7 @@ export class RailwayProvisioner {
       projectId: projectId!,
       environmentId: environmentId!,
       repo,
+      volumeRegion: env.RAILWAY_VOLUME_REGION?.trim() || 'europe-west4-drams3a',
       googleCredentialsBase64: env.GOOGLE_CREDENTIALS_BASE64?.trim(),
     };
   }
@@ -122,6 +124,7 @@ export class RailwayProvisioner {
             serviceId: current.railwayServiceId,
             mountPath: '/app/data',
             name: `${serviceName(current)}-data`,
+            region: this.config.volumeRegion,
           },
         },
       );
