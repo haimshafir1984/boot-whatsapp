@@ -43,13 +43,20 @@
     table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e5e7eb; }
     th, td { text-align: right; padding: 12px 13px; border-bottom: 1px solid #e5e7eb; font-size: .84rem; }
     th { background: #f9fafb; color: #6b7280; font-size: .75rem; }
-    .status { background: #fef3c7; color: #92400e; border-radius: 99px; padding: 4px 9px; font-weight: 600; white-space: nowrap; }
+    .status { border-radius: 99px; padding: 4px 9px; font-weight: 600; white-space: nowrap; }
+    .status.pending, .status.provisioning, .status.deploying { background: #fef3c7; color: #92400e; }
+    .status.ready { background: #dcfce7; color: #166534; }
+    .status.failed { background: #fee2e2; color: #991b1b; }
     .code { font-family: Consolas, monospace; direction: ltr; display: inline-block; font-size: .78rem; color: #374151; }
     .copy { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; padding: 5px 8px; cursor: pointer; margin-right: 8px; }
     .open {
       display: inline-block; border: 1px solid #d1d5db; background: #fff; color: #111827;
       border-radius: 6px; padding: 7px 10px; text-decoration: none; font-weight: 600;
     }
+    .client-link { color: #1d4ed8; text-decoration: none; direction: ltr; display: inline-block; font-size: .79rem; }
+    .client-link:hover { text-decoration: underline; }
+    .retry { border: 1px solid #fecaca; background: #fff; color: #b91c1c; border-radius: 6px; padding: 6px 9px; cursor: pointer; margin-top: 6px; }
+    .check-ready { border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 6px; padding: 6px 9px; cursor: pointer; margin-top: 6px; }
     .empty { background: #fff; border: 1px solid #e5e7eb; padding: 42px; text-align: center; color: #6b7280; border-radius: 8px; }
     #error { color: #b91c1c; font-size: .8rem; margin-top: 8px; min-height: 18px; }
     @media (max-width: 760px) {
@@ -80,7 +87,7 @@
       </form>
     </div>
     <div class="notice">
-      בעת יצירת לקוחה את בוחר סיסמת כניסה ושולח אותה בנפרד. כתובת כניסה אמיתית ומבודדת תופיע לאחר הקמת היחידה שלה ב-Railway.
+      בעת יצירת לקוחה המערכת מקימה עבורה שירות ושטח אחסון נפרדים ב-Railway. בסיום יופיע לינק אישי, ואת הסיסמה שולחים בנפרד.
     </div>
     <div id="error"></div>
     <div id="clients"></div>
@@ -91,7 +98,14 @@
     }
 
     function statusLabel(status) {
-      return status === 'pending_railway_setup' ? 'ממתין להקמה ב-Railway' : status;
+      return {
+        pending_railway_setup: 'ממתין להקמה',
+        provisioning: 'מוקם כעת...',
+        deploying: 'הפריסה התחילה',
+        ready: 'מוכן לשליחה',
+        failed: 'ההקמה נכשלה',
+        disabled: 'מושבת',
+      }[status] || status;
     }
 
     async function loadClients() {
@@ -108,12 +122,16 @@
       }
       el.innerHTML = `
         <table>
-          <thead><tr><th>לקוחה</th><th>סטטוס</th><th>נוצרה</th><th>סיסמת כניסה</th><th>ניהול</th></tr></thead>
+          <thead><tr><th>לקוחה</th><th>סטטוס</th><th>לינק ללקוחה</th><th>סיסמת כניסה</th><th>ניהול</th></tr></thead>
           <tbody>${clients.map(client => `
             <tr>
               <td><strong>${esc(client.name)}</strong></td>
-              <td><span class="status">${statusLabel(client.provisioningStatus)}</span></td>
-              <td>${new Date(client.createdAt).toLocaleString('he-IL')}</td>
+              <td>
+                <span class="status ${esc(client.provisioningStatus)}">${statusLabel(client.provisioningStatus)}</span>
+                ${client.provisioningStatus === 'failed' ? `<div><button class="retry" onclick="retryProvision('${encodeURIComponent(client.id)}')">נסה שוב</button></div>` : ''}
+                ${client.provisioningStatus === 'deploying' ? `<div><button class="check-ready" onclick="checkReady('${encodeURIComponent(client.id)}')">בדוק מוכנות</button></div>` : ''}
+              </td>
+              <td>${client.managementUrl ? `<a class="client-link" href="${esc(client.managementUrl)}" target="_blank">${esc(client.managementUrl)}</a>` : '-'}</td>
               <td>
                 <span class="code">${esc(client.accessCode)}</span>
                 <button class="copy" onclick="copyCode('${esc(client.accessCode)}')">העתק</button>
@@ -126,7 +144,10 @@
     document.getElementById('createForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       const error = document.getElementById('error');
+      const button = event.target.querySelector('button[type="submit"]');
       error.textContent = '';
+      button.disabled = true;
+      button.textContent = 'מקים יחידה...';
       const response = await fetch('/owner/api/clients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -138,12 +159,31 @@
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
         error.textContent = body.error || 'יצירת הלקוחה נכשלה';
+        button.disabled = false;
+        button.textContent = 'צור יחידת לקוחה';
+        loadClients();
         return;
       }
       document.getElementById('clientName').value = '';
       document.getElementById('clientAccessCode').value = '';
+      button.disabled = false;
+      button.textContent = 'צור יחידת לקוחה';
       loadClients();
     });
+
+    async function retryProvision(id) {
+      const error = document.getElementById('error');
+      error.textContent = '';
+      const response = await fetch(`/owner/api/clients/${id}/provision`, { method: 'POST' });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) error.textContent = body.error || 'הקמת הלקוחה נכשלה';
+      loadClients();
+    }
+
+    async function checkReady(id) {
+      await fetch(`/owner/api/clients/${id}/check-ready`, { method: 'POST' });
+      loadClients();
+    }
 
     function copyCode(code) {
       navigator.clipboard.writeText(code);

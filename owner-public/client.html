@@ -18,7 +18,10 @@
     .heading { display: flex; justify-content: space-between; align-items: start; gap: 14px; margin-bottom: 24px; }
     h1 { font-size: 1.45rem; margin: 0 0 5px; }
     .muted { color: #6b7280; font-size: .86rem; }
-    .badge { color: #92400e; background: #fef3c7; border-radius: 99px; padding: 6px 12px; font-size: .78rem; font-weight: 700; }
+    .badge { border-radius: 99px; padding: 6px 12px; font-size: .78rem; font-weight: 700; }
+    .badge.pending_railway_setup, .badge.provisioning, .badge.deploying { color: #92400e; background: #fef3c7; }
+    .badge.ready { color: #166534; background: #dcfce7; }
+    .badge.failed { color: #991b1b; background: #fee2e2; }
     .grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 18px; }
     section { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin-bottom: 18px; }
     h2 { font-size: .96rem; margin: 0 0 16px; }
@@ -28,6 +31,10 @@
     .value { font-weight: 600; text-align: left; direction: ltr; }
     .code { font-family: Consolas, monospace; }
     .copy { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; padding: 5px 8px; cursor: pointer; margin-right: 8px; }
+    .url { color: #1d4ed8; font-size: .8rem; text-decoration: none; word-break: break-all; }
+    .url:hover { text-decoration: underline; }
+    .retry { border: none; background: #16a34a; color: #fff; border-radius: 7px; padding: 9px 12px; cursor: pointer; font-weight: 700; margin-top: 12px; }
+    .secondary { border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 7px; padding: 9px 12px; cursor: pointer; font-weight: 700; margin-top: 12px; }
     .check { display: flex; align-items: center; gap: 10px; padding: 10px 0; font-size: .87rem; }
     .dot { width: 9px; height: 9px; border-radius: 50%; background: #d1d5db; flex-shrink: 0; }
     .future {
@@ -49,7 +56,7 @@
         <h1 id="clientName">טוען...</h1>
         <div class="muted">עמוד ניהול פנימי של הלקוחה</div>
       </div>
-      <span class="badge" id="status">ממתין להקמה ב-Railway</span>
+      <span class="badge pending_railway_setup" id="status">ממתין להקמה ב-Railway</span>
     </div>
     <div class="grid">
       <div>
@@ -60,7 +67,9 @@
             <span class="label">סיסמת כניסה ללקוחה</span>
             <span><span class="value code" id="accessCode"></span><button class="copy" onclick="copyAccessCode()">העתק</button></span>
           </div>
-          <div class="line"><span class="label">לינק ראשוני ללקוחה</span><span class="value" id="managementUrl">יופיע לאחר הקמת Railway</span></div>
+          <div class="line"><span class="label">לינק ראשוני ללקוחה</span><span class="value" id="managementUrl">מוקם כעת...</span></div>
+          <div class="line"><span class="label">Railway Service</span><span class="value code" id="railwayServiceId">-</span></div>
+          <div class="line"><span class="label">Deployment אחרון</span><span class="value code" id="railwayDeploymentId">-</span></div>
         </section>
         <section>
           <h2>קמפיינים ותוצאות</h2>
@@ -70,11 +79,13 @@
       <div>
         <section>
           <h2>מוכנות להפעלה</h2>
-          <div class="check"><span class="dot"></span>התקנת Railway נפרדת טרם נוצרה</div>
+          <div class="check"><span class="dot" id="railwayDot"></span><span id="railwayState">התקנת Railway נפרדת טרם נוצרה</span></div>
           <div class="check"><span class="dot"></span>WhatsApp טרם חובר</div>
           <div class="check"><span class="dot"></span>Google Contacts טרם חובר</div>
           <div class="check"><span class="dot"></span>אין קמפיין פעיל</div>
         </section>
+        <button class="retry" id="retryButton" style="display:none" onclick="retryProvision()">נסה שוב להקים את היחידה</button>
+        <button class="secondary" id="readyButton" style="display:none" onclick="checkReady()">בדוק אם הלינק כבר מוכן</button>
         <div class="future">
           בשלב הבא הכפתור ליצירת לקוחה יקים עבורה התקנה מבודדת. אז העמוד הזה יציג סטטוס אמת, קישור כניסה, קמפיינים ותוצאות, ללא גישה לנתונים של לקוחות אחרות.
         </div>
@@ -86,7 +97,14 @@
     let currentClient = null;
 
     function statusLabel(status) {
-      return status === 'pending_railway_setup' ? 'ממתין להקמה ב-Railway' : status;
+      return {
+        pending_railway_setup: 'ממתין להקמה ב-Railway',
+        provisioning: 'מוקם כעת ב-Railway',
+        deploying: 'הפריסה התחילה ב-Railway',
+        ready: 'מוכן לשליחה',
+        failed: 'ההקמה נכשלה',
+        disabled: 'מושבת',
+      }[status] || status;
     }
 
     async function loadClient() {
@@ -107,13 +125,51 @@
       currentClient = await response.json();
       document.getElementById('clientName').textContent = currentClient.name;
       document.getElementById('status').textContent = statusLabel(currentClient.provisioningStatus);
+      document.getElementById('status').className = `badge ${currentClient.provisioningStatus}`;
       document.getElementById('createdAt').textContent = new Date(currentClient.createdAt).toLocaleString('he-IL');
       document.getElementById('accessCode').textContent = currentClient.accessCode;
-      document.getElementById('managementUrl').textContent = currentClient.managementUrl || 'יופיע לאחר הקמת Railway';
+      document.getElementById('retryButton').style.display = 'none';
+      document.getElementById('readyButton').style.display = 'none';
+      const managementEl = document.getElementById('managementUrl');
+      if (currentClient.managementUrl) {
+        managementEl.innerHTML = `<a class="url" href="${currentClient.managementUrl}" target="_blank">${currentClient.managementUrl}</a>`;
+      } else {
+        managementEl.textContent = 'יופיע לאחר הקמת Railway';
+      }
+      document.getElementById('railwayServiceId').textContent = currentClient.railwayServiceId || '-';
+      document.getElementById('railwayDeploymentId').textContent = currentClient.railwayDeploymentId || '-';
+      if (currentClient.provisioningStatus === 'ready') {
+        document.getElementById('railwayDot').style.background = '#22c55e';
+        document.getElementById('railwayState').textContent = 'שירות Railway מבודד נוצר';
+      } else if (currentClient.provisioningStatus === 'deploying') {
+        document.getElementById('railwayDot').style.background = '#f59e0b';
+        document.getElementById('railwayState').textContent = 'השירות נוצר והפריסה החלה. יש לוודא הצלחה ב-Railway לפני שליחת הלינק.';
+        document.getElementById('readyButton').style.display = '';
+      } else if (currentClient.provisioningStatus === 'failed') {
+        document.getElementById('railwayDot').style.background = '#ef4444';
+        document.getElementById('railwayState').textContent = currentClient.provisioningError || 'ההקמה נכשלה';
+        document.getElementById('retryButton').style.display = '';
+      }
     }
 
     function copyAccessCode() {
       if (currentClient) navigator.clipboard.writeText(currentClient.accessCode);
+    }
+
+    async function retryProvision() {
+      if (!currentClient) return;
+      const response = await fetch(`/owner/api/clients/${encodeURIComponent(currentClient.id)}/provision`, { method: 'POST' });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        document.getElementById('error').textContent = body.error || 'ההקמה נכשלה';
+      }
+      loadClient();
+    }
+
+    async function checkReady() {
+      if (!currentClient) return;
+      await fetch(`/owner/api/clients/${encodeURIComponent(currentClient.id)}/check-ready`, { method: 'POST' });
+      loadClient();
     }
 
     loadClient();

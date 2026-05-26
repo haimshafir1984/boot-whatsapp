@@ -14,6 +14,7 @@ import { isGoogleConnected, getGoogleAuthUrl, handleGoogleCallback, disconnectGo
 import { testICloudConnection } from './icloudContacts';
 import { createAccessControl } from './accessControl';
 import { OwnerStorage } from './ownerStorage';
+import { RailwayProvisioner } from './railwayProvisioner';
 
 function conversationSettings(
   input: Partial<CampaignConversationSettings> | undefined,
@@ -37,6 +38,7 @@ export function startAdminServer(storage: Storage): void {
   const publicDir = path.join(__dirname, '..', 'public');
   const ownerPublicDir = path.join(__dirname, '..', 'owner-public');
   const ownerStorage = new OwnerStorage(config.OWNER_STORAGE_PATH);
+  const railwayProvisioner = new RailwayProvisioner();
   const access = createAccessControl();
 
   app.set('trust proxy', 1);
@@ -65,7 +67,43 @@ export function startAdminServer(storage: Storage): void {
     res.json(ownerStorage.getClients());
   });
 
-  app.post('/owner/api/clients', (req, res) => {
+  app.get('/owner/api/provisioning-status', (_req, res) => {
+    res.json({
+      configured: !railwayProvisioner.configurationError,
+      error: railwayProvisioner.configurationError,
+    });
+  });
+
+  const provisionClient = async (id: string) => {
+    const client = ownerStorage.getClient(id);
+    if (!client) throw new Error('לקוחה לא נמצאה');
+    if (railwayProvisioner.configurationError) {
+      throw new Error(railwayProvisioner.configurationError);
+    }
+
+    let current = ownerStorage.updateClient(id, {
+      provisioningStatus: 'provisioning',
+      provisioningError: undefined,
+    })!;
+    try {
+      current = await railwayProvisioner.provision(current, (patch) => {
+        return ownerStorage.updateClient(id, patch)!;
+      });
+      return ownerStorage.updateClient(id, {
+        provisioningStatus: 'deploying',
+        provisioningError: undefined,
+      })!;
+    } catch (err: any) {
+      const message = err?.message ?? String(err);
+      ownerStorage.updateClient(id, {
+        provisioningStatus: 'failed',
+        provisioningError: message,
+      });
+      throw new Error(message);
+    }
+  };
+
+  app.post('/owner/api/clients', async (req, res) => {
     const name = String(req.body?.name ?? '').trim();
     const accessCode = String(req.body?.accessCode ?? '').trim();
     if (!name) {
@@ -80,7 +118,19 @@ export function startAdminServer(storage: Storage): void {
       res.status(400).json({ error: 'הסיסמה ללקוחה ארוכה מדי' });
       return;
     }
-    res.status(201).json(ownerStorage.addClient(name, accessCode));
+    if (railwayProvisioner.configurationError) {
+      res.status(503).json({ error: railwayProvisioner.configurationError });
+      return;
+    }
+    const client = ownerStorage.addClient(name, accessCode);
+    try {
+      res.status(201).json(await provisionClient(client.id));
+    } catch (err: any) {
+      res.status(502).json({
+        error: err?.message ?? String(err),
+        client: ownerStorage.getClient(client.id),
+      });
+    }
   });
 
   app.get('/owner/api/clients/:id', (req, res) => {
@@ -90,6 +140,49 @@ export function startAdminServer(storage: Storage): void {
       return;
     }
     res.json(client);
+  });
+
+  app.post('/owner/api/clients/:id/check-ready', async (req, res) => {
+    const client = ownerStorage.getClient(req.params.id);
+    if (!client) {
+      res.status(404).json({ error: 'לקוחה לא נמצאה' });
+      return;
+    }
+    if (!client.managementUrl || client.provisioningStatus === 'failed') {
+      res.json(client);
+      return;
+    }
+    try {
+      const healthUrl = new URL('/health', client.managementUrl).toString();
+      const response = await fetch(healthUrl, { signal: AbortSignal.timeout(8_000) });
+      if (response.ok) {
+        res.json(ownerStorage.updateClient(client.id, { provisioningStatus: 'ready' }));
+        return;
+      }
+    } catch {
+      // A deployment may still be building; retain the current state.
+    }
+    res.json(client);
+  });
+
+  app.post('/owner/api/clients/:id/provision', async (req, res) => {
+    const client = ownerStorage.getClient(req.params.id);
+    if (!client) {
+      res.status(404).json({ error: 'לקוחה לא נמצאה' });
+      return;
+    }
+    if (client.provisioningStatus === 'ready') {
+      res.json(client);
+      return;
+    }
+    try {
+      res.json(await provisionClient(client.id));
+    } catch (err: any) {
+      res.status(502).json({
+        error: err?.message ?? String(err),
+        client: ownerStorage.getClient(client.id),
+      });
+    }
   });
 
   app.use('/owner', access.requireOwner, express.static(ownerPublicDir));

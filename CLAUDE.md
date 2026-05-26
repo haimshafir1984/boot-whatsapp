@@ -83,6 +83,24 @@ http://localhost:3001
 | `PORT` | פורט השרת. ברירת מחדל: `3001` |
 | `GOOGLE_CREDENTIALS_BASE64` | גרסת base64 של `credentials.json` עבור Railway |
 | `PUPPETEER_EXECUTABLE_PATH` | נתיב Chromium בסביבת Docker |
+| `OWNER_ACCESS_TOKEN` | סיסמת הכניסה לדשבורד המנהל |
+| `CLIENT_ACCESS_TOKEN` | סיסמת הכניסה להתקנת לקוחה יחידה |
+| `RAILWAY_PROJECT_TOKEN` | Project Token לשירות המנהל, המשמש להקמת התקנות מבודדות ללקוחות חדשות |
+| `RAILWAY_SOURCE_REPO` | ריפו מקור להקמת לקוחות, רק אם Railway אינו מספק את פרטי Git אוטומטית |
+| `RAILWAY_SOURCE_BRANCH` | ענף לפריסות לקוחה חדשות; ברירת מחדל `master` |
+
+### הקמת לקוחות מבודדות
+
+דשבורד המנהל יכול להקים לקוחה חדשה דרך Railway Public API. לכל לקוחה נוצרים:
+
+- Service נפרד מאותו קוד.
+- Volume נפרד המחובר ל-`/app/data`.
+- דומיין נפרד עם לינק כניסה ל-`/client/`.
+- משתנה `CLIENT_ACCESS_TOKEN` עם הסיסמה שנבחרה עבורה.
+- Deployment חדש של הקוד לאחר הגדרת הבידוד והסיסמה.
+- בדיקת מוכנות מתוך דשבורד המנהל, שמעבירה את הסטטוס ל"מוכן לשליחה" רק לאחר שהנתיב `/health` של הלקוחה עונה.
+
+טוקן `RAILWAY_PROJECT_TOKEN` נשאר רק בשירות המנהל ואינו מועבר לשירותי הלקוחות. אם ההקמה נעצרת באמצע, דשבורד המנהל שומר את מזהי משאבי Railway שכבר נוצרו ויכול לנסות שוב בלי ליצור Service או Volume כפולים.
 
 ## מבנה ארכיטקטורה
 

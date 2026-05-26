@@ -41,5 +41,5 @@ export const config = {
   STORAGE_PATH: process.env.STORAGE_PATH ?? './data/contacts.json',
   GOOGLE_TOKEN_PATH: process.env.GOOGLE_TOKEN_PATH ?? './data/google-token.json',
   GOOGLE_CREDENTIALS_PATH: process.env.GOOGLE_CREDENTIALS_PATH ?? './credentials.json',
-  OWNER_STORAGE_PATH: process.env.OWNER_STORAGE_PATH ?? './owner-data/clients.json',
+  OWNER_STORAGE_PATH: process.env.OWNER_STORAGE_PATH ?? './data/owner/clients.json',
 } as const;

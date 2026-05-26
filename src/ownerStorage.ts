@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
-export type ClientProvisioningStatus = 'pending_railway_setup' | 'ready' | 'disabled';
+export type ClientProvisioningStatus = 'pending_railway_setup' | 'provisioning' | 'deploying' | 'ready' | 'failed' | 'disabled';
 
 export interface ManagedClient {
   id: string;
@@ -10,6 +10,10 @@ export interface ManagedClient {
   accessCode: string;
   managementUrl: string;
   provisioningStatus: ClientProvisioningStatus;
+  railwayServiceId?: string;
+  railwayVolumeId?: string;
+  railwayDeploymentId?: string;
+  provisioningError?: string;
   createdAt: string;
 }
 
@@ -59,5 +63,13 @@ export class OwnerStorage {
     this.clients.push(client);
     this.persist();
     return client;
+  }
+
+  updateClient(id: string, patch: Partial<Omit<ManagedClient, 'id' | 'createdAt'>>): ManagedClient | null {
+    const index = this.clients.findIndex((client) => client.id === id);
+    if (index === -1) return null;
+    this.clients[index] = { ...this.clients[index], ...patch };
+    this.persist();
+    return { ...this.clients[index] };
   }
 }
