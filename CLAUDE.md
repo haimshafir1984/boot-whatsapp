@@ -87,7 +87,6 @@ http://localhost:3001
 | `CLIENT_ACCESS_TOKEN` | סיסמת הכניסה להתקנת לקוחה יחידה |
 | `RAILWAY_PROJECT_TOKEN` | Project Token לשירות המנהל, המשמש להקמת התקנות מבודדות ללקוחות חדשות |
 | `RAILWAY_SOURCE_REPO` | ריפו מקור להקמת לקוחות, רק אם Railway אינו מספק את פרטי Git אוטומטית |
-| `RAILWAY_SOURCE_BRANCH` | ענף לפריסות לקוחה חדשות; ברירת מחדל `master` |
 
 ### הקמת לקוחות מבודדות
 

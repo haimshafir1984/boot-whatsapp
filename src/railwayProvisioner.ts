@@ -20,7 +20,6 @@ interface RailwayProvisioningConfig {
   projectId: string;
   environmentId: string;
   repo: string;
-  branch: string;
   googleCredentialsBase64?: string;
 }
 
@@ -47,7 +46,6 @@ export class RailwayProvisioner {
       || (env.RAILWAY_GIT_REPO_OWNER && env.RAILWAY_GIT_REPO_NAME
         ? `${env.RAILWAY_GIT_REPO_OWNER}/${env.RAILWAY_GIT_REPO_NAME}`
         : '');
-    const branch = env.RAILWAY_SOURCE_BRANCH?.trim() || env.RAILWAY_GIT_BRANCH?.trim() || 'master';
 
     const missing = [
       !token && 'RAILWAY_PROJECT_TOKEN',
@@ -70,7 +68,6 @@ export class RailwayProvisioner {
       projectId: projectId!,
       environmentId: environmentId!,
       repo,
-      branch,
       googleCredentialsBase64: env.GOOGLE_CREDENTIALS_BASE64?.trim(),
     };
   }
@@ -82,6 +79,7 @@ export class RailwayProvisioner {
     if (!this.config) throw new Error(this.configurationError ?? 'Railway is not configured');
 
     let current = client;
+    let createdWithSource = false;
     if (!current.railwayServiceId) {
       const service = await this.graphql<{ serviceCreate: { id: string } }>(
         `mutation serviceCreate($input: ServiceCreateInput!) {
@@ -92,10 +90,14 @@ export class RailwayProvisioner {
             projectId: this.config.projectId,
             environmentId: this.config.environmentId,
             name: serviceName(current),
+            source: {
+              repo: this.config.repo,
+            },
           },
         },
       );
       current = saveProgress({ railwayServiceId: service.serviceCreate.id });
+      createdWithSource = true;
     }
 
     if (!current.railwayVolumeId) {
@@ -166,18 +168,20 @@ export class RailwayProvisioner {
       current = saveProgress({ managementUrl: `https://${domain.serviceDomainCreate.domain}/client/` });
     }
 
-    await this.graphql<{ serviceConnect: { id: string } }>(
-      `mutation serviceConnect($id: String!, $input: ServiceConnectInput!) {
-        serviceConnect(id: $id, input: $input) { id }
-      }`,
-      {
-        id: current.railwayServiceId,
-        input: {
-          repo: this.config.repo,
-          branch: this.config.branch,
+    // Retry can repair a service created before new services were created with a source.
+    if (!createdWithSource && !current.railwayDeploymentId) {
+      await this.graphql<{ serviceConnect: { id: string } }>(
+        `mutation serviceConnect($id: String!, $input: ServiceConnectInput!) {
+          serviceConnect(id: $id, input: $input) { id }
+        }`,
+        {
+          id: current.railwayServiceId,
+          input: {
+            repo: this.config.repo,
+          },
         },
-      },
-    );
+      );
+    }
 
     const deployment = await this.graphql<{ serviceInstanceDeployV2: string }>(
       `mutation serviceInstanceDeployV2($serviceId: String!, $environmentId: String!) {
