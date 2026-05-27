@@ -6,7 +6,7 @@
 
 import express from 'express';
 import path from 'path';
-import { Storage, AdminSettings, Campaign, CampaignConversationSettings } from './storage';
+import { Storage, AdminSettings, Campaign, CampaignConversationSettings, DecisionFlowOption, DecisionFlowStep } from './storage';
 import { config } from './config';
 import { botState } from './botState';
 import { startWhatsAppBot, stopWhatsAppBot } from './whatsappLifecycle';
@@ -36,7 +36,69 @@ function conversationSettings(
     followupMessages: Array.isArray(input?.followupMessages)
       ? input.followupMessages.filter((message): message is string => typeof message === 'string')
       : defaults.followupMessages,
+    decisionFlow: sanitizeDecisionFlow(input?.decisionFlow, defaults.decisionFlow),
   };
+}
+
+function sanitizeDecisionFlow(
+  input: unknown,
+  defaults: DecisionFlowStep[],
+): DecisionFlowStep[] {
+  if (!Array.isArray(input)) return defaults;
+
+  const steps = input
+    .map((raw, index): DecisionFlowStep | null => {
+      if (!raw || typeof raw !== 'object') return null;
+      const item = raw as Partial<DecisionFlowStep>;
+      const id = typeof item.id === 'string' && item.id.trim()
+        ? item.id.trim().slice(0, 80)
+        : `step-${index + 1}`;
+      const kind = item.kind === 'question' ? 'question' : 'message';
+      const text = typeof item.text === 'string' ? item.text.trim().slice(0, 2000) : '';
+      if (!text) return null;
+
+      const step: DecisionFlowStep = { id, kind, text };
+      if (typeof item.nextStepId === 'string' && item.nextStepId.trim()) {
+        step.nextStepId = item.nextStepId.trim().slice(0, 80);
+      }
+      if (kind === 'question' && Array.isArray(item.options)) {
+        step.options = item.options
+          .map((option, optionIndex): DecisionFlowOption | null => {
+            if (!option || typeof option !== 'object') return null;
+            const rawOption = option as Partial<DecisionFlowOption>;
+            const optionText = typeof rawOption.text === 'string' ? rawOption.text.trim().slice(0, 500) : '';
+            if (!optionText) return null;
+            const clean: DecisionFlowOption = {
+              id: typeof rawOption.id === 'string' && rawOption.id.trim()
+                ? rawOption.id.trim().slice(0, 80)
+                : `${id}-option-${optionIndex + 1}`,
+              text: optionText,
+            };
+            if (typeof rawOption.nextStepId === 'string' && rawOption.nextStepId.trim()) {
+              clean.nextStepId = rawOption.nextStepId.trim().slice(0, 80);
+            }
+            if (typeof rawOption.endText === 'string' && rawOption.endText.trim()) {
+              clean.endText = rawOption.endText.trim().slice(0, 2000);
+            }
+            return clean;
+          })
+          .filter((option): option is DecisionFlowOption => Boolean(option))
+          .slice(0, 8);
+      }
+      return step;
+    })
+    .filter((step): step is DecisionFlowStep => Boolean(step))
+    .slice(0, 20);
+
+  const ids = new Set(steps.map((step) => step.id));
+  return steps.map((step) => ({
+    ...step,
+    nextStepId: step.nextStepId && ids.has(step.nextStepId) ? step.nextStepId : undefined,
+    options: step.options?.map((option) => ({
+      ...option,
+      nextStepId: option.nextStepId && ids.has(option.nextStepId) ? option.nextStepId : undefined,
+    })),
+  }));
 }
 
 export function startAdminServer(storage: Storage): void {

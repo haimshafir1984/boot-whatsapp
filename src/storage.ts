@@ -40,6 +40,22 @@ export interface CampaignConversationSettings {
   askNameText: string;
   replyText: string;
   followupMessages: string[];
+  decisionFlow: DecisionFlowStep[];
+}
+
+export interface DecisionFlowStep {
+  id: string;
+  kind: 'message' | 'question';
+  text: string;
+  nextStepId?: string;
+  options?: DecisionFlowOption[];
+}
+
+export interface DecisionFlowOption {
+  id: string;
+  text: string;
+  nextStepId?: string;
+  endText?: string;
 }
 
 export interface AdminSettings {
@@ -51,6 +67,7 @@ export interface AdminSettings {
   askNameText: string;
   replyText: string;
   followupMessages: string[];
+  decisionFlow: DecisionFlowStep[];
   referralPrefix: string;
   botSuffix: string;
 }
@@ -113,6 +130,7 @@ const DEFAULT_SETTINGS: AdminSettings = {
   askNameText: config.ASK_NAME_TEXT,
   replyText: config.REPLY_TEXT,
   followupMessages: [],
+  decisionFlow: [],
   referralPrefix: config.TRIGGER_REFERRAL_PREFIX,
   botSuffix: config.BOT_SUFFIX,
 };
@@ -409,6 +427,7 @@ export class Storage {
       askNameText: campaign.conversation?.askNameText ?? defaults.askNameText,
       replyText: campaign.conversation?.replyText ?? defaults.replyText,
       followupMessages: campaign.conversation?.followupMessages ?? defaults.followupMessages,
+      decisionFlow: campaign.conversation?.decisionFlow ?? defaults.decisionFlow,
     };
   }
 

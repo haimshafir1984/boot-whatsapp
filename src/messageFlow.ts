@@ -1,6 +1,6 @@
 import { config } from './config';
 import { conversationState } from './conversationState';
-import { Storage } from './storage';
+import { DecisionFlowOption, DecisionFlowStep, Storage } from './storage';
 import { detectTrigger } from './triggerDetector';
 import {
   IncomingWhatsAppMessage,
@@ -57,6 +57,11 @@ async function handleMessage(
   const pending = conversationState.get(senderJid);
 
   if (pending) {
+    if (pending.kind === 'decision') {
+      await handleDecisionReply(message.body.trim(), pending.flow, pending.stepId, senderJid, transport);
+      return;
+    }
+
     const chosenName = message.body.trim();
     clearTimeout(pending.timeoutHandle);
     conversationState.remove(senderJid);
@@ -75,6 +80,7 @@ async function handleMessage(
       pending.campaignResultId,
       pending.replyText,
       pending.followupMessages,
+      pending.decisionFlow,
     );
     return;
   }
@@ -124,15 +130,18 @@ async function handleMessage(
         campaignResult.id,
         settings.replyText,
         settings.followupMessages,
+        settings.decisionFlow,
       );
     }, settings.nameTimeoutMinutes * 60 * 1000);
 
     conversationState.set(senderJid, {
+      kind: 'name',
       senderJid,
       senderPhone,
       campaignResultId: campaignResult.id,
       replyText: settings.replyText,
       followupMessages: settings.followupMessages,
+      decisionFlow: settings.decisionFlow,
       suffix: trigger.suffix,
       whatsappName: pushname,
       timestamp: Date.now(),
@@ -149,6 +158,7 @@ async function handleMessage(
       campaignResult.id,
       settings.replyText,
       settings.followupMessages,
+      settings.decisionFlow,
     );
   }
 }
@@ -162,6 +172,7 @@ async function queueAndReply(
   campaignResultId?: string,
   replyText = storage.getAdminSettings().replyText,
   followupMessages = storage.getAdminSettings().followupMessages,
+  decisionFlow: DecisionFlowStep[] = [],
 ): Promise<void> {
   const job = storage.enqueueContactSave(senderPhone, contactName, campaignResultId);
   if (job) console.log(`   Contact queued for background save/update: ${senderPhone}`);
@@ -176,7 +187,89 @@ async function queueAndReply(
       await transport.sendMessage(senderJid, text);
       console.log('   Follow-up reply sent.');
     }
+
+    await sendDecisionFlowStart(transport, senderJid, decisionFlow);
   } catch (err) {
     console.error('   Failed to send text reply:', err);
   }
+}
+
+async function handleDecisionReply(
+  answer: string,
+  flow: DecisionFlowStep[],
+  stepId: string,
+  senderJid: string,
+  transport: WhatsAppTransport,
+): Promise<void> {
+  const step = flow.find((item) => item.id === stepId);
+  if (!step || step.kind !== 'question') {
+    conversationState.remove(senderJid);
+    return;
+  }
+
+  const normalized = answer.trim().toLowerCase();
+  const option = step.options?.find((item, index) => {
+    return normalized === String(index + 1) || normalized === item.text.trim().toLowerCase();
+  });
+
+  if (!option) {
+    await transport.sendMessage(senderJid, `לא הבנתי את הבחירה.\n\n${formatQuestion(step)}`);
+    return;
+  }
+
+  conversationState.remove(senderJid);
+  if (option.endText?.trim()) {
+    await transport.sendMessage(senderJid, option.endText.trim());
+    console.log('   Decision reply sent.');
+  }
+
+  if (option.nextStepId) {
+    await sendDecisionStep(transport, senderJid, flow, option.nextStepId);
+  }
+}
+
+async function sendDecisionFlowStart(
+  transport: WhatsAppTransport,
+  senderJid: string,
+  flow: DecisionFlowStep[],
+): Promise<void> {
+  const first = flow.find((step) => step.text.trim());
+  if (!first) return;
+  await sendDecisionStep(transport, senderJid, flow, first.id);
+}
+
+async function sendDecisionStep(
+  transport: WhatsAppTransport,
+  senderJid: string,
+  flow: DecisionFlowStep[],
+  stepId: string,
+): Promise<void> {
+  const step = flow.find((item) => item.id === stepId);
+  if (!step?.text.trim()) return;
+
+  if (step.kind === 'message') {
+    await transport.sendMessage(senderJid, step.text.trim());
+    console.log('   Decision message sent.');
+    if (step.nextStepId) {
+      await sendDecisionStep(transport, senderJid, flow, step.nextStepId);
+    }
+    return;
+  }
+
+  await transport.sendMessage(senderJid, formatQuestion(step));
+  console.log('   Decision question sent.');
+  conversationState.set(senderJid, {
+    kind: 'decision',
+    senderJid,
+    flow,
+    stepId: step.id,
+    timestamp: Date.now(),
+  });
+}
+
+function formatQuestion(step: DecisionFlowStep): string {
+  const options = (step.options ?? [])
+    .map((option: DecisionFlowOption, index) => `${index + 1}. ${option.text}`)
+    .join('\n');
+  return options ? `${step.text.trim()}\n\n${options}` : step.text.trim();
 }
