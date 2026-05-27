@@ -193,7 +193,7 @@ function sanitizeDecisionFlow(
             return clean;
           })
           .filter((option): option is DecisionFlowOption => Boolean(option))
-          .slice(0, 8);
+          .slice(0, 3);
       }
       return step;
     })

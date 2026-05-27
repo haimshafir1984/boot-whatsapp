@@ -349,6 +349,16 @@
     .followup-row { display: flex; gap: 8px; align-items: flex-start; }
     .followup-row textarea { flex: 1; min-height: 64px; }
     .decision-flow { display: flex; flex-direction: column; gap: 12px; }
+    .flow-guide {
+      border: 1px solid #dbeafe;
+      background: #eff6ff;
+      color: #1e3a8a;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: .78rem;
+      line-height: 1.6;
+      margin-bottom: 10px;
+    }
     .decision-step {
       border: 1px solid #e5e7eb;
       border-radius: 10px;
@@ -363,6 +373,7 @@
       margin-bottom: 10px;
     }
     .decision-step-title { font-weight: 700; font-size: .84rem; color: #374151; }
+    .decision-step-subtitle { color: #6b7280; font-size: .74rem; margin-top: 2px; }
     .decision-step select,
     .decision-step input,
     .decision-step textarea {
@@ -374,6 +385,20 @@
       font-size: .84rem;
     }
     .decision-step textarea { min-height: 64px; resize: vertical; margin-bottom: 8px; }
+    .decision-next-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 5px;
+      margin-top: 6px;
+    }
+    .decision-next-row label,
+    .decision-options-label {
+      display: block;
+      font-size: .76rem;
+      font-weight: 700;
+      color: #6b7280;
+      margin-bottom: 5px;
+    }
     .decision-options { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
     .decision-option {
       display: grid;
@@ -395,7 +420,9 @@
       font-weight: 800;
       font-size: .8rem;
     }
-    .decision-option-grid { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; }
+    .decision-option-grid { display: grid; grid-template-columns: minmax(0, 1fr) 130px auto; gap: 8px; }
+    .decision-option-next { display: none; grid-column: 1 / -1; }
+    .decision-option-end { grid-column: 1 / -1; }
     .decision-option textarea { grid-column: 1 / -1; min-height: 52px; margin-bottom: 0; }
     .decision-empty {
       border: 1px dashed #d1d5db;
@@ -692,8 +719,11 @@
             <label>הודעות המשך נוספות</label>
             <div class="followup-list" id="fFollowupMessages"></div>
             <div class="hint" style="margin-top:14px;font-weight:700;color:#374151">עץ החלטה</div>
+            <div class="flow-guide">
+              מתאים למגבלות WhatsApp: בכל שאלת בחירה אפשר להגדיר עד 3 תשובות קצרות. המשתמש עונה במספר או בטקסט התשובה, והמערכת ממשיכה לפי הנתיב שבחרת.
+            </div>
             <div class="decision-flow" id="fDecisionFlow" style="margin-top:8px"></div>
-            <button type="button" class="btn-small" style="margin-top:8px" onclick="addDecisionStep()">+ הוסף שלב החלטה</button>
+            <button type="button" class="btn-small" style="margin-top:8px" onclick="addDecisionStep()">+ הוסף הודעה / שאלה</button>
             <button type="button" class="btn-small" style="margin-top:8px" onclick="addCampaignFollowupMessage()">+ הוסף הודעת המשך</button>
           </div>
         </div>
@@ -1060,24 +1090,31 @@
   function decisionStepHtml(step, index, steps) {
     const kind = step.kind === 'question' ? 'question' : 'message';
     const options = Array.isArray(step.options) && step.options.length
-      ? step.options
-      : [{ id: makeFlowId('option'), text: '', endText: '', nextStepId: '' }];
+      ? step.options.slice(0, 3)
+      : [
+          { id: makeFlowId('option'), text: '', endText: '', nextStepId: '' },
+          { id: makeFlowId('option'), text: '', endText: '', nextStepId: '' },
+        ];
     return `
       <div class="decision-step" data-decision-step data-step-id="${esc(step.id || makeFlowId())}">
         <div class="decision-step-head">
-          <div class="decision-step-title">שלב ${index + 1}</div>
+          <div>
+            <div class="decision-step-title">שלב ${index + 1}</div>
+            <div class="decision-step-subtitle">${kind === 'question' ? 'שאלה עם עד 3 תשובות' : 'הודעה רגילה'}</div>
+          </div>
           <select data-step-kind onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">
-            <option value="message" ${kind === 'message' ? 'selected' : ''}>הודעה</option>
-            <option value="question" ${kind === 'question' ? 'selected' : ''}>שאלה</option>
+            <option value="message" ${kind === 'message' ? 'selected' : ''}>הודעה רגילה</option>
+            <option value="question" ${kind === 'question' ? 'selected' : ''}>שאלת בחירה</option>
           </select>
           <button type="button" class="btn-small" onclick="removeDecisionStep(this)">מחק</button>
         </div>
-        <textarea data-step-text oninput="updateCampaignConversationPreview()" placeholder="כתבי את ההודעה או השאלה">${esc(step.text || '')}</textarea>
-        <div data-message-next>
-          <label style="display:block;font-size:.76rem;font-weight:700;color:#6b7280;margin:2px 0 5px">השלב הבא אחרי ההודעה</label>
+        <textarea data-step-text oninput="updateCampaignConversationPreview()" placeholder="${kind === 'question' ? 'לדוגמה: האם תרצי לקבל חוברת פרסום?' : 'כתבי את ההודעה שתישלח'}">${esc(step.text || '')}</textarea>
+        <div class="decision-next-row" data-message-next>
+          <label>אחרי ההודעה לעבור אל</label>
           <select data-step-next onchange="updateCampaignConversationPreview()" data-selected-next="${esc(step.nextStepId || '')}"></select>
         </div>
         <div class="decision-options" data-options>
+          <div class="decision-options-label">תשובות אפשריות (עד 3)</div>
           ${options.map((option, optionIndex) => decisionOptionHtml(option, optionIndex)).join('')}
           <button type="button" class="btn-small" onclick="addDecisionOption(this)">+ הוסף תשובה</button>
         </div>
@@ -1086,15 +1123,20 @@
   }
 
   function decisionOptionHtml(option = {}, index = 0) {
+    const action = option.nextStepId ? 'next' : 'end';
     return `
       <div class="decision-option" data-decision-option data-option-id="${esc(option.id || makeFlowId('option'))}">
         <div class="decision-option-number">${index + 1}</div>
         <div>
           <div class="decision-option-grid">
-            <input data-option-text value="${esc(option.text || '')}" oninput="updateCampaignConversationPreview()" placeholder="נוסח התשובה" />
-            <select data-option-next onchange="updateCampaignConversationPreview()" data-selected-next="${esc(option.nextStepId || '')}"></select>
+            <input data-option-text value="${esc(option.text || '')}" maxlength="20" oninput="updateCampaignConversationPreview()" placeholder="נוסח התשובה" />
+            <select data-option-action onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">
+              <option value="end" ${action === 'end' ? 'selected' : ''}>סיום</option>
+              <option value="next" ${action === 'next' ? 'selected' : ''}>לעבור לשלב</option>
+            </select>
             <button type="button" class="btn-small" onclick="removeDecisionOption(this)">מחק</button>
-            <textarea data-option-end-text oninput="updateCampaignConversationPreview()" placeholder="הודעה שתישלח אחרי התשובה הזו (אופציונלי)">${esc(option.endText || '')}</textarea>
+            <select data-option-next onchange="updateCampaignConversationPreview()" data-selected-next="${esc(option.nextStepId || '')}"></select>
+            <textarea data-option-end-text oninput="updateCampaignConversationPreview()" placeholder="הודעת סיום שתישלח אחרי התשובה הזו">${esc(option.endText || '')}</textarea>
           </div>
         </div>
       </div>
@@ -1105,10 +1147,13 @@
     const steps = getDecisionFlow();
     steps.push(step || {
       id: makeFlowId(),
-      kind: 'message',
+      kind: 'question',
       text: '',
       nextStepId: '',
-      options: [{ id: makeFlowId('option'), text: '', endText: '', nextStepId: '' }],
+      options: [
+        { id: makeFlowId('option'), text: '', endText: '', nextStepId: '' },
+        { id: makeFlowId('option'), text: '', endText: '', nextStepId: '' },
+      ],
     });
     renderDecisionFlow(steps);
   }
@@ -1127,8 +1172,13 @@
 
   function addDecisionOption(btn) {
     const list = btn.closest('[data-options]');
+    if (list.querySelectorAll('[data-decision-option]').length >= 3) {
+      alert('ב-WhatsApp מומלץ עד 3 תשובות בחירה בהודעה אחת.');
+      return;
+    }
     btn.insertAdjacentHTML('beforebegin', decisionOptionHtml({ id: makeFlowId('option') }, list.querySelectorAll('[data-decision-option]').length));
     refreshDecisionNextOptions();
+    updateDecisionStepVisibility();
     updateCampaignConversationPreview();
   }
 
@@ -1136,10 +1186,11 @@
     const option = btn.closest('[data-decision-option]');
     const list = option?.parentElement;
     option?.remove();
-    if (list && !list.querySelector('[data-decision-option]')) {
-      list.querySelector('button')?.insertAdjacentHTML('beforebegin', decisionOptionHtml({ id: makeFlowId('option') }, 0));
-    }
+      if (list && !list.querySelector('[data-decision-option]')) {
+        list.querySelector('button')?.insertAdjacentHTML('beforebegin', decisionOptionHtml({ id: makeFlowId('option') }, 0));
+      }
     updateDecisionOptionNumbers();
+    updateDecisionStepVisibility();
     updateCampaignConversationPreview();
   }
 
@@ -1148,6 +1199,15 @@
       const kind = step.querySelector('[data-step-kind]').value;
       step.querySelector('[data-message-next]').style.display = kind === 'message' ? '' : 'none';
       step.querySelector('[data-options]').style.display = kind === 'question' ? '' : 'none';
+      step.querySelector('.decision-step-subtitle').textContent = kind === 'question' ? 'שאלה עם עד 3 תשובות' : 'הודעה רגילה';
+      step.querySelector('[data-step-text]').placeholder = kind === 'question'
+        ? 'לדוגמה: האם תרצי לקבל חוברת פרסום?'
+        : 'כתבי את ההודעה שתישלח';
+      step.querySelectorAll('[data-decision-option]').forEach(option => {
+        const action = option.querySelector('[data-option-action]')?.value || 'end';
+        option.querySelector('[data-option-next]').style.display = action === 'next' ? '' : 'none';
+        option.querySelector('[data-option-end-text]').style.display = action === 'end' ? '' : 'none';
+      });
     });
   }
 
@@ -1164,12 +1224,13 @@
     const steps = [...document.querySelectorAll('[data-decision-step]')].map((step, index) => ({
       id: step.dataset.stepId,
       label: `שלב ${index + 1}`,
+      text: step.querySelector('[data-step-text]')?.value.trim() || '',
     }));
     document.querySelectorAll('[data-step-next], [data-option-next]').forEach(select => {
       const selected = select.value || select.dataset.selectedNext || '';
       select.innerHTML = '<option value="">סיום שיחה</option>' + steps
         .filter(step => step.id !== select.closest('[data-decision-step]')?.dataset.stepId)
-        .map(step => `<option value="${esc(step.id)}">${esc(step.label)}</option>`)
+        .map(step => `<option value="${esc(step.id)}">${esc(step.label)}${step.text ? ` - ${esc(step.text.slice(0, 24))}` : ''}</option>`)
         .join('');
       select.value = steps.some(step => step.id === selected) ? selected : '';
       select.dataset.selectedNext = select.value;
@@ -1198,10 +1259,14 @@
                 id: option.dataset.optionId || makeFlowId('option'),
                 text,
               };
-              const nextStepId = option.querySelector('[data-option-next]').value;
-              const endText = option.querySelector('[data-option-end-text]').value.trim();
-              if (nextStepId) clean.nextStepId = nextStepId;
-              if (endText) clean.endText = endText;
+              const action = option.querySelector('[data-option-action]')?.value || 'end';
+              if (action === 'next') {
+                const nextStepId = option.querySelector('[data-option-next]').value;
+                if (nextStepId) clean.nextStepId = nextStepId;
+              } else {
+                const endText = option.querySelector('[data-option-end-text]').value.trim();
+                if (endText) clean.endText = endText;
+              }
               return clean;
             })
             .filter(Boolean);
@@ -1254,7 +1319,21 @@
   }
 
   function previewDecisionFlow(flow = []) {
-    return flow.map(step => {
+    if (!flow.length) return '';
+    const byId = new Map(flow.map(step => [step.id, step]));
+    const first = flow.find(step => step.text?.trim());
+    const ordered = [];
+    const seen = new Set();
+    let current = first;
+    while (current && !seen.has(current.id) && ordered.length < 8) {
+      ordered.push(current);
+      seen.add(current.id);
+      const nextId = current.kind === 'message'
+        ? current.nextStepId
+        : current.options?.find(option => option.nextStepId)?.nextStepId;
+      current = nextId ? byId.get(nextId) : null;
+    }
+    return ordered.map(step => {
       if (step.kind === 'question') {
         const options = (step.options || []).map((option, index) => `${index + 1}. ${option.text}`).join('\n');
         return `<div class="chat-row bot"><div class="chat-bubble">${esc(`${step.text}${options ? '\n\n' + options : ''}`)}</div></div>`;
