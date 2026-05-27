@@ -19,7 +19,7 @@
     h1 { font-size: 1.45rem; margin: 0 0 5px; }
     .muted { color: #6b7280; font-size: .86rem; }
     .badge { border-radius: 99px; padding: 6px 12px; font-size: .78rem; font-weight: 700; }
-    .badge.pending_railway_setup, .badge.provisioning, .badge.deploying { color: #92400e; background: #fef3c7; }
+    .badge.pending_setup, .badge.pending_railway_setup, .badge.provisioning, .badge.deploying { color: #92400e; background: #fef3c7; }
     .badge.ready { color: #166534; background: #dcfce7; }
     .badge.failed { color: #991b1b; background: #fee2e2; }
     .grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 18px; }
@@ -56,7 +56,7 @@
         <h1 id="clientName">טוען...</h1>
         <div class="muted">עמוד ניהול פנימי של הלקוחה</div>
       </div>
-      <span class="badge pending_railway_setup" id="status">ממתין להקמה ב-Railway</span>
+      <span class="badge pending_setup" id="status">ממתין להקמה</span>
     </div>
     <div class="grid">
       <div>
@@ -68,18 +68,18 @@
             <span><span class="value code" id="accessCode"></span><button class="copy" onclick="copyAccessCode()">העתק</button></span>
           </div>
           <div class="line"><span class="label">לינק ראשוני ללקוחה</span><span class="value" id="managementUrl">מוקם כעת...</span></div>
-          <div class="line"><span class="label">Railway Service</span><span class="value code" id="railwayServiceId">-</span></div>
-          <div class="line"><span class="label">תהליך פריסה אחרון</span><span class="value code" id="railwayDeploymentId">-</span></div>
+          <div class="line"><span class="label">שירות מבודד</span><span class="value code" id="dokployApplicationId">-</span></div>
+          <div class="line"><span class="label">אחסון קבוע</span><span class="value code" id="dokployMountId">-</span></div>
         </section>
         <section>
           <h2>קמפיינים ותוצאות</h2>
-          <div class="empty">לאחר הקמת היחידה ב-Railway יוצגו כאן הקמפיינים והתוצאות שלה בלבד.</div>
+          <div class="empty">לאחר הקמת היחידה יוצגו כאן הקמפיינים והתוצאות שלה בלבד.</div>
         </section>
       </div>
       <div>
         <section>
           <h2>מוכנות להפעלה</h2>
-          <div class="check"><span class="dot" id="railwayDot"></span><span id="railwayState">התקנת Railway נפרדת טרם נוצרה</span></div>
+          <div class="check"><span class="dot" id="serviceDot"></span><span id="serviceState">שירות מבודד טרם נוצר</span></div>
           <div class="check"><span class="dot"></span>WhatsApp טרם חובר</div>
           <div class="check"><span class="dot"></span>Google Contacts טרם חובר</div>
           <div class="check"><span class="dot"></span>אין קמפיין פעיל</div>
@@ -87,7 +87,7 @@
         <button class="retry" id="retryButton" style="display:none" onclick="retryProvision()">נסה שוב להקים את היחידה</button>
         <button class="secondary" id="readyButton" style="display:none" onclick="checkReady()">בדוק אם הלינק כבר מוכן</button>
         <div class="future">
-          בשלב הבא הכפתור ליצירת לקוחה יקים עבורה התקנה מבודדת. אז העמוד הזה יציג סטטוס אמת, קישור כניסה, קמפיינים ותוצאות, ללא גישה לנתונים של לקוחות אחרות.
+          כל לקוחה מקבלת שירות ואחסון נפרדים. העמוד הזה יציג סטטוס אמת וקישור כניסה, ללא גישה לנתונים של לקוחות אחרות.
         </div>
       </div>
     </div>
@@ -98,9 +98,10 @@
 
     function statusLabel(status) {
       return {
-        pending_railway_setup: 'ממתין להקמה ב-Railway',
-        provisioning: 'מוקם כעת ב-Railway',
-        deploying: 'הפריסה התחילה ב-Railway',
+        pending_setup: 'ממתין להקמה',
+        pending_railway_setup: 'ממתין להקמה',
+        provisioning: 'מוקם כעת',
+        deploying: 'הפריסה התחילה',
         ready: 'מוכן לשליחה',
         failed: 'ההקמה נכשלה',
         disabled: 'מושבת',
@@ -134,20 +135,20 @@
       if (currentClient.managementUrl) {
         managementEl.innerHTML = `<a class="url" href="${currentClient.managementUrl}" target="_blank">${currentClient.managementUrl}</a>`;
       } else {
-        managementEl.textContent = 'יופיע לאחר הקמת Railway';
+        managementEl.textContent = 'יופיע לאחר הקמת השירות';
       }
-      document.getElementById('railwayServiceId').textContent = currentClient.railwayServiceId || '-';
-      document.getElementById('railwayDeploymentId').textContent = currentClient.railwayDeploymentId || currentClient.railwayWorkflowId || '-';
+      document.getElementById('dokployApplicationId').textContent = currentClient.dokployApplicationId || '-';
+      document.getElementById('dokployMountId').textContent = currentClient.dokployMountId || '-';
       if (currentClient.provisioningStatus === 'ready') {
-        document.getElementById('railwayDot').style.background = '#22c55e';
-        document.getElementById('railwayState').textContent = 'שירות Railway מבודד נוצר';
+        document.getElementById('serviceDot').style.background = '#22c55e';
+        document.getElementById('serviceState').textContent = 'שירות מבודד פעיל';
       } else if (currentClient.provisioningStatus === 'deploying') {
-        document.getElementById('railwayDot').style.background = '#f59e0b';
-        document.getElementById('railwayState').textContent = 'השירות נוצר והפריסה החלה. יש לוודא הצלחה ב-Railway לפני שליחת הלינק.';
+        document.getElementById('serviceDot').style.background = '#f59e0b';
+        document.getElementById('serviceState').textContent = 'השירות נוצר והפריסה החלה. יש לוודא הצלחה לפני שליחת הלינק.';
         document.getElementById('readyButton').style.display = '';
       } else if (currentClient.provisioningStatus === 'failed') {
-        document.getElementById('railwayDot').style.background = '#ef4444';
-        document.getElementById('railwayState').textContent = currentClient.provisioningError || 'ההקמה נכשלה';
+        document.getElementById('serviceDot').style.background = '#ef4444';
+        document.getElementById('serviceState').textContent = currentClient.provisioningError || 'ההקמה נכשלה';
         document.getElementById('retryButton').style.display = '';
         if (currentClient.managementUrl) {
           document.getElementById('readyButton').style.display = '';

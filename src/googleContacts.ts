@@ -14,6 +14,15 @@ const SCOPES     = ['https://www.googleapis.com/auth/contacts'];
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 function loadCredentials() {
+  const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
+  if (clientId || clientSecret) {
+    if (!clientId || !clientSecret) {
+      throw new Error('GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be configured together.');
+    }
+    return { client_id: clientId, client_secret: clientSecret };
+  }
+
   // Cloud deployments: set GOOGLE_CREDENTIALS_BASE64 to the base64-encoded credentials.json
   if (process.env.GOOGLE_CREDENTIALS_BASE64) {
     try {

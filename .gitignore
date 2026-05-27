@@ -4,6 +4,7 @@ session/
 data/
 owner-data/
 credentials.json
+docs/client_secret_*.json
 data/google-token.json
 .env
 *.vcf

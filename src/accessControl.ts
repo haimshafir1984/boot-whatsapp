@@ -25,7 +25,9 @@ function issueSession(res: Response, req: Request, cookieName: string, sessions:
   sessions.add(id);
   res.cookie(cookieName, id, {
     httpOnly: true,
-    sameSite: 'strict',
+    // OAuth returns from Google in a top-level navigation; Lax sends the
+    // session cookie on that callback while still blocking cross-site POSTs.
+    sameSite: 'lax',
     secure: req.secure || req.get('x-forwarded-proto') === 'https',
     maxAge: 12 * 60 * 60 * 1000,
   });

@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
-export type ClientProvisioningStatus = 'pending_railway_setup' | 'provisioning' | 'deploying' | 'ready' | 'failed' | 'disabled';
+export type ClientProvisioningStatus = 'pending_setup' | 'pending_railway_setup' | 'provisioning' | 'deploying' | 'ready' | 'failed' | 'disabled';
 
 export interface ManagedClient {
   id: string;
@@ -15,6 +15,11 @@ export interface ManagedClient {
   railwaySourceAttached?: boolean;
   railwayDeploymentId?: string;
   railwayWorkflowId?: string;
+  dokployApplicationId?: string;
+  dokployAppName?: string;
+  dokployMountId?: string;
+  dokployDomainId?: string;
+  dokployDeploymentRequested?: boolean;
   provisioningError?: string;
   createdAt: string;
 }
@@ -59,7 +64,7 @@ export class OwnerStorage {
       name: name.trim(),
       accessCode: accessCode.trim(),
       managementUrl: '',
-      provisioningStatus: 'pending_railway_setup',
+      provisioningStatus: 'pending_setup',
       createdAt: new Date().toISOString(),
     };
     this.clients.push(client);

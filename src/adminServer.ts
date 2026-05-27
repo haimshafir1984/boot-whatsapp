@@ -14,7 +14,7 @@ import { isGoogleConnected, getGoogleAuthUrl, handleGoogleCallback, disconnectGo
 import { testICloudConnection } from './icloudContacts';
 import { createAccessControl } from './accessControl';
 import { OwnerStorage } from './ownerStorage';
-import { RailwayProvisioner } from './railwayProvisioner';
+import { DokployProvisioner } from './dokployProvisioner';
 
 function conversationSettings(
   input: Partial<CampaignConversationSettings> | undefined,
@@ -38,7 +38,7 @@ export function startAdminServer(storage: Storage): void {
   const publicDir = path.join(__dirname, '..', 'public');
   const ownerPublicDir = path.join(__dirname, '..', 'owner-public');
   const ownerStorage = new OwnerStorage(config.OWNER_STORAGE_PATH);
-  const railwayProvisioner = new RailwayProvisioner();
+  const dokployProvisioner = new DokployProvisioner();
   const access = createAccessControl();
 
   app.set('trust proxy', 1);
@@ -72,16 +72,16 @@ export function startAdminServer(storage: Storage): void {
 
   app.get('/owner/api/provisioning-status', (_req, res) => {
     res.json({
-      configured: !railwayProvisioner.configurationError,
-      error: railwayProvisioner.configurationError,
+      configured: !dokployProvisioner.configurationError,
+      error: dokployProvisioner.configurationError,
     });
   });
 
   const provisionClient = async (id: string) => {
     const client = ownerStorage.getClient(id);
     if (!client) throw new Error('לקוחה לא נמצאה');
-    if (railwayProvisioner.configurationError) {
-      throw new Error(railwayProvisioner.configurationError);
+    if (dokployProvisioner.configurationError) {
+      throw new Error(dokployProvisioner.configurationError);
     }
 
     let current = ownerStorage.updateClient(id, {
@@ -89,7 +89,7 @@ export function startAdminServer(storage: Storage): void {
       provisioningError: undefined,
     })!;
     try {
-      current = await railwayProvisioner.provision(current, (patch) => {
+      current = await dokployProvisioner.provision(current, (patch) => {
         return ownerStorage.updateClient(id, patch)!;
       });
       return ownerStorage.updateClient(id, {
@@ -98,7 +98,7 @@ export function startAdminServer(storage: Storage): void {
       })!;
     } catch (err: any) {
       const message = err?.message ?? String(err);
-      console.error(`Railway provisioning failed for client ${id}: ${message}`);
+      console.error(`Dokploy provisioning failed for client ${id}: ${message}`);
       ownerStorage.updateClient(id, {
         provisioningStatus: 'failed',
         provisioningError: message,
@@ -122,8 +122,8 @@ export function startAdminServer(storage: Storage): void {
       res.status(400).json({ error: 'הסיסמה ללקוחה ארוכה מדי' });
       return;
     }
-    if (railwayProvisioner.configurationError) {
-      res.status(503).json({ error: railwayProvisioner.configurationError });
+    if (dokployProvisioner.configurationError) {
+      res.status(503).json({ error: dokployProvisioner.configurationError });
       return;
     }
     const client = ownerStorage.addClient(name, accessCode);

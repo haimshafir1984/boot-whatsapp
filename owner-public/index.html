@@ -87,7 +87,7 @@
       </form>
     </div>
     <div class="notice">
-      בעת יצירת לקוחה המערכת מקימה עבורה שירות ושטח אחסון נפרדים ב-Railway. בסיום יופיע לינק אישי, ואת הסיסמה שולחים בנפרד.
+      בעת יצירת לקוחה המערכת מקימה עבורה שירות ושטח אחסון נפרדים בשרת הפרטי. בסיום יופיע לינק אישי, ואת הסיסמה שולחים בנפרד.
     </div>
     <div id="error"></div>
     <div id="clients"></div>
@@ -99,6 +99,7 @@
 
     function statusLabel(status) {
       return {
+        pending_setup: 'ממתין להקמה',
         pending_railway_setup: 'ממתין להקמה',
         provisioning: 'מוקם כעת...',
         deploying: 'הפריסה התחילה',
