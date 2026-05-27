@@ -79,4 +79,12 @@ export class OwnerStorage {
     this.persist();
     return { ...this.clients[index] };
   }
+
+  deleteClient(id: string): boolean {
+    const before = this.clients.length;
+    this.clients = this.clients.filter((client) => client.id !== id);
+    if (this.clients.length === before) return false;
+    this.persist();
+    return true;
+  }
 }

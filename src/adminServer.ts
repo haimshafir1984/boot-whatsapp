@@ -19,8 +19,118 @@ import {
 } from './googleContacts';
 import { testICloudConnection } from './icloudContacts';
 import { createAccessControl } from './accessControl';
-import { OwnerStorage } from './ownerStorage';
+import { ManagedClient, OwnerStorage } from './ownerStorage';
 import { DokployProvisioner } from './dokployProvisioner';
+
+interface OwnerClientSummary {
+  reachable: boolean;
+  error?: string;
+  activeCampaigns: number;
+  endedCampaigns: number;
+  savedContacts: number;
+  pendingContacts: number;
+  failedContacts: number;
+  whatsappReady: boolean;
+  googleConnected: boolean;
+  campaigns: Array<{
+    id: string;
+    name: string;
+    active: boolean;
+    runtimeStatus?: string;
+    total: number;
+    saved: number;
+    pending: number;
+    failed: number;
+    awaitingName: number;
+  }>;
+}
+
+function getClientBaseUrl(client: ManagedClient): string | null {
+  if (!client.managementUrl) return null;
+  return new URL('/', client.managementUrl).toString().replace(/\/$/, '');
+}
+
+function cookieHeaderFromSetCookie(setCookie: string | null): string {
+  if (!setCookie) return '';
+  return setCookie
+    .split(/,(?=[^;,]+=)/)
+    .map((cookie) => cookie.split(';')[0]?.trim())
+    .filter(Boolean)
+    .join('; ');
+}
+
+async function fetchClientSummary(client: ManagedClient): Promise<OwnerClientSummary> {
+  const empty: OwnerClientSummary = {
+    reachable: false,
+    activeCampaigns: 0,
+    endedCampaigns: 0,
+    savedContacts: 0,
+    pendingContacts: 0,
+    failedContacts: 0,
+    whatsappReady: false,
+    googleConnected: false,
+    campaigns: [],
+  };
+  const baseUrl = getClientBaseUrl(client);
+  if (!baseUrl) return { ...empty, error: 'Client URL is not ready yet' };
+
+  const login = await fetch(`${baseUrl}/auth/client/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accessCode: client.accessCode }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!login.ok) {
+    return { ...empty, error: `Client login failed (${login.status})` };
+  }
+  const cookie = cookieHeaderFromSetCookie(login.headers.get('set-cookie'));
+  if (!cookie) return { ...empty, error: 'Client session cookie was not returned' };
+
+  const getJson = async <T>(pathName: string): Promise<T | null> => {
+    const response = await fetch(`${baseUrl}${pathName}`, {
+      headers: { Cookie: cookie },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) return null;
+    return await response.json() as T;
+  };
+
+  const [campaigns, results, queue, google, qr] = await Promise.all([
+    getJson<any[]>('/api/campaigns'),
+    getJson<{ summaries: any[] }>('/api/campaign-results'),
+    getJson<{ stats: { pending: number; saved: number; failed: number; total: number } }>('/api/contacts/queue?limit=1'),
+    getJson<{ connected: boolean }>('/api/google/status'),
+    getJson<{ ready: boolean; authenticated: boolean }>('/api/qr'),
+  ]);
+
+  const summaries = new Map((results?.summaries ?? []).map((summary) => [summary.campaignId, summary]));
+  const campaignRows = (campaigns ?? []).map((campaign) => {
+    const summary = summaries.get(campaign.id) ?? {};
+    return {
+      id: campaign.id,
+      name: campaign.name,
+      active: Boolean(campaign.active),
+      runtimeStatus: campaign.runtimeStatus,
+      total: Number(summary.total ?? 0),
+      saved: Number(summary.saved ?? 0),
+      pending: Number(summary.pending ?? 0),
+      failed: Number(summary.failed ?? 0),
+      awaitingName: Number(summary.awaitingName ?? 0),
+    };
+  });
+
+  return {
+    reachable: true,
+    activeCampaigns: campaignRows.filter((campaign) => campaign.runtimeStatus === 'active').length,
+    endedCampaigns: campaignRows.filter((campaign) => campaign.runtimeStatus === 'ended').length,
+    savedContacts: Number(queue?.stats?.saved ?? 0),
+    pendingContacts: Number(queue?.stats?.pending ?? 0),
+    failedContacts: Number(queue?.stats?.failed ?? 0),
+    whatsappReady: Boolean(qr?.ready || qr?.authenticated),
+    googleConnected: Boolean(google?.connected),
+    campaigns: campaignRows,
+  };
+}
 
 function conversationSettings(
   input: Partial<CampaignConversationSettings> | undefined,
@@ -258,6 +368,54 @@ export function startAdminServer(storage: Storage): void {
         client: ownerStorage.getClient(client.id),
       });
     }
+  });
+
+  app.get('/owner/api/clients/:id/summary', async (req, res) => {
+    const client = ownerStorage.getClient(req.params.id);
+    if (!client) {
+      res.status(404).json({ error: 'Client not found' });
+      return;
+    }
+    try {
+      res.json(await fetchClientSummary(client));
+    } catch (err: any) {
+      res.json({
+        reachable: false,
+        error: err?.message ?? String(err),
+        activeCampaigns: 0,
+        endedCampaigns: 0,
+        savedContacts: 0,
+        pendingContacts: 0,
+        failedContacts: 0,
+        whatsappReady: false,
+        googleConnected: false,
+        campaigns: [],
+      });
+    }
+  });
+
+  app.delete('/owner/api/clients/:id', async (req, res) => {
+    const client = ownerStorage.getClient(req.params.id);
+    if (!client) {
+      res.status(404).json({ error: 'Client not found' });
+      return;
+    }
+
+    const warnings: string[] = [];
+    let deletedResources: string[] = [];
+    if (client.dokployApplicationId || client.dokployMountId || client.dokployDomainId) {
+      try {
+        const result = await dokployProvisioner.deleteClientResources(client);
+        deletedResources = result.deleted;
+        warnings.push(...result.warnings);
+      } catch (err: any) {
+        res.status(502).json({ error: err?.message ?? String(err) });
+        return;
+      }
+    }
+
+    const removed = ownerStorage.deleteClient(client.id);
+    res.json({ ok: removed, deletedResources, warnings });
   });
 
   app.use('/owner', access.requireOwner, express.static(ownerPublicDir));

@@ -10,6 +10,11 @@ export interface ClientProvisioningPatch {
   managementUrl?: string;
 }
 
+export interface ClientDeletionResult {
+  deleted: string[];
+  warnings: string[];
+}
+
 interface DokployProvisioningConfig {
   endpoint: string;
   token: string;
@@ -110,6 +115,35 @@ export class DokployProvisioner {
     const pending = this.provisioningQueue.then(() => this.runProvision(client, saveProgress));
     this.provisioningQueue = pending.then(() => undefined, () => undefined);
     return pending;
+  }
+
+  async deleteClientResources(client: ManagedClient): Promise<ClientDeletionResult> {
+    if (!this.config) throw new Error(this.configurationError ?? 'Dokploy is not configured');
+
+    const deleted: string[] = [];
+    const warnings: string[] = [];
+
+    const remove = async (label: string, route: string, body: Record<string, unknown>) => {
+      try {
+        await this.post(route, body);
+        deleted.push(label);
+      } catch (err: any) {
+        warnings.push(`${label}: ${err?.message ?? String(err)}`);
+      }
+    };
+
+    console.log(`Dokploy deletion requested for client ${client.id}.`);
+    if (client.dokployDomainId) {
+      await remove('domain', 'domain.delete', { domainId: client.dokployDomainId });
+    }
+    if (client.dokployMountId) {
+      await remove('mount', 'mounts.remove', { mountId: client.dokployMountId });
+    }
+    if (client.dokployApplicationId) {
+      await remove('application', 'application.delete', { applicationId: client.dokployApplicationId });
+    }
+
+    return { deleted, warnings };
   }
 
   private async runProvision(

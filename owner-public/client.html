@@ -42,7 +42,20 @@
       color: #1e3a8a; padding: 13px 14px; line-height: 1.55; font-size: .84rem;
     }
     .empty { border: 1px dashed #d1d5db; color: #6b7280; border-radius: 8px; padding: 28px 16px; text-align: center; font-size: .86rem; }
+    .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+    .stat-card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 13px; background: #f9fafb; }
+    .stat-value { font-size: 1.35rem; font-weight: 800; line-height: 1; margin-bottom: 7px; }
+    .stat-label { color: #6b7280; font-size: .78rem; }
+    .campaign-row { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; margin-top: 10px; background: #fff; }
+    .campaign-top { display: flex; justify-content: space-between; gap: 10px; align-items: center; margin-bottom: 8px; }
+    .campaign-name { font-weight: 700; font-size: .9rem; }
+    .small-badge { border-radius: 99px; padding: 4px 8px; font-size: .74rem; font-weight: 700; background: #f3f4f6; color: #374151; }
+    .small-badge.active { background: #dcfce7; color: #166534; }
+    .small-badge.ended { background: #fee2e2; color: #991b1b; }
+    .campaign-metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; color: #6b7280; font-size: .75rem; }
+    .campaign-metrics strong { display: block; color: #111827; font-size: .86rem; }
     @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .heading { flex-direction: column; } }
+    @media (max-width: 520px) { .stats-grid, .campaign-metrics { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -73,16 +86,30 @@
         </section>
         <section>
           <h2>קמפיינים ותוצאות</h2>
-          <div class="empty">לאחר הקמת היחידה יוצגו כאן הקמפיינים והתוצאות שלה בלבד.</div>
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-value" id="activeCampaigns">0</div>
+              <div class="stat-label">קמפיינים פעילים</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="savedContacts">0</div>
+              <div class="stat-label">אנשי קשר שנשמרו</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="endedCampaigns">0</div>
+              <div class="stat-label">קמפיינים שהסתיימו</div>
+            </div>
+          </div>
+          <div id="campaignSummaryList" class="empty">טוען נתונים מהיחידה של הלקוחה...</div>
         </section>
       </div>
       <div>
         <section>
           <h2>מוכנות להפעלה</h2>
           <div class="check"><span class="dot" id="serviceDot"></span><span id="serviceState">שירות מבודד טרם נוצר</span></div>
-          <div class="check"><span class="dot"></span>WhatsApp טרם חובר</div>
-          <div class="check"><span class="dot"></span>Google Contacts טרם חובר</div>
-          <div class="check"><span class="dot"></span>אין קמפיין פעיל</div>
+          <div class="check"><span class="dot" id="whatsappDot"></span><span id="whatsappState">WhatsApp טרם חובר</span></div>
+          <div class="check"><span class="dot" id="googleDot"></span><span id="googleState">Google Contacts טרם חובר</span></div>
+          <div class="check"><span class="dot" id="campaignDot"></span><span id="campaignState">אין קמפיין פעיל</span></div>
         </section>
         <button class="retry" id="retryButton" style="display:none" onclick="retryProvision()">נסה שוב להקים את היחידה</button>
         <button class="secondary" id="readyButton" style="display:none" onclick="checkReady()">בדוק אם הלינק כבר מוכן</button>
@@ -106,6 +133,82 @@
         failed: 'ההקמה נכשלה',
         disabled: 'מושבת',
       }[status] || status;
+    }
+
+    function esc(value) {
+      return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function runtimeLabel(status) {
+      return {
+        draft: 'טיוטה',
+        scheduled: 'מתוזמן',
+        active: 'פעיל',
+        ended: 'הסתיים',
+        disabled: 'כבוי',
+      }[status] || status || '-';
+    }
+
+    function setDot(id, on) {
+      document.getElementById(id).style.background = on ? '#22c55e' : '#d1d5db';
+    }
+
+    function renderCampaignSummary(summary) {
+      document.getElementById('activeCampaigns').textContent = summary.activeCampaigns ?? 0;
+      document.getElementById('savedContacts').textContent = summary.savedContacts ?? 0;
+      document.getElementById('endedCampaigns').textContent = summary.endedCampaigns ?? 0;
+
+      setDot('whatsappDot', Boolean(summary.whatsappReady));
+      document.getElementById('whatsappState').textContent = summary.whatsappReady ? 'WhatsApp מחובר' : 'WhatsApp טרם חובר';
+      setDot('googleDot', Boolean(summary.googleConnected));
+      document.getElementById('googleState').textContent = summary.googleConnected ? 'Google Contacts מחובר' : 'Google Contacts טרם חובר';
+      setDot('campaignDot', Number(summary.activeCampaigns) > 0);
+      document.getElementById('campaignState').textContent = Number(summary.activeCampaigns) > 0 ? 'יש קמפיין פעיל' : 'אין קמפיין פעיל';
+
+      const list = document.getElementById('campaignSummaryList');
+      if (!summary.reachable) {
+        list.className = 'empty';
+        list.textContent = summary.error || 'עדיין אי אפשר למשוך נתונים מהיחידה של הלקוחה.';
+        return;
+      }
+      if (!summary.campaigns?.length) {
+        list.className = 'empty';
+        list.textContent = 'אין עדיין קמפיינים ביחידה של הלקוחה.';
+        return;
+      }
+      list.className = '';
+      list.innerHTML = summary.campaigns.map((campaign) => `
+        <div class="campaign-row">
+          <div class="campaign-top">
+            <span class="campaign-name">${esc(campaign.name)}</span>
+            <span class="small-badge ${esc(campaign.runtimeStatus)}">${runtimeLabel(campaign.runtimeStatus)}</span>
+          </div>
+          <div class="campaign-metrics">
+            <span><strong>${campaign.total}</strong>סה"כ נכנסו</span>
+            <span><strong>${campaign.awaitingName}</strong>ממתינים לשם</span>
+            <span><strong>${campaign.pending}</strong>בתור שמירה</span>
+            <span><strong>${campaign.saved}</strong>נשמרו</span>
+            <span><strong>${campaign.failed}</strong>נכשלו</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function loadClientSummary(id) {
+      try {
+        const response = await fetch(`/owner/api/clients/${encodeURIComponent(id)}/summary`);
+        if (!response.ok) return;
+        renderCampaignSummary(await response.json());
+      } catch (err) {
+        renderCampaignSummary({
+          reachable: false,
+          error: 'לא ניתן למשוך כרגע נתונים מהיחידה של הלקוחה.',
+          activeCampaigns: 0,
+          savedContacts: 0,
+          endedCampaigns: 0,
+          campaigns: [],
+        });
+      }
     }
 
     async function loadClient() {
@@ -154,6 +257,7 @@
           document.getElementById('readyButton').style.display = '';
         }
       }
+      loadClientSummary(currentClient.id);
     }
 
     function copyAccessCode() {
