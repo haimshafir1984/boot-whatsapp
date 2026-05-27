@@ -6,11 +6,13 @@
 
 import { google, people_v1 } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { config } from './config';
 
 const SCOPES     = ['https://www.googleapis.com/auth/contacts'];
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 function loadCredentials() {
@@ -50,6 +52,55 @@ function loadCredentials() {
 function makeOAuth2Client(redirectUri = 'http://localhost:3001/oauth2callback'): OAuth2Client {
   const creds = loadCredentials();
   return new google.auth.OAuth2(creds.client_id, creds.client_secret, redirectUri);
+}
+
+function callbackUri(baseUrl: string): string {
+  return process.env.GOOGLE_OAUTH_CALLBACK_URL?.trim() || `${baseUrl}/oauth2callback`;
+}
+
+function stateSecret(): string | null {
+  return process.env.GOOGLE_OAUTH_STATE_SECRET?.trim() || null;
+}
+
+function makeRelayState(baseUrl: string): string {
+  const secret = stateSecret();
+  if (!secret) {
+    throw new Error('GOOGLE_OAUTH_STATE_SECRET is required when using a central Google callback.');
+  }
+  const payload = Buffer.from(JSON.stringify({
+    returnUrl: `${baseUrl}/google-oauth-return`,
+    issuedAt: Date.now(),
+  }), 'utf-8').toString('base64url');
+  const signature = crypto.createHmac('sha256', secret).update(payload).digest('base64url');
+  return `${payload}.${signature}`;
+}
+
+function relayReturnUrl(state: string): string {
+  const secret = stateSecret();
+  if (!secret) throw new Error('Google OAuth relay is not configured.');
+  const [payload, signature] = state.split('.');
+  if (!payload || !signature) throw new Error('Invalid Google OAuth state.');
+  const expected = crypto.createHmac('sha256', secret).update(payload).digest('base64url');
+  const left = Buffer.from(signature);
+  const right = Buffer.from(expected);
+  if (left.length !== right.length || !crypto.timingSafeEqual(left, right)) {
+    throw new Error('Invalid Google OAuth state signature.');
+  }
+  const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8')) as {
+    returnUrl?: string;
+    issuedAt?: number;
+  };
+  if (!parsed.returnUrl || typeof parsed.issuedAt !== 'number'
+      || Date.now() - parsed.issuedAt > OAUTH_STATE_TTL_MS) {
+    throw new Error('Google OAuth request has expired.');
+  }
+  const returnUrl = new URL(parsed.returnUrl);
+  const allowedSuffix = process.env.GOOGLE_OAUTH_RETURN_HOST_SUFFIX?.trim().replace(/^\./, '');
+  if (allowedSuffix && (returnUrl.protocol !== 'https:'
+      || (returnUrl.hostname !== allowedSuffix && !returnUrl.hostname.endsWith(`.${allowedSuffix}`)))) {
+    throw new Error('Google OAuth return target is not allowed.');
+  }
+  return parsed.returnUrl;
 }
 
 function persistToken(token: object): void {
@@ -145,20 +196,28 @@ export function disconnectGoogle(): void {
 }
 
 export function getGoogleAuthUrl(baseUrl = 'http://localhost:3001'): string {
-  const redirectUri = `${baseUrl}/oauth2callback`;
+  const redirectUri = callbackUri(baseUrl);
   const auth = makeOAuth2Client(redirectUri);
   return auth.generateAuthUrl({
     access_type: 'offline',
     scope: SCOPES,
     prompt: 'consent',
+    state: redirectUri === `${baseUrl}/oauth2callback` ? undefined : makeRelayState(baseUrl),
   });
 }
 
 export async function handleGoogleCallback(code: string, baseUrl = 'http://localhost:3001'): Promise<void> {
-  const redirectUri = `${baseUrl}/oauth2callback`;
+  const redirectUri = callbackUri(baseUrl);
   const auth = makeOAuth2Client(redirectUri);
   const { tokens } = await auth.getToken(code);
   persistToken(tokens);
+}
+
+export function getGoogleRelayReturnUrl(state: string, code: string, error: string): string {
+  const returnUrl = new URL(relayReturnUrl(state));
+  if (code) returnUrl.searchParams.set('code', code);
+  if (error) returnUrl.searchParams.set('error', error);
+  return returnUrl.toString();
 }
 
 export async function saveContactToGoogle(displayName: string, phone: string): Promise<void> {

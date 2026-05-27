@@ -20,6 +20,8 @@ interface DokployProvisioningConfig {
   domainHttps: boolean;
   googleClientId?: string;
   googleClientSecret?: string;
+  googleOauthCallbackUrl?: string;
+  googleOauthStateSecret?: string;
 }
 
 interface DokployApplication {
@@ -60,6 +62,8 @@ export class DokployProvisioner {
     const domainSuffix = env.DOKPLOY_CLIENT_DOMAIN_SUFFIX?.trim()?.replace(/^\./, '');
     const googleClientId = env.DOKPLOY_GOOGLE_CLIENT_ID?.trim();
     const googleClientSecret = env.DOKPLOY_GOOGLE_CLIENT_SECRET?.trim();
+    const googleOauthCallbackUrl = env.DOKPLOY_GOOGLE_OAUTH_CALLBACK_URL?.trim();
+    const googleOauthStateSecret = env.DOKPLOY_GOOGLE_OAUTH_STATE_SECRET?.trim();
     const missing = [
       !token && 'DOKPLOY_API_TOKEN',
       !environmentId && 'DOKPLOY_ENVIRONMENT_ID',
@@ -77,6 +81,11 @@ export class DokployProvisioner {
       this.configurationError = 'DOKPLOY_GOOGLE_CLIENT_ID and DOKPLOY_GOOGLE_CLIENT_SECRET must be configured together';
       return;
     }
+    if (Boolean(googleOauthCallbackUrl) !== Boolean(googleOauthStateSecret)) {
+      this.config = null;
+      this.configurationError = 'DOKPLOY_GOOGLE_OAUTH_CALLBACK_URL and DOKPLOY_GOOGLE_OAUTH_STATE_SECRET must be configured together';
+      return;
+    }
 
     this.configurationError = null;
     this.config = {
@@ -89,6 +98,8 @@ export class DokployProvisioner {
       domainHttps: env.DOKPLOY_CLIENT_DOMAIN_HTTPS?.trim().toLowerCase() !== 'false',
       googleClientId,
       googleClientSecret,
+      googleOauthCallbackUrl,
+      googleOauthStateSecret,
     };
   }
 
@@ -175,6 +186,10 @@ export class DokployProvisioner {
     if (this.config.googleClientId && this.config.googleClientSecret) {
       envLines.push(`GOOGLE_CLIENT_ID=${escapeEnvValue(this.config.googleClientId)}`);
       envLines.push(`GOOGLE_CLIENT_SECRET=${escapeEnvValue(this.config.googleClientSecret)}`);
+    }
+    if (this.config.googleOauthCallbackUrl && this.config.googleOauthStateSecret) {
+      envLines.push(`GOOGLE_OAUTH_CALLBACK_URL=${escapeEnvValue(this.config.googleOauthCallbackUrl)}`);
+      envLines.push(`GOOGLE_OAUTH_STATE_SECRET=${escapeEnvValue(this.config.googleOauthStateSecret)}`);
     }
 
     await this.post('application.saveEnvironment', {

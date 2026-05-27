@@ -10,7 +10,13 @@ import { Storage, AdminSettings, Campaign, CampaignConversationSettings } from '
 import { config } from './config';
 import { botState } from './botState';
 import { startWhatsAppBot, stopWhatsAppBot } from './whatsappLifecycle';
-import { isGoogleConnected, getGoogleAuthUrl, handleGoogleCallback, disconnectGoogle } from './googleContacts';
+import {
+  isGoogleConnected,
+  getGoogleAuthUrl,
+  handleGoogleCallback,
+  disconnectGoogle,
+  getGoogleRelayReturnUrl,
+} from './googleContacts';
 import { testICloudConnection } from './icloudContacts';
 import { createAccessControl } from './accessControl';
 import { OwnerStorage } from './ownerStorage';
@@ -289,7 +295,7 @@ export function startAdminServer(storage: Storage): void {
     }
   });
 
-  app.get('/oauth2callback', access.requireClient, async (req, res) => {
+  const completeGoogleCallback = async (req: express.Request, res: express.Response) => {
     const code  = String(req.query.code  ?? '');
     const error = String(req.query.error ?? '');
     if (error || !code) {
@@ -309,7 +315,24 @@ export function startAdminServer(storage: Storage): void {
     } catch (err: any) {
       res.send(`<h2>שגיאה: ${err?.message}</h2>`);
     }
+  };
+
+  app.get('/oauth2callback', (req, res, next) => {
+    const state = String(req.query.state ?? '');
+    if (!state) {
+      access.requireClient(req, res, () => { void completeGoogleCallback(req, res); });
+      return;
+    }
+    try {
+      const code = String(req.query.code ?? '');
+      const error = String(req.query.error ?? '');
+      res.redirect(getGoogleRelayReturnUrl(state, code, error));
+    } catch (err: any) {
+      res.status(400).send(`<h2>Google connection failed: ${err?.message ?? 'Invalid request'}</h2>`);
+    }
   });
+
+  app.get('/google-oauth-return', access.requireClient, completeGoogleCallback);
 
   // ── Public config (phone number for wa.me links) ─────────────────────────
 
