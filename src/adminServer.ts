@@ -43,6 +43,8 @@ export function startAdminServer(storage: Storage): void {
   const app = express();
   const publicDir = path.join(__dirname, '..', 'public');
   const ownerPublicDir = path.join(__dirname, '..', 'owner-public');
+  const sitePublicDir = path.join(__dirname, '..', 'site-public');
+  const publicSiteEnabled = process.env.PUBLIC_SITE_ENABLED === 'true';
   const ownerStorage = new OwnerStorage(config.OWNER_STORAGE_PATH);
   const dokployProvisioner = new DokployProvisioner();
   const access = createAccessControl();
@@ -558,8 +560,18 @@ export function startAdminServer(storage: Storage): void {
   // ─────────────────────────────────────────────────────────────────────────
 
   app.get('/', (_req, res) => {
+    if (publicSiteEnabled) {
+      res.sendFile(path.join(sitePublicDir, 'index.html'));
+      return;
+    }
     res.redirect('/owner/');
   });
+  if (publicSiteEnabled) {
+    app.get('/privacy', (_req, res) => {
+      res.sendFile(path.join(sitePublicDir, 'privacy.html'));
+    });
+    app.use('/site-assets', express.static(path.join(sitePublicDir, 'assets')));
+  }
   app.get('/client', access.requireClient, (_req, res) => {
     res.sendFile(path.join(publicDir, 'index.html'));
   });
