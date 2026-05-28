@@ -56,6 +56,7 @@ export interface DecisionFlowOption {
   text: string;
   nextStepId?: string;
   endText?: string;
+  fileId?: string;
 }
 
 export interface AdminSettings {
@@ -109,11 +110,21 @@ export interface CampaignResult {
   updatedAt: string;
 }
 
+export interface UploadedFile {
+  id: string;
+  originalName: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  createdAt: string;
+}
+
 interface StorageData {
   savedContacts: string[];
   contactsList: SavedContact[];
   contactQueue: ContactSaveJob[];
   campaignResults: CampaignResult[];
+  uploadedFiles: UploadedFile[];
   clientProfile: ClientProfile;
   adminSettings: AdminSettings;
   campaigns: Campaign[];
@@ -166,6 +177,7 @@ export class Storage {
         contactsList: [],
         contactQueue: [],
         campaignResults: [],
+        uploadedFiles: [],
         clientProfile: { ...DEFAULT_CLIENT_PROFILE },
         adminSettings: { ...DEFAULT_SETTINGS },
         campaigns: [],
@@ -200,6 +212,7 @@ export class Storage {
         contactsList,
         contactQueue,
         campaignResults: parsed.campaignResults ?? [],
+        uploadedFiles: (parsed as any).uploadedFiles ?? [],
         clientProfile: { ...DEFAULT_CLIENT_PROFILE, ...parsed.clientProfile },
         adminSettings: { ...DEFAULT_SETTINGS, ...migratedSettings },
         campaigns: parsed.campaigns ?? [],
@@ -211,6 +224,7 @@ export class Storage {
         contactsList: [],
         contactQueue: [],
         campaignResults: [],
+        uploadedFiles: [],
         clientProfile: { ...DEFAULT_CLIENT_PROFILE },
         adminSettings: { ...DEFAULT_SETTINGS },
         campaigns: [],
@@ -348,6 +362,30 @@ export class Storage {
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .slice(0, limit)
       .map((job) => ({ ...job }));
+  }
+
+  // Uploaded files
+
+  addUploadedFile(file: Omit<UploadedFile, 'id' | 'createdAt'>): UploadedFile {
+    const uploaded: UploadedFile = {
+      id: generateId(),
+      createdAt: new Date().toISOString(),
+      ...file,
+    };
+    this.data.uploadedFiles.push(uploaded);
+    this.persist();
+    return { ...uploaded };
+  }
+
+  getUploadedFiles(): UploadedFile[] {
+    return [...this.data.uploadedFiles]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((file) => ({ ...file }));
+  }
+
+  getUploadedFile(id: string): UploadedFile | null {
+    const file = this.data.uploadedFiles.find((item) => item.id === id);
+    return file ? { ...file } : null;
   }
 
   // Campaign results

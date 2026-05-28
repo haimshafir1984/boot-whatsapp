@@ -359,6 +359,34 @@
       line-height: 1.6;
       margin-bottom: 10px;
     }
+    .file-manager {
+      border: 1px solid #e5e7eb;
+      background: #fff;
+      border-radius: 10px;
+      padding: 10px;
+      margin: 10px 0 12px;
+    }
+    .file-manager-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .file-manager-title { font-size: .8rem; font-weight: 800; color: #374151; }
+    .file-manager input[type=file] { display: none; }
+    .file-list { display: flex; flex-direction: column; gap: 6px; }
+    .file-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 8px;
+      border-radius: 8px;
+      background: #f9fafb;
+      font-size: .76rem;
+      color: #374151;
+    }
+    .file-size { color: #6b7280; direction: ltr; white-space: nowrap; }
     .decision-step {
       border: 1px solid #e5e7eb;
       border-radius: 10px;
@@ -722,6 +750,17 @@
             <div class="flow-guide">
               מתאים למגבלות WhatsApp: בכל שאלת בחירה אפשר להגדיר עד 3 תשובות קצרות. המשתמש עונה במספר או בטקסט התשובה, והמערכת ממשיכה לפי הנתיב שבחרת.
             </div>
+            <div class="file-manager">
+              <div class="file-manager-head">
+                <div>
+                  <div class="file-manager-title">קבצים לשליחה</div>
+                  <div class="hint">PDF, תמונה או MP4 עד 15MB.</div>
+                </div>
+                <button type="button" class="btn-small" onclick="document.getElementById('campaignFileUpload').click()">+ העלה קובץ</button>
+                <input id="campaignFileUpload" type="file" accept=".pdf,image/jpeg,image/png,image/webp,video/mp4" onchange="uploadCampaignFile(this)" />
+              </div>
+              <div class="file-list" id="campaignFilesList"></div>
+            </div>
             <div class="decision-flow" id="fDecisionFlow" style="margin-top:8px"></div>
             <button type="button" class="btn-small" style="margin-top:8px" onclick="addDecisionStep()">+ הוסף הודעה / שאלה</button>
             <button type="button" class="btn-small" style="margin-top:8px" onclick="addCampaignFollowupMessage()">+ הוסף הודעת המשך</button>
@@ -759,6 +798,7 @@
     botSuffix: ' - (Bot)',
   };
   let editingId = null;
+  let appFiles = [];
 
   // ── Campaigns ───────────────────────────────────────────────────────────────
 
@@ -899,6 +939,7 @@
     document.getElementById('fStartAt').value = '';
     document.getElementById('fEndAt').value = '';
     populateCampaignConversation(appSettings);
+    loadCampaignFiles();
     document.getElementById('modalError').textContent = '';
     selectType(1);
     updateCampaignConversationPreview();
@@ -917,6 +958,7 @@
     document.getElementById('fStartAt').value = formatDateTimeLocal(c.startAt);
     document.getElementById('fEndAt').value = formatDateTimeLocal(c.endAt);
     populateCampaignConversation(c.conversation || appSettings);
+    loadCampaignFiles();
     document.getElementById('modalError').textContent = '';
 
     if (c.triggerType === 1) {
@@ -1072,6 +1114,88 @@
     return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   }
 
+  function formatFileSize(bytes) {
+    if (!bytes) return '0 KB';
+    if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  }
+
+  function fileOptions(selected = '') {
+    if (!appFiles.length) return '<option value="">אין קבצים זמינים</option>';
+    return '<option value="">בחרי קובץ</option>' + appFiles
+      .map(file => `<option value="${esc(file.id)}" ${file.id === selected ? 'selected' : ''}>${esc(file.originalName)}</option>`)
+      .join('');
+  }
+
+  function renderCampaignFiles() {
+    const el = document.getElementById('campaignFilesList');
+    if (!el) return;
+    if (!appFiles.length) {
+      el.innerHTML = '<div class="hint">עדיין לא הועלו קבצים.</div>';
+      return;
+    }
+    el.innerHTML = appFiles.map(file => `
+      <div class="file-item">
+        <span>${esc(file.originalName)}</span>
+        <span class="file-size">${formatFileSize(file.size)}</span>
+      </div>
+    `).join('');
+  }
+
+  async function loadCampaignFiles() {
+    try {
+      const res = await fetch('/api/files');
+      appFiles = await res.json();
+      renderCampaignFiles();
+      document.querySelectorAll('[data-option-file]').forEach(select => {
+        const selected = select.value || select.dataset.selectedFile || '';
+        select.innerHTML = fileOptions(selected);
+        select.value = appFiles.some(file => file.id === selected) ? selected : '';
+        select.dataset.selectedFile = select.value;
+      });
+    } catch (_) {}
+  }
+
+  function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function uploadCampaignFile(input) {
+    const file = input.files?.[0];
+    if (!file) return;
+    const errEl = document.getElementById('modalError');
+    errEl.textContent = '';
+    if (file.size > 15 * 1024 * 1024) {
+      errEl.textContent = 'הקובץ גדול מדי. המגבלה כרגע היא 15MB.';
+      input.value = '';
+      return;
+    }
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const res = await fetch('/api/files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: file.name, mimeType: file.type, dataUrl }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errEl.textContent = data.error || 'העלאת הקובץ נכשלה';
+        return;
+      }
+      await loadCampaignFiles();
+      updateCampaignConversationPreview();
+    } catch (err) {
+      errEl.textContent = 'העלאת הקובץ נכשלה';
+    } finally {
+      input.value = '';
+    }
+  }
+
   function renderDecisionFlow(steps = []) {
     const el = document.getElementById('fDecisionFlow');
     if (!el) return;
@@ -1123,7 +1247,7 @@
   }
 
   function decisionOptionHtml(option = {}, index = 0) {
-    const action = option.nextStepId ? 'next' : 'end';
+    const action = option.fileId ? 'file' : (option.nextStepId ? 'next' : 'end');
     return `
       <div class="decision-option" data-decision-option data-option-id="${esc(option.id || makeFlowId('option'))}">
         <div class="decision-option-number">${index + 1}</div>
@@ -1132,11 +1256,13 @@
             <input data-option-text value="${esc(option.text || '')}" maxlength="20" oninput="updateCampaignConversationPreview()" placeholder="נוסח התשובה" />
             <select data-option-action onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">
               <option value="end" ${action === 'end' ? 'selected' : ''}>סיום</option>
+              <option value="file" ${action === 'file' ? 'selected' : ''}>שליחת קובץ</option>
               <option value="next" ${action === 'next' ? 'selected' : ''}>לעבור לשלב</option>
             </select>
             <button type="button" class="btn-small" onclick="removeDecisionOption(this)">מחק</button>
             <select data-option-next onchange="updateCampaignConversationPreview()" data-selected-next="${esc(option.nextStepId || '')}"></select>
-            <textarea data-option-end-text oninput="updateCampaignConversationPreview()" placeholder="הודעת סיום שתישלח אחרי התשובה הזו">${esc(option.endText || '')}</textarea>
+            <select data-option-file data-selected-file="${esc(option.fileId || '')}" onchange="updateCampaignConversationPreview()">${fileOptions(option.fileId || '')}</select>
+            <textarea data-option-end-text oninput="updateCampaignConversationPreview()" placeholder="הודעת סיום / כיתוב לקובץ">${esc(option.endText || '')}</textarea>
           </div>
         </div>
       </div>
@@ -1206,7 +1332,11 @@
       step.querySelectorAll('[data-decision-option]').forEach(option => {
         const action = option.querySelector('[data-option-action]')?.value || 'end';
         option.querySelector('[data-option-next]').style.display = action === 'next' ? '' : 'none';
-        option.querySelector('[data-option-end-text]').style.display = action === 'end' ? '' : 'none';
+        option.querySelector('[data-option-file]').style.display = action === 'file' ? '' : 'none';
+        option.querySelector('[data-option-end-text]').style.display = action === 'end' || action === 'file' ? '' : 'none';
+        option.querySelector('[data-option-end-text]').placeholder = action === 'file'
+          ? 'כיתוב שיופיע עם הקובץ (אופציונלי)'
+          : 'הודעת סיום שתישלח אחרי התשובה הזו';
       });
     });
   }
@@ -1263,6 +1393,11 @@
               if (action === 'next') {
                 const nextStepId = option.querySelector('[data-option-next]').value;
                 if (nextStepId) clean.nextStepId = nextStepId;
+              } else if (action === 'file') {
+                const fileId = option.querySelector('[data-option-file]').value;
+                const caption = option.querySelector('[data-option-end-text]').value.trim();
+                if (fileId) clean.fileId = fileId;
+                if (caption) clean.endText = caption;
               } else {
                 const endText = option.querySelector('[data-option-end-text]').value.trim();
                 if (endText) clean.endText = endText;
@@ -1336,7 +1471,14 @@
     return ordered.map(step => {
       if (step.kind === 'question') {
         const options = (step.options || []).map((option, index) => `${index + 1}. ${option.text}`).join('\n');
-        return `<div class="chat-row bot"><div class="chat-bubble">${esc(`${step.text}${options ? '\n\n' + options : ''}`)}</div></div>`;
+        const fileNotes = (step.options || [])
+          .filter(option => option.fileId)
+          .map(option => {
+            const file = appFiles.find(item => item.id === option.fileId);
+            return `אם בוחרים "${option.text}" יישלח קובץ${file ? `: ${file.originalName}` : ''}`;
+          })
+          .join('\n');
+        return `<div class="chat-row bot"><div class="chat-bubble">${esc(`${step.text}${options ? '\n\n' + options : ''}${fileNotes ? '\n\n' + fileNotes : ''}`)}</div></div>`;
       }
       return `<div class="chat-row bot"><div class="chat-bubble">${esc(step.text)}</div></div>`;
     }).join('');
@@ -1614,6 +1756,7 @@
   loadCampaigns();
   loadSettings();
   loadLinks();
+  loadCampaignFiles();
   loadContactQueueStats();
   setInterval(loadContactQueueStats, 5000);
   setInterval(loadCampaignResults, 5000);

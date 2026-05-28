@@ -1,4 +1,4 @@
-import type { Client } from 'whatsapp-web.js';
+import { Client, MessageMedia } from 'whatsapp-web.js';
 import { Storage } from '../storage';
 import { WhatsAppProvider } from '../types/whatsapp';
 import { createWhatsAppClient } from '../whatsapp';
@@ -24,6 +24,11 @@ export class WebJsProvider implements WhatsAppProvider {
 
   async sendMessage(to: string, message: string): Promise<void> {
     await this.client.sendMessage(to, message);
+  }
+
+  async sendFile(to: string, filePath: string, caption?: string): Promise<void> {
+    const media = MessageMedia.fromFilePath(filePath);
+    await this.client.sendMessage(to, media, caption?.trim() ? { caption: caption.trim() } : undefined);
   }
 
   async sendInteractiveButtons(

@@ -5,6 +5,7 @@
  */
 
 import express from 'express';
+import fs from 'fs';
 import path from 'path';
 import { Storage, AdminSettings, Campaign, CampaignConversationSettings, DecisionFlowOption, DecisionFlowStep } from './storage';
 import { config } from './config';
@@ -57,6 +58,16 @@ function cookieHeaderFromSetCookie(setCookie: string | null): string {
     .map((cookie) => cookie.split(';')[0]?.trim())
     .filter(Boolean)
     .join('; ');
+}
+
+function safeUploadName(name: string): string {
+  const ext = path.extname(name).toLowerCase().replace(/[^a-z0-9.]/g, '').slice(0, 12);
+  const base = path.basename(name, path.extname(name))
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 40) || 'file';
+  return `${base}${ext}`;
 }
 
 async function fetchClientSummary(client: ManagedClient): Promise<OwnerClientSummary> {
@@ -190,6 +201,9 @@ function sanitizeDecisionFlow(
             if (typeof rawOption.endText === 'string' && rawOption.endText.trim()) {
               clean.endText = rawOption.endText.trim().slice(0, 2000);
             }
+            if (typeof rawOption.fileId === 'string' && rawOption.fileId.trim()) {
+              clean.fileId = rawOption.fileId.trim().slice(0, 80);
+            }
             return clean;
           })
           .filter((option): option is DecisionFlowOption => Boolean(option))
@@ -222,7 +236,7 @@ export function startAdminServer(storage: Storage): void {
   const access = createAccessControl();
 
   app.set('trust proxy', 1);
-  app.use(express.json());
+  app.use(express.json({ limit: '24mb' }));
 
   app.get('/client/login', (_req, res) => {
     res.sendFile(path.join(publicDir, 'login.html'));
@@ -626,6 +640,52 @@ export function startAdminServer(storage: Storage): void {
       stats: storage.getContactQueueStats(),
       items: storage.getContactQueue(limit),
     });
+  });
+
+  app.get('/api/files', (_req, res) => {
+    res.json(storage.getUploadedFiles());
+  });
+
+  app.post('/api/files', (req, res) => {
+    const originalName = String(req.body?.name ?? '').trim();
+    const mimeType = String(req.body?.mimeType ?? 'application/octet-stream').trim();
+    const dataUrl = String(req.body?.dataUrl ?? '');
+    const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!originalName || !match) {
+      res.status(400).json({ error: 'קובץ לא תקין' });
+      return;
+    }
+
+    const allowedTypes = new Set([
+      'application/pdf',
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'video/mp4',
+    ]);
+    const detectedMimeType = match[1] || mimeType;
+    if (!allowedTypes.has(detectedMimeType)) {
+      res.status(400).json({ error: 'סוג קובץ לא נתמך. ניתן להעלות PDF, תמונה או MP4.' });
+      return;
+    }
+
+    const buffer = Buffer.from(match[2], 'base64');
+    const maxBytes = 15 * 1024 * 1024;
+    if (buffer.length > maxBytes) {
+      res.status(400).json({ error: 'הקובץ גדול מדי. המגבלה כרגע היא 15MB.' });
+      return;
+    }
+
+    fs.mkdirSync(config.UPLOADS_PATH, { recursive: true });
+    const filename = `${Date.now().toString(36)}-${safeUploadName(originalName)}`;
+    fs.writeFileSync(path.join(config.UPLOADS_PATH, filename), buffer);
+    const file = storage.addUploadedFile({
+      originalName,
+      filename,
+      mimeType: detectedMimeType,
+      size: buffer.length,
+    });
+    res.status(201).json(file);
   });
 
   app.get('/api/campaigns', (_req, res) => {

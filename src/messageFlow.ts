@@ -1,4 +1,5 @@
 import { config } from './config';
+import path from 'path';
 import { conversationState } from './conversationState';
 import { DecisionFlowOption, DecisionFlowStep, Storage } from './storage';
 import { detectTrigger } from './triggerDetector';
@@ -58,7 +59,7 @@ async function handleMessage(
 
   if (pending) {
     if (pending.kind === 'decision') {
-      await handleDecisionReply(message.body.trim(), pending.flow, pending.stepId, senderJid, transport);
+      await handleDecisionReply(message.body.trim(), pending.flow, pending.stepId, senderJid, storage, transport);
       return;
     }
 
@@ -199,6 +200,7 @@ async function handleDecisionReply(
   flow: DecisionFlowStep[],
   stepId: string,
   senderJid: string,
+  storage: Storage,
   transport: WhatsAppTransport,
 ): Promise<void> {
   const step = flow.find((item) => item.id === stepId);
@@ -218,7 +220,16 @@ async function handleDecisionReply(
   }
 
   conversationState.remove(senderJid);
-  if (option.endText?.trim()) {
+  if (option.fileId) {
+    const file = storage.getUploadedFile(option.fileId);
+    if (file && transport.sendFile) {
+      await transport.sendFile(senderJid, path.join(config.UPLOADS_PATH, file.filename), option.endText?.trim());
+      console.log('   Decision file sent.');
+    } else {
+      await transport.sendMessage(senderJid, option.endText?.trim() || 'הקובץ לא זמין כרגע.');
+      console.warn(`   Decision file unavailable: ${option.fileId}`);
+    }
+  } else if (option.endText?.trim()) {
     await transport.sendMessage(senderJid, option.endText.trim());
     console.log('   Decision reply sent.');
   }

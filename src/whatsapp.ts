@@ -8,7 +8,7 @@
  * 3. No match: ignore.
  */
 
-import { Client, LocalAuth, Message } from 'whatsapp-web.js';
+import { Client, LocalAuth, Message, MessageMedia } from 'whatsapp-web.js';
 import QRCode from 'qrcode';
 import { config } from './config';
 import { Storage } from './storage';
@@ -167,6 +167,10 @@ function createWebJsTransport(client: Client): WhatsAppTransport {
   return {
     sendMessage: async (to, text) => {
       await client.sendMessage(to, text);
+    },
+    sendFile: async (to, filePath, caption) => {
+      const media = MessageMedia.fromFilePath(filePath);
+      await client.sendMessage(to, media, caption?.trim() ? { caption: caption.trim() } : undefined);
     },
     resolvePhone: async (jid) => {
       try {
