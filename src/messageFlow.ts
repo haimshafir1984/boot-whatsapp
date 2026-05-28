@@ -11,6 +11,7 @@ import {
 
 const handledMessageIds = new Set<string>();
 const MAX_TRIGGER_AGE_MS = 2 * 60 * 1000;
+const DECISION_REPLY_TIMEOUT_MS = 30 * 60 * 1000;
 
 export async function handleIncomingWhatsAppMessage(
   message: IncomingWhatsAppMessage,
@@ -269,12 +270,17 @@ async function sendDecisionStep(
 
   await transport.sendMessage(senderJid, formatQuestion(step));
   console.log('   Decision question sent.');
+  const timeoutHandle = setTimeout(() => {
+    conversationState.remove(senderJid);
+    console.log(`   Decision reply timeout - cleared pending state for ${senderJid}.`);
+  }, DECISION_REPLY_TIMEOUT_MS);
   conversationState.set(senderJid, {
     kind: 'decision',
     senderJid,
     flow,
     stepId: step.id,
     timestamp: Date.now(),
+    timeoutHandle,
   });
 }
 

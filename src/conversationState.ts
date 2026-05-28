@@ -31,6 +31,8 @@ export interface PendingDecisionConversation {
   flow: import('./storage').DecisionFlowStep[];
   stepId: string;
   timestamp: number;
+  /** Cancel this to prevent stale unanswered decision prompts from staying in memory. */
+  timeoutHandle?: NodeJS.Timeout;
 }
 
 export type PendingConversation = PendingNameConversation | PendingDecisionConversation;
@@ -39,6 +41,7 @@ class ConversationStateManager {
   private readonly map = new Map<string, PendingConversation>();
 
   set(jid: string, state: PendingConversation): void {
+    this.clearTimer(this.map.get(jid));
     this.map.set(jid, state);
   }
 
@@ -47,11 +50,18 @@ class ConversationStateManager {
   }
 
   remove(jid: string): void {
+    this.clearTimer(this.map.get(jid));
     this.map.delete(jid);
   }
 
   size(): number {
     return this.map.size;
+  }
+
+  private clearTimer(state: PendingConversation | undefined): void {
+    if (state?.timeoutHandle) {
+      clearTimeout(state.timeoutHandle);
+    }
   }
 }
 
