@@ -428,14 +428,24 @@
       margin-bottom: 5px;
     }
     .decision-options { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+    .decision-options {
+      margin-right: 14px;
+      padding-right: 14px;
+      border-right: 3px solid #bbf7d0;
+      background: linear-gradient(90deg, transparent, rgba(240,253,244,.78));
+      border-radius: 10px;
+      padding-top: 10px;
+      padding-bottom: 10px;
+    }
     .decision-option {
       display: grid;
       grid-template-columns: 28px minmax(0, 1fr);
       gap: 8px;
-      padding: 8px;
+      padding: 10px;
       border: 1px solid #e5e7eb;
       border-radius: 8px;
       background: #fff;
+      box-shadow: 0 1px 2px rgba(15,23,42,.04);
     }
     .decision-option-number {
       width: 28px;
@@ -448,7 +458,45 @@
       font-weight: 800;
       font-size: .8rem;
     }
-    .decision-option-grid { display: grid; grid-template-columns: minmax(0, 1fr) 130px auto; gap: 8px; }
+    .decision-option-grid { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; }
+    .decision-option-action-select { display: none; }
+    .decision-action-tabs {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+    }
+    .decision-action-tab {
+      border: 1px solid #d1d5db;
+      background: #fff;
+      color: #374151;
+      border-radius: 8px;
+      padding: 8px 7px;
+      cursor: pointer;
+      font-size: .76rem;
+      font-weight: 800;
+      line-height: 1.25;
+      text-align: center;
+    }
+    .decision-action-tab[data-action=end].active { border-color: #16a34a; background: #dcfce7; color: #166534; }
+    .decision-action-tab[data-action=file].active { border-color: #7c3aed; background: #ede9fe; color: #5b21b6; }
+    .decision-action-tab[data-action=next].active { border-color: #2563eb; background: #dbeafe; color: #1e40af; }
+    .decision-action-summary {
+      grid-column: 1 / -1;
+      border-radius: 8px;
+      background: #f8fafc;
+      color: #475569;
+      padding: 7px 9px;
+      font-size: .75rem;
+      line-height: 1.45;
+    }
+    .decision-option-label {
+      grid-column: 1 / -1;
+      color: #6b7280;
+      font-size: .74rem;
+      font-weight: 700;
+      margin-top: 2px;
+    }
     .decision-option-next { display: none; grid-column: 1 / -1; }
     .decision-option-end { grid-column: 1 / -1; }
     .decision-option textarea { grid-column: 1 / -1; min-height: 52px; margin-bottom: 0; }
@@ -1253,15 +1301,24 @@
         <div class="decision-option-number">${index + 1}</div>
         <div>
           <div class="decision-option-grid">
-            <input data-option-text value="${esc(option.text || '')}" maxlength="20" oninput="updateCampaignConversationPreview()" placeholder="נוסח התשובה" />
-            <select data-option-action onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">
+            <input data-option-text value="${esc(option.text || '')}" maxlength="20" oninput="updateDecisionStepVisibility(); updateCampaignConversationPreview()" placeholder="נוסח התשובה" />
+            <button type="button" class="btn-small" onclick="removeDecisionOption(this)">מחק</button>
+            <select class="decision-option-action-select" data-option-action onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">
               <option value="end" ${action === 'end' ? 'selected' : ''}>סיום</option>
               <option value="file" ${action === 'file' ? 'selected' : ''}>שליחת קובץ</option>
               <option value="next" ${action === 'next' ? 'selected' : ''}>לעבור לשלב</option>
             </select>
-            <button type="button" class="btn-small" onclick="removeDecisionOption(this)">מחק</button>
-            <select data-option-next onchange="updateCampaignConversationPreview()" data-selected-next="${esc(option.nextStepId || '')}"></select>
-            <select data-option-file data-selected-file="${esc(option.fileId || '')}" onchange="updateCampaignConversationPreview()">${fileOptions(option.fileId || '')}</select>
+            <div class="decision-action-tabs">
+              <button type="button" class="decision-action-tab" data-action="end" onclick="setDecisionOptionAction(this, 'end')">שלח הודעה וסיים</button>
+              <button type="button" class="decision-action-tab" data-action="file" onclick="setDecisionOptionAction(this, 'file')">שלח קובץ</button>
+              <button type="button" class="decision-action-tab" data-action="next" onclick="setDecisionOptionAction(this, 'next')">המשך לשלב הבא</button>
+            </div>
+            <div class="decision-action-summary" data-option-summary></div>
+            <div class="decision-option-label" data-option-next-label>לאיזה שלב ממשיכים אחרי הבחירה?</div>
+            <select data-option-next onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()" data-selected-next="${esc(option.nextStepId || '')}"></select>
+            <div class="decision-option-label" data-option-file-label>איזה קובץ לשלוח?</div>
+            <select data-option-file data-selected-file="${esc(option.fileId || '')}" onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">${fileOptions(option.fileId || '')}</select>
+            <div class="decision-option-label" data-option-end-label>הודעת פרידה קבועה</div>
             <textarea data-option-end-text oninput="updateCampaignConversationPreview()" placeholder="הודעת סיום / כיתוב לקובץ">${esc(option.endText || '')}</textarea>
           </div>
         </div>
@@ -1320,6 +1377,25 @@
     updateCampaignConversationPreview();
   }
 
+  function setDecisionOptionAction(button, action) {
+    const option = button.closest('[data-decision-option]');
+    const select = option?.querySelector('[data-option-action]');
+    if (!select) return;
+    select.value = action;
+    updateDecisionStepVisibility();
+    updateCampaignConversationPreview();
+  }
+
+  function selectedStepLabel(select) {
+    const selected = select?.selectedOptions?.[0];
+    return selected?.value ? selected.textContent.trim() : '';
+  }
+
+  function selectedFileLabel(select) {
+    const selected = select?.selectedOptions?.[0];
+    return selected?.value ? selected.textContent.trim() : '';
+  }
+
   function updateDecisionStepVisibility() {
     document.querySelectorAll('[data-decision-step]').forEach(step => {
       const kind = step.querySelector('[data-step-kind]').value;
@@ -1331,12 +1407,41 @@
         : 'כתבי את ההודעה שתישלח';
       step.querySelectorAll('[data-decision-option]').forEach(option => {
         const action = option.querySelector('[data-option-action]')?.value || 'end';
-        option.querySelector('[data-option-next]').style.display = action === 'next' ? '' : 'none';
-        option.querySelector('[data-option-file]').style.display = action === 'file' ? '' : 'none';
-        option.querySelector('[data-option-end-text]').style.display = action === 'end' || action === 'file' ? '' : 'none';
+        const nextSelect = option.querySelector('[data-option-next]');
+        const fileSelect = option.querySelector('[data-option-file]');
+        const endText = option.querySelector('[data-option-end-text]');
+        const summary = option.querySelector('[data-option-summary]');
+        const optionText = option.querySelector('[data-option-text]')?.value.trim() || 'התשובה הזו';
+        option.querySelectorAll('[data-action]').forEach(button => {
+          button.classList.toggle('active', button.dataset.action === action);
+        });
+        nextSelect.style.display = action === 'next' ? '' : 'none';
+        fileSelect.style.display = action === 'file' ? '' : 'none';
+        endText.style.display = action === 'end' || action === 'file' ? '' : 'none';
+        option.querySelector('[data-option-next-label]').style.display = action === 'next' ? '' : 'none';
+        option.querySelector('[data-option-file-label]').style.display = action === 'file' ? '' : 'none';
+        option.querySelector('[data-option-end-label]').style.display = action === 'end' || action === 'file' ? '' : 'none';
         option.querySelector('[data-option-end-text]').placeholder = action === 'file'
           ? 'כיתוב שיופיע עם הקובץ (אופציונלי)'
           : 'הודעת סיום שתישלח אחרי התשובה הזו';
+        option.querySelector('[data-option-end-label]').textContent = action === 'file'
+          ? 'כיתוב לקובץ'
+          : 'הודעת פרידה קבועה';
+        if (summary) {
+          if (action === 'next') {
+            const target = selectedStepLabel(nextSelect);
+            summary.textContent = target
+              ? `אחרי שהמשתמש בוחר "${optionText}", ממשיכים אל ${target}.`
+              : `אחרי שהמשתמש בוחר "${optionText}", צריך לבחור לאיזה שלב להמשיך.`;
+          } else if (action === 'file') {
+            const file = selectedFileLabel(fileSelect);
+            summary.textContent = file
+              ? `אחרי שהמשתמש בוחר "${optionText}", יישלח הקובץ ${file}.`
+              : `אחרי שהמשתמש בוחר "${optionText}", צריך לבחור קובץ לשליחה.`;
+          } else {
+            summary.textContent = `אחרי שהמשתמש בוחר "${optionText}", תישלח הודעת פרידה והשיחה תסתיים.`;
+          }
+        }
       });
     });
   }
