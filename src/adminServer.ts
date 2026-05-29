@@ -438,12 +438,13 @@ export function startAdminServer(storage: Storage): void {
   // ── QR code status ────────────────────────────────────────────────────────
 
   app.get('/api/qr', (_req, res) => {
+    const profile = storage.getClientProfile();
     res.json({
       qr: botState.qrDataUrl,
       authenticated: botState.authenticated,
       ready: botState.ready,
       pairingCode: botState.pairingCode,
-      connectedPhone: botState.connectedPhone,
+      connectedPhone: botState.connectedPhone ?? profile.whatsappPhone,
       lifecycle: botState.lifecycle,
       listeningReason: botState.listeningReason,
       shouldRun: storage.hasCampaignsNeedingBot(),

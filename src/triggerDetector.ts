@@ -28,7 +28,8 @@ export function detectTrigger(
   const text = normalize(messageBody);
 
   for (const campaign of activeCampaigns) {
-    if (text === normalize(campaign.triggerPhrase)) {
+    const triggerText = normalize(campaign.triggerPhrase);
+    if (triggerText && text.includes(triggerText)) {
       return {
         matched: true,
         campaignId: campaign.id,

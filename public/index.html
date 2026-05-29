@@ -1802,12 +1802,17 @@
         if (connectedCard) connectedCard.style.display = 'none';
         document.getElementById('qr-content').innerHTML =
           '<div class="qr-spinner">&#x2705; Session מאומת — ממתין לאתחול הבוט...</div>';
+      } else if (data.lifecycle === 'stopped' && !data.shouldRun && data.connectedPhone) {
+        qrCard.style.display = 'none';
+        if (connectedCard) connectedCard.style.display = 'block';
+        const connectedText = connectedCard?.querySelector('span');
+        if (connectedText) connectedText.textContent = `✅ WhatsApp מחובר ומוכן לפעולה כשיהיה קמפיין פעיל${data.connectedPhone ? ` (${data.connectedPhone})` : ''}`;
       } else if (data.lifecycle === 'stopped' && !data.shouldRun) {
         _dataLoaded = false;
         qrCard.style.display = 'block';
         if (connectedCard) connectedCard.style.display = 'none';
         document.getElementById('qr-content').innerHTML =
-          '<div class="qr-spinner">WhatsApp כבוי כרגע כי אין קמפיין פעיל.</div><button class="btn-save" style="width:auto;padding:9px 18px;margin-top:10px" onclick="startWhatsApp()">הפעל לבדיקה / חיבור</button>';
+          '<div class="qr-spinner">WhatsApp יופעל כשיהיה קמפיין פעיל. לחיבור ראשוני אפשר להפעיל אותו ידנית.</div><button class="btn-save" style="width:auto;padding:9px 18px;margin-top:10px" onclick="startWhatsApp()">הפעל לבדיקה / חיבור</button>';
       } else {
         // Not connected yet / disconnected — show reconnecting message
         _dataLoaded = false;
