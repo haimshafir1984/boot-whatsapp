@@ -70,6 +70,21 @@ function safeUploadName(name: string): string {
   return `${base}${ext}`;
 }
 
+function getClientCapabilities(storage: Storage) {
+  const expiresAt = config.CLIENT_SERVICE_EXPIRES_AT || undefined;
+  const expiresTime = expiresAt ? new Date(expiresAt).getTime() : Number.POSITIVE_INFINITY;
+  const serviceExpired = Number.isFinite(expiresTime) && Date.now() > expiresTime;
+  return {
+    plan: config.CLIENT_PLAN,
+    readonlyDashboard: config.CLIENT_READONLY_DASHBOARD,
+    maxCampaigns: config.CLIENT_MAX_CAMPAIGNS,
+    serviceExpiresAt: expiresAt,
+    serviceExpired,
+    whatsappProvider: config.WHATSAPP_PROVIDER,
+    campaignCount: storage.getCampaigns().length,
+  };
+}
+
 async function fetchClientSummary(client: ManagedClient): Promise<OwnerClientSummary> {
   const empty: OwnerClientSummary = {
     reachable: false,
@@ -304,6 +319,13 @@ export function startAdminServer(storage: Storage): void {
   app.post('/owner/api/clients', async (req, res) => {
     const name = String(req.body?.name ?? '').trim();
     const accessCode = String(req.body?.accessCode ?? '').trim();
+    const plan = ['basic', 'self_service', 'advanced'].includes(String(req.body?.plan))
+      ? String(req.body.plan) as ManagedClient['plan']
+      : 'self_service';
+    const maxCampaigns = Math.max(1, Math.min(Number(req.body?.maxCampaigns) || (plan === 'advanced' ? 5 : plan === 'basic' ? 1 : 7), 50));
+    const serviceExpiresAt = typeof req.body?.serviceExpiresAt === 'string' && req.body.serviceExpiresAt.trim()
+      ? req.body.serviceExpiresAt.trim()
+      : undefined;
     if (!name) {
       res.status(400).json({ error: 'שם לקוחה חסר' });
       return;
@@ -320,7 +342,13 @@ export function startAdminServer(storage: Storage): void {
       res.status(503).json({ error: dokployProvisioner.configurationError });
       return;
     }
-    const client = ownerStorage.addClient(name, accessCode);
+    const client = ownerStorage.addClient(name, accessCode, {
+      plan,
+      readonlyDashboard: plan === 'basic',
+      maxCampaigns,
+      serviceExpiresAt,
+      whatsappProvider: plan === 'advanced' ? 'TWILIO_API' : 'WEB_JS',
+    });
     try {
       res.status(201).json(await provisionClient(client.id));
     } catch (err: any) {
@@ -434,6 +462,19 @@ export function startAdminServer(storage: Storage): void {
 
   app.use('/owner', access.requireOwner, express.static(ownerPublicDir));
   app.use('/api', access.requireClient);
+
+  const requireWritableClient = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const capabilities = getClientCapabilities(storage);
+    if (capabilities.readonlyDashboard) {
+      res.status(403).json({ error: 'המסלול הנוכחי מאפשר צפייה בלבד. שינוי קמפיינים מתבצע דרך מנהל המערכת.' });
+      return;
+    }
+    if (capabilities.serviceExpired) {
+      res.status(403).json({ error: 'תקופת הפעילות הסתיימה. ניתן לצפות בנתונים, אך לא לבצע שינויים.' });
+      return;
+    }
+    next();
+  };
 
   // ── QR code status ────────────────────────────────────────────────────────
 
@@ -579,13 +620,17 @@ export function startAdminServer(storage: Storage): void {
     res.json({ phone: botState.connectedPhone ?? (profile.whatsappPhone || fallbackPhone) });
   });
 
+  app.get('/api/capabilities', (_req, res) => {
+    res.json(getClientCapabilities(storage));
+  });
+
   // ── Settings ──────────────────────────────────────────────────────────────
 
   app.get('/api/settings', (_req, res) => {
     res.json(storage.getAdminSettings());
   });
 
-  app.post('/api/settings', (req, res) => {
+  app.post('/api/settings', requireWritableClient, (req, res) => {
     const body = req.body as Partial<AdminSettings>;
     const patch: Partial<AdminSettings> = {};
 
@@ -610,7 +655,7 @@ export function startAdminServer(storage: Storage): void {
 
   // ── iCloud test ──────────────────────────────────────────────────────────
 
-  app.post('/api/icloud/test', async (req, res) => {
+  app.post('/api/icloud/test', requireWritableClient, async (req, res) => {
     const { email, password } = req.body as { email?: string; password?: string };
     if (!email || !password) { res.status(400).json({ error: 'חסרים פרטים' }); return; }
     try {
@@ -647,7 +692,7 @@ export function startAdminServer(storage: Storage): void {
     res.json(storage.getUploadedFiles());
   });
 
-  app.post('/api/files', (req, res) => {
+  app.post('/api/files', requireWritableClient, (req, res) => {
     const originalName = String(req.body?.name ?? '').trim();
     const mimeType = String(req.body?.mimeType ?? 'application/octet-stream').trim();
     const dataUrl = String(req.body?.dataUrl ?? '');
@@ -729,15 +774,28 @@ export function startAdminServer(storage: Storage): void {
     res.send('\uFEFF' + rows.join('\n'));
   });
 
-  app.post('/api/campaigns', (req, res) => {
+  app.post('/api/campaigns', requireWritableClient, (req, res) => {
     const { name, triggerType, triggerPhrase, basePhrase, referrerName, startAt, endAt, conversation } =
       req.body as Partial<Campaign>;
+    const capabilities = getClientCapabilities(storage);
 
     if (!name?.trim()) { res.status(400).json({ error: 'שם הקמפיין חסר' }); return; }
+    if (storage.getCampaigns().length >= capabilities.maxCampaigns) {
+      res.status(403).json({ error: `המסלול מאפשר עד ${capabilities.maxCampaigns} קמפיינים.` });
+      return;
+    }
     if (triggerType !== 1 && triggerType !== 2) { res.status(400).json({ error: 'סוג טריגר לא תקין' }); return; }
     if (startAt && endAt && new Date(startAt).getTime() >= new Date(endAt).getTime()) {
       res.status(400).json({ error: 'שעת הסיום חייבת להיות אחרי שעת ההתחלה' });
       return;
+    }
+    if (capabilities.serviceExpiresAt) {
+      const expiry = new Date(capabilities.serviceExpiresAt).getTime();
+      const campaignEnd = endAt ? new Date(endAt).getTime() : expiry;
+      if (!Number.isNaN(expiry) && campaignEnd > expiry) {
+        res.status(400).json({ error: 'זמן סיום הקמפיין חייב להיות בתוך תקופת הפעילות של הלקוח.' });
+        return;
+      }
     }
 
     let phrase: string;
@@ -774,7 +832,7 @@ export function startAdminServer(storage: Storage): void {
     res.json(campaign);
   });
 
-  app.put('/api/campaigns/:id', (req, res) => {
+  app.put('/api/campaigns/:id', requireWritableClient, (req, res) => {
     const { name, triggerType, triggerPhrase, basePhrase, referrerName, active, startAt, endAt, conversation } =
       req.body as Partial<Campaign>;
 
@@ -785,6 +843,15 @@ export function startAdminServer(storage: Storage): void {
     if (startAt && endAt && new Date(startAt).getTime() >= new Date(endAt).getTime()) {
       res.status(400).json({ error: 'שעת הסיום חייבת להיות אחרי שעת ההתחלה' });
       return;
+    }
+    const capabilities = getClientCapabilities(storage);
+    if (capabilities.serviceExpiresAt) {
+      const expiry = new Date(capabilities.serviceExpiresAt).getTime();
+      const campaignEnd = endAt ? new Date(endAt).getTime() : expiry;
+      if (!Number.isNaN(expiry) && campaignEnd > expiry) {
+        res.status(400).json({ error: 'זמן סיום הקמפיין חייב להיות בתוך תקופת הפעילות של הלקוח.' });
+        return;
+      }
     }
     if ('startAt' in req.body) patch.startAt = typeof startAt === 'string' && startAt ? startAt : undefined;
     if ('endAt' in req.body) patch.endAt = typeof endAt === 'string' && endAt ? endAt : undefined;
@@ -816,7 +883,7 @@ export function startAdminServer(storage: Storage): void {
       patch.suffix = ` - (${refName})`;
     }
 
-    const updated = storage.updateCampaign(req.params.id, patch);
+    const updated = storage.updateCampaign(String(req.params.id), patch);
     if (!updated) {
       res.status(404).json({ error: 'קמפיין לא נמצא' });
       return;
@@ -824,13 +891,13 @@ export function startAdminServer(storage: Storage): void {
     res.json(updated);
   });
 
-  app.delete('/api/campaigns/:id', (req, res) => {
-    const ok = storage.deleteCampaign(req.params.id);
+  app.delete('/api/campaigns/:id', requireWritableClient, (req, res) => {
+    const ok = storage.deleteCampaign(String(req.params.id));
     res.json({ ok });
   });
 
-  app.patch('/api/campaigns/:id/toggle', (req, res) => {
-    const updated = storage.toggleCampaign(req.params.id);
+  app.patch('/api/campaigns/:id/toggle', requireWritableClient, (req, res) => {
+    const updated = storage.toggleCampaign(String(req.params.id));
     if (!updated) {
       res.status(404).json({ error: 'קמפיין לא נמצא' });
       return;

@@ -8,6 +8,11 @@ export interface ManagedClient {
   id: string;
   name: string;
   accessCode: string;
+  plan: 'basic' | 'self_service' | 'advanced';
+  readonlyDashboard: boolean;
+  maxCampaigns: number;
+  serviceExpiresAt?: string;
+  whatsappProvider: 'WEB_JS' | 'TWILIO_API';
   managementUrl: string;
   provisioningStatus: ClientProvisioningStatus;
   railwayServiceId?: string;
@@ -39,7 +44,14 @@ export class OwnerStorage {
     if (!fs.existsSync(this.filePath)) return [];
     try {
       const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf-8'));
-      return Array.isArray(parsed) ? parsed : [];
+      if (!Array.isArray(parsed)) return [];
+      return parsed.map((client) => ({
+        plan: 'self_service',
+        readonlyDashboard: false,
+        maxCampaigns: 7,
+        whatsappProvider: 'WEB_JS',
+        ...client,
+      }));
     } catch {
       return [];
     }
@@ -58,11 +70,21 @@ export class OwnerStorage {
     return client ? { ...client } : null;
   }
 
-  addClient(name: string, accessCode: string): ManagedClient {
+  addClient(
+    name: string,
+    accessCode: string,
+    options: Partial<Pick<ManagedClient, 'plan' | 'readonlyDashboard' | 'maxCampaigns' | 'serviceExpiresAt' | 'whatsappProvider'>> = {},
+  ): ManagedClient {
+    const plan = options.plan ?? 'self_service';
     const client: ManagedClient = {
       id: crypto.randomUUID(),
       name: name.trim(),
       accessCode: accessCode.trim(),
+      plan,
+      readonlyDashboard: options.readonlyDashboard ?? plan === 'basic',
+      maxCampaigns: options.maxCampaigns ?? (plan === 'advanced' ? 5 : plan === 'basic' ? 1 : 7),
+      serviceExpiresAt: options.serviceExpiresAt,
+      whatsappProvider: options.whatsappProvider ?? (plan === 'advanced' ? 'TWILIO_API' : 'WEB_JS'),
       managementUrl: '',
       provisioningStatus: 'pending_setup',
       createdAt: new Date().toISOString(),

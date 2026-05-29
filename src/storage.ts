@@ -486,6 +486,11 @@ export class Storage {
   }
 
   hasCampaignsNeedingBot(now = new Date(), leadMs = 15 * 60 * 1000): boolean {
+    if (config.CLIENT_SERVICE_EXPIRES_AT) {
+      const expires = new Date(config.CLIENT_SERVICE_EXPIRES_AT).getTime();
+      if (!Number.isNaN(expires) && now.getTime() > expires) return false;
+    }
+
     return this.data.campaigns.some((campaign) => {
       if (!campaign.active) return false;
       if (!campaign.startAt && !campaign.endAt) return true;

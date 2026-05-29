@@ -211,12 +211,19 @@ export class DokployProvisioner {
     const envLines = [
       `CLIENT_ACCESS_TOKEN=${escapeEnvValue(current.accessCode)}`,
       `OWNER_ACCESS_TOKEN=${escapeEnvValue(ownerToken)}`,
+      `CLIENT_PLAN=${escapeEnvValue(current.plan)}`,
+      `CLIENT_READONLY_DASHBOARD=${current.readonlyDashboard ? 'true' : 'false'}`,
+      `CLIENT_MAX_CAMPAIGNS=${String(current.maxCampaigns)}`,
+      `WHATSAPP_PROVIDER=${escapeEnvValue(current.whatsappProvider)}`,
       'STORAGE_PATH=./data/contacts.json',
       'SESSION_PATH=./data/session',
       'GOOGLE_TOKEN_PATH=./data/google-token.json',
       'OWNER_STORAGE_PATH=./data/owner/clients.json',
       'PORT=3001',
     ];
+    if (current.serviceExpiresAt) {
+      envLines.push(`CLIENT_SERVICE_EXPIRES_AT=${escapeEnvValue(current.serviceExpiresAt)}`);
+    }
     if (this.config.googleClientId && this.config.googleClientSecret) {
       envLines.push(`GOOGLE_CLIENT_ID=${escapeEnvValue(this.config.googleClientId)}`);
       envLines.push(`GOOGLE_CLIENT_SECRET=${escapeEnvValue(this.config.googleClientSecret)}`);

@@ -5,6 +5,12 @@
  */
 
 export const config = {
+  CLIENT_PLAN: process.env.CLIENT_PLAN ?? 'self_service',
+  CLIENT_READONLY_DASHBOARD: process.env.CLIENT_READONLY_DASHBOARD === 'true',
+  CLIENT_MAX_CAMPAIGNS: Number(process.env.CLIENT_MAX_CAMPAIGNS) || 7,
+  CLIENT_SERVICE_EXPIRES_AT: process.env.CLIENT_SERVICE_EXPIRES_AT ?? '',
+  WHATSAPP_PROVIDER: process.env.WHATSAPP_PROVIDER ?? 'WEB_JS',
+
   // ─── Trigger prefixes (static – used when building campaign trigger phrases) ──
   /** Fixed prefix prepended to the referrer name for every type-2 campaign. */
   TRIGGER_REFERRAL_PREFIX: 'הגעתי דרך ',

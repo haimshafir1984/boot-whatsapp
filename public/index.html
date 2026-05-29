@@ -615,7 +615,7 @@
       <div id="campaign-list">
         <!-- filled by JS -->
       </div>
-      <button class="btn-add" style="margin-top:14px" onclick="openModal()">+ הוסף קמפיין</button>
+      <button class="btn-add" id="addCampaignBtn" style="margin-top:14px" onclick="openModal()">+ הוסף קמפיין</button>
       <hr />
       <div class="sec-title">תוצאות קמפיינים</div>
       <div class="results-list" id="campaign-results">
@@ -847,15 +847,40 @@
   };
   let editingId = null;
   let appFiles = [];
+  let appCapabilities = { readonlyDashboard: false, maxCampaigns: 7, serviceExpired: false, campaignCount: 0 };
+  let lastCampaigns = [];
 
   // ── Campaigns ───────────────────────────────────────────────────────────────
 
   async function loadCampaigns() {
     const res  = await fetch('/api/campaigns');
     const list = await res.json();
+    lastCampaigns = list;
+    appCapabilities.campaignCount = list.length;
     renderCampaigns(list);
     renderLinks(list); // keep links in sync
     loadCampaignResults();
+  }
+
+  async function loadCapabilities() {
+    try {
+      const res = await fetch('/api/capabilities');
+      appCapabilities = { ...appCapabilities, ...(await res.json()) };
+      applyCapabilities();
+    } catch (_) {}
+  }
+
+  function canEditCampaigns() {
+    return !appCapabilities.readonlyDashboard && !appCapabilities.serviceExpired;
+  }
+
+  function applyCapabilities() {
+    const addBtn = document.getElementById('addCampaignBtn');
+    if (addBtn) {
+      addBtn.style.display = canEditCampaigns() ? '' : 'none';
+      addBtn.disabled = appCapabilities.campaignCount >= appCapabilities.maxCampaigns;
+    }
+    renderCampaigns(lastCampaigns || []);
   }
 
   function formatDateTimeLocal(value) {
@@ -918,7 +943,7 @@
           </div>
           ${scheduleText ? `<div style="font-size:.72rem;color:#6b7280;margin-top:5px">${esc(scheduleText)}</div>` : ''}
         </div>
-        <div class="campaign-actions">
+        <div class="campaign-actions" style="${canEditCampaigns() ? '' : 'display:none'}">
           <button class="btn-icon btn-toggle" onclick="toggleCampaign('${c.id}', ${c.active})" title="${c.active ? 'השבת' : 'הפעל'}">
             ${c.active ? '⏸' : '▶'}
           </button>
@@ -978,6 +1003,11 @@
   // ── Modal ───────────────────────────────────────────────────────────────────
 
   function openModal() {
+    if (!canEditCampaigns()) return;
+    if (appCapabilities.campaignCount >= appCapabilities.maxCampaigns) {
+      alert(`המסלול מאפשר עד ${appCapabilities.maxCampaigns} קמפיינים.`);
+      return;
+    }
     editingId = null;
     document.getElementById('modalTitle').textContent = 'הוסף קמפיין';
     document.getElementById('fName').value      = '';
@@ -995,6 +1025,7 @@
   }
 
   async function openEditModal(id) {
+    if (!canEditCampaigns()) return;
     const res  = await fetch('/api/campaigns');
     const list = await res.json();
     const c    = list.find(x => x.id === id);
@@ -1049,6 +1080,7 @@
   }
 
   async function submitCampaign() {
+    if (!canEditCampaigns()) return;
     const name        = document.getElementById('fName').value.trim();
     const triggerType = Number(document.querySelector('input[name=triggerType]:checked').value);
     const errEl       = document.getElementById('modalError');
@@ -1863,6 +1895,7 @@
   }
 
   // ── Init ────────────────────────────────────────────────────────────────────
+  loadCapabilities();
   loadCampaigns();
   loadSettings();
   loadLinks();

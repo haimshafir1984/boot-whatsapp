@@ -25,10 +25,10 @@
     h2 { font-size: 1.38rem; margin: 0 0 5px; }
     .sub { color: #6b7280; font-size: .88rem; }
     .create {
-      display: grid; grid-template-columns: minmax(150px, 1fr) minmax(180px, 1fr) auto;
+      display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)) auto;
       gap: 8px; min-width: min(620px, 100%);
     }
-    input {
+    input, select {
       flex: 1; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 7px;
       font-size: .9rem;
     }
@@ -85,6 +85,13 @@
       <form class="create" id="createForm">
         <input id="clientName" type="text" placeholder="שם הלקוחה" required />
         <input id="clientAccessCode" type="password" minlength="8" placeholder="סיסמת כניסה ללקוחה" autocomplete="new-password" required />
+        <select id="clientPlan" onchange="syncPlanDefaults()">
+          <option value="basic">מוכן להפעלה</option>
+          <option value="self_service" selected>עצמאי</option>
+          <option value="advanced">Twilio מתקדם</option>
+        </select>
+        <input id="clientMaxCampaigns" type="number" min="1" max="50" value="7" placeholder="מקס׳ קמפיינים" />
+        <input id="clientExpiresAt" type="date" />
         <button class="primary" type="submit">צור יחידת לקוחה</button>
       </form>
     </div>
@@ -109,6 +116,12 @@
         failed: 'ההקמה נכשלה',
         disabled: 'מושבת',
       }[status] || status;
+    }
+
+    function syncPlanDefaults() {
+      const plan = document.getElementById('clientPlan').value;
+      document.getElementById('clientMaxCampaigns').value =
+        plan === 'advanced' ? '5' : plan === 'basic' ? '1' : '7';
     }
 
     async function loadClients() {
@@ -162,6 +175,11 @@
         body: JSON.stringify({
           name: document.getElementById('clientName').value,
           accessCode: document.getElementById('clientAccessCode').value,
+          plan: document.getElementById('clientPlan').value,
+          maxCampaigns: Number(document.getElementById('clientMaxCampaigns').value),
+          serviceExpiresAt: document.getElementById('clientExpiresAt').value
+            ? new Date(document.getElementById('clientExpiresAt').value + 'T23:59:59').toISOString()
+            : undefined,
         }),
       });
       const body = await response.json().catch(() => ({}));
@@ -174,6 +192,9 @@
       }
       document.getElementById('clientName').value = '';
       document.getElementById('clientAccessCode').value = '';
+      document.getElementById('clientPlan').value = 'self_service';
+      syncPlanDefaults();
+      document.getElementById('clientExpiresAt').value = '';
       button.disabled = false;
       button.textContent = 'צור יחידת לקוחה';
       loadClients();
