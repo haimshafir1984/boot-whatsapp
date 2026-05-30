@@ -54,8 +54,19 @@
     .small-badge.ended { background: #fee2e2; color: #991b1b; }
     .campaign-metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; color: #6b7280; font-size: .75rem; }
     .campaign-metrics strong { display: block; color: #111827; font-size: .86rem; }
+    .owner-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+    .owner-form label { display: block; color: #6b7280; font-size: .74rem; margin-bottom: 5px; }
+    .owner-form input, .owner-form select, .owner-form textarea {
+      width: 100%; border: 1px solid #d1d5db; border-radius: 7px; padding: 9px 10px; font: inherit; font-size: .84rem;
+    }
+    .owner-form textarea { min-height: 72px; resize: vertical; }
+    .full { grid-column: 1 / -1; }
+    .form-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .danger { border: 1px solid #fecaca; background: #fff1f2; color: #b91c1c; border-radius: 6px; padding: 6px 9px; cursor: pointer; font-weight: 700; }
+    .mini { border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 6px; padding: 6px 9px; cursor: pointer; font-weight: 700; }
+    .plan-pill { border-radius: 999px; background: #eef2ff; color: #3730a3; padding: 4px 9px; font-size: .74rem; font-weight: 800; }
     @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .heading { flex-direction: column; } }
-    @media (max-width: 520px) { .stats-grid, .campaign-metrics { grid-template-columns: 1fr; } }
+    @media (max-width: 520px) { .stats-grid, .campaign-metrics, .owner-form { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -76,6 +87,10 @@
         <section>
           <h2>פרטי יחידה</h2>
           <div class="line"><span class="label">נוצרה</span><span class="value" id="createdAt"></span></div>
+          <div class="line"><span class="label">מסלול</span><span class="value"><span class="plan-pill" id="planLabel">-</span></span></div>
+          <div class="line"><span class="label">מגבלת קמפיינים</span><span class="value" id="maxCampaigns">-</span></div>
+          <div class="line"><span class="label">תוקף פעילות</span><span class="value" id="serviceExpiresAt">-</span></div>
+          <div class="line"><span class="label">חיבור WhatsApp</span><span class="value" id="whatsappProvider">-</span></div>
           <div class="line">
             <span class="label">סיסמת כניסה ללקוחה</span>
             <span><span class="value code" id="accessCode"></span><button class="copy" onclick="copyAccessCode()">העתק</button></span>
@@ -86,6 +101,48 @@
         </section>
         <section>
           <h2>קמפיינים ותוצאות</h2>
+          <div class="owner-form" id="ownerCampaignForm">
+            <div>
+              <label>שם קמפיין</label>
+              <input id="ocName" placeholder="למשל: קמפיין סטטוס" />
+            </div>
+            <div>
+              <label>סוג טריגר</label>
+              <select id="ocType" onchange="toggleOwnerCampaignType()">
+                <option value="1">טריגר רגיל</option>
+                <option value="2">הגיע דרך ממליץ</option>
+              </select>
+            </div>
+            <div id="ocPhraseWrap" class="full">
+              <label>משפט טריגר</label>
+              <input id="ocPhrase" placeholder="הגעתי מהסטטוס" />
+            </div>
+            <div id="ocBaseWrap" style="display:none">
+              <label>משפט בסיס</label>
+              <input id="ocBasePhrase" placeholder="הגעתי מהפרסום" />
+            </div>
+            <div id="ocRefWrap" style="display:none">
+              <label>שם ממליץ</label>
+              <input id="ocReferrer" placeholder="שם מקור / ממליץ" />
+            </div>
+            <div>
+              <label>התחלה</label>
+              <input id="ocStartAt" type="datetime-local" />
+            </div>
+            <div>
+              <label>סיום</label>
+              <input id="ocEndAt" type="datetime-local" />
+            </div>
+            <div class="full">
+              <label>הודעת סיום</label>
+              <textarea id="ocReplyText" placeholder="תודה, שמרתי אותך."></textarea>
+            </div>
+            <div class="full form-actions">
+              <label style="margin:0"><input id="ocAskName" type="checkbox" /> לשאול באיזה שם לשמור</label>
+              <button class="retry" type="button" onclick="createOwnerCampaign()">צור קמפיין ללקוחה</button>
+              <span class="muted" id="ownerCampaignError"></span>
+            </div>
+          </div>
           <div class="stats-grid">
             <div class="stat-card">
               <div class="stat-value" id="activeCampaigns">0</div>
@@ -149,8 +206,87 @@
       }[status] || status || '-';
     }
 
+    function planLabel(plan) {
+      return {
+        basic: 'מוכן להפעלה',
+        self_service: 'עצמאי',
+        advanced: 'Twilio מתקדם',
+      }[plan] || plan || '-';
+    }
+
+    function formatDate(value) {
+      if (!value) return '-';
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? '-' : date.toLocaleDateString('he-IL');
+    }
+
+    function localDateTimeToIso(value) {
+      if (!value) return undefined;
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+    }
+
+    function toggleOwnerCampaignType() {
+      const type = document.getElementById('ocType').value;
+      document.getElementById('ocPhraseWrap').style.display = type === '1' ? '' : 'none';
+      document.getElementById('ocBaseWrap').style.display = type === '2' ? '' : 'none';
+      document.getElementById('ocRefWrap').style.display = type === '2' ? '' : 'none';
+    }
+
     function setDot(id, on) {
       document.getElementById(id).style.background = on ? '#22c55e' : '#d1d5db';
+    }
+
+    async function createOwnerCampaign() {
+      if (!currentClient) return;
+      const error = document.getElementById('ownerCampaignError');
+      error.textContent = '';
+      const triggerType = Number(document.getElementById('ocType').value);
+      const replyText = document.getElementById('ocReplyText').value.trim() || 'תודה, שמרתי אותך.';
+      const body = {
+        name: document.getElementById('ocName').value.trim(),
+        triggerType,
+        triggerPhrase: document.getElementById('ocPhrase').value.trim(),
+        basePhrase: document.getElementById('ocBasePhrase').value.trim(),
+        referrerName: document.getElementById('ocReferrer').value.trim(),
+        startAt: localDateTimeToIso(document.getElementById('ocStartAt').value),
+        endAt: localDateTimeToIso(document.getElementById('ocEndAt').value),
+        conversation: {
+          askNameEnabled: document.getElementById('ocAskName').checked,
+          nameTimeoutMinutes: 5,
+          askNameText: 'ברוכה הבאה\nבאיזה שם לשמור אותך?',
+          replyText,
+          followupMessages: [],
+          decisionFlow: [],
+        },
+      };
+      const response = await fetch(`/owner/api/clients/${encodeURIComponent(currentClient.id)}/campaigns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        error.textContent = data.error || 'יצירת הקמפיין נכשלה';
+        return;
+      }
+      ['ocName', 'ocPhrase', 'ocBasePhrase', 'ocReferrer', 'ocStartAt', 'ocEndAt', 'ocReplyText'].forEach(id => {
+        document.getElementById(id).value = '';
+      });
+      document.getElementById('ocAskName').checked = false;
+      loadClientSummary(currentClient.id);
+    }
+
+    async function toggleOwnerCampaign(campaignId) {
+      if (!currentClient) return;
+      await fetch(`/owner/api/clients/${encodeURIComponent(currentClient.id)}/campaigns/${encodeURIComponent(campaignId)}/toggle`, { method: 'PATCH' });
+      loadClientSummary(currentClient.id);
+    }
+
+    async function deleteOwnerCampaign(campaignId) {
+      if (!currentClient || !confirm('למחוק את הקמפיין?')) return;
+      await fetch(`/owner/api/clients/${encodeURIComponent(currentClient.id)}/campaigns/${encodeURIComponent(campaignId)}`, { method: 'DELETE' });
+      loadClientSummary(currentClient.id);
     }
 
     function renderCampaignSummary(summary) {
@@ -181,7 +317,11 @@
         <div class="campaign-row">
           <div class="campaign-top">
             <span class="campaign-name">${esc(campaign.name)}</span>
-            <span class="small-badge ${esc(campaign.runtimeStatus)}">${runtimeLabel(campaign.runtimeStatus)}</span>
+            <span>
+              <button class="mini" onclick="toggleOwnerCampaign('${esc(campaign.id)}')">${campaign.active ? 'כבה' : 'הפעל'}</button>
+              <button class="danger" onclick="deleteOwnerCampaign('${esc(campaign.id)}')">מחק</button>
+              <span class="small-badge ${esc(campaign.runtimeStatus)}">${runtimeLabel(campaign.runtimeStatus)}</span>
+            </span>
           </div>
           <div class="campaign-metrics">
             <span><strong>${campaign.total}</strong>סה"כ נכנסו</span>
@@ -231,6 +371,10 @@
       document.getElementById('status').textContent = statusLabel(currentClient.provisioningStatus);
       document.getElementById('status').className = `badge ${currentClient.provisioningStatus}`;
       document.getElementById('createdAt').textContent = new Date(currentClient.createdAt).toLocaleString('he-IL');
+      document.getElementById('planLabel').textContent = planLabel(currentClient.plan);
+      document.getElementById('maxCampaigns').textContent = currentClient.maxCampaigns ?? '-';
+      document.getElementById('serviceExpiresAt').textContent = formatDate(currentClient.serviceExpiresAt);
+      document.getElementById('whatsappProvider').textContent = currentClient.whatsappProvider === 'TWILIO_API' ? 'Twilio' : 'WhatsApp Web';
       document.getElementById('accessCode').textContent = currentClient.accessCode;
       document.getElementById('retryButton').style.display = 'none';
       document.getElementById('readyButton').style.display = 'none';

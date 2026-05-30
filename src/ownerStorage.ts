@@ -8,6 +8,7 @@ export interface ManagedClient {
   id: string;
   name: string;
   accessCode: string;
+  ownerAccessToken: string;
   plan: 'basic' | 'self_service' | 'advanced';
   readonlyDashboard: boolean;
   maxCampaigns: number;
@@ -50,6 +51,7 @@ export class OwnerStorage {
         readonlyDashboard: false,
         maxCampaigns: 7,
         whatsappProvider: 'WEB_JS',
+        ownerAccessToken: crypto.randomBytes(32).toString('base64url'),
         ...client,
       }));
     } catch {
@@ -80,6 +82,7 @@ export class OwnerStorage {
       id: crypto.randomUUID(),
       name: name.trim(),
       accessCode: accessCode.trim(),
+      ownerAccessToken: crypto.randomBytes(32).toString('base64url'),
       plan,
       readonlyDashboard: options.readonlyDashboard ?? plan === 'basic',
       maxCampaigns: options.maxCampaigns ?? (plan === 'advanced' ? 5 : plan === 'basic' ? 1 : 7),

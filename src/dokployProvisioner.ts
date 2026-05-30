@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 import { ManagedClient } from './ownerStorage';
 
 export interface ClientProvisioningPatch {
@@ -207,10 +206,9 @@ export class DokployProvisioner {
       enableSubmodules: false,
     });
 
-    const ownerToken = crypto.randomBytes(32).toString('base64url');
     const envLines = [
       `CLIENT_ACCESS_TOKEN=${escapeEnvValue(current.accessCode)}`,
-      `OWNER_ACCESS_TOKEN=${escapeEnvValue(ownerToken)}`,
+      `OWNER_ACCESS_TOKEN=${escapeEnvValue(current.ownerAccessToken)}`,
       `CLIENT_PLAN=${escapeEnvValue(current.plan)}`,
       `CLIENT_READONLY_DASHBOARD=${current.readonlyDashboard ? 'true' : 'false'}`,
       `CLIENT_MAX_CAMPAIGNS=${String(current.maxCampaigns)}`,

@@ -5,6 +5,7 @@
  */
 
 import express from 'express';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { Storage, AdminSettings, Campaign, CampaignConversationSettings, DecisionFlowOption, DecisionFlowStep } from './storage';
@@ -58,6 +59,14 @@ function cookieHeaderFromSetCookie(setCookie: string | null): string {
     .map((cookie) => cookie.split(';')[0]?.trim())
     .filter(Boolean)
     .join('; ');
+}
+
+function ownerTokenMatches(provided: unknown): boolean {
+  const expected = process.env.OWNER_ACCESS_TOKEN?.trim();
+  if (!expected || typeof provided !== 'string') return false;
+  const left = Buffer.from(expected);
+  const right = Buffer.from(provided.trim());
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
 function safeUploadName(name: string): string {
@@ -156,6 +165,28 @@ async function fetchClientSummary(client: ManagedClient): Promise<OwnerClientSum
     googleConnected: Boolean(google?.connected),
     campaigns: campaignRows,
   };
+}
+
+async function fetchClientAsOwner<T>(
+  client: ManagedClient,
+  pathName: string,
+  init: RequestInit = {},
+): Promise<{ ok: boolean; status: number; body: T | any }> {
+  const baseUrl = getClientBaseUrl(client);
+  if (!baseUrl) return { ok: false, status: 409, body: { error: 'Client URL is not ready yet' } };
+  if (!client.ownerAccessToken) return { ok: false, status: 409, body: { error: 'Owner token is missing. Reprovision this client.' } };
+
+  const headers = new Headers(init.headers);
+  headers.set('Content-Type', headers.get('Content-Type') || 'application/json');
+  headers.set('X-Owner-Token', client.ownerAccessToken);
+
+  const response = await fetch(`${baseUrl}${pathName}`, {
+    ...init,
+    headers,
+    signal: AbortSignal.timeout(10_000),
+  });
+  const body = await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, body };
 }
 
 function conversationSettings(
@@ -436,6 +467,41 @@ export function startAdminServer(storage: Storage): void {
     }
   });
 
+  app.get('/owner/api/clients/:id/campaigns', async (req, res) => {
+    const client = ownerStorage.getClient(req.params.id);
+    if (!client) { res.status(404).json({ error: 'Client not found' }); return; }
+    const result = await fetchClientAsOwner<any[]>(client, '/owner-api/campaigns');
+    res.status(result.status).json(result.body);
+  });
+
+  app.post('/owner/api/clients/:id/campaigns', async (req, res) => {
+    const client = ownerStorage.getClient(req.params.id);
+    if (!client) { res.status(404).json({ error: 'Client not found' }); return; }
+    const result = await fetchClientAsOwner(client, '/owner-api/campaigns', {
+      method: 'POST',
+      body: JSON.stringify(req.body ?? {}),
+    });
+    res.status(result.status).json(result.body);
+  });
+
+  app.patch('/owner/api/clients/:id/campaigns/:campaignId/toggle', async (req, res) => {
+    const client = ownerStorage.getClient(req.params.id);
+    if (!client) { res.status(404).json({ error: 'Client not found' }); return; }
+    const result = await fetchClientAsOwner(client, `/owner-api/campaigns/${encodeURIComponent(String(req.params.campaignId))}/toggle`, {
+      method: 'PATCH',
+    });
+    res.status(result.status).json(result.body);
+  });
+
+  app.delete('/owner/api/clients/:id/campaigns/:campaignId', async (req, res) => {
+    const client = ownerStorage.getClient(req.params.id);
+    if (!client) { res.status(404).json({ error: 'Client not found' }); return; }
+    const result = await fetchClientAsOwner(client, `/owner-api/campaigns/${encodeURIComponent(String(req.params.campaignId))}`, {
+      method: 'DELETE',
+    });
+    res.status(result.status).json(result.body);
+  });
+
   app.delete('/owner/api/clients/:id', async (req, res) => {
     const client = ownerStorage.getClient(req.params.id);
     if (!client) {
@@ -475,6 +541,92 @@ export function startAdminServer(storage: Storage): void {
     }
     next();
   };
+
+  const requireOwnerApiToken = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (!ownerTokenMatches(req.get('x-owner-token'))) {
+      res.status(401).json({ error: 'Owner token is invalid' });
+      return;
+    }
+    next();
+  };
+
+  app.use('/owner-api', requireOwnerApiToken);
+
+  app.get('/owner-api/campaigns', (_req, res) => {
+    res.json(storage.getCampaigns().map((campaign) => ({
+      ...campaign,
+      conversation: storage.getCampaignConversationSettings(campaign),
+    })));
+  });
+
+  app.post('/owner-api/campaigns', (req, res) => {
+    const { name, triggerType, triggerPhrase, basePhrase, referrerName, startAt, endAt, conversation } =
+      req.body as Partial<Campaign>;
+    const capabilities = getClientCapabilities(storage);
+
+    if (!name?.trim()) { res.status(400).json({ error: 'שם הקמפיין חסר' }); return; }
+    if (storage.getCampaigns().length >= capabilities.maxCampaigns) {
+      res.status(403).json({ error: `המסלול מאפשר עד ${capabilities.maxCampaigns} קמפיינים.` });
+      return;
+    }
+    if (triggerType !== 1 && triggerType !== 2) { res.status(400).json({ error: 'סוג טריגר לא תקין' }); return; }
+    if (startAt && endAt && new Date(startAt).getTime() >= new Date(endAt).getTime()) {
+      res.status(400).json({ error: 'שעת הסיום חייבת להיות אחרי שעת ההתחלה' });
+      return;
+    }
+    if (capabilities.serviceExpiresAt) {
+      const expiry = new Date(capabilities.serviceExpiresAt).getTime();
+      const campaignEnd = endAt ? new Date(endAt).getTime() : expiry;
+      if (!Number.isNaN(expiry) && campaignEnd > expiry) {
+        res.status(400).json({ error: 'זמן סיום הקמפיין חייב להיות בתוך תקופת הפעילות של הלקוח.' });
+        return;
+      }
+    }
+
+    let phrase: string;
+    let suffix: string;
+    let basePhraseVal: string | undefined;
+    let refName: string | undefined;
+    if (triggerType === 1) {
+      if (!triggerPhrase?.trim()) { res.status(400).json({ error: 'משפט הטריגר חסר' }); return; }
+      phrase = triggerPhrase.trim();
+      suffix = storage.getAdminSettings().botSuffix;
+    } else {
+      if (!basePhrase?.trim()) { res.status(400).json({ error: 'משפט הטריגר חסר' }); return; }
+      if (!referrerName?.trim()) { res.status(400).json({ error: 'שם הממליץ חובה לטיפוס 2' }); return; }
+      basePhraseVal = basePhrase.trim();
+      refName = referrerName.trim();
+      phrase = `${basePhraseVal} ${storage.getAdminSettings().referralPrefix}${refName}`;
+      suffix = ` - (${refName})`;
+    }
+
+    const campaign = storage.addCampaign({
+      name: name.trim(),
+      triggerType,
+      triggerPhrase: phrase,
+      basePhrase: basePhraseVal,
+      referrerName: refName,
+      suffix,
+      active: true,
+      startAt: typeof startAt === 'string' && startAt ? startAt : undefined,
+      endAt: typeof endAt === 'string' && endAt ? endAt : undefined,
+      conversation: conversationSettings(conversation, storage.getAdminSettings()),
+    });
+    res.status(201).json(campaign);
+  });
+
+  app.patch('/owner-api/campaigns/:id/toggle', (req, res) => {
+    const updated = storage.toggleCampaign(String(req.params.id));
+    if (!updated) {
+      res.status(404).json({ error: 'קמפיין לא נמצא' });
+      return;
+    }
+    res.json(updated);
+  });
+
+  app.delete('/owner-api/campaigns/:id', (req, res) => {
+    res.json({ ok: storage.deleteCampaign(String(req.params.id)) });
+  });
 
   // ── QR code status ────────────────────────────────────────────────────────
 
