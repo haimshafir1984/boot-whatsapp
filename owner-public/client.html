@@ -169,6 +169,7 @@
           <div class="check"><span class="dot" id="campaignDot"></span><span id="campaignState">אין קמפיין פעיל</span></div>
         </section>
         <button class="retry" id="retryButton" style="display:none" onclick="retryProvision()">נסה שוב להקים את היחידה</button>
+        <button class="secondary" id="updateUnitButton" style="display:none" onclick="retryProvision()">עדכן יחידה וקמפיינים</button>
         <button class="secondary" id="readyButton" style="display:none" onclick="checkReady()">בדוק אם הלינק כבר מוכן</button>
         <div class="future">
           כל לקוחה מקבלת שירות ואחסון נפרדים. העמוד הזה יציג סטטוס אמת וקישור כניסה, ללא גישה לנתונים של לקוחות אחרות.
@@ -377,6 +378,7 @@
       document.getElementById('whatsappProvider').textContent = currentClient.whatsappProvider === 'TWILIO_API' ? 'Twilio' : 'WhatsApp Web';
       document.getElementById('accessCode').textContent = currentClient.accessCode;
       document.getElementById('retryButton').style.display = 'none';
+      document.getElementById('updateUnitButton').style.display = 'none';
       document.getElementById('readyButton').style.display = 'none';
       const managementEl = document.getElementById('managementUrl');
       if (currentClient.managementUrl) {
@@ -389,6 +391,7 @@
       if (currentClient.provisioningStatus === 'ready') {
         document.getElementById('serviceDot').style.background = '#22c55e';
         document.getElementById('serviceState').textContent = 'שירות מבודד פעיל';
+        document.getElementById('updateUnitButton').style.display = '';
       } else if (currentClient.provisioningStatus === 'deploying') {
         document.getElementById('serviceDot').style.background = '#f59e0b';
         document.getElementById('serviceState').textContent = 'השירות נוצר והפריסה החלה. יש לוודא הצלחה לפני שליחת הלינק.';

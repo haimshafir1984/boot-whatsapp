@@ -429,10 +429,6 @@ export function startAdminServer(storage: Storage): void {
       res.status(404).json({ error: 'לקוחה לא נמצאה' });
       return;
     }
-    if (client.provisioningStatus === 'ready') {
-      res.json(client);
-      return;
-    }
     try {
       res.json(await provisionClient(client.id));
     } catch (err: any) {

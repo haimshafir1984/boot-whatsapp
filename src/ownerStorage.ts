@@ -37,6 +37,7 @@ export class OwnerStorage {
   constructor(filePath: string) {
     this.filePath = filePath;
     this.clients = this.load();
+    if (this.clients.length) this.persist();
   }
 
   private load(): ManagedClient[] {
