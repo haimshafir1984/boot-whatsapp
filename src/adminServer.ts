@@ -27,18 +27,28 @@ import { DokployProvisioner } from './dokployProvisioner';
 interface OwnerClientSummary {
   reachable: boolean;
   error?: string;
+  campaignCount: number;
   activeCampaigns: number;
   endedCampaigns: number;
   savedContacts: number;
   pendingContacts: number;
   failedContacts: number;
   whatsappReady: boolean;
+  whatsappShouldRun: boolean;
+  whatsappLifecycle?: string;
+  whatsappListeningReason?: string;
+  connectedPhone?: string;
   googleConnected: boolean;
+  serviceExpired?: boolean;
+  serviceExpiresAt?: string;
   campaigns: Array<{
     id: string;
     name: string;
     active: boolean;
     runtimeStatus?: string;
+    triggerPhrase?: string;
+    startAt?: string;
+    endAt?: string;
     total: number;
     saved: number;
     pending: number;
@@ -97,12 +107,14 @@ function getClientCapabilities(storage: Storage) {
 async function fetchClientSummary(client: ManagedClient): Promise<OwnerClientSummary> {
   const empty: OwnerClientSummary = {
     reachable: false,
+    campaignCount: 0,
     activeCampaigns: 0,
     endedCampaigns: 0,
     savedContacts: 0,
     pendingContacts: 0,
     failedContacts: 0,
     whatsappReady: false,
+    whatsappShouldRun: false,
     googleConnected: false,
     campaigns: [],
   };
@@ -130,12 +142,20 @@ async function fetchClientSummary(client: ManagedClient): Promise<OwnerClientSum
     return await response.json() as T;
   };
 
-  const [campaigns, results, queue, google, qr] = await Promise.all([
+  const [campaigns, results, queue, google, qr, capabilities] = await Promise.all([
     getJson<any[]>('/api/campaigns'),
     getJson<{ summaries: any[] }>('/api/campaign-results'),
     getJson<{ stats: { pending: number; saved: number; failed: number; total: number } }>('/api/contacts/queue?limit=1'),
     getJson<{ connected: boolean }>('/api/google/status'),
-    getJson<{ ready: boolean; authenticated: boolean }>('/api/qr'),
+    getJson<{
+      ready: boolean;
+      authenticated: boolean;
+      lifecycle?: string;
+      listeningReason?: string;
+      shouldRun?: boolean;
+      connectedPhone?: string;
+    }>('/api/qr'),
+    getJson<{ serviceExpired?: boolean; serviceExpiresAt?: string; campaignCount?: number }>('/api/capabilities'),
   ]);
 
   const summaries = new Map((results?.summaries ?? []).map((summary) => [summary.campaignId, summary]));
@@ -146,6 +166,9 @@ async function fetchClientSummary(client: ManagedClient): Promise<OwnerClientSum
       name: campaign.name,
       active: Boolean(campaign.active),
       runtimeStatus: campaign.runtimeStatus,
+      triggerPhrase: campaign.triggerPhrase,
+      startAt: campaign.startAt,
+      endAt: campaign.endAt,
       total: Number(summary.total ?? 0),
       saved: Number(summary.saved ?? 0),
       pending: Number(summary.pending ?? 0),
@@ -156,13 +179,20 @@ async function fetchClientSummary(client: ManagedClient): Promise<OwnerClientSum
 
   return {
     reachable: true,
+    campaignCount: Number(capabilities?.campaignCount ?? campaignRows.length),
     activeCampaigns: campaignRows.filter((campaign) => campaign.runtimeStatus === 'active').length,
     endedCampaigns: campaignRows.filter((campaign) => campaign.runtimeStatus === 'ended').length,
     savedContacts: Number(queue?.stats?.saved ?? 0),
     pendingContacts: Number(queue?.stats?.pending ?? 0),
     failedContacts: Number(queue?.stats?.failed ?? 0),
     whatsappReady: Boolean(qr?.ready || qr?.authenticated),
+    whatsappShouldRun: Boolean(qr?.shouldRun),
+    whatsappLifecycle: qr?.lifecycle,
+    whatsappListeningReason: qr?.listeningReason,
+    connectedPhone: qr?.connectedPhone,
     googleConnected: Boolean(google?.connected),
+    serviceExpired: Boolean(capabilities?.serviceExpired),
+    serviceExpiresAt: capabilities?.serviceExpiresAt,
     campaigns: campaignRows,
   };
 }

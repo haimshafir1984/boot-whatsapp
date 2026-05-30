@@ -52,7 +52,7 @@
     .small-badge { border-radius: 99px; padding: 4px 8px; font-size: .74rem; font-weight: 700; background: #f3f4f6; color: #374151; }
     .small-badge.active { background: #dcfce7; color: #166534; }
     .small-badge.ended { background: #fee2e2; color: #991b1b; }
-    .campaign-metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; color: #6b7280; font-size: .75rem; }
+    .campaign-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(95px, 1fr)); gap: 6px; color: #6b7280; font-size: .75rem; }
     .campaign-metrics strong { display: block; color: #111827; font-size: .86rem; }
     .owner-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
     .owner-form label { display: block; color: #6b7280; font-size: .74rem; margin-bottom: 5px; }
@@ -207,6 +207,15 @@
       }[status] || status || '-';
     }
 
+    function lifecycleLabel(status) {
+      return {
+        stopped: 'עצור',
+        starting: 'מתחיל',
+        running: 'פועל',
+        stopping: 'נעצר',
+      }[status] || status || '-';
+    }
+
     function planLabel(plan) {
       return {
         basic: 'מוכן להפעלה',
@@ -219,6 +228,12 @@
       if (!value) return '-';
       const date = new Date(value);
       return Number.isNaN(date.getTime()) ? '-' : date.toLocaleDateString('he-IL');
+    }
+
+    function formatDateTime(value) {
+      if (!value) return '-';
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString('he-IL');
     }
 
     function localDateTimeToIso(value) {
@@ -296,11 +311,26 @@
       document.getElementById('endedCampaigns').textContent = summary.endedCampaigns ?? 0;
 
       setDot('whatsappDot', Boolean(summary.whatsappReady));
-      document.getElementById('whatsappState').textContent = summary.whatsappReady ? 'WhatsApp מחובר' : 'WhatsApp טרם חובר';
+      const whatsappDetails = [
+        summary.whatsappReady ? 'WhatsApp מחובר' : 'WhatsApp טרם חובר',
+        `מצב: ${lifecycleLabel(summary.whatsappLifecycle)}`,
+        `צריך להאזין: ${summary.whatsappShouldRun ? 'כן' : 'לא'}`,
+      ];
+      if (summary.connectedPhone) whatsappDetails.push(`טלפון: ${summary.connectedPhone}`);
+      if (summary.whatsappListeningReason) whatsappDetails.push(summary.whatsappListeningReason);
+      document.getElementById('whatsappState').textContent = whatsappDetails.join(' | ');
       setDot('googleDot', Boolean(summary.googleConnected));
       document.getElementById('googleState').textContent = summary.googleConnected ? 'Google Contacts מחובר' : 'Google Contacts טרם חובר';
-      setDot('campaignDot', Number(summary.activeCampaigns) > 0);
-      document.getElementById('campaignState').textContent = Number(summary.activeCampaigns) > 0 ? 'יש קמפיין פעיל' : 'אין קמפיין פעיל';
+      const activeCampaigns = Number(summary.activeCampaigns) || 0;
+      const campaignCount = Number(summary.campaignCount ?? summary.campaigns?.length ?? 0) || 0;
+      setDot('campaignDot', activeCampaigns > 0 && !summary.serviceExpired);
+      let campaignState = activeCampaigns > 0 ? `יש ${activeCampaigns} קמפיין פעיל` : 'אין קמפיין פעיל';
+      if (summary.serviceExpired) {
+        campaignState = `תוקף השירות הסתיים (${formatDate(summary.serviceExpiresAt)})`;
+      } else if (!activeCampaigns && campaignCount > 0) {
+        campaignState = `יש ${campaignCount} קמפיינים, אבל כולם כבויים / מתוזמנים / הסתיימו`;
+      }
+      document.getElementById('campaignState').textContent = campaignState;
 
       const list = document.getElementById('campaignSummaryList');
       if (!summary.reachable) {
@@ -330,6 +360,9 @@
             <span><strong>${campaign.pending}</strong>בתור שמירה</span>
             <span><strong>${campaign.saved}</strong>נשמרו</span>
             <span><strong>${campaign.failed}</strong>נכשלו</span>
+            <span><strong>${esc(campaign.triggerPhrase || '-')}</strong>טריגר</span>
+            <span><strong>${formatDateTime(campaign.startAt)}</strong>התחלה</span>
+            <span><strong>${formatDateTime(campaign.endAt)}</strong>סיום</span>
           </div>
         </div>
       `).join('');
