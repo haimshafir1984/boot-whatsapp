@@ -18,6 +18,7 @@ function normalize(s: string): string {
   return s
     .replace(/[​-‏﻿‪-‮⁦-⁩]/g, '')
     .replace(/\s+/g, ' ')
+    .toLocaleLowerCase()
     .trim();
 }
 
