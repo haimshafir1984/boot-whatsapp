@@ -1,5 +1,6 @@
 import { WhatsAppProvider } from '../types/whatsapp';
 import { config } from '../config';
+import { recordTwilioEvent } from '../twilioEvents';
 
 export class TwilioProvider implements WhatsAppProvider {
   async initialize(): Promise<void> {
@@ -18,7 +19,7 @@ export class TwilioProvider implements WhatsAppProvider {
     await this.createMessage({
       To: normalizeWhatsAppAddress(_to),
       Body: _message,
-    });
+    }, _message);
   }
 
   async sendFile(to: string, filePath: string, caption?: string, _options: { asSticker?: boolean } = {}): Promise<void> {
@@ -36,7 +37,7 @@ export class TwilioProvider implements WhatsAppProvider {
       To: normalizeWhatsAppAddress(to),
       Body: caption?.trim() || undefined,
       MediaUrl: `${baseUrl}/${encodeURIComponent(fileName)}`,
-    });
+    }, caption);
   }
 
   async sendInteractiveButtons(
@@ -44,6 +45,19 @@ export class TwilioProvider implements WhatsAppProvider {
     text: string,
     buttons: Array<{ id: string; text: string }>,
   ): Promise<void> {
+    if (config.TWILIO_QUICK_REPLY_CONTENT_SID) {
+      const variables: Record<string, string> = { '1': text };
+      buttons.slice(0, 3).forEach((button, index) => {
+        variables[String(index + 2)] = button.text;
+      });
+      await this.createMessage({
+        To: normalizeWhatsAppAddress(to),
+        ContentSid: config.TWILIO_QUICK_REPLY_CONTENT_SID,
+        ContentVariables: JSON.stringify(variables),
+      }, text);
+      return;
+    }
+
     const fallback = buttons.length
       ? `${text}\n\n${buttons.map((button, index) => `${index + 1}. ${button.text}`).join('\n')}`
       : text;
@@ -59,7 +73,7 @@ export class TwilioProvider implements WhatsAppProvider {
     }
   }
 
-  private async createMessage(fields: Record<string, string | undefined>): Promise<void> {
+  private async createMessage(fields: Record<string, string | undefined>, logBody?: string): Promise<void> {
     this.assertConfigured();
     const body = new URLSearchParams();
     for (const [key, value] of Object.entries(fields)) {
@@ -72,17 +86,46 @@ export class TwilioProvider implements WhatsAppProvider {
     }
 
     const auth = Buffer.from(`${config.TWILIO_ACCOUNT_SID}:${config.TWILIO_AUTH_TOKEN}`).toString('base64');
-    const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${config.TWILIO_ACCOUNT_SID}/Messages.json`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${auth}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body,
-    });
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      throw new Error(`Twilio message failed (${response.status}): ${errorText.slice(0, 500)}`);
+    try {
+      const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${config.TWILIO_ACCOUNT_SID}/Messages.json`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${auth}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body,
+      });
+      const responseBody = await response.json().catch(async () => ({ raw: await response.text().catch(() => '') })) as any;
+      if (!response.ok) {
+        const errorText = JSON.stringify(responseBody).slice(0, 500);
+        recordTwilioEvent({
+          direction: 'outbound',
+          status: 'failed',
+          to: fields.To,
+          body: logBody,
+          details: `Twilio message failed (${response.status}): ${errorText}`,
+        });
+        throw new Error(`Twilio message failed (${response.status}): ${errorText}`);
+      }
+      recordTwilioEvent({
+        direction: 'outbound',
+        status: 'sent',
+        from: body.get('From') || body.get('MessagingServiceSid') || undefined,
+        to: fields.To,
+        body: logBody,
+        messageSid: responseBody.sid,
+      });
+    } catch (err: any) {
+      if (!String(err?.message ?? '').startsWith('Twilio message failed')) {
+        recordTwilioEvent({
+          direction: 'outbound',
+          status: 'failed',
+          to: fields.To,
+          body: logBody,
+          details: err?.message ?? String(err),
+        });
+      }
+      throw err;
     }
   }
 }

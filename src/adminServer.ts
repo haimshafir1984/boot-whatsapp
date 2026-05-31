@@ -25,6 +25,7 @@ import { ManagedClient, OwnerStorage } from './ownerStorage';
 import { DokployProvisioner } from './dokployProvisioner';
 import { handleIncomingWhatsAppMessage } from './messageFlow';
 import { TwilioProvider } from './providers/TwilioProvider';
+import { getTwilioEvents, recordTwilioEvent } from './twilioEvents';
 
 interface OwnerClientSummary {
   reachable: boolean;
@@ -91,6 +92,31 @@ function safeUploadName(name: string): string {
   return `${base}${ext}`;
 }
 
+function twilioConfigured(): boolean {
+  return Boolean(config.TWILIO_ACCOUNT_SID && config.TWILIO_AUTH_TOKEN && (config.TWILIO_FROM || config.TWILIO_MESSAGING_SERVICE_SID));
+}
+
+function validateTwilioSignature(req: express.Request): boolean {
+  if (!config.TWILIO_REQUIRE_SIGNATURE) return true;
+  const signature = req.get('x-twilio-signature');
+  if (!signature || !config.TWILIO_AUTH_TOKEN) return false;
+  const protocol = req.protocol;
+  const host = req.get('host');
+  if (!host) return false;
+  const url = `${protocol}://${host}${req.originalUrl}`;
+  const params = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : {};
+  const data = Object.keys(params)
+    .sort()
+    .reduce((acc, key) => `${acc}${key}${String(params[key] ?? '')}`, url);
+  const expected = crypto
+    .createHmac('sha1', config.TWILIO_AUTH_TOKEN)
+    .update(data)
+    .digest('base64');
+  const left = Buffer.from(signature);
+  const right = Buffer.from(expected);
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
 function getClientCapabilities(storage: Storage) {
   const expiresAt = config.CLIENT_SERVICE_EXPIRES_AT || undefined;
   const expiresTime = expiresAt ? new Date(expiresAt).getTime() : Number.POSITIVE_INFINITY;
@@ -102,7 +128,7 @@ function getClientCapabilities(storage: Storage) {
     serviceExpiresAt: expiresAt,
     serviceExpired,
     whatsappProvider: config.WHATSAPP_PROVIDER,
-    twilioConfigured: Boolean(config.TWILIO_ACCOUNT_SID && config.TWILIO_AUTH_TOKEN && (config.TWILIO_FROM || config.TWILIO_MESSAGING_SERVICE_SID)),
+    twilioConfigured: twilioConfigured(),
     campaignCount: storage.getCampaigns().length,
   };
 }
@@ -347,16 +373,47 @@ export function startAdminServer(storage: Storage): void {
       ok: true,
       clientConfigured: Boolean(process.env.CLIENT_ACCESS_TOKEN?.trim()),
       whatsappProvider: config.WHATSAPP_PROVIDER,
-      twilioConfigured: Boolean(config.TWILIO_ACCOUNT_SID && config.TWILIO_AUTH_TOKEN && (config.TWILIO_FROM || config.TWILIO_MESSAGING_SERVICE_SID)),
+      twilioConfigured: twilioConfigured(),
     });
   });
 
   app.post('/webhooks/twilio/whatsapp', async (req, res) => {
     if (config.TWILIO_WEBHOOK_TOKEN && req.query.token !== config.TWILIO_WEBHOOK_TOKEN) {
+      recordTwilioEvent({
+        direction: 'inbound',
+        status: 'ignored',
+        from: String(req.body?.From ?? ''),
+        to: String(req.body?.To ?? ''),
+        body: String(req.body?.Body ?? ''),
+        messageSid: String(req.body?.MessageSid ?? req.body?.SmsMessageSid ?? ''),
+        details: 'Invalid webhook token',
+      });
       res.status(401).send('Invalid webhook token');
       return;
     }
+    if (!validateTwilioSignature(req)) {
+      recordTwilioEvent({
+        direction: 'inbound',
+        status: 'ignored',
+        from: String(req.body?.From ?? ''),
+        to: String(req.body?.To ?? ''),
+        body: String(req.body?.Body ?? ''),
+        messageSid: String(req.body?.MessageSid ?? req.body?.SmsMessageSid ?? ''),
+        details: 'Invalid Twilio signature',
+      });
+      res.status(403).send('Invalid Twilio signature');
+      return;
+    }
     if (config.WHATSAPP_PROVIDER !== 'TWILIO_API') {
+      recordTwilioEvent({
+        direction: 'inbound',
+        status: 'ignored',
+        from: String(req.body?.From ?? ''),
+        to: String(req.body?.To ?? ''),
+        body: String(req.body?.Body ?? ''),
+        messageSid: String(req.body?.MessageSid ?? req.body?.SmsMessageSid ?? ''),
+        details: 'Twilio provider is not enabled for this client',
+      });
       res.status(409).send('Twilio provider is not enabled for this client');
       return;
     }
@@ -367,11 +424,27 @@ export function startAdminServer(storage: Storage): void {
     const id = String(req.body?.MessageSid ?? req.body?.SmsMessageSid ?? `${from}:${Date.now()}`);
     const profileName = String(req.body?.ProfileName ?? '').trim();
     if (!from) {
+      recordTwilioEvent({
+        direction: 'inbound',
+        status: 'ignored',
+        to,
+        body,
+        messageSid: id,
+        details: 'Missing From',
+      });
       res.status(400).send('Missing From');
       return;
     }
 
     try {
+      recordTwilioEvent({
+        direction: 'inbound',
+        status: 'received',
+        from,
+        to,
+        body,
+        messageSid: id,
+      });
       const provider = new TwilioProvider();
       await handleIncomingWhatsAppMessage({
         id,
@@ -385,11 +458,21 @@ export function startAdminServer(storage: Storage): void {
       }, storage, {
         sendMessage: (target, message) => provider.sendMessage(target, message),
         sendFile: (target, filePath, caption, options) => provider.sendFile(target, filePath, caption, options),
+        sendInteractiveButtons: (target, text, buttons) => provider.sendInteractiveButtons(target, text, buttons),
         resolvePhone: async (jid) => jid.replace(/^whatsapp:/, '').replace(/^\+/, ''),
       }, 'webhook');
       res.type('text/xml').send('<Response></Response>');
     } catch (err) {
       console.error('Twilio webhook failed:', err);
+      recordTwilioEvent({
+        direction: 'inbound',
+        status: 'failed',
+        from,
+        to,
+        body,
+        messageSid: id,
+        details: err instanceof Error ? err.message : String(err),
+      });
       res.status(500).type('text/xml').send('<Response></Response>');
     }
   });
@@ -737,15 +820,14 @@ export function startAdminServer(storage: Storage): void {
   app.get('/api/qr', (_req, res) => {
     const profile = storage.getClientProfile();
     if (config.WHATSAPP_PROVIDER === 'TWILIO_API') {
-      const twilioConfigured = Boolean(config.TWILIO_ACCOUNT_SID && config.TWILIO_AUTH_TOKEN && (config.TWILIO_FROM || config.TWILIO_MESSAGING_SERVICE_SID));
       res.json({
         qr: null,
-        authenticated: twilioConfigured,
-        ready: twilioConfigured,
+        authenticated: twilioConfigured(),
+        ready: twilioConfigured(),
         pairingCode: null,
         connectedPhone: config.TWILIO_FROM.replace(/^whatsapp:/, '') || profile.whatsappPhone,
-        lifecycle: twilioConfigured ? 'running' : 'stopped',
-        listeningReason: twilioConfigured ? 'twilio webhook mode' : 'twilio env missing',
+        lifecycle: twilioConfigured() ? 'running' : 'stopped',
+        listeningReason: twilioConfigured() ? 'twilio webhook mode' : 'twilio env missing',
         shouldRun: storage.hasCampaignsNeedingBot(),
       });
       return;
@@ -892,6 +974,23 @@ export function startAdminServer(storage: Storage): void {
 
   app.get('/api/capabilities', (_req, res) => {
     res.json(getClientCapabilities(storage));
+  });
+
+  app.get('/api/twilio/status', (_req, res) => {
+    res.json({
+      enabled: config.WHATSAPP_PROVIDER === 'TWILIO_API',
+      configured: twilioConfigured(),
+      from: config.TWILIO_FROM,
+      messagingServiceSid: config.TWILIO_MESSAGING_SERVICE_SID,
+      webhookSignatureRequired: config.TWILIO_REQUIRE_SIGNATURE,
+      quickReplyContentSidConfigured: Boolean(config.TWILIO_QUICK_REPLY_CONTENT_SID),
+      mediaBaseUrlConfigured: Boolean(config.TWILIO_MEDIA_BASE_URL),
+      recentEvents: getTwilioEvents(10),
+    });
+  });
+
+  app.get('/api/twilio/logs', (req, res) => {
+    res.json({ items: getTwilioEvents(Number(req.query.limit) || 50) });
   });
 
   // ── Settings ──────────────────────────────────────────────────────────────

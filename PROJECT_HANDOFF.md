@@ -324,12 +324,15 @@ Provider ראשוני למסלול `TWILIO_API`.
 - בדיקת env בסיסית.
 - שליחת הודעות טקסט דרך Twilio Messages API.
 - fallback לכפתורים כטקסט ממוספר.
+- שליחת כפתורי Quick Reply דרך Content API כאשר מוגדר `TWILIO_QUICK_REPLY_CONTENT_SID`.
 - שליחת מדיה דרך `MediaUrl` אם מוגדר `TWILIO_MEDIA_BASE_URL`.
+- לוגים פנימיים של inbound/outbound דרך `src/twilioEvents.ts`.
+- אימות חתימת webhook של Twilio דרך `X-Twilio-Signature`.
 
 עדיין לא הושלם:
 
-- Quick Replies רשמיים דרך Twilio Content API.
 - מסך מנהל מלא להגדרת Twilio לכל לקוחה.
+- יצירה אוטומטית של Content Templates ב-Twilio.
 
 ### `src/dokployProvisioner.ts`
 
@@ -445,9 +448,12 @@ node -e "const fs=require('fs'); const html=fs.readFileSync('public/index.html',
 
 - `WHATSAPP_PROVIDER=TWILIO_API` מכבה את Scheduler של WhatsApp Web/Chromium.
 - `POST /webhooks/twilio/whatsapp` מקבל הודעות נכנסות מ-Twilio.
+- ה-webhook מאמת `TWILIO_WEBHOOK_TOKEN` וגם חתימת Twilio כאשר `TWILIO_REQUIRE_SIGNATURE=true`.
 - הודעות נכנסות עוברות לאותה לוגיקת טריגרים וקמפיינים.
 - `TwilioProvider` שולח הודעות טקסט דרך Twilio.
 - `GET /twilio-media/:filename` מאפשר ל-Twilio למשוך קבצים ציבוריים אם מוגדר `TWILIO_MEDIA_BASE_URL`.
+- `GET /api/twilio/status` מציג סטטוס Twilio ולוגים אחרונים.
+- `GET /api/twilio/logs` מציג יומן Twilio פנימי.
 
 קיים קובץ דוגמה מקומי:
 
@@ -507,6 +513,8 @@ node -e "const fs=require('fs'); const html=fs.readFileSync('public/index.html',
 - הוספת הכנה ראשונית ל-Twilio Provider, בלי להפעיל עדיין מסלול Twilio בפועל.
 - הוספת Twilio webhook מקומי ושליחת טקסט בסיסית דרך Twilio Messages API.
 - הוספת מצב `TWILIO_API` שבו לא מופעל Chromium/WhatsApp Web Scheduler.
+- הוספת אימות חתימת Twilio, לוגים פנימיים ו-endpoints לסטטוס Twilio.
+- הוספת תמיכה ב-Quick Reply דרך ContentSid, עם fallback לטקסט רגיל אם לא הוגדר Template.
 
 ## כיוון המשך מומלץ
 

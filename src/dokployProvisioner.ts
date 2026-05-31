@@ -26,6 +26,12 @@ interface DokployProvisioningConfig {
   googleClientSecret?: string;
   googleOauthCallbackUrl?: string;
   googleOauthStateSecret?: string;
+  twilioAccountSid?: string;
+  twilioAuthToken?: string;
+  twilioFrom?: string;
+  twilioMessagingServiceSid?: string;
+  twilioWebhookToken?: string;
+  twilioQuickReplyContentSid?: string;
 }
 
 interface DokployApplication {
@@ -68,6 +74,12 @@ export class DokployProvisioner {
     const googleClientSecret = env.DOKPLOY_GOOGLE_CLIENT_SECRET?.trim();
     const googleOauthCallbackUrl = env.DOKPLOY_GOOGLE_OAUTH_CALLBACK_URL?.trim();
     const googleOauthStateSecret = env.DOKPLOY_GOOGLE_OAUTH_STATE_SECRET?.trim();
+    const twilioAccountSid = env.DOKPLOY_TWILIO_ACCOUNT_SID?.trim();
+    const twilioAuthToken = env.DOKPLOY_TWILIO_AUTH_TOKEN?.trim();
+    const twilioFrom = env.DOKPLOY_TWILIO_FROM?.trim();
+    const twilioMessagingServiceSid = env.DOKPLOY_TWILIO_MESSAGING_SERVICE_SID?.trim();
+    const twilioWebhookToken = env.DOKPLOY_TWILIO_WEBHOOK_TOKEN?.trim();
+    const twilioQuickReplyContentSid = env.DOKPLOY_TWILIO_QUICK_REPLY_CONTENT_SID?.trim();
     const missing = [
       !token && 'DOKPLOY_API_TOKEN',
       !environmentId && 'DOKPLOY_ENVIRONMENT_ID',
@@ -104,6 +116,12 @@ export class DokployProvisioner {
       googleClientSecret,
       googleOauthCallbackUrl,
       googleOauthStateSecret,
+      twilioAccountSid,
+      twilioAuthToken,
+      twilioFrom,
+      twilioMessagingServiceSid,
+      twilioWebhookToken,
+      twilioQuickReplyContentSid,
     };
   }
 
@@ -229,6 +247,15 @@ export class DokployProvisioner {
     if (this.config.googleOauthCallbackUrl && this.config.googleOauthStateSecret) {
       envLines.push(`GOOGLE_OAUTH_CALLBACK_URL=${escapeEnvValue(this.config.googleOauthCallbackUrl)}`);
       envLines.push(`GOOGLE_OAUTH_STATE_SECRET=${escapeEnvValue(this.config.googleOauthStateSecret)}`);
+    }
+    if (current.whatsappProvider === 'TWILIO_API') {
+      if (this.config.twilioAccountSid) envLines.push(`TWILIO_ACCOUNT_SID=${escapeEnvValue(this.config.twilioAccountSid)}`);
+      if (this.config.twilioAuthToken) envLines.push(`TWILIO_AUTH_TOKEN=${escapeEnvValue(this.config.twilioAuthToken)}`);
+      if (this.config.twilioFrom) envLines.push(`TWILIO_FROM=${escapeEnvValue(this.config.twilioFrom)}`);
+      if (this.config.twilioMessagingServiceSid) envLines.push(`TWILIO_MESSAGING_SERVICE_SID=${escapeEnvValue(this.config.twilioMessagingServiceSid)}`);
+      if (this.config.twilioWebhookToken) envLines.push(`TWILIO_WEBHOOK_TOKEN=${escapeEnvValue(this.config.twilioWebhookToken)}`);
+      if (this.config.twilioQuickReplyContentSid) envLines.push(`TWILIO_QUICK_REPLY_CONTENT_SID=${escapeEnvValue(this.config.twilioQuickReplyContentSid)}`);
+      envLines.push('TWILIO_REQUIRE_SIGNATURE=true');
     }
 
     await this.post('application.saveEnvironment', {

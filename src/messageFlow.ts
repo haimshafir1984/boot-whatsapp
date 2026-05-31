@@ -270,7 +270,15 @@ async function sendDecisionStep(
     return;
   }
 
-  await transport.sendMessage(senderJid, formatQuestion(step));
+  if (transport.sendInteractiveButtons && step.options?.length) {
+    await transport.sendInteractiveButtons(
+      senderJid,
+      step.text.trim(),
+      step.options.slice(0, 3).map((option) => ({ id: option.id, text: option.text })),
+    );
+  } else {
+    await transport.sendMessage(senderJid, formatQuestion(step));
+  }
   console.log('   Decision question sent.');
   const timeoutMinutes = step.timeoutMinutes && step.timeoutMinutes > 0
     ? step.timeoutMinutes

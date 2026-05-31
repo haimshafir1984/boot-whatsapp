@@ -12,6 +12,7 @@ export interface IncomingWhatsAppMessage {
 export interface WhatsAppTransport {
   sendMessage(to: string, message: string): Promise<void>;
   sendFile?(to: string, filePath: string, caption?: string, options?: { asSticker?: boolean }): Promise<void>;
+  sendInteractiveButtons?(to: string, text: string, buttons: Array<{ id: string; text: string }>): Promise<void>;
   resolvePhone(jid: string): Promise<string>;
 }
 
