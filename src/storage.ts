@@ -46,6 +46,7 @@ export interface CampaignConversationSettings {
 export interface DecisionFlowStep {
   id: string;
   kind: 'message' | 'question';
+  presentation?: 'text' | 'buttons' | 'list';
   text: string;
   nextStepId?: string;
   timeoutMinutes?: number;

@@ -18,6 +18,7 @@ export const config = {
   TWILIO_REQUIRE_SIGNATURE: process.env.TWILIO_REQUIRE_SIGNATURE !== 'false',
   TWILIO_MEDIA_BASE_URL: process.env.TWILIO_MEDIA_BASE_URL ?? '',
   TWILIO_QUICK_REPLY_CONTENT_SID: process.env.TWILIO_QUICK_REPLY_CONTENT_SID ?? '',
+  TWILIO_LIST_PICKER_CONTENT_SID: process.env.TWILIO_LIST_PICKER_CONTENT_SID ?? '',
 
   // ─── Trigger prefixes (static – used when building campaign trigger phrases) ──
   /** Fixed prefix prepended to the referrer name for every type-2 campaign. */

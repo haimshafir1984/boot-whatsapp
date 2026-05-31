@@ -273,8 +273,22 @@ async function sendDecisionStep(
     return;
   }
 
+  const presentation = step.presentation ?? 'buttons';
   let sentInteractive = false;
-  if (transport.sendInteractiveButtons && step.options?.length) {
+  if (presentation === 'list' && transport.sendInteractiveList && step.options?.length) {
+    try {
+      await transport.sendInteractiveList(
+        senderJid,
+        step.text.trim(),
+        'בחר/י תשובה',
+        step.options.slice(0, 10).map((option) => ({ id: option.id, text: option.text })),
+      );
+      sentInteractive = true;
+    } catch (err) {
+      console.warn('   Interactive decision list failed, falling back to text:', err);
+    }
+  }
+  if (presentation === 'buttons' && transport.sendInteractiveButtons && step.options?.length) {
     try {
       await transport.sendInteractiveButtons(
         senderJid,

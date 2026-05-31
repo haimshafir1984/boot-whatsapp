@@ -1309,8 +1309,9 @@
 
   function decisionStepHtml(step, index, steps) {
     const kind = step.kind === 'question' ? 'question' : 'message';
+    const presentation = ['text', 'buttons', 'list'].includes(step.presentation) ? step.presentation : 'buttons';
     const options = Array.isArray(step.options) && step.options.length
-      ? step.options.slice(0, 3)
+      ? step.options.slice(0, presentation === 'buttons' ? 3 : 10)
       : [
           { id: makeFlowId('option'), text: '', endText: '', nextStepId: '' },
           { id: makeFlowId('option'), text: '', endText: '', nextStepId: '' },
@@ -1329,6 +1330,14 @@
           <button type="button" class="btn-small" onclick="removeDecisionStep(this)">מחק</button>
         </div>
         <textarea data-step-text oninput="updateCampaignConversationPreview()" placeholder="${kind === 'question' ? 'לדוגמה: האם תרצי לקבל חוברת פרסום?' : 'כתבי את ההודעה שתישלח'}">${esc(step.text || '')}</textarea>
+        <div class="decision-next-row" data-question-presentation>
+          <label>סוג הצגה</label>
+          <select data-step-presentation onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">
+            <option value="buttons" ${presentation === 'buttons' ? 'selected' : ''}>כפתורים</option>
+            <option value="list" ${presentation === 'list' ? 'selected' : ''}>רשימה נפתחת</option>
+            <option value="text" ${presentation === 'text' ? 'selected' : ''}>טקסט ממוספר</option>
+          </select>
+        </div>
         <div class="decision-next-row" data-message-next>
           <label>אחרי ההודעה לעבור אל</label>
           <select data-step-next onchange="updateCampaignConversationPreview()" data-selected-next="${esc(step.nextStepId || '')}"></select>
@@ -1416,8 +1425,11 @@
 
   function addDecisionOption(btn) {
     const list = btn.closest('[data-options]');
-    if (list.querySelectorAll('[data-decision-option]').length >= 3) {
-      alert('ב-WhatsApp מומלץ עד 3 תשובות בחירה בהודעה אחת.');
+    const step = btn.closest('[data-decision-step]');
+    const presentation = step?.querySelector('[data-step-presentation]')?.value || 'buttons';
+    const maxOptions = presentation === 'buttons' ? 3 : 10;
+    if (list.querySelectorAll('[data-decision-option]').length >= maxOptions) {
+      alert(presentation === 'buttons' ? 'בכפתורים אפשר להגדיר עד 3 תשובות.' : 'בסוג התצוגה הזה אפשר להגדיר עד 10 תשובות.');
       return;
     }
     btn.insertAdjacentHTML('beforebegin', decisionOptionHtml({ id: makeFlowId('option') }, list.querySelectorAll('[data-decision-option]').length));
@@ -1460,10 +1472,14 @@
   function updateDecisionStepVisibility() {
     document.querySelectorAll('[data-decision-step]').forEach(step => {
       const kind = step.querySelector('[data-step-kind]').value;
+      const presentation = step.querySelector('[data-step-presentation]')?.value || 'buttons';
       step.querySelector('[data-message-next]').style.display = kind === 'message' ? '' : 'none';
+      step.querySelector('[data-question-presentation]').style.display = kind === 'question' ? '' : 'none';
       step.querySelector('[data-options]').style.display = kind === 'question' ? '' : 'none';
       step.querySelector('[data-question-timeout]').style.display = kind === 'question' ? '' : 'none';
-      step.querySelector('.decision-step-subtitle').textContent = kind === 'question' ? 'שאלה עם עד 3 תשובות' : 'הודעה רגילה';
+      step.querySelector('.decision-step-subtitle').textContent = kind === 'question'
+        ? (presentation === 'list' ? 'שאלה עם רשימה נפתחת עד 10 תשובות' : 'שאלה עם עד 3 כפתורים')
+        : 'הודעה רגילה';
       step.querySelector('[data-step-text]').placeholder = kind === 'question'
         ? 'לדוגמה: האם תרצי לקבל חוברת פרסום?'
         : 'כתבי את ההודעה שתישלח';
@@ -1550,6 +1566,7 @@
           const nextStepId = step.querySelector('[data-step-next]')?.value || '';
           if (nextStepId) item.nextStepId = nextStepId;
         } else {
+          item.presentation = step.querySelector('[data-step-presentation]')?.value || 'buttons';
           item.options = [...step.querySelectorAll('[data-decision-option]')]
             .map(option => {
               const text = option.querySelector('[data-option-text]').value.trim();
@@ -1647,6 +1664,7 @@
     }
     return ordered.map(step => {
       if (step.kind === 'question') {
+        const mode = step.presentation === 'list' ? 'רשימה נפתחת' : (step.presentation === 'text' ? 'טקסט ממוספר' : 'כפתורים');
         const options = (step.options || []).map((option, index) => `${index + 1}. ${option.text}`).join('\n');
         const fileNotes = (step.options || [])
           .filter(option => option.fileId)
@@ -1659,7 +1677,7 @@
         const timeoutNote = step.timeoutFileId || step.timeoutText
           ? `אם לא עונים תוך ${step.timeoutMinutes || 30} דקות תישלח ${step.timeoutFileAsSticker ? 'מדבקה' : 'תגובה'}${timeoutFile ? `: ${timeoutFile.originalName}` : ''}`
           : '';
-        return `<div class="chat-row bot"><div class="chat-bubble">${esc(`${step.text}${options ? '\n\n' + options : ''}${fileNotes ? '\n\n' + fileNotes : ''}${timeoutNote ? '\n\n' + timeoutNote : ''}`)}</div></div>`;
+        return `<div class="chat-row bot"><div class="chat-bubble">${esc(`${step.text}\n(${mode})${options ? '\n\n' + options : ''}${fileNotes ? '\n\n' + fileNotes : ''}${timeoutNote ? '\n\n' + timeoutNote : ''}`)}</div></div>`;
       }
       return `<div class="chat-row bot"><div class="chat-bubble">${esc(step.text)}</div></div>`;
     }).join('');

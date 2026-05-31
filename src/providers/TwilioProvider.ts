@@ -45,23 +45,69 @@ export class TwilioProvider implements WhatsAppProvider {
     text: string,
     buttons: Array<{ id: string; text: string }>,
   ): Promise<void> {
-    if (config.TWILIO_QUICK_REPLY_CONTENT_SID) {
-      const variables: Record<string, string> = { '1': text };
-      buttons.slice(0, 3).forEach((button, index) => {
-        variables[String(index + 2)] = button.text;
+    const quickReplyButtons = buttons.slice(0, 3);
+    if (quickReplyButtons.length) {
+      const contentSid = await this.createContentTemplate({
+        friendly_name: `flowsbiz_qr_${Date.now()}`,
+        language: 'he',
+        types: {
+          'twilio/text': {
+            body: formatNumberedOptions(text, quickReplyButtons),
+          },
+          'twilio/quick-reply': {
+            body: text,
+            actions: quickReplyButtons.map((button, index) => ({
+              id: String(index + 1),
+              title: button.text.slice(0, 20),
+            })),
+          },
+        },
       });
       await this.createMessage({
         To: normalizeWhatsAppAddress(to),
-        ContentSid: config.TWILIO_QUICK_REPLY_CONTENT_SID,
-        ContentVariables: JSON.stringify(variables),
+        ContentSid: contentSid,
       }, text);
       return;
     }
 
     const fallback = buttons.length
-      ? `${text}\n\n${buttons.map((button, index) => `${index + 1}. ${button.text}`).join('\n')}`
+      ? formatNumberedOptions(text, buttons)
       : text;
     await this.sendMessage(to, fallback);
+  }
+
+  async sendInteractiveList(
+    to: string,
+    text: string,
+    buttonText: string,
+    items: Array<{ id: string; text: string }>,
+  ): Promise<void> {
+    const listItems = items.slice(0, 10);
+    if (!listItems.length) {
+      await this.sendMessage(to, text);
+      return;
+    }
+    const contentSid = await this.createContentTemplate({
+      friendly_name: `flowsbiz_list_${Date.now()}`,
+      language: 'he',
+      types: {
+        'twilio/text': {
+          body: formatNumberedOptions(text, listItems),
+        },
+        'twilio/list-picker': {
+          body: text,
+          button: buttonText.slice(0, 20),
+          items: listItems.map((item, index) => ({
+            id: String(index + 1),
+            item: item.text.slice(0, 24),
+          })),
+        },
+      },
+    });
+    await this.createMessage({
+      To: normalizeWhatsAppAddress(to),
+      ContentSid: contentSid,
+    }, text);
   }
 
   private assertConfigured(): void {
@@ -128,6 +174,25 @@ export class TwilioProvider implements WhatsAppProvider {
       throw err;
     }
   }
+
+  private async createContentTemplate(payload: Record<string, unknown>): Promise<string> {
+    this.assertConfigured();
+    const auth = Buffer.from(`${config.TWILIO_ACCOUNT_SID}:${config.TWILIO_AUTH_TOKEN}`).toString('base64');
+    const response = await fetch('https://content.twilio.com/v1/Content', {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${auth}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    const responseBody = await response.json().catch(async () => ({ raw: await response.text().catch(() => '') })) as any;
+    if (!response.ok || typeof responseBody.sid !== 'string') {
+      const errorText = JSON.stringify(responseBody).slice(0, 500);
+      throw new Error(`Twilio content template failed (${response.status}): ${errorText}`);
+    }
+    return responseBody.sid;
+  }
 }
 
 function normalizeWhatsAppAddress(value: string): string {
@@ -135,4 +200,10 @@ function normalizeWhatsAppAddress(value: string): string {
   if (trimmed.startsWith('whatsapp:')) return trimmed;
   const phone = trimmed.replace(/[^\d+]/g, '');
   return `whatsapp:${phone.startsWith('+') ? phone : `+${phone}`}`;
+}
+
+function formatNumberedOptions(text: string, options: Array<{ text: string }>): string {
+  return options.length
+    ? `${text}\n\n${options.map((option, index) => `${index + 1}. ${option.text}`).join('\n')}`
+    : text;
 }

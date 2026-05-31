@@ -181,6 +181,12 @@ function createWebJsTransport(client: Client): WhatsAppTransport {
         : text;
       await client.sendMessage(to, buttonText);
     },
+    sendInteractiveList: async (to, text, _buttonText, items) => {
+      const listText = items.length
+        ? `${text}\n\n${items.map((item, index) => `${index + 1}. ${item.text}`).join('\n')}`
+        : text;
+      await client.sendMessage(to, listText);
+    },
     resolvePhone: async (jid) => {
       try {
         const resolved = await (client as any).getContactLidAndPhone([jid]);

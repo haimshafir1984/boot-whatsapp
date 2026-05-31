@@ -288,6 +288,9 @@ function sanitizeDecisionFlow(
         step.nextStepId = item.nextStepId.trim().slice(0, 80);
       }
       if (kind === 'question' && Array.isArray(item.options)) {
+        if (item.presentation === 'text' || item.presentation === 'buttons' || item.presentation === 'list') {
+          step.presentation = item.presentation;
+        }
         if (typeof item.timeoutMinutes === 'number' && item.timeoutMinutes > 0) {
           step.timeoutMinutes = Math.min(Math.max(Math.round(item.timeoutMinutes), 1), 1440);
         }
@@ -327,7 +330,7 @@ function sanitizeDecisionFlow(
             return clean;
           })
           .filter((option): option is DecisionFlowOption => Boolean(option))
-          .slice(0, 3);
+          .slice(0, step.presentation === 'buttons' || !step.presentation ? 3 : 10);
       }
       return step;
     })
@@ -418,7 +421,7 @@ export function startAdminServer(storage: Storage): void {
       return;
     }
 
-    const body = String(req.body?.Body ?? '').trim();
+    const body = String(req.body?.ButtonPayload ?? req.body?.ListId ?? req.body?.ButtonText ?? req.body?.Body ?? '').trim();
     const from = String(req.body?.From ?? '').trim();
     const to = String(req.body?.To ?? '').trim();
     const id = String(req.body?.MessageSid ?? req.body?.SmsMessageSid ?? `${from}:${Date.now()}`);
@@ -459,6 +462,7 @@ export function startAdminServer(storage: Storage): void {
         sendMessage: (target, message) => provider.sendMessage(target, message),
         sendFile: (target, filePath, caption, options) => provider.sendFile(target, filePath, caption, options),
         sendInteractiveButtons: (target, text, buttons) => provider.sendInteractiveButtons(target, text, buttons),
+        sendInteractiveList: (target, text, buttonText, items) => provider.sendInteractiveList(target, text, buttonText, items),
         resolvePhone: async (jid) => jid.replace(/^whatsapp:/, '').replace(/^\+/, ''),
       }, 'webhook');
       res.type('text/xml').send('<Response></Response>');
@@ -984,6 +988,7 @@ export function startAdminServer(storage: Storage): void {
       messagingServiceSid: config.TWILIO_MESSAGING_SERVICE_SID,
       webhookSignatureRequired: config.TWILIO_REQUIRE_SIGNATURE,
       quickReplyContentSidConfigured: Boolean(config.TWILIO_QUICK_REPLY_CONTENT_SID),
+      listPickerContentSidConfigured: Boolean(config.TWILIO_LIST_PICKER_CONTENT_SID),
       mediaBaseUrlConfigured: Boolean(config.TWILIO_MEDIA_BASE_URL),
       recentEvents: getTwilioEvents(10),
     });

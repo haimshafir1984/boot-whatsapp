@@ -44,6 +44,18 @@ export class WebJsProvider implements WhatsAppProvider {
       : text;
     await this.sendMessage(to, buttonText);
   }
+
+  async sendInteractiveList(
+    to: string,
+    text: string,
+    _buttonText: string,
+    items: Array<{ id: string; text: string }>,
+  ): Promise<void> {
+    const listText = items.length
+      ? `${text}\n\n${items.map((item, index) => `${index + 1}. ${item.text}`).join('\n')}`
+      : text;
+    await this.sendMessage(to, listText);
+  }
 }
 
 export function createWebJsProvider(storage: Storage, pairingPhone?: string): WebJsProvider {
