@@ -7,4 +7,6 @@ credentials.json
 docs/client_secret_*.json
 data/google-token.json
 .env
+.env.*
+!.env.twilio.local.example
 *.vcf
