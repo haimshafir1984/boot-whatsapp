@@ -180,8 +180,11 @@ async function queueAndReply(
   if (job) console.log(`   Contact queued for background save/update: ${senderPhone}`);
 
   try {
-    await transport.sendMessage(senderJid, replyText);
-    console.log('   Text reply sent.');
+    const finalReplyText = replyText.trim();
+    if (finalReplyText) {
+      await transport.sendMessage(senderJid, finalReplyText);
+      console.log('   Text reply sent.');
+    }
 
     for (const followupText of followupMessages) {
       const text = followupText.trim();
@@ -192,7 +195,7 @@ async function queueAndReply(
 
     await sendDecisionFlowStart(transport, storage, senderJid, decisionFlow);
   } catch (err) {
-    console.error('   Failed to send text reply:', err);
+    console.error('   Failed to send reply flow:', err);
   }
 }
 
@@ -270,13 +273,20 @@ async function sendDecisionStep(
     return;
   }
 
+  let sentInteractive = false;
   if (transport.sendInteractiveButtons && step.options?.length) {
-    await transport.sendInteractiveButtons(
-      senderJid,
-      step.text.trim(),
-      step.options.slice(0, 3).map((option) => ({ id: option.id, text: option.text })),
-    );
-  } else {
+    try {
+      await transport.sendInteractiveButtons(
+        senderJid,
+        step.text.trim(),
+        step.options.slice(0, 3).map((option) => ({ id: option.id, text: option.text })),
+      );
+      sentInteractive = true;
+    } catch (err) {
+      console.warn('   Interactive decision question failed, falling back to text:', err);
+    }
+  }
+  if (!sentInteractive) {
     await transport.sendMessage(senderJid, formatQuestion(step));
   }
   console.log('   Decision question sent.');
