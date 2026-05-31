@@ -315,6 +315,22 @@ Provider של המסלול הקיים, מבוסס `whatsapp-web.js`.
 
 כרגע זה הבסיס להפרדת Providers לקראת Twilio בעתיד.
 
+### `src/providers/TwilioProvider.ts`
+
+Provider ראשוני למסלול `TWILIO_API`.
+
+כרגע תומך ב:
+
+- בדיקת env בסיסית.
+- שליחת הודעות טקסט דרך Twilio Messages API.
+- fallback לכפתורים כטקסט ממוספר.
+- שליחת מדיה דרך `MediaUrl` אם מוגדר `TWILIO_MEDIA_BASE_URL`.
+
+עדיין לא הושלם:
+
+- Quick Replies רשמיים דרך Twilio Content API.
+- מסך מנהל מלא להגדרת Twilio לכל לקוחה.
+
 ### `src/dokployProvisioner.ts`
 
 אחראי להקים יחידת לקוחה חדשה ב-Dokploy.
@@ -425,7 +441,19 @@ node -e "const fs=require('fs'); const html=fs.readFileSync('public/index.html',
 
 מסמך תכנון למעבר עתידי ל-Twilio / WhatsApp Business Platform.
 
-כרגע לא יושם בפועל.
+חלק ראשון כבר יושם מקומית:
+
+- `WHATSAPP_PROVIDER=TWILIO_API` מכבה את Scheduler של WhatsApp Web/Chromium.
+- `POST /webhooks/twilio/whatsapp` מקבל הודעות נכנסות מ-Twilio.
+- הודעות נכנסות עוברות לאותה לוגיקת טריגרים וקמפיינים.
+- `TwilioProvider` שולח הודעות טקסט דרך Twilio.
+- `GET /twilio-media/:filename` מאפשר ל-Twilio למשוך קבצים ציבוריים אם מוגדר `TWILIO_MEDIA_BASE_URL`.
+
+קיים קובץ דוגמה מקומי:
+
+```text
+.env.twilio.local.example
+```
 
 ## פקודות בדיקה
 
@@ -477,6 +505,8 @@ node -e "const fs=require('fs'); const html=fs.readFileSync('public/index.html',
 - שינוי זיהוי טריגר כך שמשפט הטריגר יכול להיות חלק מהודעה ארוכה יותר, ולא חייב להיות ההודעה כולה.
 - הוספת הודעה ברורה כאשר WhatsApp מחובר אבל הבוט יפעל רק כשיש קמפיין פעיל.
 - הוספת הכנה ראשונית ל-Twilio Provider, בלי להפעיל עדיין מסלול Twilio בפועל.
+- הוספת Twilio webhook מקומי ושליחת טקסט בסיסית דרך Twilio Messages API.
+- הוספת מצב `TWILIO_API` שבו לא מופעל Chromium/WhatsApp Web Scheduler.
 
 ## כיוון המשך מומלץ
 

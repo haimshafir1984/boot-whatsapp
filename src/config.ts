@@ -10,6 +10,12 @@ export const config = {
   CLIENT_MAX_CAMPAIGNS: Number(process.env.CLIENT_MAX_CAMPAIGNS) || 7,
   CLIENT_SERVICE_EXPIRES_AT: process.env.CLIENT_SERVICE_EXPIRES_AT ?? '',
   WHATSAPP_PROVIDER: process.env.WHATSAPP_PROVIDER ?? 'WEB_JS',
+  TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID ?? '',
+  TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN ?? '',
+  TWILIO_FROM: process.env.TWILIO_FROM ?? '',
+  TWILIO_MESSAGING_SERVICE_SID: process.env.TWILIO_MESSAGING_SERVICE_SID ?? '',
+  TWILIO_WEBHOOK_TOKEN: process.env.TWILIO_WEBHOOK_TOKEN ?? '',
+  TWILIO_MEDIA_BASE_URL: process.env.TWILIO_MEDIA_BASE_URL ?? '',
 
   // ─── Trigger prefixes (static – used when building campaign trigger phrases) ──
   /** Fixed prefix prepended to the referrer name for every type-2 campaign. */

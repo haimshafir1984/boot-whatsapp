@@ -42,7 +42,11 @@ async function main(): Promise<void> {
 
   startAdminServer(storage);
 
-  startWhatsAppScheduler(storage);
+  if (config.WHATSAPP_PROVIDER === 'TWILIO_API') {
+    console.log('  WhatsApp provider: Twilio API (webhook mode, no Chromium scheduler)');
+  } else {
+    startWhatsAppScheduler(storage);
+  }
 }
 
 main().catch((err) => {

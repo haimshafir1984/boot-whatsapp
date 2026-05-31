@@ -1,8 +1,9 @@
 import { WhatsAppProvider } from '../types/whatsapp';
+import { config } from '../config';
 
 export class TwilioProvider implements WhatsAppProvider {
   async initialize(): Promise<void> {
-    throw new Error('Twilio provider is not implemented yet.');
+    this.assertConfigured();
   }
 
   async destroy(): Promise<void> {
@@ -14,7 +15,28 @@ export class TwilioProvider implements WhatsAppProvider {
   }
 
   async sendMessage(_to: string, _message: string): Promise<void> {
-    throw new Error('Twilio message sending is not implemented yet.');
+    await this.createMessage({
+      To: normalizeWhatsAppAddress(_to),
+      Body: _message,
+    });
+  }
+
+  async sendFile(to: string, filePath: string, caption?: string, _options: { asSticker?: boolean } = {}): Promise<void> {
+    const baseUrl = config.TWILIO_MEDIA_BASE_URL.trim().replace(/\/$/, '');
+    if (!baseUrl) {
+      await this.sendMessage(to, caption?.trim() || 'קובץ מוכן לשליחה, אבל כתובת מדיה ציבורית לא מוגדרת במסלול Twilio.');
+      return;
+    }
+    const fileName = filePath.split(/[\\/]/).pop();
+    if (!fileName) {
+      await this.sendMessage(to, caption?.trim() || 'הקובץ לא זמין כרגע.');
+      return;
+    }
+    await this.createMessage({
+      To: normalizeWhatsAppAddress(to),
+      Body: caption?.trim() || undefined,
+      MediaUrl: `${baseUrl}/${encodeURIComponent(fileName)}`,
+    });
   }
 
   async sendInteractiveButtons(
@@ -27,4 +49,47 @@ export class TwilioProvider implements WhatsAppProvider {
       : text;
     await this.sendMessage(to, fallback);
   }
+
+  private assertConfigured(): void {
+    if (!config.TWILIO_ACCOUNT_SID || !config.TWILIO_AUTH_TOKEN) {
+      throw new Error('TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are required for Twilio provider.');
+    }
+    if (!config.TWILIO_FROM && !config.TWILIO_MESSAGING_SERVICE_SID) {
+      throw new Error('TWILIO_FROM or TWILIO_MESSAGING_SERVICE_SID is required for Twilio provider.');
+    }
+  }
+
+  private async createMessage(fields: Record<string, string | undefined>): Promise<void> {
+    this.assertConfigured();
+    const body = new URLSearchParams();
+    for (const [key, value] of Object.entries(fields)) {
+      if (value) body.set(key, value);
+    }
+    if (config.TWILIO_MESSAGING_SERVICE_SID) {
+      body.set('MessagingServiceSid', config.TWILIO_MESSAGING_SERVICE_SID);
+    } else {
+      body.set('From', normalizeWhatsAppAddress(config.TWILIO_FROM));
+    }
+
+    const auth = Buffer.from(`${config.TWILIO_ACCOUNT_SID}:${config.TWILIO_AUTH_TOKEN}`).toString('base64');
+    const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${config.TWILIO_ACCOUNT_SID}/Messages.json`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${auth}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body,
+    });
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      throw new Error(`Twilio message failed (${response.status}): ${errorText.slice(0, 500)}`);
+    }
+  }
+}
+
+function normalizeWhatsAppAddress(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.startsWith('whatsapp:')) return trimmed;
+  const phone = trimmed.replace(/[^\d+]/g, '');
+  return `whatsapp:${phone.startsWith('+') ? phone : `+${phone}`}`;
 }
