@@ -259,6 +259,18 @@ function sanitizeDecisionFlow(
         step.nextStepId = item.nextStepId.trim().slice(0, 80);
       }
       if (kind === 'question' && Array.isArray(item.options)) {
+        if (typeof item.timeoutMinutes === 'number' && item.timeoutMinutes > 0) {
+          step.timeoutMinutes = Math.min(Math.max(Math.round(item.timeoutMinutes), 1), 1440);
+        }
+        if (typeof item.timeoutText === 'string' && item.timeoutText.trim()) {
+          step.timeoutText = item.timeoutText.trim().slice(0, 2000);
+        }
+        if (typeof item.timeoutFileId === 'string' && item.timeoutFileId.trim()) {
+          step.timeoutFileId = item.timeoutFileId.trim().slice(0, 80);
+        }
+        if (typeof item.timeoutFileAsSticker === 'boolean') {
+          step.timeoutFileAsSticker = item.timeoutFileAsSticker;
+        }
         step.options = item.options
           .map((option, optionIndex): DecisionFlowOption | null => {
             if (!option || typeof option !== 'object') return null;
@@ -279,6 +291,9 @@ function sanitizeDecisionFlow(
             }
             if (typeof rawOption.fileId === 'string' && rawOption.fileId.trim()) {
               clean.fileId = rawOption.fileId.trim().slice(0, 80);
+            }
+            if (typeof rawOption.fileAsSticker === 'boolean') {
+              clean.fileAsSticker = rawOption.fileAsSticker;
             }
             return clean;
           })

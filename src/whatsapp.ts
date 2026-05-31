@@ -168,9 +168,12 @@ function createWebJsTransport(client: Client): WhatsAppTransport {
     sendMessage: async (to, text) => {
       await client.sendMessage(to, text);
     },
-    sendFile: async (to, filePath, caption) => {
+    sendFile: async (to, filePath, caption, options = {}) => {
       const media = MessageMedia.fromFilePath(filePath);
-      await client.sendMessage(to, media, caption?.trim() ? { caption: caption.trim() } : undefined);
+      await client.sendMessage(to, media, {
+        ...(caption?.trim() && !options.asSticker ? { caption: caption.trim() } : {}),
+        ...(options.asSticker ? { sendMediaAsSticker: true } : {}),
+      });
     },
     resolvePhone: async (jid) => {
       try {

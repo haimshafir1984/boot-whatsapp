@@ -48,6 +48,10 @@ export interface DecisionFlowStep {
   kind: 'message' | 'question';
   text: string;
   nextStepId?: string;
+  timeoutMinutes?: number;
+  timeoutText?: string;
+  timeoutFileId?: string;
+  timeoutFileAsSticker?: boolean;
   options?: DecisionFlowOption[];
 }
 
@@ -57,6 +61,7 @@ export interface DecisionFlowOption {
   nextStepId?: string;
   endText?: string;
   fileId?: string;
+  fileAsSticker?: boolean;
 }
 
 export interface AdminSettings {

@@ -497,6 +497,16 @@
       font-weight: 700;
       margin-top: 2px;
     }
+    .decision-inline-check {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #374151;
+      font-size: .78rem;
+      font-weight: 700;
+    }
+    .decision-inline-check input { width: auto; }
     .decision-option-next { display: none; grid-column: 1 / -1; }
     .decision-option-end { grid-column: 1 / -1; }
     .decision-option textarea { grid-column: 1 / -1; min-height: 52px; margin-bottom: 0; }
@@ -1233,6 +1243,12 @@
         select.value = appFiles.some(file => file.id === selected) ? selected : '';
         select.dataset.selectedFile = select.value;
       });
+      document.querySelectorAll('[data-timeout-file]').forEach(select => {
+        const selected = select.value || select.dataset.selectedFile || '';
+        select.innerHTML = fileOptions(selected);
+        select.value = appFiles.some(file => file.id === selected) ? selected : '';
+        select.dataset.selectedFile = select.value;
+      });
     } catch (_) {}
   }
 
@@ -1317,6 +1333,18 @@
           <label>אחרי ההודעה לעבור אל</label>
           <select data-step-next onchange="updateCampaignConversationPreview()" data-selected-next="${esc(step.nextStepId || '')}"></select>
         </div>
+        <div class="decision-options" data-question-timeout>
+          <div class="decision-options-label">אם לא ענו לשאלה</div>
+          <div class="decision-option-grid">
+            <input data-timeout-minutes type="number" min="1" max="1440" value="${esc(step.timeoutMinutes || 30)}" oninput="updateCampaignConversationPreview()" placeholder="דקות המתנה" />
+            <span class="hint">דקות</span>
+            <div class="decision-option-label">קובץ לשליחה בזמן timeout</div>
+            <select data-timeout-file data-selected-file="${esc(step.timeoutFileId || '')}" onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">${fileOptions(step.timeoutFileId || '')}</select>
+            <label class="decision-inline-check"><input data-timeout-file-sticker type="checkbox" ${step.timeoutFileAsSticker ? 'checked' : ''} onchange="updateCampaignConversationPreview()" /> שלח כמדבקה</label>
+            <div class="decision-option-label">הודעה / כיתוב ל-timeout</div>
+            <textarea data-timeout-text oninput="updateCampaignConversationPreview()" placeholder="למשל: כנראה שעוד לא שמרת, שולחת לך תזכורת קטנה">${esc(step.timeoutText || '')}</textarea>
+          </div>
+        </div>
         <div class="decision-options" data-options>
           <div class="decision-options-label">תשובות אפשריות (עד 3)</div>
           ${options.map((option, optionIndex) => decisionOptionHtml(option, optionIndex)).join('')}
@@ -1350,6 +1378,7 @@
             <select data-option-next onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()" data-selected-next="${esc(option.nextStepId || '')}"></select>
             <div class="decision-option-label" data-option-file-label>איזה קובץ לשלוח?</div>
             <select data-option-file data-selected-file="${esc(option.fileId || '')}" onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">${fileOptions(option.fileId || '')}</select>
+            <label class="decision-inline-check" data-option-sticker-wrap><input data-option-file-sticker type="checkbox" ${option.fileAsSticker ? 'checked' : ''} onchange="updateCampaignConversationPreview()" /> שלח כמדבקה</label>
             <div class="decision-option-label" data-option-end-label>הודעת פרידה קבועה</div>
             <textarea data-option-end-text oninput="updateCampaignConversationPreview()" placeholder="הודעת סיום / כיתוב לקובץ">${esc(option.endText || '')}</textarea>
           </div>
@@ -1433,6 +1462,7 @@
       const kind = step.querySelector('[data-step-kind]').value;
       step.querySelector('[data-message-next]').style.display = kind === 'message' ? '' : 'none';
       step.querySelector('[data-options]').style.display = kind === 'question' ? '' : 'none';
+      step.querySelector('[data-question-timeout]').style.display = kind === 'question' ? '' : 'none';
       step.querySelector('.decision-step-subtitle').textContent = kind === 'question' ? 'שאלה עם עד 3 תשובות' : 'הודעה רגילה';
       step.querySelector('[data-step-text]').placeholder = kind === 'question'
         ? 'לדוגמה: האם תרצי לקבל חוברת פרסום?'
@@ -1442,6 +1472,7 @@
         const nextSelect = option.querySelector('[data-option-next]');
         const fileSelect = option.querySelector('[data-option-file]');
         const endText = option.querySelector('[data-option-end-text]');
+        const stickerWrap = option.querySelector('[data-option-sticker-wrap]');
         const summary = option.querySelector('[data-option-summary]');
         const optionText = option.querySelector('[data-option-text]')?.value.trim() || 'התשובה הזו';
         option.querySelectorAll('[data-action]').forEach(button => {
@@ -1449,6 +1480,7 @@
         });
         nextSelect.style.display = action === 'next' ? '' : 'none';
         fileSelect.style.display = action === 'file' ? '' : 'none';
+        stickerWrap.style.display = action === 'file' ? '' : 'none';
         endText.style.display = action === 'end' || action === 'file' ? '' : 'none';
         option.querySelector('[data-option-next-label]').style.display = action === 'next' ? '' : 'none';
         option.querySelector('[data-option-file-label]').style.display = action === 'file' ? '' : 'none';
@@ -1534,6 +1566,7 @@
                 const fileId = option.querySelector('[data-option-file]').value;
                 const caption = option.querySelector('[data-option-end-text]').value.trim();
                 if (fileId) clean.fileId = fileId;
+                if (option.querySelector('[data-option-file-sticker]')?.checked) clean.fileAsSticker = true;
                 if (caption) clean.endText = caption;
               } else {
                 const endText = option.querySelector('[data-option-end-text]').value.trim();
@@ -1543,6 +1576,13 @@
             })
             .filter(Boolean);
           if (!item.options.length) return null;
+          const timeoutMinutes = Number(step.querySelector('[data-timeout-minutes]')?.value);
+          const timeoutText = step.querySelector('[data-timeout-text]')?.value.trim() || '';
+          const timeoutFileId = step.querySelector('[data-timeout-file]')?.value || '';
+          if (timeoutMinutes > 0) item.timeoutMinutes = timeoutMinutes;
+          if (timeoutText) item.timeoutText = timeoutText;
+          if (timeoutFileId) item.timeoutFileId = timeoutFileId;
+          if (step.querySelector('[data-timeout-file-sticker]')?.checked) item.timeoutFileAsSticker = true;
         }
         return item;
       })
@@ -1612,10 +1652,14 @@
           .filter(option => option.fileId)
           .map(option => {
             const file = appFiles.find(item => item.id === option.fileId);
-            return `אם בוחרים "${option.text}" יישלח קובץ${file ? `: ${file.originalName}` : ''}`;
+            return `אם בוחרים "${option.text}" תישלח ${option.fileAsSticker ? 'מדבקה' : 'קובץ'}${file ? `: ${file.originalName}` : ''}`;
           })
           .join('\n');
-        return `<div class="chat-row bot"><div class="chat-bubble">${esc(`${step.text}${options ? '\n\n' + options : ''}${fileNotes ? '\n\n' + fileNotes : ''}`)}</div></div>`;
+        const timeoutFile = step.timeoutFileId ? appFiles.find(item => item.id === step.timeoutFileId) : null;
+        const timeoutNote = step.timeoutFileId || step.timeoutText
+          ? `אם לא עונים תוך ${step.timeoutMinutes || 30} דקות תישלח ${step.timeoutFileAsSticker ? 'מדבקה' : 'תגובה'}${timeoutFile ? `: ${timeoutFile.originalName}` : ''}`
+          : '';
+        return `<div class="chat-row bot"><div class="chat-bubble">${esc(`${step.text}${options ? '\n\n' + options : ''}${fileNotes ? '\n\n' + fileNotes : ''}${timeoutNote ? '\n\n' + timeoutNote : ''}`)}</div></div>`;
       }
       return `<div class="chat-row bot"><div class="chat-bubble">${esc(step.text)}</div></div>`;
     }).join('');

@@ -26,9 +26,12 @@ export class WebJsProvider implements WhatsAppProvider {
     await this.client.sendMessage(to, message);
   }
 
-  async sendFile(to: string, filePath: string, caption?: string): Promise<void> {
+  async sendFile(to: string, filePath: string, caption?: string, options: { asSticker?: boolean } = {}): Promise<void> {
     const media = MessageMedia.fromFilePath(filePath);
-    await this.client.sendMessage(to, media, caption?.trim() ? { caption: caption.trim() } : undefined);
+    await this.client.sendMessage(to, media, {
+      ...(caption?.trim() && !options.asSticker ? { caption: caption.trim() } : {}),
+      ...(options.asSticker ? { sendMediaAsSticker: true } : {}),
+    });
   }
 
   async sendInteractiveButtons(

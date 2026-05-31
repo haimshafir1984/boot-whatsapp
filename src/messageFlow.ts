@@ -190,7 +190,7 @@ async function queueAndReply(
       console.log('   Follow-up reply sent.');
     }
 
-    await sendDecisionFlowStart(transport, senderJid, decisionFlow);
+    await sendDecisionFlowStart(transport, storage, senderJid, decisionFlow);
   } catch (err) {
     console.error('   Failed to send text reply:', err);
   }
@@ -222,36 +222,38 @@ async function handleDecisionReply(
 
   conversationState.remove(senderJid);
   if (option.fileId) {
-    const file = storage.getUploadedFile(option.fileId);
-    if (file && transport.sendFile) {
-      await transport.sendFile(senderJid, path.join(config.UPLOADS_PATH, file.filename), option.endText?.trim());
-      console.log('   Decision file sent.');
-    } else {
-      await transport.sendMessage(senderJid, option.endText?.trim() || 'הקובץ לא זמין כרגע.');
-      console.warn(`   Decision file unavailable: ${option.fileId}`);
-    }
+    await sendDecisionFile(
+      transport,
+      storage,
+      senderJid,
+      option.fileId,
+      option.endText?.trim(),
+      option.fileAsSticker,
+    );
   } else if (option.endText?.trim()) {
     await transport.sendMessage(senderJid, option.endText.trim());
     console.log('   Decision reply sent.');
   }
 
   if (option.nextStepId) {
-    await sendDecisionStep(transport, senderJid, flow, option.nextStepId);
+    await sendDecisionStep(transport, storage, senderJid, flow, option.nextStepId);
   }
 }
 
 async function sendDecisionFlowStart(
   transport: WhatsAppTransport,
+  storage: Storage,
   senderJid: string,
   flow: DecisionFlowStep[],
 ): Promise<void> {
   const first = flow.find((step) => step.text.trim());
   if (!first) return;
-  await sendDecisionStep(transport, senderJid, flow, first.id);
+  await sendDecisionStep(transport, storage, senderJid, flow, first.id);
 }
 
 async function sendDecisionStep(
   transport: WhatsAppTransport,
+  storage: Storage,
   senderJid: string,
   flow: DecisionFlowStep[],
   stepId: string,
@@ -263,17 +265,21 @@ async function sendDecisionStep(
     await transport.sendMessage(senderJid, step.text.trim());
     console.log('   Decision message sent.');
     if (step.nextStepId) {
-      await sendDecisionStep(transport, senderJid, flow, step.nextStepId);
+      await sendDecisionStep(transport, storage, senderJid, flow, step.nextStepId);
     }
     return;
   }
 
   await transport.sendMessage(senderJid, formatQuestion(step));
   console.log('   Decision question sent.');
-  const timeoutHandle = setTimeout(() => {
+  const timeoutMinutes = step.timeoutMinutes && step.timeoutMinutes > 0
+    ? step.timeoutMinutes
+    : DECISION_REPLY_TIMEOUT_MS / 60_000;
+  const timeoutHandle = setTimeout(async () => {
     conversationState.remove(senderJid);
     console.log(`   Decision reply timeout - cleared pending state for ${senderJid}.`);
-  }, DECISION_REPLY_TIMEOUT_MS);
+    await sendDecisionTimeoutAction(transport, storage, senderJid, step);
+  }, timeoutMinutes * 60 * 1000);
   conversationState.set(senderJid, {
     kind: 'decision',
     senderJid,
@@ -282,6 +288,49 @@ async function sendDecisionStep(
     timestamp: Date.now(),
     timeoutHandle,
   });
+}
+
+async function sendDecisionTimeoutAction(
+  transport: WhatsAppTransport,
+  storage: Storage,
+  senderJid: string,
+  step: DecisionFlowStep,
+): Promise<void> {
+  const caption = step.timeoutText?.trim();
+  if (step.timeoutFileId) {
+    await sendDecisionFile(
+      transport,
+      storage,
+      senderJid,
+      step.timeoutFileId,
+      caption,
+      step.timeoutFileAsSticker,
+    );
+    return;
+  }
+  if (caption) {
+    await transport.sendMessage(senderJid, caption);
+    console.log('   Decision timeout message sent.');
+  }
+}
+
+async function sendDecisionFile(
+  transport: WhatsAppTransport,
+  storage: Storage,
+  senderJid: string,
+  fileId: string,
+  caption?: string,
+  asSticker?: boolean,
+): Promise<void> {
+  const file = storage.getUploadedFile(fileId);
+  if (file && transport.sendFile) {
+    const canSendAsSticker = Boolean(asSticker && file.mimeType.startsWith('image/'));
+    await transport.sendFile(senderJid, path.join(config.UPLOADS_PATH, file.filename), caption, { asSticker: canSendAsSticker });
+    console.log(canSendAsSticker ? '   Decision sticker sent.' : '   Decision file sent.');
+  } else {
+    await transport.sendMessage(senderJid, caption || 'הקובץ לא זמין כרגע.');
+    console.warn(`   Decision file unavailable: ${fileId}`);
+  }
 }
 
 function formatQuestion(step: DecisionFlowStep): string {
