@@ -137,8 +137,12 @@
               <label>הודעת סיום</label>
               <textarea id="ocReplyText" placeholder="תודה, שמרתי אותך."></textarea>
             </div>
+            <div class="full" id="ocAskNameTextWrap" style="display:none">
+              <label>משפט שאלת שם</label>
+              <textarea id="ocAskNameText" placeholder="באיזה שם לשמור אותך?"></textarea>
+            </div>
             <div class="full form-actions">
-              <label style="margin:0"><input id="ocAskName" type="checkbox" /> לשאול באיזה שם לשמור</label>
+              <label style="margin:0"><input id="ocAskName" type="checkbox" onchange="toggleOwnerAskName()" /> לשאול באיזה שם לשמור</label>
               <button class="retry" type="button" onclick="createOwnerCampaign()">צור קמפיין ללקוחה</button>
               <span class="muted" id="ownerCampaignError"></span>
             </div>
@@ -249,6 +253,11 @@
       document.getElementById('ocRefWrap').style.display = type === '2' ? '' : 'none';
     }
 
+    function toggleOwnerAskName() {
+      const enabled = document.getElementById('ocAskName').checked;
+      document.getElementById('ocAskNameTextWrap').style.display = enabled ? '' : 'none';
+    }
+
     function setDot(id, on) {
       document.getElementById(id).style.background = on ? '#22c55e' : '#d1d5db';
     }
@@ -259,6 +268,8 @@
       error.textContent = '';
       const triggerType = Number(document.getElementById('ocType').value);
       const replyText = document.getElementById('ocReplyText').value.trim() || 'תודה, שמרתי אותך.';
+      const askNameEnabled = document.getElementById('ocAskName').checked;
+      const askNameText = document.getElementById('ocAskNameText').value.trim() || 'באיזה שם לשמור אותך?';
       const body = {
         name: document.getElementById('ocName').value.trim(),
         triggerType,
@@ -268,9 +279,9 @@
         startAt: localDateTimeToIso(document.getElementById('ocStartAt').value),
         endAt: localDateTimeToIso(document.getElementById('ocEndAt').value),
         conversation: {
-          askNameEnabled: document.getElementById('ocAskName').checked,
+          askNameEnabled,
           nameTimeoutMinutes: 5,
-          askNameText: 'ברוכה הבאה\nבאיזה שם לשמור אותך?',
+          askNameText,
           replyText,
           followupMessages: [],
           decisionFlow: [],
@@ -286,10 +297,11 @@
         error.textContent = data.error || 'יצירת הקמפיין נכשלה';
         return;
       }
-      ['ocName', 'ocPhrase', 'ocBasePhrase', 'ocReferrer', 'ocStartAt', 'ocEndAt', 'ocReplyText'].forEach(id => {
+      ['ocName', 'ocPhrase', 'ocBasePhrase', 'ocReferrer', 'ocStartAt', 'ocEndAt', 'ocReplyText', 'ocAskNameText'].forEach(id => {
         document.getElementById(id).value = '';
       });
       document.getElementById('ocAskName').checked = false;
+      toggleOwnerAskName();
       loadClientSummary(currentClient.id);
     }
 
