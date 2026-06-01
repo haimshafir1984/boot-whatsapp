@@ -355,6 +355,24 @@ export class Storage {
     return { ...job };
   }
 
+  retryFailedContactSaves(provider: AdminSettings['contactsProvider']): number {
+    const now = new Date().toISOString();
+    let count = 0;
+    for (const job of this.data.contactQueue) {
+      if (job.status !== 'failed') continue;
+      job.provider = provider;
+      job.status = 'pending';
+      job.attempts = 0;
+      job.updatedAt = now;
+      job.nextAttemptAt = now;
+      job.lastError = undefined;
+      this.updateCampaignResultStatuses(job.campaignResultIds, 'pending', now);
+      count += 1;
+    }
+    if (count) this.persist();
+    return count;
+  }
+
   getContactQueueStats(): Record<ContactSaveStatus, number> & { total: number } {
     const stats = { pending: 0, saved: 0, failed: 0, total: this.data.contactQueue.length };
     for (const job of this.data.contactQueue) {

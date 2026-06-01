@@ -1742,15 +1742,20 @@
 
   // ── Contacts provider ────────────────────────────────────────────────────────
 
-  function selectProvider(p) {
+  async function selectProvider(p) {
     ['google','icloud','manual'].forEach(x => {
       document.getElementById('ptab-' + x).classList.toggle('active', x === p);
       document.getElementById('ppanel-' + x).classList.toggle('active', x === p);
     });
-    fetch('/api/settings', {
+    const response = await fetch('/api/settings', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ contactsProvider: p }),
     });
+    if (!response.ok) {
+      alert('שמירת סוג אנשי הקשר נכשלה. נסה שוב.');
+      return;
+    }
+    await loadContactQueueStats();
   }
 
   async function loadContactQueueStats() {

@@ -1029,7 +1029,10 @@ export function startAdminServer(storage: Storage): void {
     if (typeof body.botSuffix === 'string')      patch.botSuffix      = body.botSuffix;
 
     const updated = storage.updateAdminSettings(patch);
-    res.json({ ok: true, settings: updated });
+    const retriedFailedContacts = patch.contactsProvider
+      ? storage.retryFailedContactSaves(patch.contactsProvider)
+      : 0;
+    res.json({ ok: true, settings: updated, retriedFailedContacts });
   });
 
   // ── iCloud test ──────────────────────────────────────────────────────────
