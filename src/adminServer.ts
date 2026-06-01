@@ -92,6 +92,37 @@ function safeUploadName(name: string): string {
   return `${base}${ext}`;
 }
 
+function escapeVCardValue(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/\n/g, '\\n')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;');
+}
+
+function normalizeVCardPhone(phone: string): string {
+  const trimmed = phone.trim();
+  if (trimmed.startsWith('+')) return trimmed;
+  return `+${trimmed.replace(/[^\d]/g, '')}`;
+}
+
+function buildContactsVCard(contacts: Array<{ name?: string; phone: string }>): string {
+  return contacts
+    .filter((contact) => contact.phone.trim())
+    .map((contact) => {
+      const phone = normalizeVCardPhone(contact.phone);
+      const name = contact.name?.trim() || phone;
+      return [
+        'BEGIN:VCARD',
+        'VERSION:3.0',
+        `FN:${escapeVCardValue(name)}`,
+        `TEL;TYPE=CELL:${phone}`,
+        'END:VCARD',
+      ].join('\r\n');
+    })
+    .join('\r\n');
+}
+
 function twilioConfigured(): boolean {
   return Boolean(config.TWILIO_ACCOUNT_SID && config.TWILIO_AUTH_TOKEN && (config.TWILIO_FROM || config.TWILIO_MESSAGING_SERVICE_SID));
 }
@@ -1060,6 +1091,13 @@ export function startAdminServer(storage: Storage): void {
     res.send('﻿' + rows.join('\n'));
   });
 
+  app.get('/api/contacts/export.vcf', (_req, res) => {
+    const vcard = buildContactsVCard(storage.getAllContacts());
+    res.setHeader('Content-Type', 'text/vcard; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="contacts.vcf"');
+    res.send(vcard);
+  });
+
   // ── Campaigns ─────────────────────────────────────────────────────────────
 
   app.get('/api/contacts/queue', (req, res) => {
@@ -1154,6 +1192,31 @@ export function startAdminServer(storage: Storage): void {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="campaign-${campaign.id}-results.csv"`);
     res.send('\uFEFF' + rows.join('\n'));
+  });
+
+  app.get('/api/campaign-results/:id/export.vcf', (req, res) => {
+    const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
+    if (!campaign) {
+      res.status(404).json({ error: 'קמפיין לא נמצא' });
+      return;
+    }
+
+    const contactNames = new Map(storage.getAllContacts().map((contact) => [contact.phone, contact.name]));
+    const seen = new Set<string>();
+    const contacts = storage.getCampaignResults(campaign.id)
+      .filter((result) => {
+        if (seen.has(result.phone)) return false;
+        seen.add(result.phone);
+        return true;
+      })
+      .map((result) => ({
+        phone: result.phone,
+        name: contactNames.get(result.phone) || result.phone,
+      }));
+    const vcard = buildContactsVCard(contacts);
+    res.setHeader('Content-Type', 'text/vcard; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="campaign-${campaign.id}-contacts.vcf"`);
+    res.send(vcard);
   });
 
   app.post('/api/campaigns', requireWritableClient, (req, res) => {

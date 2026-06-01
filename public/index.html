@@ -107,6 +107,7 @@
       flex-shrink: 0;
     }
     .result-export:hover { background: #dcfce7; }
+    .result-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
     /* ── Divider ── */
     hr { border: none; border-top: 1px solid #e5e7eb; margin: 20px 0; }
@@ -688,10 +689,13 @@
       <div class="provider-panel" id="ppanel-manual">
         <div class="manual-info">
           אנשי קשר נשמרים <strong>מקומית</strong> בלבד.<br>
-          ניתן להוריד קובץ CSV בכל עת ולייבא אותו ידנית לאנשי הקשר.
+          ניתן להוריד קובץ CSV או VCF בכל עת ולייבא אותו ידנית לאנשי הקשר.
         </div>
         <a href="/api/contacts/export" download="contacts.csv">
           <button class="btn-save" style="width:auto;padding:9px 18px">⬇️ הורד CSV</button>
+        </a>
+        <a href="/api/contacts/export.vcf" download="contacts.vcf">
+          <button class="btn-save" style="width:auto;padding:9px 18px;margin-right:8px">⬇️ הורד VCF</button>
         </a>
       </div>
     </div>
@@ -994,7 +998,10 @@
             <span><strong>${item.failed}</strong> נכשלו</span>
           </div>
         </div>
-        <a class="result-export" href="/api/campaign-results/${item.campaignId}/export" download>CSV</a>
+        <div class="result-actions">
+          <a class="result-export" href="/api/campaign-results/${item.campaignId}/export" download>CSV</a>
+          <a class="result-export" href="/api/campaign-results/${item.campaignId}/export.vcf" download>VCF</a>
+        </div>
       </div>
     `).join('');
   }
