@@ -972,6 +972,11 @@ export function startAdminServer(storage: Storage): void {
 
   app.get('/api/config', (_req, res) => {
     const profile = storage.getClientProfile();
+    if (config.WHATSAPP_PROVIDER === 'TWILIO_API') {
+      const twilioPhone = config.TWILIO_FROM.replace(/^whatsapp:/, '').replace(/[^\d]/g, '');
+      res.json({ phone: twilioPhone });
+      return;
+    }
     const fallbackPhone = config.MY_CONTACT.phone.replace('+', '');
     res.json({ phone: botState.connectedPhone ?? (profile.whatsappPhone || fallbackPhone) });
   });

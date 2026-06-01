@@ -32,6 +32,8 @@ interface DokployProvisioningConfig {
   twilioMessagingServiceSid?: string;
   twilioWebhookToken?: string;
   twilioQuickReplyContentSid?: string;
+  twilioListPickerContentSid?: string;
+  twilioMediaBaseUrl?: string;
 }
 
 interface DokployApplication {
@@ -80,6 +82,8 @@ export class DokployProvisioner {
     const twilioMessagingServiceSid = env.DOKPLOY_TWILIO_MESSAGING_SERVICE_SID?.trim();
     const twilioWebhookToken = env.DOKPLOY_TWILIO_WEBHOOK_TOKEN?.trim();
     const twilioQuickReplyContentSid = env.DOKPLOY_TWILIO_QUICK_REPLY_CONTENT_SID?.trim();
+    const twilioListPickerContentSid = env.DOKPLOY_TWILIO_LIST_PICKER_CONTENT_SID?.trim();
+    const twilioMediaBaseUrl = env.DOKPLOY_TWILIO_MEDIA_BASE_URL?.trim();
     const missing = [
       !token && 'DOKPLOY_API_TOKEN',
       !environmentId && 'DOKPLOY_ENVIRONMENT_ID',
@@ -122,6 +126,8 @@ export class DokployProvisioner {
       twilioMessagingServiceSid,
       twilioWebhookToken,
       twilioQuickReplyContentSid,
+      twilioListPickerContentSid,
+      twilioMediaBaseUrl,
     };
   }
 
@@ -168,6 +174,7 @@ export class DokployProvisioner {
     saveProgress: (patch: ClientProvisioningPatch) => ManagedClient,
   ): Promise<ManagedClient> {
     if (!this.config) throw new Error(this.configurationError ?? 'Dokploy is not configured');
+    this.assertClientProvisioningConfig(client);
 
     let current = client;
     const name = serviceName(current);
@@ -249,12 +256,14 @@ export class DokployProvisioner {
       envLines.push(`GOOGLE_OAUTH_STATE_SECRET=${escapeEnvValue(this.config.googleOauthStateSecret)}`);
     }
     if (current.whatsappProvider === 'TWILIO_API') {
-      if (this.config.twilioAccountSid) envLines.push(`TWILIO_ACCOUNT_SID=${escapeEnvValue(this.config.twilioAccountSid)}`);
-      if (this.config.twilioAuthToken) envLines.push(`TWILIO_AUTH_TOKEN=${escapeEnvValue(this.config.twilioAuthToken)}`);
+      envLines.push(`TWILIO_ACCOUNT_SID=${escapeEnvValue(this.config.twilioAccountSid!)}`);
+      envLines.push(`TWILIO_AUTH_TOKEN=${escapeEnvValue(this.config.twilioAuthToken!)}`);
       if (this.config.twilioFrom) envLines.push(`TWILIO_FROM=${escapeEnvValue(this.config.twilioFrom)}`);
       if (this.config.twilioMessagingServiceSid) envLines.push(`TWILIO_MESSAGING_SERVICE_SID=${escapeEnvValue(this.config.twilioMessagingServiceSid)}`);
-      if (this.config.twilioWebhookToken) envLines.push(`TWILIO_WEBHOOK_TOKEN=${escapeEnvValue(this.config.twilioWebhookToken)}`);
+      envLines.push(`TWILIO_WEBHOOK_TOKEN=${escapeEnvValue(this.config.twilioWebhookToken!)}`);
       if (this.config.twilioQuickReplyContentSid) envLines.push(`TWILIO_QUICK_REPLY_CONTENT_SID=${escapeEnvValue(this.config.twilioQuickReplyContentSid)}`);
+      if (this.config.twilioListPickerContentSid) envLines.push(`TWILIO_LIST_PICKER_CONTENT_SID=${escapeEnvValue(this.config.twilioListPickerContentSid)}`);
+      if (this.config.twilioMediaBaseUrl) envLines.push(`TWILIO_MEDIA_BASE_URL=${escapeEnvValue(this.config.twilioMediaBaseUrl)}`);
       envLines.push('TWILIO_REQUIRE_SIGNATURE=true');
     }
 
@@ -298,6 +307,19 @@ export class DokployProvisioner {
     }
     console.log(`Dokploy provisioning: deployment requested for ${name}.`);
     return current;
+  }
+
+  private assertClientProvisioningConfig(client: ManagedClient): void {
+    if (client.whatsappProvider !== 'TWILIO_API') return;
+    const missing = [
+      !this.config?.twilioAccountSid && 'DOKPLOY_TWILIO_ACCOUNT_SID',
+      !this.config?.twilioAuthToken && 'DOKPLOY_TWILIO_AUTH_TOKEN',
+      !(this.config?.twilioFrom || this.config?.twilioMessagingServiceSid) && 'DOKPLOY_TWILIO_FROM or DOKPLOY_TWILIO_MESSAGING_SERVICE_SID',
+      !this.config?.twilioWebhookToken && 'DOKPLOY_TWILIO_WEBHOOK_TOKEN',
+    ].filter(Boolean);
+    if (missing.length) {
+      throw new Error(`Advanced/Twilio clients cannot be provisioned until these admin environment variables are configured: ${missing.join(', ')}`);
+    }
   }
 
   private async post<T = unknown>(route: string, body: Record<string, unknown>): Promise<T> {
