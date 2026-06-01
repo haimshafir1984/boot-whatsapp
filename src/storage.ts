@@ -141,7 +141,7 @@ interface StorageData {
 const DEFAULT_SETTINGS: AdminSettings = {
   askNameEnabled: false,
   nameTimeoutMinutes: 5,
-  contactsProvider: 'google',
+  contactsProvider: config.WHATSAPP_PROVIDER === 'TWILIO_API' ? 'manual' : 'google',
   icloudEmail: '',
   icloudPassword: '',
   askNameText: config.ASK_NAME_TEXT,
