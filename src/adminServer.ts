@@ -8,7 +8,15 @@ import express from 'express';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { Storage, AdminSettings, Campaign, CampaignConversationSettings, DecisionFlowOption, DecisionFlowStep } from './storage';
+import {
+  Storage,
+  AdminSettings,
+  Campaign,
+  CampaignConversationSettings,
+  DecisionFlowOption,
+  DecisionFlowStep,
+  TwilioTemplateDraft,
+} from './storage';
 import { config } from './config';
 import { botState } from './botState';
 import { startWhatsAppBot, stopWhatsAppBot } from './whatsappLifecycle';
@@ -124,6 +132,66 @@ function buildContactsVCard(contacts: Array<{ name?: string; phone: string }>): 
 
 function twilioConfigured(): boolean {
   return Boolean(config.TWILIO_ACCOUNT_SID && config.TWILIO_AUTH_TOKEN && (config.TWILIO_FROM || config.TWILIO_MESSAGING_SERVICE_SID));
+}
+
+function twilioAuthHeader(): string {
+  return `Basic ${Buffer.from(`${config.TWILIO_ACCOUNT_SID}:${config.TWILIO_AUTH_TOKEN}`).toString('base64')}`;
+}
+
+function sanitizeTwilioTemplateName(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 512);
+}
+
+function normalizeTemplateVariables(input: unknown): Record<string, string> {
+  if (!input || typeof input !== 'object') return {};
+  return Object.entries(input as Record<string, unknown>).reduce<Record<string, string>>((acc, [key, value]) => {
+    const normalizedKey = key.replace(/[^\d]/g, '');
+    if (!normalizedKey) return acc;
+    acc[normalizedKey] = String(value ?? '').trim();
+    return acc;
+  }, {});
+}
+
+function cleanTwilioTemplateInput(body: any): Pick<TwilioTemplateDraft, 'friendlyName' | 'templateName' | 'language' | 'category' | 'body' | 'variables'> {
+  const friendlyName = String(body?.friendlyName ?? '').trim();
+  const templateName = sanitizeTwilioTemplateName(String(body?.templateName ?? friendlyName));
+  const language = String(body?.language ?? 'he').trim() || 'he';
+  const category = ['UTILITY', 'MARKETING', 'AUTHENTICATION'].includes(String(body?.category))
+    ? String(body.category) as TwilioTemplateDraft['category']
+    : 'MARKETING';
+  const templateBody = String(body?.body ?? '').trim();
+  return {
+    friendlyName,
+    templateName,
+    language,
+    category,
+    body: templateBody,
+    variables: normalizeTemplateVariables(body?.variables),
+  };
+}
+
+async function twilioContentRequest(pathName: string, init: RequestInit = {}): Promise<any> {
+  if (!config.TWILIO_ACCOUNT_SID || !config.TWILIO_AUTH_TOKEN) {
+    throw new Error('Twilio Account SID/Auth Token are not configured.');
+  }
+  const response = await fetch(`https://content.twilio.com/v1${pathName}`, {
+    ...init,
+    headers: {
+      Authorization: twilioAuthHeader(),
+      'Content-Type': 'application/json',
+      ...(init.headers ?? {}),
+    },
+  });
+  const responseBody = await response.json().catch(async () => ({ raw: await response.text().catch(() => '') })) as any;
+  if (!response.ok) {
+    throw new Error(`Twilio Content API failed (${response.status}): ${JSON.stringify(responseBody).slice(0, 500)}`);
+  }
+  return responseBody;
 }
 
 function validateTwilioSignature(req: express.Request): boolean {
@@ -376,6 +444,16 @@ function sanitizeDecisionFlow(
       nextStepId: option.nextStepId && ids.has(option.nextStepId) ? option.nextStepId : undefined,
     })),
   }));
+}
+
+function campaignTwilioSettings(input: any): Campaign['twilio'] {
+  const mode = input?.mode === 'template' ? 'template' : 'link';
+  return {
+    mode,
+    templateId: mode === 'template' && typeof input?.templateId === 'string' ? input.templateId.trim() : undefined,
+    optInConfirmed: Boolean(input?.optInConfirmed),
+    audienceNotes: typeof input?.audienceNotes === 'string' ? input.audienceNotes.trim() : undefined,
+  };
 }
 
 export function startAdminServer(storage: Storage): void {
@@ -781,7 +859,7 @@ export function startAdminServer(storage: Storage): void {
   });
 
   app.post('/owner-api/campaigns', (req, res) => {
-    const { name, triggerType, triggerPhrase, basePhrase, referrerName, startAt, endAt, conversation } =
+    const { name, triggerType, triggerPhrase, basePhrase, referrerName, startAt, endAt, conversation, twilio } =
       req.body as Partial<Campaign>;
     const capabilities = getClientCapabilities(storage);
 
@@ -832,6 +910,7 @@ export function startAdminServer(storage: Storage): void {
       startAt: typeof startAt === 'string' && startAt ? startAt : undefined,
       endAt: typeof endAt === 'string' && endAt ? endAt : undefined,
       conversation: conversationSettings(conversation, storage.getAdminSettings()),
+      twilio: campaignTwilioSettings(twilio),
     });
     res.status(201).json(campaign);
   });
@@ -1033,6 +1112,120 @@ export function startAdminServer(storage: Storage): void {
     res.json({ items: getTwilioEvents(Number(req.query.limit) || 50) });
   });
 
+  app.get('/api/twilio/onboarding', (_req, res) => {
+    res.json(storage.getTwilioOnboarding());
+  });
+
+  app.put('/api/twilio/onboarding', requireWritableClient, (req, res) => {
+    const allowed = ['businessName', 'brandName', 'businessWebsite', 'businessCategory', 'businessDescription', 'supportEmail', 'supportPhone', 'country', 'optInDescription', 'firstCampaignUseCase', 'notes'];
+    const patch: Record<string, string> = {};
+    for (const key of allowed) {
+      if (typeof req.body?.[key] === 'string') patch[key] = req.body[key].trim();
+    }
+    res.json(storage.updateTwilioOnboarding(patch));
+  });
+
+  app.get('/api/twilio/templates', (_req, res) => {
+    res.json(storage.getTwilioTemplates());
+  });
+
+  app.post('/api/twilio/templates', requireWritableClient, (req, res) => {
+    const input = cleanTwilioTemplateInput(req.body);
+    if (!input.friendlyName) { res.status(400).json({ error: 'friendlyName is required' }); return; }
+    if (!input.templateName) { res.status(400).json({ error: 'templateName must contain lowercase letters, numbers or underscores' }); return; }
+    if (!input.body) { res.status(400).json({ error: 'Template body is required' }); return; }
+    res.status(201).json(storage.addTwilioTemplate(input));
+  });
+
+  app.put('/api/twilio/templates/:id', requireWritableClient, (req, res) => {
+    const current = storage.getTwilioTemplate(String(req.params.id));
+    if (!current) { res.status(404).json({ error: 'Template not found' }); return; }
+    if (current.contentSid) {
+      res.status(409).json({ error: 'Template was already created in Twilio and cannot be edited here. Duplicate it as a new draft.' });
+      return;
+    }
+    const input = cleanTwilioTemplateInput(req.body);
+    if (!input.friendlyName || !input.templateName || !input.body) {
+      res.status(400).json({ error: 'friendlyName, templateName and body are required' });
+      return;
+    }
+    res.json(storage.updateTwilioTemplate(current.id, input));
+  });
+
+  app.post('/api/twilio/templates/:id/create-content', requireWritableClient, async (req, res) => {
+    const template = storage.getTwilioTemplate(String(req.params.id));
+    if (!template) { res.status(404).json({ error: 'Template not found' }); return; }
+    if (template.contentSid) { res.json(template); return; }
+    try {
+      const created = await twilioContentRequest('/Content', {
+        method: 'POST',
+        body: JSON.stringify({
+          friendly_name: template.friendlyName,
+          language: template.language,
+          variables: template.variables,
+          types: { 'twilio/text': { body: template.body } },
+        }),
+      });
+      res.json(storage.updateTwilioTemplate(template.id, { contentSid: created.sid, status: 'created', lastError: undefined }));
+    } catch (err: any) {
+      const updated = storage.updateTwilioTemplate(template.id, { status: 'failed', lastError: err?.message ?? String(err) });
+      res.status(502).json({ error: err?.message ?? String(err), template: updated });
+    }
+  });
+
+  app.post('/api/twilio/templates/:id/submit-approval', requireWritableClient, async (req, res) => {
+    let template = storage.getTwilioTemplate(String(req.params.id));
+    if (!template) { res.status(404).json({ error: 'Template not found' }); return; }
+    try {
+      if (!template.contentSid) {
+        const created = await twilioContentRequest('/Content', {
+          method: 'POST',
+          body: JSON.stringify({
+            friendly_name: template.friendlyName,
+            language: template.language,
+            variables: template.variables,
+            types: { 'twilio/text': { body: template.body } },
+          }),
+        });
+        template = storage.updateTwilioTemplate(template.id, { contentSid: created.sid, status: 'created', lastError: undefined })!;
+      }
+      const approval = await twilioContentRequest(`/Content/${encodeURIComponent(template.contentSid!)}/ApprovalRequests/whatsapp`, {
+        method: 'POST',
+        body: JSON.stringify({ name: template.templateName, category: template.category }),
+      });
+      const status = String(approval.status ?? 'submitted').toLowerCase() as TwilioTemplateDraft['status'];
+      res.json(storage.updateTwilioTemplate(template.id, {
+        status: ['received', 'pending', 'approved', 'rejected', 'paused', 'disabled'].includes(status) ? status : 'submitted',
+        approvalStatus: String(approval.status ?? ''),
+        rejectionReason: String(approval.rejection_reason ?? ''),
+        lastError: undefined,
+      }));
+    } catch (err: any) {
+      const updated = storage.updateTwilioTemplate(template.id, { status: 'failed', lastError: err?.message ?? String(err) });
+      res.status(502).json({ error: err?.message ?? String(err), template: updated });
+    }
+  });
+
+  app.post('/api/twilio/templates/:id/sync-approval', requireWritableClient, async (req, res) => {
+    const template = storage.getTwilioTemplate(String(req.params.id));
+    if (!template) { res.status(404).json({ error: 'Template not found' }); return; }
+    if (!template.contentSid) { res.status(409).json({ error: 'Template was not created in Twilio yet' }); return; }
+    try {
+      const approval = await twilioContentRequest(`/Content/${encodeURIComponent(template.contentSid)}/ApprovalRequests`, { method: 'GET' });
+      const whatsapp = approval.whatsapp ?? {};
+      const status = String(whatsapp.status ?? template.status).toLowerCase() as TwilioTemplateDraft['status'];
+      res.json(storage.updateTwilioTemplate(template.id, {
+        status: ['received', 'pending', 'approved', 'rejected', 'paused', 'disabled'].includes(status) ? status : template.status,
+        approvalStatus: String(whatsapp.status ?? ''),
+        rejectionReason: String(whatsapp.rejection_reason ?? ''),
+        lastError: undefined,
+      }));
+    } catch (err: any) {
+      const updated = storage.updateTwilioTemplate(template.id, { status: 'failed', lastError: err?.message ?? String(err) });
+      res.status(502).json({ error: err?.message ?? String(err), template: updated });
+    }
+  });
+
   // ── Settings ──────────────────────────────────────────────────────────────
 
   app.get('/api/settings', (_req, res) => {
@@ -1204,7 +1397,7 @@ export function startAdminServer(storage: Storage): void {
   });
 
   app.post('/api/campaigns', requireWritableClient, (req, res) => {
-    const { name, triggerType, triggerPhrase, basePhrase, referrerName, startAt, endAt, conversation } =
+    const { name, triggerType, triggerPhrase, basePhrase, referrerName, startAt, endAt, conversation, twilio } =
       req.body as Partial<Campaign>;
     const capabilities = getClientCapabilities(storage);
 
@@ -1257,12 +1450,13 @@ export function startAdminServer(storage: Storage): void {
       startAt: typeof startAt === 'string' && startAt ? startAt : undefined,
       endAt: typeof endAt === 'string' && endAt ? endAt : undefined,
       conversation: conversationSettings(conversation, storage.getAdminSettings()),
+      twilio: campaignTwilioSettings(twilio),
     });
     res.json(campaign);
   });
 
   app.put('/api/campaigns/:id', requireWritableClient, (req, res) => {
-    const { name, triggerType, triggerPhrase, basePhrase, referrerName, active, startAt, endAt, conversation } =
+    const { name, triggerType, triggerPhrase, basePhrase, referrerName, active, startAt, endAt, conversation, twilio } =
       req.body as Partial<Campaign>;
 
     const patch: Partial<Omit<Campaign, 'id'>> = {};
@@ -1290,6 +1484,9 @@ export function startAdminServer(storage: Storage): void {
         ? storage.getCampaignConversationSettings(existing)
         : conversationSettings(undefined, storage.getAdminSettings());
       patch.conversation = conversationSettings(conversation, defaults);
+    }
+    if ('twilio' in req.body) {
+      patch.twilio = campaignTwilioSettings(twilio);
     }
 
     if (triggerType === 1) {

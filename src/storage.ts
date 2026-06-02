@@ -29,6 +29,7 @@ export interface Campaign {
   endAt?: string;
   /** Conversation copy for this campaign. Older campaigns fall back to legacy admin settings. */
   conversation?: CampaignConversationSettings;
+  twilio?: CampaignTwilioSettings;
   runtimeStatus?: CampaignRuntimeStatus;
 }
 
@@ -41,6 +42,15 @@ export interface CampaignConversationSettings {
   replyText: string;
   followupMessages: string[];
   decisionFlow: DecisionFlowStep[];
+}
+
+export type TwilioCampaignMode = 'link' | 'template';
+
+export interface CampaignTwilioSettings {
+  mode: TwilioCampaignMode;
+  templateId?: string;
+  optInConfirmed?: boolean;
+  audienceNotes?: string;
 }
 
 export interface DecisionFlowStep {
@@ -123,6 +133,50 @@ export interface UploadedFile {
   createdAt: string;
 }
 
+export interface TwilioOnboardingDetails {
+  businessName: string;
+  brandName: string;
+  businessWebsite: string;
+  businessCategory: string;
+  businessDescription: string;
+  supportEmail: string;
+  supportPhone: string;
+  country: string;
+  optInDescription: string;
+  firstCampaignUseCase: string;
+  notes: string;
+  updatedAt?: string;
+}
+
+export type TwilioTemplateStatus =
+  | 'draft'
+  | 'created'
+  | 'submitted'
+  | 'received'
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'paused'
+  | 'disabled'
+  | 'failed';
+
+export interface TwilioTemplateDraft {
+  id: string;
+  friendlyName: string;
+  templateName: string;
+  language: string;
+  category: 'UTILITY' | 'MARKETING' | 'AUTHENTICATION';
+  body: string;
+  variables: Record<string, string>;
+  status: TwilioTemplateStatus;
+  contentSid?: string;
+  approvalStatus?: string;
+  rejectionReason?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface StorageData {
   savedContacts: string[];
   contactsList: SavedContact[];
@@ -132,6 +186,8 @@ interface StorageData {
   clientProfile: ClientProfile;
   adminSettings: AdminSettings;
   campaigns: Campaign[];
+  twilioOnboarding: TwilioOnboardingDetails;
+  twilioTemplates: TwilioTemplateDraft[];
 }
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────
@@ -150,6 +206,20 @@ const DEFAULT_SETTINGS: AdminSettings = {
 
 const DEFAULT_CLIENT_PROFILE: ClientProfile = {
   whatsappPhone: '',
+};
+
+const DEFAULT_TWILIO_ONBOARDING: TwilioOnboardingDetails = {
+  businessName: '',
+  brandName: '',
+  businessWebsite: '',
+  businessCategory: '',
+  businessDescription: '',
+  supportEmail: '',
+  supportPhone: '',
+  country: 'IL',
+  optInDescription: '',
+  firstCampaignUseCase: '',
+  notes: '',
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -189,6 +259,8 @@ export class Storage {
         clientProfile: { ...DEFAULT_CLIENT_PROFILE },
         adminSettings: { ...DEFAULT_SETTINGS },
         campaigns: [],
+        twilioOnboarding: { ...DEFAULT_TWILIO_ONBOARDING },
+        twilioTemplates: [],
       };
     }
     try {
@@ -228,6 +300,8 @@ export class Storage {
         clientProfile: { ...DEFAULT_CLIENT_PROFILE, ...parsed.clientProfile },
         adminSettings: { ...DEFAULT_SETTINGS, ...migratedSettings },
         campaigns: parsed.campaigns ?? [],
+        twilioOnboarding: { ...DEFAULT_TWILIO_ONBOARDING, ...(parsed as any).twilioOnboarding },
+        twilioTemplates: (parsed as any).twilioTemplates ?? [],
       };
     } catch {
       console.warn('⚠️  Could not parse storage file – starting fresh.');
@@ -240,6 +314,8 @@ export class Storage {
         clientProfile: { ...DEFAULT_CLIENT_PROFILE },
         adminSettings: { ...DEFAULT_SETTINGS },
         campaigns: [],
+        twilioOnboarding: { ...DEFAULT_TWILIO_ONBOARDING },
+        twilioTemplates: [],
       };
     }
   }
@@ -483,6 +559,61 @@ export class Storage {
     this.data.clientProfile = { ...this.data.clientProfile, ...patch };
     this.persist();
     return this.getClientProfile();
+  }
+
+  getTwilioOnboarding(): TwilioOnboardingDetails {
+    return { ...this.data.twilioOnboarding };
+  }
+
+  updateTwilioOnboarding(patch: Partial<TwilioOnboardingDetails>): TwilioOnboardingDetails {
+    this.data.twilioOnboarding = {
+      ...this.data.twilioOnboarding,
+      ...patch,
+      updatedAt: new Date().toISOString(),
+    };
+    this.persist();
+    return this.getTwilioOnboarding();
+  }
+
+  getTwilioTemplates(): TwilioTemplateDraft[] {
+    return this.data.twilioTemplates
+      .slice()
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .map((template) => ({ ...template, variables: { ...template.variables } }));
+  }
+
+  getTwilioTemplate(id: string): TwilioTemplateDraft | null {
+    const template = this.data.twilioTemplates.find((item) => item.id === id);
+    return template ? { ...template, variables: { ...template.variables } } : null;
+  }
+
+  addTwilioTemplate(input: Omit<TwilioTemplateDraft, 'id' | 'createdAt' | 'updatedAt' | 'status'> & { status?: TwilioTemplateStatus }): TwilioTemplateDraft {
+    const now = new Date().toISOString();
+    const template: TwilioTemplateDraft = {
+      id: generateId(),
+      status: input.status ?? 'draft',
+      ...input,
+      variables: { ...input.variables },
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.data.twilioTemplates.push(template);
+    this.persist();
+    return { ...template, variables: { ...template.variables } };
+  }
+
+  updateTwilioTemplate(id: string, patch: Partial<Omit<TwilioTemplateDraft, 'id' | 'createdAt'>>): TwilioTemplateDraft | null {
+    const idx = this.data.twilioTemplates.findIndex((item) => item.id === id);
+    if (idx === -1) return null;
+    this.data.twilioTemplates[idx] = {
+      ...this.data.twilioTemplates[idx],
+      ...patch,
+      variables: patch.variables ? { ...patch.variables } : this.data.twilioTemplates[idx].variables,
+      updatedAt: new Date().toISOString(),
+    };
+    this.persist();
+    const template = this.data.twilioTemplates[idx];
+    return { ...template, variables: { ...template.variables } };
   }
 
   // ─── Campaigns ─────────────────────────────────────────────────────────────
