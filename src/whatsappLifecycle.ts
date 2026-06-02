@@ -1,12 +1,22 @@
 import { Storage } from './storage';
 import { botState } from './botState';
+import { config } from './config';
+import { createBaileysProvider } from './providers/BaileysProvider';
 import { createWebJsProvider } from './providers/WebJsProvider';
+import { WhatsAppProvider } from './types/whatsapp';
 
 const SCHEDULER_INTERVAL_MS = 60 * 1000;
 const CAMPAIGN_START_LEAD_MS = 15 * 60 * 1000;
 
 let scheduler: NodeJS.Timeout | null = null;
 let transition: Promise<void> | null = null;
+
+function createProvider(storage: Storage, pairingPhone?: string): WhatsAppProvider {
+  if (config.WHATSAPP_PROVIDER === 'BAILEYS') {
+    return createBaileysProvider(storage, pairingPhone);
+  }
+  return createWebJsProvider(storage, pairingPhone);
+}
 
 export async function startWhatsAppBot(storage: Storage, reason = 'manual', pairingPhone?: string): Promise<void> {
   if (transition) await transition;
@@ -18,8 +28,8 @@ export async function startWhatsAppBot(storage: Storage, reason = 'manual', pair
     botState.listeningReason = reason;
     botState.intentionalRestart = false;
 
-    const provider = createWebJsProvider(storage, pairingPhone);
-    botState.client = provider.client;
+    const provider = createProvider(storage, pairingPhone);
+    botState.client = provider;
     await provider.initialize();
     botState.lifecycle = 'running';
     console.log(`WhatsApp client start requested: ${reason}.`);

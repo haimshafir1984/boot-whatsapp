@@ -420,7 +420,10 @@
       document.getElementById('planLabel').textContent = planLabel(currentClient.plan);
       document.getElementById('maxCampaigns').textContent = currentClient.maxCampaigns ?? '-';
       document.getElementById('serviceExpiresAt').textContent = formatDate(currentClient.serviceExpiresAt);
-      document.getElementById('whatsappProvider').textContent = currentClient.whatsappProvider === 'TWILIO_API' ? 'Twilio' : 'WhatsApp Web';
+      document.getElementById('whatsappProvider').textContent =
+        currentClient.whatsappProvider === 'TWILIO_API' ? 'Twilio' :
+        currentClient.whatsappProvider === 'BAILEYS' ? 'Baileys' :
+        'WhatsApp Web';
       document.getElementById('accessCode').textContent = currentClient.accessCode;
       document.getElementById('retryButton').style.display = 'none';
       document.getElementById('updateUnitButton').style.display = 'none';

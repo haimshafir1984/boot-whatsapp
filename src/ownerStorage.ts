@@ -13,7 +13,7 @@ export interface ManagedClient {
   readonlyDashboard: boolean;
   maxCampaigns: number;
   serviceExpiresAt?: string;
-  whatsappProvider: 'WEB_JS' | 'TWILIO_API';
+  whatsappProvider: 'WEB_JS' | 'BAILEYS' | 'TWILIO_API';
   managementUrl: string;
   provisioningStatus: ClientProvisioningStatus;
   railwayServiceId?: string;

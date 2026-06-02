@@ -1,4 +1,4 @@
-export type WhatsAppMessageSource = 'message' | 'message_create' | 'webhook';
+export type WhatsAppMessageSource = 'message' | 'message_create' | 'webhook' | 'baileys';
 
 export interface IncomingWhatsAppMessage {
   id: string;

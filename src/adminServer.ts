@@ -19,7 +19,6 @@ import {
   disconnectGoogle,
   getGoogleRelayReturnUrl,
 } from './googleContacts';
-import { testICloudConnection } from './icloudContacts';
 import { createAccessControl } from './accessControl';
 import { ManagedClient, OwnerStorage } from './ownerStorage';
 import { DokployProvisioner } from './dokployProvisioner';
@@ -1048,10 +1047,8 @@ export function startAdminServer(storage: Storage): void {
       patch.askNameEnabled = body.askNameEnabled;
     if (typeof body.nameTimeoutMinutes === 'number' && body.nameTimeoutMinutes > 0)
       patch.nameTimeoutMinutes = body.nameTimeoutMinutes;
-    if (body.contactsProvider === 'google' || body.contactsProvider === 'icloud' || body.contactsProvider === 'manual')
+    if (body.contactsProvider === 'google' || body.contactsProvider === 'manual')
       patch.contactsProvider = body.contactsProvider;
-    if (typeof body.icloudEmail === 'string')    patch.icloudEmail    = body.icloudEmail;
-    if (typeof body.icloudPassword === 'string') patch.icloudPassword = body.icloudPassword;
     if (typeof body.askNameText === 'string')    patch.askNameText    = body.askNameText;
     if (typeof body.replyText === 'string')      patch.replyText      = body.replyText;
     if (Array.isArray(body.followupMessages))
@@ -1064,19 +1061,6 @@ export function startAdminServer(storage: Storage): void {
       ? storage.retryFailedContactSaves(patch.contactsProvider)
       : 0;
     res.json({ ok: true, settings: updated, retriedFailedContacts });
-  });
-
-  // ── iCloud test ──────────────────────────────────────────────────────────
-
-  app.post('/api/icloud/test', requireWritableClient, async (req, res) => {
-    const { email, password } = req.body as { email?: string; password?: string };
-    if (!email || !password) { res.status(400).json({ error: 'חסרים פרטים' }); return; }
-    try {
-      await testICloudConnection(email, password);
-      res.json({ ok: true });
-    } catch (err: any) {
-      res.status(400).json({ error: err?.message ?? 'שגיאה' });
-    }
   });
 
   // ── Contacts CSV export ───────────────────────────────────────────────────

@@ -1,5 +1,4 @@
 import { saveContactToGoogle } from './googleContacts';
-import { saveContactToICloud } from './icloudContacts';
 import { Storage, ContactSaveJob } from './storage';
 
 const MAX_ATTEMPTS = 3;
@@ -18,13 +17,10 @@ function retryDelay(attempts: number): number {
 }
 
 async function saveJob(storage: Storage, job: ContactSaveJob): Promise<void> {
-  const settings = storage.getAdminSettings();
   const provider = job.provider;
 
   if (provider === 'google') {
     await saveContactToGoogle(job.name, `+${job.phone}`);
-  } else if (provider === 'icloud') {
-    await saveContactToICloud(settings.icloudEmail, settings.icloudPassword, job.name, `+${job.phone}`);
   } else {
     console.log(`   Manual mode: contact recorded locally (${job.phone}).`);
   }

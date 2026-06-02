@@ -255,8 +255,6 @@
     .provider-tab.active { border-color: #25d366; background: #f0fdf4; color: #16a34a; }
     .provider-panel { display: none; }
     .provider-panel.active { display: block; }
-    .icloud-form .field { margin-bottom: 12px; }
-    .icloud-hint { font-size: .75rem; color: #6b7280; margin-top: 4px; }
     .manual-info { font-size: .82rem; color: #6b7280; margin-bottom: 14px; line-height: 1.6; }
     .queue-stats {
       display: grid;
@@ -646,7 +644,6 @@
       </div>
       <div class="provider-tabs">
         <div class="provider-tab" id="ptab-google" onclick="selectProvider('google')">🟢 Google</div>
-        <div class="provider-tab" id="ptab-icloud" onclick="selectProvider('icloud')">🍎 iCloud</div>
         <div class="provider-tab" id="ptab-manual" onclick="selectProvider('manual')">📋 ידני</div>
       </div>
 
@@ -661,27 +658,6 @@
             onclick="connectGoogle()">חבר Google</button>
           <button class="btn-save" id="googleDisconnectBtn" style="width:auto;padding:9px 18px;background:#e53e3e;display:none"
             onclick="disconnectGoogle()">נתק</button>
-        </div>
-      </div>
-
-      <!-- iCloud panel -->
-      <div class="provider-panel" id="ppanel-icloud">
-        <div class="icloud-form">
-          <div class="field">
-            <label>Apple ID (מייל) <span class="required">*</span></label>
-            <input type="email" id="icloudEmail" placeholder="you@icloud.com" />
-          </div>
-          <div class="field">
-            <label>App-Specific Password <span class="required">*</span></label>
-            <input type="password" id="icloudPassword" placeholder="xxxx-xxxx-xxxx-xxxx" />
-            <div class="icloud-hint">
-              צור סיסמה ב-<strong>appleid.apple.com</strong> → Sign-In and Security → App-Specific Passwords
-            </div>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center">
-            <button class="btn-save" style="width:auto;padding:9px 18px" onclick="saveICloud()">שמור ובדוק חיבור</button>
-            <span id="icloudStatus" style="font-size:.82rem"></span>
-          </div>
         </div>
       </div>
 
@@ -1152,12 +1128,8 @@
     loadCampaigns();
 
     // Load provider
-    const provider = s.contactsProvider || 'google';
+    const provider = ['google', 'manual'].includes(s.contactsProvider) ? s.contactsProvider : 'manual';
     selectProvider(provider);
-    if (provider === 'icloud') {
-      document.getElementById('icloudEmail').value    = s.icloudEmail    || '';
-      document.getElementById('icloudPassword').value = s.icloudPassword || '';
-    }
     if (provider === 'google') loadGoogleStatus();
   }
 
@@ -1750,7 +1722,8 @@
   // ── Contacts provider ────────────────────────────────────────────────────────
 
   async function selectProvider(p) {
-    ['google','icloud','manual'].forEach(x => {
+    if (!['google', 'manual'].includes(p)) p = 'manual';
+    ['google','manual'].forEach(x => {
       document.getElementById('ptab-' + x).classList.toggle('active', x === p);
       document.getElementById('ppanel-' + x).classList.toggle('active', x === p);
     });
@@ -1810,29 +1783,6 @@
     const check = setInterval(async () => {
       if (popup?.closed) { clearInterval(check); await loadGoogleStatus(); }
     }, 1000);
-  }
-
-  async function saveICloud() {
-    const email    = document.getElementById('icloudEmail').value.trim();
-    const password = document.getElementById('icloudPassword').value.trim();
-    const status   = document.getElementById('icloudStatus');
-    status.textContent = '⏳ בודק...';
-    const res  = await fetch('/api/icloud/test', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ email, password }),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      status.textContent = '✅ מחובר';
-      status.style.color = '#16a34a';
-      await fetch('/api/settings', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ icloudEmail: email, icloudPassword: password }),
-      });
-    } else {
-      status.textContent = '❌ ' + (data.error || 'שגיאה');
-      status.style.color = '#dc2626';
-    }
   }
 
   // ── Auth tabs ────────────────────────────────────────────────────────────────

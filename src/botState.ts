@@ -1,4 +1,7 @@
-import type { Client } from 'whatsapp-web.js';
+export interface RuntimeWhatsAppClient {
+  destroy(): Promise<void>;
+  logout(): Promise<void>;
+}
 
 export const botState = {
   qrDataUrl: null as string | null,
@@ -6,7 +9,7 @@ export const botState = {
   pairingPhone: null as string | null,
   pairingAttempted: false,
   intentionalRestart: false,
-  client: null as Client | null,
+  client: null as RuntimeWhatsAppClient | null,
   authenticated: false,
   ready: false,
   connectedPhone: null as string | null,

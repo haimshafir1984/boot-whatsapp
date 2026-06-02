@@ -68,9 +68,7 @@ export interface DecisionFlowOption {
 export interface AdminSettings {
   askNameEnabled: boolean;
   nameTimeoutMinutes: number;
-  contactsProvider: 'google' | 'icloud' | 'manual';
-  icloudEmail: string;
-  icloudPassword: string;
+  contactsProvider: 'google' | 'manual';
   askNameText: string;
   replyText: string;
   followupMessages: string[];
@@ -142,8 +140,6 @@ const DEFAULT_SETTINGS: AdminSettings = {
   askNameEnabled: false,
   nameTimeoutMinutes: 5,
   contactsProvider: config.WHATSAPP_PROVIDER === 'TWILIO_API' ? 'manual' : 'google',
-  icloudEmail: '',
-  icloudPassword: '',
   askNameText: config.ASK_NAME_TEXT,
   replyText: config.REPLY_TEXT,
   followupMessages: [],
@@ -160,6 +156,12 @@ const DEFAULT_CLIENT_PROFILE: ClientProfile = {
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function normalizeContactsProvider(provider: unknown): AdminSettings['contactsProvider'] {
+  return provider === 'google' || provider === 'manual'
+    ? provider
+    : DEFAULT_SETTINGS.contactsProvider;
 }
 
 // ─── Storage class ────────────────────────────────────────────────────────────
@@ -196,7 +198,11 @@ export class Storage {
 
       // Migrate: drop legacy triggerType field from adminSettings
       const { triggerType: _legacy, ...cleanSettings } = parsed.adminSettings ?? {};
-      const migratedSettings: Partial<AdminSettings> = cleanSettings;
+      const rawSettings = cleanSettings as Partial<AdminSettings> & { contactsProvider?: unknown };
+      const migratedSettings: Partial<AdminSettings> = {
+        ...cleanSettings,
+        contactsProvider: normalizeContactsProvider(rawSettings.contactsProvider),
+      };
 
       const contactsList = (parsed as any).contactsList ?? [];
       const existingQueue = (parsed as any).contactQueue;
