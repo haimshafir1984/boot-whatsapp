@@ -172,6 +172,124 @@
       display: grid; grid-template-columns: minmax(360px, 1fr) minmax(285px, 360px);
       gap: 26px; align-items: start;
     }
+    .wizard-shell {
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 18px;
+      background: #f8faf8;
+    }
+    .wizard-progress { height: 4px; background: #e5e7eb; }
+    .wizard-progress-fill { height: 100%; width: 25%; background: #25d366; transition: width .2s; }
+    .wizard-steps {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .wizard-step {
+      border: none;
+      border-left: 1px solid #e5e7eb;
+      background: transparent;
+      padding: 12px 10px;
+      display: grid;
+      grid-template-columns: 24px minmax(0, 1fr);
+      gap: 8px;
+      text-align: right;
+      cursor: pointer;
+      color: #6b7280;
+    }
+    .wizard-step:last-child { border-left: none; }
+    .wizard-step span:first-child {
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      border: 1.5px solid #cbd5d1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: .72rem;
+      font-weight: 800;
+      background: #fff;
+    }
+    .wizard-step strong { display: block; color: #6b7280; font-size: .8rem; }
+    .wizard-step small { display: block; color: #9ca3af; font-size: .68rem; margin-top: 2px; line-height: 1.25; }
+    .wizard-step.active { background: #fff; }
+    .wizard-step.active span:first-child { background: #25d366; border-color: #25d366; color: #fff; }
+    .wizard-step.active strong { color: #111827; }
+    .wizard-step.done span:first-child { background: #f0fdf4; border-color: #25d366; color: #16a34a; }
+    .wizard-step-copy { padding: 10px 14px; font-size: .78rem; color: #6b7280; }
+    .wizard-panel { display: none; }
+    .wizard-panel.active { display: block; }
+    .wizard-connection-card {
+      border: 1px solid #dcfce7;
+      background: #f0fdf4;
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 16px;
+    }
+    .wizard-connection-main {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+    .wizard-connection-main strong,
+    .wizard-provider-card strong { display: block; font-size: .86rem; color: #14532d; }
+    .wizard-connection-main small,
+    .wizard-provider-card small { display: block; font-size: .74rem; color: #166534; margin-top: 2px; }
+    .wizard-provider-buttons { display: flex; gap: 7px; flex-shrink: 0; }
+    .wizard-provider-buttons button {
+      border: 1px solid #bbf7d0;
+      background: #fff;
+      color: #166534;
+      border-radius: 8px;
+      padding: 7px 10px;
+      font-weight: 800;
+      font-size: .76rem;
+      cursor: pointer;
+    }
+    .wizard-provider-buttons button.active { background: #25d366; border-color: #25d366; color: #fff; }
+    .wizard-type-group .radio-btn { flex-direction: column; align-items: flex-start; }
+    .wizard-type-group .radio-btn small { font-size: .72rem; color: #6b7280; line-height: 1.35; }
+    .wizard-summary {
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .wizard-summary div {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border-bottom: 1px solid #f3f4f6;
+      font-size: .83rem;
+    }
+    .wizard-summary div:last-child { border-bottom: none; }
+    .wizard-summary span { color: #6b7280; }
+    .wizard-summary strong { text-align: left; max-width: 62%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .wizard-link-box {
+      margin-top: 14px;
+      border: 1px solid #bbf7d0;
+      background: #f0fdf4;
+      border-radius: 10px;
+      padding: 12px;
+    }
+    .wizard-share-link {
+      direction: ltr;
+      text-align: left;
+      background: #fff;
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      padding: 9px 10px;
+      margin-top: 9px;
+      color: #166534;
+      font-size: .78rem;
+      overflow-wrap: anywhere;
+    }
+    .wizard-footer { align-items: center; justify-content: space-between; }
+    .wizard-footer-actions { display: flex; gap: 10px; flex: 1; }
+    .wizard-counter { flex: 1; text-align: center; font-size: .75rem; color: #6b7280; }
     .editor-section {
       border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px;
       margin-bottom: 14px;
@@ -532,6 +650,15 @@
       .page, #main-content { max-width: 560px; }
       .settings-preview-grid { grid-template-columns: 1fr; }
       .campaign-editor-grid, .two-fields { grid-template-columns: 1fr; }
+      .wizard-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .wizard-step {
+        min-width: 0;
+        border-bottom: 1px solid #e5e7eb;
+      }
+      .wizard-step:nth-last-child(-n+2) { border-bottom: none; }
+      .wizard-connection-main { align-items: flex-start; flex-direction: column; }
+      .wizard-footer { flex-wrap: wrap; }
+      .wizard-counter { order: -1; flex-basis: 100%; }
       .phone-preview { min-height: 210px; }
     }
   </style>
@@ -697,13 +824,43 @@
   <div class="modal">
     <h2 id="modalTitle">הוסף קמפיין</h2>
     <div class="modal-subtitle">הגדירי את פרטי הקמפיין ואת כל מה שהמשתמשת תקבל בשיחה אחת.</div>
-    <div class="campaign-editor-grid">
+    <div class="wizard-shell">
+      <div class="wizard-progress"><div class="wizard-progress-fill" id="wizardProgressFill"></div></div>
+      <div class="wizard-steps">
+        <button type="button" class="wizard-step active" data-wizard-step="1" onclick="goWizardStep(1)">
+          <span>1</span><strong>בניית קמפיין</strong><small>חיבור, סוג וטריגר</small>
+        </button>
+        <button type="button" class="wizard-step" data-wizard-step="2" onclick="goWizardStep(2)">
+          <span>2</span><strong>שמירת איש קשר</strong><small>שאלת שם ואישור</small>
+        </button>
+        <button type="button" class="wizard-step" data-wizard-step="3" onclick="goWizardStep(3)">
+          <span>3</span><strong>שאלות נוספות</strong><small>הודעות, בחירות וקבצים</small>
+        </button>
+        <button type="button" class="wizard-step" data-wizard-step="4" onclick="goWizardStep(4)">
+          <span>4</span><strong>אישור ולינק</strong><small>סיכום לפני שמירה</small>
+        </button>
+      </div>
+      <div class="wizard-step-copy" id="wizardStepCopy">מגדירים את החיבור, סוג הקמפיין ומשפט הטריגר שהמשתמשת תשלח.</div>
+    </div>
+    <div class="campaign-editor-grid wizard-grid">
       <div>
-        <div class="editor-section">
+        <div class="editor-section wizard-panel active" data-wizard-panel="1">
           <div class="editor-section-title">פרטי הקמפיין</div>
+          <div class="wizard-connection-card">
+            <div class="wizard-connection-main">
+              <div>
+                <strong>חיבור ושמירת אנשי קשר</strong>
+                <small id="wizardConnectionStatus">המערכת תבדוק את מצב WhatsApp ו-Google בזמן העריכה.</small>
+              </div>
+              <div class="wizard-provider-buttons">
+                <button type="button" id="wizardProviderGoogle" onclick="selectWizardProvider('google')">Google</button>
+                <button type="button" id="wizardProviderManual" onclick="selectWizardProvider('manual')">ידני</button>
+              </div>
+            </div>
+          </div>
           <div class="field">
             <label>שם הקמפיין <span class="required">*</span></label>
-            <input type="text" id="fName" placeholder='למשל: "קמפיין סוף שבוע"' />
+            <input type="text" id="fName" placeholder='למשל: "קמפיין סוף שבוע"' oninput="updateWizardSummary()" />
           </div>
           <div class="field">
             <label>סוג קמפיין <span class="required">*</span></label>
@@ -754,7 +911,7 @@
           </div>
         </div>
 
-        <div class="editor-section">
+        <div class="editor-section wizard-panel" data-wizard-panel="2">
           <div class="editor-section-title">מה יישלח בשיחה</div>
           <div class="toggle-row">
             <div>
@@ -781,6 +938,10 @@
             <label>הודעת סיום</label>
             <textarea id="fReplyText" oninput="updateCampaignConversationPreview()"></textarea>
           </div>
+        </div>
+
+        <div class="editor-section wizard-panel" data-wizard-panel="3">
+          <div class="editor-section-title">שאלות נוספות והודעות המשך</div>
           <div class="field" style="margin-bottom:0">
             <label>הודעות המשך נוספות</label>
             <div class="followup-list" id="fFollowupMessages"></div>
@@ -804,6 +965,22 @@
             <button type="button" class="btn-small" style="margin-top:8px" onclick="addCampaignFollowupMessage()">+ הוסף הודעת המשך</button>
           </div>
         </div>
+
+        <div class="editor-section wizard-panel" data-wizard-panel="4">
+          <div class="editor-section-title">סיכום לפני שמירה</div>
+          <div class="wizard-summary">
+            <div><span>שם הקמפיין</span><strong id="wizardSummaryName">-</strong></div>
+            <div><span>סוג</span><strong id="wizardSummaryType">-</strong></div>
+            <div><span>משפט טריגר</span><strong id="wizardSummaryTrigger">-</strong></div>
+            <div><span>שמירת אנשי קשר</span><strong id="wizardSummaryProvider">-</strong></div>
+            <div><span>שאלת שם</span><strong id="wizardSummaryAskName">-</strong></div>
+            <div><span>הודעות המשך / שאלות</span><strong id="wizardSummaryFlow">-</strong></div>
+          </div>
+          <div class="wizard-link-box">
+            <div class="hint">הלינק יווצר לפי מספר ה-WhatsApp המחובר ומשפט הטריגר.</div>
+            <div id="wizardShareLink" class="wizard-share-link">https://wa.me/...</div>
+          </div>
+        </div>
       </div>
       <div>
         <div class="phone-preview" aria-label="תצוגת שיחה לדוגמה">
@@ -817,9 +994,13 @@
       </div>
     </div>
     <div class="modal-error" id="modalError"></div>
-    <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeModal()">ביטול</button>
-      <button class="btn-confirm" onclick="submitCampaign()">שמור קמפיין</button>
+    <div class="modal-footer wizard-footer">
+      <button class="btn-cancel" id="wizardBackBtn" onclick="prevWizardStep()" type="button">הקודם</button>
+      <span class="wizard-counter" id="wizardCounter">שלב 1 מתוך 4</span>
+      <div class="wizard-footer-actions">
+        <button class="btn-cancel" onclick="closeModal()" type="button">ביטול</button>
+        <button class="btn-confirm" id="wizardNextBtn" onclick="nextWizardStep()" type="button">הבא</button>
+      </div>
     </div>
   </div>
 </div>
@@ -832,6 +1013,7 @@
     replyText: 'שמרתי אותך. כדי ליהנות מהסטטוסים שלי, אשמח שתשמרי אותי גם באנשי הקשר.',
     followupMessages: [],
     decisionFlow: [],
+    contactsProvider: 'google',
     referralPrefix: 'הגעתי דרך ',
     botSuffix: ' - (Bot)',
   };
@@ -995,6 +1177,103 @@
 
   // ── Modal ───────────────────────────────────────────────────────────────────
 
+  let wizardStep = 1;
+  const wizardStepCopy = {
+    1: 'מגדירים את החיבור, סוג הקמפיין ומשפט הטריגר שהמשתמשת תשלח.',
+    2: 'לפני שאלות ההמשך, המערכת שואלת שם, שומרת איש קשר, ושולחת הודעת אישור.',
+    3: 'בונים את המשך השיחה: הודעות, שאלות בחירה, קבצים ו-timeout.',
+    4: 'בודקים את הקמפיין, שומרים, ומקבלים לינק מוכן לשיתוף.',
+  };
+
+  function goWizardStep(step) {
+    wizardStep = Math.max(1, Math.min(step, 4));
+    document.querySelectorAll('[data-wizard-panel]').forEach(panel => {
+      panel.classList.toggle('active', Number(panel.dataset.wizardPanel) === wizardStep);
+    });
+    document.querySelectorAll('[data-wizard-step]').forEach(item => {
+      const itemStep = Number(item.dataset.wizardStep);
+      item.classList.toggle('active', itemStep === wizardStep);
+      item.classList.toggle('done', itemStep < wizardStep);
+    });
+    const progress = document.getElementById('wizardProgressFill');
+    if (progress) progress.style.width = `${wizardStep * 25}%`;
+    const copy = document.getElementById('wizardStepCopy');
+    if (copy) copy.textContent = wizardStepCopy[wizardStep];
+    document.getElementById('wizardCounter').textContent = `שלב ${wizardStep} מתוך 4`;
+    document.getElementById('wizardBackBtn').style.visibility = wizardStep === 1 ? 'hidden' : 'visible';
+    document.getElementById('wizardNextBtn').textContent = wizardStep === 4 ? 'שמור קמפיין' : 'הבא';
+    updateWizardSummary();
+  }
+
+  function nextWizardStep() {
+    if (wizardStep === 4) {
+      submitCampaign();
+      return;
+    }
+    goWizardStep(wizardStep + 1);
+  }
+
+  function prevWizardStep() {
+    goWizardStep(wizardStep - 1);
+  }
+
+  async function selectWizardProvider(provider) {
+    await selectProvider(provider);
+    updateWizardProviderButtons(provider);
+    updateWizardSummary();
+  }
+
+  function updateWizardProviderButtons(provider = appSettings.contactsProvider || 'manual') {
+    const normalized = ['google', 'manual'].includes(provider) ? provider : 'manual';
+    document.getElementById('wizardProviderGoogle')?.classList.toggle('active', normalized === 'google');
+    document.getElementById('wizardProviderManual')?.classList.toggle('active', normalized === 'manual');
+  }
+
+  function updateWizardConnectionStatus(data = null) {
+    const title = document.getElementById('wizardConnectionStatus');
+    if (!title) return;
+    if (!data) {
+      title.textContent = 'המערכת תבדוק את מצב WhatsApp ו-Google בזמן העריכה.';
+      return;
+    }
+    if (data.ready) {
+      title.textContent = `WhatsApp מחובר ופעיל${data.connectedPhone ? ` (${data.connectedPhone})` : ''}.`;
+    } else if (data.authenticated) {
+      title.textContent = 'Session מאומת, ממתין לאתחול הבוט.';
+    } else if (data.qr) {
+      title.textContent = 'נדרש חיבור WhatsApp דרך QR לפני הפעלה מלאה.';
+    } else if (data.lifecycle === 'stopped' && !data.shouldRun) {
+      title.textContent = 'WhatsApp יופעל כשיהיה קמפיין פעיל או בהפעלה ידנית.';
+    } else {
+      title.textContent = 'WhatsApp עדיין לא מחובר.';
+    }
+  }
+
+  function currentTriggerText() {
+    const triggerType = Number(document.querySelector('input[name=triggerType]:checked')?.value || 1);
+    if (triggerType === 1) return document.getElementById('fPhrase').value.trim();
+    return document.getElementById('triggerPreview').textContent.trim();
+  }
+
+  function updateWizardSummary() {
+    const name = document.getElementById('fName')?.value.trim() || '-';
+    const triggerType = Number(document.querySelector('input[name=triggerType]:checked')?.value || 1);
+    const trigger = currentTriggerText() || '-';
+    const conversation = getCampaignConversation();
+    const provider = appSettings.contactsProvider === 'google' ? 'Google' : 'ידני';
+    const flowCount = conversation.followupMessages.length + conversation.decisionFlow.length;
+
+    document.getElementById('wizardSummaryName')?.replaceChildren(document.createTextNode(name));
+    document.getElementById('wizardSummaryType')?.replaceChildren(document.createTextNode(triggerType === 1 ? 'בוט רגיל' : 'שם ממליץ'));
+    document.getElementById('wizardSummaryTrigger')?.replaceChildren(document.createTextNode(trigger));
+    document.getElementById('wizardSummaryProvider')?.replaceChildren(document.createTextNode(provider));
+    document.getElementById('wizardSummaryAskName')?.replaceChildren(document.createTextNode(conversation.askNameEnabled ? 'פעילה' : 'כבויה'));
+    document.getElementById('wizardSummaryFlow')?.replaceChildren(document.createTextNode(flowCount ? `${flowCount} פריטים` : 'ללא המשך'));
+    const link = `https://wa.me/972501234567?text=${encodeURIComponent(trigger === '-' ? 'משפט הטריגר' : trigger)}`;
+    document.getElementById('wizardShareLink')?.replaceChildren(document.createTextNode(link));
+    updateWizardProviderButtons();
+  }
+
   function openModal() {
     if (!canEditCampaigns()) return;
     if (appCapabilities.campaignCount >= appCapabilities.maxCampaigns) {
@@ -1014,6 +1293,7 @@
     document.getElementById('modalError').textContent = '';
     selectType(1);
     updateCampaignConversationPreview();
+    goWizardStep(1);
     document.getElementById('modalOverlay').classList.add('open');
   }
 
@@ -1043,6 +1323,7 @@
       updatePreview();
     }
     updateCampaignConversationPreview();
+    goWizardStep(1);
     document.getElementById('modalOverlay').classList.add('open');
   }
 
@@ -1624,6 +1905,7 @@
       decisionFlowEl.innerHTML = previewDecisionFlow(conversation.decisionFlow || []);
     }
     if (askRow) askRow.style.display = conversation.askNameEnabled ? 'flex' : 'none';
+    updateWizardSummary();
   }
 
   function previewDecisionFlow(flow = []) {
@@ -1735,6 +2017,9 @@
       alert('שמירת סוג אנשי הקשר נכשלה. נסה שוב.');
       return;
     }
+    appSettings.contactsProvider = p;
+    updateWizardProviderButtons(p);
+    updateWizardSummary();
     await loadContactQueueStats();
   }
 
@@ -1830,6 +2115,7 @@
 
       const qrCard      = document.getElementById('qr-card');
       const mainContent = document.getElementById('main-content');
+      updateWizardConnectionStatus(data);
 
       const connectedCard = document.getElementById('connected-card');
       if (data.qr) {
