@@ -221,35 +221,6 @@
     .wizard-step-copy { padding: 10px 14px; font-size: .78rem; color: #6b7280; }
     .wizard-panel { display: none; }
     .wizard-panel.active { display: block; }
-    .wizard-connection-card {
-      border: 1px solid #dcfce7;
-      background: #f0fdf4;
-      border-radius: 10px;
-      padding: 12px;
-      margin-bottom: 16px;
-    }
-    .wizard-connection-main {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-    }
-    .wizard-connection-main strong,
-    .wizard-provider-card strong { display: block; font-size: .86rem; color: #14532d; }
-    .wizard-connection-main small,
-    .wizard-provider-card small { display: block; font-size: .74rem; color: #166534; margin-top: 2px; }
-    .wizard-provider-buttons { display: flex; gap: 7px; flex-shrink: 0; }
-    .wizard-provider-buttons button {
-      border: 1px solid #bbf7d0;
-      background: #fff;
-      color: #166534;
-      border-radius: 8px;
-      padding: 7px 10px;
-      font-weight: 800;
-      font-size: .76rem;
-      cursor: pointer;
-    }
-    .wizard-provider-buttons button.active { background: #25d366; border-color: #25d366; color: #fff; }
     .wizard-type-group .radio-btn { flex-direction: column; align-items: flex-start; }
     .wizard-type-group .radio-btn small { font-size: .72rem; color: #6b7280; line-height: 1.35; }
     .wizard-summary {
@@ -656,7 +627,6 @@
         border-bottom: 1px solid #e5e7eb;
       }
       .wizard-step:nth-last-child(-n+2) { border-bottom: none; }
-      .wizard-connection-main { align-items: flex-start; flex-direction: column; }
       .wizard-footer { flex-wrap: wrap; }
       .wizard-counter { order: -1; flex-basis: 100%; }
       .phone-preview { min-height: 210px; }
@@ -828,7 +798,7 @@
       <div class="wizard-progress"><div class="wizard-progress-fill" id="wizardProgressFill"></div></div>
       <div class="wizard-steps">
         <button type="button" class="wizard-step active" data-wizard-step="1" onclick="goWizardStep(1)">
-          <span>1</span><strong>בניית קמפיין</strong><small>חיבור, סוג וטריגר</small>
+          <span>1</span><strong>בניית קמפיין</strong><small>שם, סוג וטריגר</small>
         </button>
         <button type="button" class="wizard-step" data-wizard-step="2" onclick="goWizardStep(2)">
           <span>2</span><strong>שמירת איש קשר</strong><small>שאלת שם ואישור</small>
@@ -840,24 +810,12 @@
           <span>4</span><strong>אישור ולינק</strong><small>סיכום לפני שמירה</small>
         </button>
       </div>
-      <div class="wizard-step-copy" id="wizardStepCopy">מגדירים את החיבור, סוג הקמפיין ומשפט הטריגר שהמשתמשת תשלח.</div>
+      <div class="wizard-step-copy" id="wizardStepCopy">מגדירים את שם הקמפיין, סוג הקמפיין ומשפט הטריגר שהמשתמשת תשלח.</div>
     </div>
     <div class="campaign-editor-grid wizard-grid">
       <div>
         <div class="editor-section wizard-panel active" data-wizard-panel="1">
           <div class="editor-section-title">פרטי הקמפיין</div>
-          <div class="wizard-connection-card">
-            <div class="wizard-connection-main">
-              <div>
-                <strong>חיבור ושמירת אנשי קשר</strong>
-                <small id="wizardConnectionStatus">המערכת תבדוק את מצב WhatsApp ו-Google בזמן העריכה.</small>
-              </div>
-              <div class="wizard-provider-buttons">
-                <button type="button" id="wizardProviderGoogle" onclick="selectWizardProvider('google')">Google</button>
-                <button type="button" id="wizardProviderManual" onclick="selectWizardProvider('manual')">ידני</button>
-              </div>
-            </div>
-          </div>
           <div class="field">
             <label>שם הקמפיין <span class="required">*</span></label>
             <input type="text" id="fName" placeholder='למשל: "קמפיין סוף שבוע"' oninput="updateWizardSummary()" />
@@ -972,7 +930,6 @@
             <div><span>שם הקמפיין</span><strong id="wizardSummaryName">-</strong></div>
             <div><span>סוג</span><strong id="wizardSummaryType">-</strong></div>
             <div><span>משפט טריגר</span><strong id="wizardSummaryTrigger">-</strong></div>
-            <div><span>שמירת אנשי קשר</span><strong id="wizardSummaryProvider">-</strong></div>
             <div><span>שאלת שם</span><strong id="wizardSummaryAskName">-</strong></div>
             <div><span>הודעות המשך / שאלות</span><strong id="wizardSummaryFlow">-</strong></div>
           </div>
@@ -1179,7 +1136,7 @@
 
   let wizardStep = 1;
   const wizardStepCopy = {
-    1: 'מגדירים את החיבור, סוג הקמפיין ומשפט הטריגר שהמשתמשת תשלח.',
+    1: 'מגדירים את שם הקמפיין, סוג הקמפיין ומשפט הטריגר שהמשתמשת תשלח.',
     2: 'לפני שאלות ההמשך, המערכת שואלת שם, שומרת איש קשר, ושולחת הודעת אישור.',
     3: 'בונים את המשך השיחה: הודעות, שאלות בחירה, קבצים ו-timeout.',
     4: 'בודקים את הקמפיין, שומרים, ומקבלים לינק מוכן לשיתוף.',
@@ -1217,38 +1174,6 @@
     goWizardStep(wizardStep - 1);
   }
 
-  async function selectWizardProvider(provider) {
-    await selectProvider(provider);
-    updateWizardProviderButtons(provider);
-    updateWizardSummary();
-  }
-
-  function updateWizardProviderButtons(provider = appSettings.contactsProvider || 'manual') {
-    const normalized = ['google', 'manual'].includes(provider) ? provider : 'manual';
-    document.getElementById('wizardProviderGoogle')?.classList.toggle('active', normalized === 'google');
-    document.getElementById('wizardProviderManual')?.classList.toggle('active', normalized === 'manual');
-  }
-
-  function updateWizardConnectionStatus(data = null) {
-    const title = document.getElementById('wizardConnectionStatus');
-    if (!title) return;
-    if (!data) {
-      title.textContent = 'המערכת תבדוק את מצב WhatsApp ו-Google בזמן העריכה.';
-      return;
-    }
-    if (data.ready) {
-      title.textContent = `WhatsApp מחובר ופעיל${data.connectedPhone ? ` (${data.connectedPhone})` : ''}.`;
-    } else if (data.authenticated) {
-      title.textContent = 'Session מאומת, ממתין לאתחול הבוט.';
-    } else if (data.qr) {
-      title.textContent = 'נדרש חיבור WhatsApp דרך QR לפני הפעלה מלאה.';
-    } else if (data.lifecycle === 'stopped' && !data.shouldRun) {
-      title.textContent = 'WhatsApp יופעל כשיהיה קמפיין פעיל או בהפעלה ידנית.';
-    } else {
-      title.textContent = 'WhatsApp עדיין לא מחובר.';
-    }
-  }
-
   function currentTriggerText() {
     const triggerType = Number(document.querySelector('input[name=triggerType]:checked')?.value || 1);
     if (triggerType === 1) return document.getElementById('fPhrase').value.trim();
@@ -1260,18 +1185,15 @@
     const triggerType = Number(document.querySelector('input[name=triggerType]:checked')?.value || 1);
     const trigger = currentTriggerText() || '-';
     const conversation = getCampaignConversation();
-    const provider = appSettings.contactsProvider === 'google' ? 'Google' : 'ידני';
     const flowCount = conversation.followupMessages.length + conversation.decisionFlow.length;
 
     document.getElementById('wizardSummaryName')?.replaceChildren(document.createTextNode(name));
     document.getElementById('wizardSummaryType')?.replaceChildren(document.createTextNode(triggerType === 1 ? 'בוט רגיל' : 'שם ממליץ'));
     document.getElementById('wizardSummaryTrigger')?.replaceChildren(document.createTextNode(trigger));
-    document.getElementById('wizardSummaryProvider')?.replaceChildren(document.createTextNode(provider));
     document.getElementById('wizardSummaryAskName')?.replaceChildren(document.createTextNode(conversation.askNameEnabled ? 'פעילה' : 'כבויה'));
     document.getElementById('wizardSummaryFlow')?.replaceChildren(document.createTextNode(flowCount ? `${flowCount} פריטים` : 'ללא המשך'));
     const link = `https://wa.me/972501234567?text=${encodeURIComponent(trigger === '-' ? 'משפט הטריגר' : trigger)}`;
     document.getElementById('wizardShareLink')?.replaceChildren(document.createTextNode(link));
-    updateWizardProviderButtons();
   }
 
   function openModal() {
@@ -2018,7 +1940,6 @@
       return;
     }
     appSettings.contactsProvider = p;
-    updateWizardProviderButtons(p);
     updateWizardSummary();
     await loadContactQueueStats();
   }
@@ -2115,7 +2036,6 @@
 
       const qrCard      = document.getElementById('qr-card');
       const mainContent = document.getElementById('main-content');
-      updateWizardConnectionStatus(data);
 
       const connectedCard = document.getElementById('connected-card');
       if (data.qr) {
