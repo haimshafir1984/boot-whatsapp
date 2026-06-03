@@ -168,7 +168,7 @@
       box-shadow: 0 8px 32px rgba(0,0,0,.2);
     }
     .modal h2 { font-size: 1.18rem; font-weight: 700; margin-bottom: 5px; }
-    .modal-subtitle { color: #6b7280; font-size: .84rem; margin-bottom: 22px; }
+    .modal-subtitle { color: #4b5563; font-size: .84rem; margin-bottom: 22px; }
     .campaign-editor-grid {
       display: grid; grid-template-columns: minmax(360px, 1fr) minmax(285px, 360px);
       gap: 26px; align-items: start;
@@ -213,17 +213,17 @@
       font-weight: 800;
       background: #fff;
     }
-    .wizard-step strong { display: block; color: #6b7280; font-size: .8rem; }
-    .wizard-step small { display: block; color: #9ca3af; font-size: .68rem; margin-top: 2px; line-height: 1.25; }
+    .wizard-step strong { display: block; color: #4b5563; font-size: .8rem; }
+    .wizard-step small { display: block; color: #6b7280; font-size: .68rem; margin-top: 2px; line-height: 1.25; }
     .wizard-step.active { background: #fff; }
     .wizard-step.active span:first-child { background: #25d366; border-color: #25d366; color: #fff; }
     .wizard-step.active strong { color: #111827; }
     .wizard-step.done span:first-child { background: #f0fdf4; border-color: #25d366; color: #16a34a; }
-    .wizard-step-copy { padding: 10px 14px; font-size: .78rem; color: #6b7280; }
+    .wizard-step-copy { padding: 10px 14px; font-size: .78rem; color: #4b5563; }
     .wizard-panel { display: none; }
     .wizard-panel.active { display: block; }
     .wizard-type-group .radio-btn { flex-direction: column; align-items: flex-start; }
-    .wizard-type-group .radio-btn small { font-size: .72rem; color: #6b7280; line-height: 1.35; }
+    .wizard-type-group .radio-btn small { font-size: .72rem; color: #4b5563; line-height: 1.35; }
     .wizard-summary {
       border: 1px solid #e5e7eb;
       border-radius: 10px;
@@ -238,7 +238,7 @@
       font-size: .83rem;
     }
     .wizard-summary div:last-child { border-bottom: none; }
-    .wizard-summary span { color: #6b7280; }
+    .wizard-summary span { color: #4b5563; }
     .wizard-summary strong { text-align: left; max-width: 62%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .wizard-link-box {
       margin-top: 14px;
@@ -287,7 +287,7 @@
     .wizard-success-actions a { background: #25d366; border-color: #25d366; color: #fff; }
     .wizard-footer { align-items: center; justify-content: space-between; }
     .wizard-footer-actions { display: flex; gap: 10px; flex: 1; }
-    .wizard-counter { flex: 1; text-align: center; font-size: .75rem; color: #6b7280; }
+    .wizard-counter { flex: 1; text-align: center; font-size: .75rem; color: #4b5563; }
     .editor-section {
       border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px;
       margin-bottom: 14px;
@@ -305,7 +305,7 @@
     }
     .field textarea { min-height: 82px; resize: vertical; line-height: 1.45; }
     .field input:focus, .field textarea:focus { outline: none; border-color: #25d366; }
-    .field .hint { font-size: .75rem; color: #6b7280; margin-top: 4px; }
+    .field .hint { font-size: .75rem; color: #4b5563; margin-top: 4px; }
     .field .preview {
       font-size: .8rem; background: #f3f4f6; border-radius: 6px;
       padding: 6px 10px; margin-top: 6px; color: #374151;
@@ -371,7 +371,7 @@
     .provider-tab.active { border-color: #25d366; background: #f0fdf4; color: #16a34a; }
     .provider-panel { display: none; }
     .provider-panel.active { display: block; }
-    .manual-info { font-size: .82rem; color: #6b7280; margin-bottom: 14px; line-height: 1.6; }
+    .manual-info { font-size: .82rem; color: #4b5563; margin-bottom: 14px; line-height: 1.6; }
     .queue-stats {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -387,88 +387,6 @@
     }
     .queue-stat strong { display: block; font-size: 1.05rem; color: #111827; }
     .queue-stat span { display: block; margin-top: 2px; font-size: .72rem; color: #6b7280; }
-    .twilio-card-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1.2fr) minmax(260px, .8fr);
-      gap: 16px;
-      align-items: start;
-    }
-    .twilio-status-box {
-      border: 1px solid #e5e7eb;
-      border-radius: 10px;
-      padding: 12px;
-      background: #f9fafb;
-    }
-    .twilio-status-title { font-weight: 800; color: #111827; margin-bottom: 4px; }
-    .twilio-status-sub { color: #6b7280; font-size: .8rem; line-height: 1.5; }
-    .twilio-status-box.ready { border-color: #bbf7d0; background: #f0fdf4; }
-    .twilio-status-box.ready .twilio-status-title { color: #14532d; }
-    .twilio-status-box.warn { border-color: #fed7aa; background: #fff7ed; }
-    .twilio-status-box.warn .twilio-status-title { color: #9a3412; }
-    .twilio-details {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-      margin-top: 12px;
-    }
-    .twilio-detail {
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
-      padding: 9px 10px;
-      background: #fff;
-      min-width: 0;
-    }
-    .twilio-detail span { display: block; color: #6b7280; font-size: .72rem; margin-bottom: 3px; }
-    .twilio-detail strong {
-      display: block;
-      color: #111827;
-      font-size: .82rem;
-      direction: ltr;
-      text-align: right;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .twilio-checks { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
-    .twilio-check {
-      border: 1px solid #e5e7eb;
-      border-radius: 999px;
-      padding: 5px 9px;
-      color: #6b7280;
-      background: #fff;
-      font-size: .74rem;
-      font-weight: 700;
-    }
-    .twilio-check.ok { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
-    .twilio-check.warn { border-color: #fed7aa; background: #fff7ed; color: #9a3412; }
-    .twilio-section {
-      border-top: 1px solid #e5e7eb;
-      margin-top: 18px;
-      padding-top: 18px;
-    }
-    .twilio-form-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-    }
-    .twilio-template-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      margin-top: 12px;
-    }
-    .twilio-template-row {
-      border: 1px solid #e5e7eb;
-      border-radius: 10px;
-      padding: 10px;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 10px;
-      align-items: center;
-      background: #fff;
-    }
-    .twilio-template-row strong { display: block; font-size: .86rem; color: #111827; }
-    .twilio-template-row small { display: block; margin-top: 2px; color: #6b7280; font-size: .72rem; direction: ltr; text-align: right; }
     .status-pill {
       display: inline-flex;
       align-items: center;
@@ -483,13 +401,6 @@
     .status-pill.approved { background: #dcfce7; color: #166534; }
     .status-pill.pending, .status-pill.received, .status-pill.submitted { background: #dbeafe; color: #1d4ed8; }
     .status-pill.rejected, .status-pill.failed { background: #fee2e2; color: #991b1b; }
-    .twilio-template-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-    .twilio-help {
-      color: #6b7280;
-      font-size: .78rem;
-      line-height: 1.5;
-      margin-top: 6px;
-    }
 
     /* ── QR card ── */
     #qr-card { display: none; }
@@ -619,7 +530,7 @@
       margin-bottom: 10px;
     }
     .decision-step-title { font-weight: 700; font-size: .84rem; color: #374151; }
-    .decision-step-subtitle { color: #6b7280; font-size: .74rem; margin-top: 2px; }
+    .decision-step-subtitle { color: #4b5563; font-size: .74rem; margin-top: 2px; }
     .decision-step select,
     .decision-step input,
     .decision-step textarea {
@@ -642,7 +553,7 @@
       display: block;
       font-size: .76rem;
       font-weight: 700;
-      color: #6b7280;
+      color: #4b5563;
       margin-bottom: 5px;
     }
     .decision-options { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
@@ -710,7 +621,7 @@
     }
     .decision-option-label {
       grid-column: 1 / -1;
-      color: #6b7280;
+      color: #4b5563;
       font-size: .74rem;
       font-weight: 700;
       margin-top: 2px;
@@ -732,25 +643,25 @@
       border: 1px dashed #d1d5db;
       border-radius: 10px;
       padding: 14px;
-      color: #6b7280;
+      color: #4b5563;
       font-size: .8rem;
       text-align: center;
       background: #fff;
     }
     .btn-small {
-      border: 1px solid #e5e7eb;
-      background: #fff;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
       border-radius: 8px;
       padding: 8px 10px;
       cursor: pointer;
       font-size: .8rem;
-      font-weight: 700;
+      font-weight: 800;
+      color: #1f2937;
     }
-    .btn-small:hover { background: #f9fafb; }
+    .btn-small:hover { background: #eef2f7; }
     @media (max-width: 820px) {
       .page, #main-content { max-width: 560px; }
       .settings-preview-grid { grid-template-columns: 1fr; }
-      .twilio-card-grid, .twilio-details, .twilio-form-grid { grid-template-columns: 1fr; }
       .campaign-editor-grid, .two-fields { grid-template-columns: 1fr; }
       .wizard-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .wizard-step {
@@ -858,84 +769,6 @@
       <div class="sec-title">תוצאות קמפיינים</div>
       <div class="results-list" id="campaign-results">
         <p style="color:#9ca3af;font-size:.85rem;text-align:center;padding:8px 0">אין תוצאות עדיין</p>
-      </div>
-    </div>
-  </div>
-
-  <!-- Twilio status card -->
-  <div class="card" id="twilio-card" style="display:none">
-    <div class="card-body">
-      <div class="sec-title">Twilio / קישור WhatsApp</div>
-      <div class="twilio-card-grid">
-        <div>
-          <div class="twilio-status-box" id="twilioStatusBox">
-            <div class="twilio-status-title" id="twilioStatusTitle">בודק סטטוס Twilio...</div>
-            <div class="twilio-status-sub" id="twilioStatusSub">המערכת בודקת אם הלקוח עובד דרך Twilio או דרך חיבור WhatsApp רגיל.</div>
-          </div>
-          <div class="twilio-details">
-            <div class="twilio-detail">
-              <span>מצב עבודה</span>
-              <strong id="twilioMode">-</strong>
-            </div>
-            <div class="twilio-detail">
-              <span>מספר WhatsApp</span>
-              <strong id="twilioFrom">-</strong>
-            </div>
-            <div class="twilio-detail">
-              <span>Messaging Service</span>
-              <strong id="twilioMessagingService">-</strong>
-            </div>
-            <div class="twilio-detail">
-              <span>בדיקת חתימה</span>
-              <strong id="twilioSignature">-</strong>
-            </div>
-          </div>
-          <div class="twilio-checks" id="twilioChecks"></div>
-        </div>
-      </div>
-      <div class="twilio-section">
-        <div class="sec-title">פרטי לקוח ליצירת Twilio ראשונה</div>
-        <div class="twilio-form-grid">
-          <div class="field"><label>שם משפטי / עסק</label><input type="text" id="twBusinessName" /></div>
-          <div class="field"><label>שם מותג שיופיע ללקוח</label><input type="text" id="twBrandName" /></div>
-          <div class="field"><label>אתר עסק</label><input type="text" id="twBusinessWebsite" placeholder="https://..." /></div>
-          <div class="field"><label>תחום עסק</label><input type="text" id="twBusinessCategory" /></div>
-          <div class="field"><label>אימייל תמיכה</label><input type="email" id="twSupportEmail" /></div>
-          <div class="field"><label>טלפון תמיכה</label><input type="text" id="twSupportPhone" /></div>
-          <div class="field"><label>מדינה</label><input type="text" id="twCountry" value="IL" /></div>
-          <div class="field"><label>שימוש ראשון בקמפיין</label><input type="text" id="twFirstCampaignUseCase" /></div>
-        </div>
-        <div class="field"><label>תיאור העסק</label><textarea id="twBusinessDescription"></textarea></div>
-        <div class="field"><label>איך נאסף opt-in</label><textarea id="twOptInDescription" placeholder="למשל: טופס באתר, אישור בתקנון, שיחה יזומה מהלקוח"></textarea></div>
-        <div class="field"><label>הערות פנימיות</label><textarea id="twNotes"></textarea></div>
-        <button class="btn-save" type="button" style="width:auto;padding:9px 18px" onclick="saveTwilioOnboarding()">שמור פרטי Twilio</button>
-      </div>
-      <div class="twilio-section">
-        <div class="sec-title">טמפלטים לאישור WhatsApp</div>
-        <div class="twilio-form-grid">
-          <div class="field"><label>שם פנימי</label><input type="text" id="twTemplateFriendlyName" placeholder="first_real_estate_followup" /></div>
-          <div class="field"><label>שם לאישור WhatsApp</label><input type="text" id="twTemplateName" placeholder="first_real_estate_followup" /></div>
-          <div class="field"><label>שפה</label><input type="text" id="twTemplateLanguage" value="he" /></div>
-          <div class="field">
-            <label>קטגוריה</label>
-            <select id="twTemplateCategory">
-              <option value="MARKETING">MARKETING</option>
-              <option value="UTILITY">UTILITY</option>
-              <option value="AUTHENTICATION">AUTHENTICATION</option>
-            </select>
-          </div>
-        </div>
-        <div class="field">
-          <label>נוסח הטמפלט</label>
-          <textarea id="twTemplateBody" placeholder="שלום {{1}}, בעבר התעניינת בפרויקט שלנו. אם עדיין רלוונטי, אפשר להשיב כאן ונחזור אליך."></textarea>
-          <div class="twilio-help">משתנים נכתבים בפורמט {{1}}, {{2}}. חובה לתת דוגמאות ברורות כדי לשפר סיכוי אישור.</div>
-        </div>
-        <div class="field">
-          <label>דוגמאות למשתנים</label>
-          <textarea id="twTemplateVariables" placeholder="1=חיים&#10;2=פרויקט צפון"></textarea>
-        </div>
-        <button class="btn-save" type="button" style="width:auto;padding:9px 18px" onclick="saveTwilioTemplateDraft()">שמור טיוטת טמפלט</button>
-        <div class="twilio-template-list" id="twilioTemplateList"></div>
       </div>
     </div>
   </div>
@@ -1136,41 +969,10 @@
 
         <div class="editor-section wizard-panel" data-wizard-panel="4">
           <div class="editor-section-title">סיכום לפני שמירה</div>
-          <div class="field" id="twilioCampaignModeField" style="display:none">
-            <label>מצב קמפיין Twilio</label>
-            <div class="radio-group wizard-type-group">
-              <label class="radio-btn selected" id="twModeLinkBtn" onclick="selectTwilioCampaignMode('link')">
-                <input type="radio" name="twilioCampaignMode" value="link" checked />
-                <span>קישור WhatsApp</span>
-                <small>הלקוח מתחיל שיחה דרך wa.me, בלי טמפלט מאושר.</small>
-              </label>
-              <label class="radio-btn" id="twModeTemplateBtn" onclick="selectTwilioCampaignMode('template')">
-                <input type="radio" name="twilioCampaignMode" value="template" />
-                <span>טמפלט מאושר</span>
-                <small>מיועד לשליחה יזומה רק אחרי אישור ו-opt-in.</small>
-              </label>
-            </div>
-          </div>
-          <div id="twilioTemplateCampaignFields" style="display:none">
-            <div class="field">
-              <label>טמפלט מאושר</label>
-              <select id="fTwilioTemplateId" onchange="updateWizardSummary()"></select>
-              <div class="hint">רק טמפלטים בסטטוס approved מתאימים לשליחה יזומה.</div>
-            </div>
-            <label class="decision-inline-check">
-              <input type="checkbox" id="fTwilioOptInConfirmed" onchange="updateWizardSummary()" />
-              יש אישור opt-in מפורש לקהל היעד של הקמפיין
-            </label>
-            <div class="field" style="margin-top:10px">
-              <label>הערות קהל / מקור אישור</label>
-              <textarea id="fTwilioAudienceNotes" oninput="updateWizardSummary()" placeholder="למשל: מתעניינים שהשאירו פרטים בטופס בתאריך..."></textarea>
-            </div>
-          </div>
           <div class="wizard-summary">
             <div><span>שם הקמפיין</span><strong id="wizardSummaryName">-</strong></div>
             <div><span>סוג</span><strong id="wizardSummaryType">-</strong></div>
             <div><span>משפט טריגר</span><strong id="wizardSummaryTrigger">-</strong></div>
-            <div><span>מצב Twilio</span><strong id="wizardSummaryTwilio">-</strong></div>
             <div><span>שאלת שם</span><strong id="wizardSummaryAskName">-</strong></div>
             <div><span>הודעות המשך / שאלות</span><strong id="wizardSummaryFlow">-</strong></div>
           </div>
@@ -1229,8 +1031,6 @@
   let appFiles = [];
   let appCapabilities = { readonlyDashboard: false, maxCampaigns: 7, serviceExpired: false, campaignCount: 0 };
   let lastCampaigns = [];
-  let twilioTemplates = [];
-  let twilioEnabledForClient = false;
 
   // ── Campaigns ───────────────────────────────────────────────────────────────
 
@@ -1261,10 +1061,6 @@
     if (addBtn) {
       addBtn.style.display = canEditCampaigns() ? '' : 'none';
       addBtn.disabled = appCapabilities.campaignCount >= appCapabilities.maxCampaigns;
-    }
-    const twilioModeField = document.getElementById('twilioCampaignModeField');
-    if (twilioModeField) {
-      twilioModeField.style.display = appCapabilities.whatsappProvider === 'TWILIO_API' ? '' : 'none';
     }
     renderCampaigns(lastCampaigns || []);
   }
@@ -1325,7 +1121,6 @@
               ${c.active ? '● פעיל' : '○ מושבת'}
             </span>
             <span style="font-size:.7rem;color:#2563eb">${statusLabel(c.runtimeStatus)}</span>
-            <span style="font-size:.7rem;color:#1d4ed8">${c.twilio?.mode === 'template' ? 'Twilio Template' : 'WhatsApp Link'}</span>
             <span style="font-size:.7rem;color:#6b7280">${(c.conversation?.askNameEnabled ?? appSettings.askNameEnabled) ? 'שואלת שם' : 'ללא שאלת שם'}</span>
           </div>
           ${scheduleText ? `<div style="font-size:.72rem;color:#6b7280;margin-top:5px">${esc(scheduleText)}</div>` : ''}
@@ -1417,6 +1212,7 @@
     document.getElementById('wizardCounter').textContent = `שלב ${wizardStep} מתוך 4`;
     document.getElementById('wizardBackBtn').style.visibility = wizardStep === 1 ? 'hidden' : 'visible';
     document.getElementById('wizardNextBtn').textContent = wizardStep === 4 ? 'שמור קמפיין' : 'הבא';
+    updateCampaignConversationPreview();
     updateWizardSummary();
   }
 
@@ -1433,25 +1229,12 @@
     goWizardStep(wizardStep - 1);
   }
 
-  function selectTwilioCampaignMode(mode) {
-    const normalized = mode === 'template' ? 'template' : 'link';
-    document.querySelectorAll('input[name=twilioCampaignMode]').forEach(input => {
-      input.checked = input.value === normalized;
-    });
-    document.getElementById('twModeLinkBtn')?.classList.toggle('selected', normalized === 'link');
-    document.getElementById('twModeTemplateBtn')?.classList.toggle('selected', normalized === 'template');
-    const fields = document.getElementById('twilioTemplateCampaignFields');
-    if (fields) fields.style.display = normalized === 'template' ? '' : 'none';
-    updateWizardSummary();
-  }
-
   function getCampaignTwilioSettings() {
-    const mode = document.querySelector('input[name=twilioCampaignMode]:checked')?.value === 'template' ? 'template' : 'link';
     return {
-      mode,
-      templateId: mode === 'template' ? document.getElementById('fTwilioTemplateId')?.value : undefined,
-      optInConfirmed: Boolean(document.getElementById('fTwilioOptInConfirmed')?.checked),
-      audienceNotes: document.getElementById('fTwilioAudienceNotes')?.value || '',
+      mode: 'link',
+      templateId: undefined,
+      optInConfirmed: false,
+      audienceNotes: '',
     };
   }
 
@@ -1538,19 +1321,16 @@
     const triggerType = Number(document.querySelector('input[name=triggerType]:checked')?.value || 1);
     const trigger = currentTriggerText() || '-';
     const conversation = getCampaignConversation();
-    const twilio = getCampaignTwilioSettings();
-    const selectedTemplate = twilioTemplates.find(t => t.id === twilio.templateId);
     const flowCount = conversation.followupMessages.length + conversation.decisionFlow.length;
 
     document.getElementById('wizardSummaryName')?.replaceChildren(document.createTextNode(name));
     document.getElementById('wizardSummaryType')?.replaceChildren(document.createTextNode(triggerType === 1 ? 'בוט רגיל' : 'שם ממליץ'));
     document.getElementById('wizardSummaryTrigger')?.replaceChildren(document.createTextNode(trigger));
-    document.getElementById('wizardSummaryTwilio')?.replaceChildren(document.createTextNode(twilio.mode === 'template' ? `טמפלט: ${selectedTemplate?.friendlyName || 'לא נבחר'}` : 'קישור WhatsApp'));
     document.getElementById('wizardSummaryAskName')?.replaceChildren(document.createTextNode(conversation.askNameEnabled ? 'פעילה' : 'כבויה'));
     document.getElementById('wizardSummaryFlow')?.replaceChildren(document.createTextNode(flowCount ? `${flowCount} פריטים` : 'ללא המשך'));
     const link = buildCampaignShareLink(trigger);
     lastWizardLink = link;
-    document.getElementById('wizardShareLink')?.replaceChildren(document.createTextNode(link || 'מספר WhatsApp עדיין לא נטען'));
+    document.getElementById('wizardShareLink')?.replaceChildren(document.createTextNode(link ? decodeURIComponent(link) : 'מספר WhatsApp עדיין לא נטען'));
   }
 
   function copyWizardLink(btn) {
@@ -1576,10 +1356,6 @@
     document.getElementById('fReferrer').value  = '';
     document.getElementById('fStartAt').value = '';
     document.getElementById('fEndAt').value = '';
-    selectTwilioCampaignMode('link');
-    document.getElementById('fTwilioTemplateId').value = '';
-    document.getElementById('fTwilioOptInConfirmed').checked = false;
-    document.getElementById('fTwilioAudienceNotes').value = '';
     populateCampaignConversation(appSettings);
     loadCampaignFiles();
     document.getElementById('modalError').textContent = '';
@@ -1604,10 +1380,6 @@
     document.getElementById('fStartAt').value = formatDateTimeLocal(c.startAt);
     document.getElementById('fEndAt').value = formatDateTimeLocal(c.endAt);
     populateCampaignConversation(c.conversation || appSettings);
-    selectTwilioCampaignMode(c.twilio?.mode || 'link');
-    document.getElementById('fTwilioTemplateId').value = c.twilio?.templateId || '';
-    document.getElementById('fTwilioOptInConfirmed').checked = Boolean(c.twilio?.optInConfirmed);
-    document.getElementById('fTwilioAudienceNotes').value = c.twilio?.audienceNotes || '';
     loadCampaignFiles();
     document.getElementById('modalError').textContent = '';
     setWizardSavedState(false);
@@ -2302,7 +2074,7 @@
 
     el.innerHTML = active.map(c => {
       const link        = buildCampaignShareLink(c.triggerPhrase);
-      const displayLink = link || 'מספר WhatsApp לא זמין';
+      const displayLink = link ? decodeURIComponent(link) : 'מספר WhatsApp לא זמין';
       return `
         <div class="link-row">
           <div class="link-label">${esc(c.name)}</div>
@@ -2319,210 +2091,6 @@
       btn.textContent = '✅';
       setTimeout(() => btn.textContent = 'העתק', 2000);
     });
-  }
-
-  // ── Twilio status ────────────────────────────────────────────────────────────
-
-  function twilioCheck(label, ok) {
-    return `<span class="twilio-check ${ok ? 'ok' : 'warn'}">${ok ? '✓' : '!'} ${esc(label)}</span>`;
-  }
-
-  function setTwilioText(id, value) {
-    const el = document.getElementById(id);
-    if (el) el.textContent = value || '-';
-  }
-
-  async function loadTwilioStatus() {
-    const card = document.getElementById('twilio-card');
-    const box = document.getElementById('twilioStatusBox');
-    try {
-      const [statusRes, configRes] = await Promise.all([
-        fetch('/api/twilio/status'),
-        fetch('/api/config'),
-      ]);
-      const status = await statusRes.json();
-      const cfg = await configRes.json().catch(() => ({}));
-      const enabled = Boolean(status.enabled);
-      twilioEnabledForClient = enabled;
-      if (!enabled) {
-        if (card) card.style.display = 'none';
-        return;
-      }
-      if (card) card.style.display = '';
-      const configured = Boolean(status.configured);
-      const from = status.from || (cfg.phone ? `whatsapp:+${normalizeSharePhone(cfg.phone)}` : '');
-      const messagingService = status.messagingServiceSid || '';
-      const hasSender = Boolean(from || messagingService);
-
-      box?.classList.toggle('ready', enabled && configured);
-      box?.classList.toggle('warn', enabled && !configured);
-      if (!enabled) {
-        setTwilioText('twilioStatusTitle', 'לקוח זה עובד דרך WhatsApp Web');
-        setTwilioText('twilioStatusSub', 'קמפיינים עדיין יקבלו לינק WhatsApp, אבל ההודעות הנכנסות יטופלו דרך החיבור הרגיל ולא דרך Twilio.');
-      } else if (configured) {
-        setTwilioText('twilioStatusTitle', 'Twilio פעיל ומוכן לקבל הודעות');
-        setTwilioText('twilioStatusSub', 'הלינקים בקמפיינים יובילו למספר Twilio, והודעות נכנסות יעברו דרך החיבור של Twilio.');
-      } else {
-        setTwilioText('twilioStatusTitle', 'Twilio פעיל אבל חסרים פרטי חיבור');
-        setTwilioText('twilioStatusSub', 'צריך להשלים Account SID, Auth Token ומספר From או Messaging Service ב-Dokploy.');
-      }
-
-      setTwilioText('twilioMode', enabled ? 'TWILIO_API' : 'WhatsApp Web');
-      setTwilioText('twilioFrom', from || 'חסר');
-      setTwilioText('twilioMessagingService', messagingService || 'לא מוגדר');
-      setTwilioText('twilioSignature', status.webhookSignatureRequired ? 'פעילה' : 'כבויה');
-      const checks = [
-        twilioCheck('מצב Twilio', enabled),
-        twilioCheck('פרטי API', configured),
-        twilioCheck('מספר או Messaging Service', hasSender),
-        twilioCheck('חתימת Twilio', Boolean(status.webhookSignatureRequired)),
-      ];
-      document.getElementById('twilioChecks').innerHTML = checks.join('');
-      await Promise.all([loadTwilioOnboarding(), loadTwilioTemplates()]);
-    } catch (err) {
-      box?.classList.add('warn');
-      setTwilioText('twilioStatusTitle', 'לא ניתן לבדוק את Twilio כרגע');
-      setTwilioText('twilioStatusSub', 'נסה לרענן את הדשבורד. אם זה חוזר, בדוק את לוגי השרת.');
-    }
-  }
-
-  function parseTemplateVariables(text) {
-    return String(text || '').split('\n').reduce((acc, line) => {
-      const [key, ...rest] = line.split('=');
-      const normalizedKey = String(key || '').replace(/[^\d]/g, '');
-      if (normalizedKey) acc[normalizedKey] = rest.join('=').trim();
-      return acc;
-    }, {});
-  }
-
-  function formatTemplateVariables(vars = {}) {
-    return Object.entries(vars).map(([key, value]) => `${key}=${value}`).join('\n');
-  }
-
-  async function loadTwilioOnboarding() {
-    if (!twilioEnabledForClient) return;
-    try {
-      const data = await fetch('/api/twilio/onboarding').then(r => r.json());
-      const map = {
-        twBusinessName: 'businessName',
-        twBrandName: 'brandName',
-        twBusinessWebsite: 'businessWebsite',
-        twBusinessCategory: 'businessCategory',
-        twBusinessDescription: 'businessDescription',
-        twSupportEmail: 'supportEmail',
-        twSupportPhone: 'supportPhone',
-        twCountry: 'country',
-        twOptInDescription: 'optInDescription',
-        twFirstCampaignUseCase: 'firstCampaignUseCase',
-        twNotes: 'notes',
-      };
-      for (const [id, key] of Object.entries(map)) {
-        const el = document.getElementById(id);
-        if (el) el.value = data[key] || '';
-      }
-    } catch (_) {}
-  }
-
-  async function saveTwilioOnboarding() {
-    const body = {
-      businessName: document.getElementById('twBusinessName').value,
-      brandName: document.getElementById('twBrandName').value,
-      businessWebsite: document.getElementById('twBusinessWebsite').value,
-      businessCategory: document.getElementById('twBusinessCategory').value,
-      businessDescription: document.getElementById('twBusinessDescription').value,
-      supportEmail: document.getElementById('twSupportEmail').value,
-      supportPhone: document.getElementById('twSupportPhone').value,
-      country: document.getElementById('twCountry').value,
-      optInDescription: document.getElementById('twOptInDescription').value,
-      firstCampaignUseCase: document.getElementById('twFirstCampaignUseCase').value,
-      notes: document.getElementById('twNotes').value,
-    };
-    const res = await fetch('/api/twilio/onboarding', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
-    alert(res.ok ? 'פרטי Twilio נשמרו' : 'שמירת פרטי Twilio נכשלה');
-  }
-
-  function templateStatusClass(status) {
-    return ['approved', 'pending', 'received', 'submitted', 'rejected', 'failed'].includes(status) ? status : '';
-  }
-
-  function renderTwilioTemplates() {
-    const list = document.getElementById('twilioTemplateList');
-    const select = document.getElementById('fTwilioTemplateId');
-    if (select) {
-      const approved = twilioTemplates.filter(t => t.status === 'approved');
-      select.innerHTML = '<option value="">בחרי טמפלט מאושר</option>' + approved.map(t =>
-        `<option value="${esc(t.id)}">${esc(t.friendlyName)} (${esc(t.templateName)})</option>`
-      ).join('');
-    }
-    if (!list) return;
-    if (!twilioTemplates.length) {
-      list.innerHTML = '<div class="manual-info">עדיין אין טמפלטים. שמרי טיוטה ואז שלחי לאישור.</div>';
-      return;
-    }
-    list.innerHTML = twilioTemplates.map(t => `
-      <div class="twilio-template-row">
-        <div>
-          <strong>${esc(t.friendlyName)} <span class="status-pill ${templateStatusClass(t.status)}">${esc(t.status)}</span></strong>
-          <small>${esc(t.templateName)} · ${esc(t.language)} · ${esc(t.category)}${t.contentSid ? ` · ${esc(t.contentSid)}` : ''}</small>
-          ${t.rejectionReason ? `<small>Rejected: ${esc(t.rejectionReason)}</small>` : ''}
-          ${t.lastError ? `<small>Error: ${esc(t.lastError)}</small>` : ''}
-        </div>
-        <div class="twilio-template-actions">
-          <button class="btn-small" type="button" onclick="submitTwilioTemplateApproval('${esc(t.id)}')">שלח לאישור</button>
-          <button class="btn-small" type="button" onclick="syncTwilioTemplateApproval('${esc(t.id)}')">רענן סטטוס</button>
-        </div>
-      </div>
-    `).join('');
-  }
-
-  async function loadTwilioTemplates() {
-    if (!twilioEnabledForClient) return;
-    try {
-      twilioTemplates = await fetch('/api/twilio/templates').then(r => r.json());
-      renderTwilioTemplates();
-      updateWizardSummary();
-    } catch (_) {}
-  }
-
-  async function saveTwilioTemplateDraft() {
-    const body = {
-      friendlyName: document.getElementById('twTemplateFriendlyName').value,
-      templateName: document.getElementById('twTemplateName').value,
-      language: document.getElementById('twTemplateLanguage').value || 'he',
-      category: document.getElementById('twTemplateCategory').value,
-      body: document.getElementById('twTemplateBody').value,
-      variables: parseTemplateVariables(document.getElementById('twTemplateVariables').value),
-    };
-    const res = await fetch('/api/twilio/templates', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      alert(data.error || 'שמירת טמפלט נכשלה');
-      return;
-    }
-    document.getElementById('twTemplateFriendlyName').value = '';
-    document.getElementById('twTemplateName').value = '';
-    document.getElementById('twTemplateBody').value = '';
-    document.getElementById('twTemplateVariables').value = '';
-    await loadTwilioTemplates();
-  }
-
-  async function submitTwilioTemplateApproval(id) {
-    if (!confirm('ליצור/לשלוח את הטמפלט לאישור WhatsApp דרך Twilio?')) return;
-    const res = await fetch(`/api/twilio/templates/${encodeURIComponent(id)}/submit-approval`, { method: 'POST' });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      alert(data.error || 'שליחה לאישור נכשלה');
-    }
-    await loadTwilioTemplates();
-  }
-
-  async function syncTwilioTemplateApproval(id) {
-    const res = await fetch(`/api/twilio/templates/${encodeURIComponent(id)}/sync-approval`, { method: 'POST' });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      alert(data.error || 'רענון סטטוס נכשל');
-    }
-    await loadTwilioTemplates();
   }
 
   // ── Contacts provider ────────────────────────────────────────────────────────
@@ -2658,7 +2226,6 @@
           loadCampaigns();
           loadSettings();
           loadLinks();
-          loadTwilioStatus();
           loadContactQueueStats();
         }
       } else if (data.authenticated) {
@@ -2732,7 +2299,6 @@
   loadCampaigns();
   loadSettings();
   loadLinks();
-  loadTwilioStatus();
   loadCampaignFiles();
   loadContactQueueStats();
   setInterval(loadContactQueueStats, 5000);
