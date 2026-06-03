@@ -30,6 +30,8 @@ export interface ManagedClient {
   createdAt: string;
 }
 
+const DEFAULT_WHATSAPP_PROVIDER: ManagedClient['whatsappProvider'] = 'BAILEYS';
+
 export class OwnerStorage {
   private readonly filePath: string;
   private clients: ManagedClient[];
@@ -51,7 +53,7 @@ export class OwnerStorage {
         plan: 'self_service',
         readonlyDashboard: false,
         maxCampaigns: 7,
-        whatsappProvider: 'WEB_JS',
+        whatsappProvider: DEFAULT_WHATSAPP_PROVIDER,
         ownerAccessToken: crypto.randomBytes(32).toString('base64url'),
         ...client,
       }));
@@ -88,7 +90,7 @@ export class OwnerStorage {
       readonlyDashboard: options.readonlyDashboard ?? plan === 'basic',
       maxCampaigns: options.maxCampaigns ?? (plan === 'advanced' ? 5 : plan === 'basic' ? 1 : 7),
       serviceExpiresAt: options.serviceExpiresAt,
-      whatsappProvider: options.whatsappProvider ?? (plan === 'advanced' ? 'TWILIO_API' : 'WEB_JS'),
+      whatsappProvider: options.whatsappProvider ?? (plan === 'advanced' ? 'TWILIO_API' : DEFAULT_WHATSAPP_PROVIDER),
       managementUrl: '',
       provisioningStatus: 'pending_setup',
       createdAt: new Date().toISOString(),

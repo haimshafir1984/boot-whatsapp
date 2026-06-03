@@ -12,6 +12,23 @@ import {
 const handledMessageIds = new Set<string>();
 const MAX_TRIGGER_AGE_MS = 2 * 60 * 1000;
 const DECISION_REPLY_TIMEOUT_MS = 30 * 60 * 1000;
+const BOT_REPLY_DELAY_MS = Math.max(
+  0,
+  Number.isFinite(config.BOT_REPLY_DELAY_MS) ? config.BOT_REPLY_DELAY_MS : 3000,
+);
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitBeforeBotReply(): Promise<void> {
+  if (BOT_REPLY_DELAY_MS > 0) await sleep(BOT_REPLY_DELAY_MS);
+}
+
+async function sendBotMessage(transport: WhatsAppTransport, to: string, text: string): Promise<void> {
+  await waitBeforeBotReply();
+  await transport.sendMessage(to, text);
+}
 
 export async function handleIncomingWhatsAppMessage(
   message: IncomingWhatsAppMessage,
@@ -116,7 +133,7 @@ async function handleMessage(
       '{timeout}',
       String(settings.nameTimeoutMinutes),
     );
-    await transport.sendMessage(senderJid, askText);
+    await sendBotMessage(transport, senderJid, askText);
     console.log('   Asked for preferred name.');
 
     const timeoutHandle = setTimeout(async () => {
@@ -182,14 +199,14 @@ async function queueAndReply(
   try {
     const finalReplyText = replyText.trim();
     if (finalReplyText) {
-      await transport.sendMessage(senderJid, finalReplyText);
+      await sendBotMessage(transport, senderJid, finalReplyText);
       console.log('   Text reply sent.');
     }
 
     for (const followupText of followupMessages) {
       const text = followupText.trim();
       if (!text) continue;
-      await transport.sendMessage(senderJid, text);
+      await sendBotMessage(transport, senderJid, text);
       console.log('   Follow-up reply sent.');
     }
 
@@ -219,7 +236,7 @@ async function handleDecisionReply(
   });
 
   if (!option) {
-    await transport.sendMessage(senderJid, `לא הבנתי את הבחירה.\n\n${formatQuestion(step)}`);
+    await sendBotMessage(transport, senderJid, `לא הבנתי את הבחירה.\n\n${formatQuestion(step)}`);
     return;
   }
 
@@ -234,7 +251,7 @@ async function handleDecisionReply(
       option.fileAsSticker,
     );
   } else if (option.endText?.trim()) {
-    await transport.sendMessage(senderJid, option.endText.trim());
+    await sendBotMessage(transport, senderJid, option.endText.trim());
     console.log('   Decision reply sent.');
   }
 
@@ -265,7 +282,7 @@ async function sendDecisionStep(
   if (!step?.text.trim()) return;
 
   if (step.kind === 'message') {
-    await transport.sendMessage(senderJid, step.text.trim());
+    await sendBotMessage(transport, senderJid, step.text.trim());
     console.log('   Decision message sent.');
     if (step.nextStepId) {
       await sendDecisionStep(transport, storage, senderJid, flow, step.nextStepId);
@@ -277,6 +294,7 @@ async function sendDecisionStep(
   let sentInteractive = false;
   if (presentation === 'list' && transport.sendInteractiveList && step.options?.length) {
     try {
+      await waitBeforeBotReply();
       await transport.sendInteractiveList(
         senderJid,
         step.text.trim(),
@@ -290,6 +308,7 @@ async function sendDecisionStep(
   }
   if (presentation === 'buttons' && transport.sendInteractiveButtons && step.options?.length) {
     try {
+      await waitBeforeBotReply();
       await transport.sendInteractiveButtons(
         senderJid,
         step.text.trim(),
@@ -301,7 +320,7 @@ async function sendDecisionStep(
     }
   }
   if (!sentInteractive) {
-    await transport.sendMessage(senderJid, formatQuestion(step));
+    await sendBotMessage(transport, senderJid, formatQuestion(step));
   }
   console.log('   Decision question sent.');
   const timeoutMinutes = step.timeoutMinutes && step.timeoutMinutes > 0
@@ -341,7 +360,7 @@ async function sendDecisionTimeoutAction(
     return;
   }
   if (caption) {
-    await transport.sendMessage(senderJid, caption);
+    await sendBotMessage(transport, senderJid, caption);
     console.log('   Decision timeout message sent.');
   }
 }
@@ -357,10 +376,11 @@ async function sendDecisionFile(
   const file = storage.getUploadedFile(fileId);
   if (file && transport.sendFile) {
     const canSendAsSticker = Boolean(asSticker && file.mimeType.startsWith('image/'));
+    await waitBeforeBotReply();
     await transport.sendFile(senderJid, path.join(config.UPLOADS_PATH, file.filename), caption, { asSticker: canSendAsSticker });
     console.log(canSendAsSticker ? '   Decision sticker sent.' : '   Decision file sent.');
   } else {
-    await transport.sendMessage(senderJid, caption || 'הקובץ לא זמין כרגע.');
+    await sendBotMessage(transport, senderJid, caption || 'הקובץ לא זמין כרגע.');
     console.warn(`   Decision file unavailable: ${fileId}`);
   }
 }

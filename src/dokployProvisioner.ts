@@ -238,6 +238,7 @@ export class DokployProvisioner {
       `CLIENT_READONLY_DASHBOARD=${current.readonlyDashboard ? 'true' : 'false'}`,
       `CLIENT_MAX_CAMPAIGNS=${String(current.maxCampaigns)}`,
       `WHATSAPP_PROVIDER=${escapeEnvValue(current.whatsappProvider)}`,
+      'BAILEYS_FALLBACK_TO_WEBJS=true',
       'STORAGE_PATH=./data/contacts.json',
       'SESSION_PATH=./data/session',
       'GOOGLE_TOKEN_PATH=./data/google-token.json',

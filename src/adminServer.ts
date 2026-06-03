@@ -681,7 +681,7 @@ export function startAdminServer(storage: Storage): void {
       readonlyDashboard: plan === 'basic',
       maxCampaigns,
       serviceExpiresAt,
-      whatsappProvider: plan === 'advanced' ? 'TWILIO_API' : 'WEB_JS',
+      whatsappProvider: plan === 'advanced' ? 'TWILIO_API' : 'BAILEYS',
     });
     try {
       res.status(201).json(await provisionClient(client.id));
