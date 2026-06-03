@@ -55,6 +55,22 @@
     }
     .client-link { color: #1d4ed8; text-decoration: none; direction: ltr; display: inline-block; font-size: .79rem; }
     .client-link:hover { text-decoration: underline; }
+    .webhook-admin {
+      margin-top: 8px;
+      padding: 8px;
+      border: 1px solid #dbeafe;
+      border-radius: 7px;
+      background: #eff6ff;
+      color: #1e3a8a;
+      font-size: .76rem;
+    }
+    .webhook-admin .code {
+      display: block;
+      margin-top: 4px;
+      max-width: 260px;
+      overflow-wrap: anywhere;
+      white-space: normal;
+    }
     .retry { border: 1px solid #fecaca; background: #fff; color: #b91c1c; border-radius: 6px; padding: 6px 9px; cursor: pointer; margin-top: 6px; }
     .check-ready { border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 6px; padding: 6px 9px; cursor: pointer; margin-top: 6px; }
     .delete-client { border: 1px solid #fecaca; background: #fff1f2; color: #b91c1c; border-radius: 6px; padding: 7px 10px; cursor: pointer; font-weight: 700; }
@@ -124,6 +140,15 @@
         plan === 'advanced' ? '5' : plan === 'basic' ? '1' : '7';
     }
 
+    function getTwilioWebhookUrl(client) {
+      if (client.whatsappProvider !== 'TWILIO_API' || !client.managementUrl) return '';
+      try {
+        return `${new URL(client.managementUrl).origin}/webhooks/twilio/whatsapp`;
+      } catch (_) {
+        return '';
+      }
+    }
+
     async function loadClients() {
       const response = await fetch('/owner/api/clients');
       if (response.status === 401) {
@@ -139,7 +164,9 @@
       el.innerHTML = `
         <table>
           <thead><tr><th>לקוחה</th><th>סטטוס</th><th>לינק ללקוחה</th><th>סיסמת כניסה</th><th>ניהול</th></tr></thead>
-          <tbody>${clients.map(client => `
+          <tbody>${clients.map(client => {
+              const webhookUrl = getTwilioWebhookUrl(client);
+              return `
             <tr>
               <td><strong>${esc(client.name)}</strong></td>
               <td>
@@ -147,7 +174,10 @@
                 ${client.provisioningStatus === 'failed' ? `<div><button class="retry" onclick="retryProvision('${encodeURIComponent(client.id)}')">נסה שוב</button>${client.managementUrl ? ` <button class="check-ready" onclick="checkReady('${encodeURIComponent(client.id)}')">בדוק מוכנות</button>` : ''}</div>` : ''}
                 ${client.provisioningStatus === 'deploying' ? `<div><button class="check-ready" onclick="checkReady('${encodeURIComponent(client.id)}')">בדוק מוכנות</button></div>` : ''}
               </td>
-              <td>${client.managementUrl ? `<a class="client-link" href="${esc(client.managementUrl)}" target="_blank">${esc(client.managementUrl)}</a>` : '-'}</td>
+              <td>
+                ${client.managementUrl ? `<a class="client-link" href="${esc(client.managementUrl)}" target="_blank">${esc(client.managementUrl)}</a>` : '-'}
+                ${webhookUrl ? `<div class="webhook-admin">Webhook ל-Twilio <span class="code">${esc(webhookUrl)}</span><button class="copy" onclick="copyCode('${esc(webhookUrl)}')">העתק</button></div>` : ''}
+              </td>
               <td>
                 <span class="code">${esc(client.accessCode)}</span>
                 <button class="copy" onclick="copyCode('${esc(client.accessCode)}')">העתק</button>
@@ -158,7 +188,8 @@
                   <button class="delete-client" onclick="deleteClient('${encodeURIComponent(client.id)}')">מחק</button>
                 </div>
               </td>
-            </tr>`).join('')}</tbody>
+            </tr>`;
+            }).join('')}</tbody>
         </table>`;
     }
 

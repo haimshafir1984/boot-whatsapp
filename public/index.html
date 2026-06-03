@@ -429,27 +429,6 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .twilio-webhook-box {
-      border: 1px solid #dbeafe;
-      border-radius: 10px;
-      padding: 12px;
-      background: #eff6ff;
-    }
-    .twilio-webhook-box label { display: block; color: #1e3a8a; font-weight: 800; font-size: .82rem; margin-bottom: 6px; }
-    .twilio-webhook-row { display: flex; gap: 8px; align-items: stretch; }
-    .twilio-webhook-url {
-      flex: 1;
-      direction: ltr;
-      text-align: left;
-      border: 1px solid #bfdbfe;
-      background: #fff;
-      color: #1d4ed8;
-      border-radius: 8px;
-      padding: 8px 10px;
-      font-size: .74rem;
-      overflow-wrap: anywhere;
-      min-width: 0;
-    }
     .twilio-checks { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
     .twilio-check {
       border: 1px solid #e5e7eb;
@@ -772,7 +751,6 @@
       .page, #main-content { max-width: 560px; }
       .settings-preview-grid { grid-template-columns: 1fr; }
       .twilio-card-grid, .twilio-details, .twilio-form-grid { grid-template-columns: 1fr; }
-      .twilio-webhook-row { flex-direction: column; }
       .campaign-editor-grid, .two-fields { grid-template-columns: 1fr; }
       .wizard-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .wizard-step {
@@ -885,7 +863,7 @@
   </div>
 
   <!-- Twilio status card -->
-  <div class="card" id="twilio-card">
+  <div class="card" id="twilio-card" style="display:none">
     <div class="card-body">
       <div class="sec-title">Twilio / קישור WhatsApp</div>
       <div class="twilio-card-grid">
@@ -913,16 +891,6 @@
             </div>
           </div>
           <div class="twilio-checks" id="twilioChecks"></div>
-        </div>
-        <div class="twilio-webhook-box">
-          <label>Webhook להעתקה ב-Twilio</label>
-          <div class="twilio-webhook-row">
-            <div class="twilio-webhook-url" id="twilioWebhookUrl">-</div>
-            <button class="btn-copy" type="button" onclick="copyTwilioWebhook(this)">העתק</button>
-          </div>
-          <p class="manual-info" style="margin:10px 0 0">
-            את הכתובת הזו מגדירים ב-Twilio WhatsApp Sender עבור הודעות נכנסות.
-          </p>
         </div>
       </div>
       <div class="twilio-section">
@@ -1168,7 +1136,7 @@
 
         <div class="editor-section wizard-panel" data-wizard-panel="4">
           <div class="editor-section-title">סיכום לפני שמירה</div>
-          <div class="field">
+          <div class="field" id="twilioCampaignModeField" style="display:none">
             <label>מצב קמפיין Twilio</label>
             <div class="radio-group wizard-type-group">
               <label class="radio-btn selected" id="twModeLinkBtn" onclick="selectTwilioCampaignMode('link')">
@@ -1262,6 +1230,7 @@
   let appCapabilities = { readonlyDashboard: false, maxCampaigns: 7, serviceExpired: false, campaignCount: 0 };
   let lastCampaigns = [];
   let twilioTemplates = [];
+  let twilioEnabledForClient = false;
 
   // ── Campaigns ───────────────────────────────────────────────────────────────
 
@@ -1292,6 +1261,10 @@
     if (addBtn) {
       addBtn.style.display = canEditCampaigns() ? '' : 'none';
       addBtn.disabled = appCapabilities.campaignCount >= appCapabilities.maxCampaigns;
+    }
+    const twilioModeField = document.getElementById('twilioCampaignModeField');
+    if (twilioModeField) {
+      twilioModeField.style.display = appCapabilities.whatsappProvider === 'TWILIO_API' ? '' : 'none';
     }
     renderCampaigns(lastCampaigns || []);
   }
@@ -2350,8 +2323,6 @@
 
   // ── Twilio status ────────────────────────────────────────────────────────────
 
-  let lastTwilioWebhookUrl = '';
-
   function twilioCheck(label, ok) {
     return `<span class="twilio-check ${ok ? 'ok' : 'warn'}">${ok ? '✓' : '!'} ${esc(label)}</span>`;
   }
@@ -2362,6 +2333,7 @@
   }
 
   async function loadTwilioStatus() {
+    const card = document.getElementById('twilio-card');
     const box = document.getElementById('twilioStatusBox');
     try {
       const [statusRes, configRes] = await Promise.all([
@@ -2370,10 +2342,13 @@
       ]);
       const status = await statusRes.json();
       const cfg = await configRes.json().catch(() => ({}));
-      const webhookUrl = `${window.location.origin}/webhooks/twilio/whatsapp`;
-      lastTwilioWebhookUrl = webhookUrl;
-
       const enabled = Boolean(status.enabled);
+      twilioEnabledForClient = enabled;
+      if (!enabled) {
+        if (card) card.style.display = 'none';
+        return;
+      }
+      if (card) card.style.display = '';
       const configured = Boolean(status.configured);
       const from = status.from || (cfg.phone ? `whatsapp:+${normalizeSharePhone(cfg.phone)}` : '');
       const messagingService = status.messagingServiceSid || '';
@@ -2386,7 +2361,7 @@
         setTwilioText('twilioStatusSub', 'קמפיינים עדיין יקבלו לינק WhatsApp, אבל ההודעות הנכנסות יטופלו דרך החיבור הרגיל ולא דרך Twilio.');
       } else if (configured) {
         setTwilioText('twilioStatusTitle', 'Twilio פעיל ומוכן לקבל הודעות');
-        setTwilioText('twilioStatusSub', 'הלינקים בקמפיינים יובילו למספר Twilio, והודעות נכנסות יעברו דרך ה-webhook.');
+        setTwilioText('twilioStatusSub', 'הלינקים בקמפיינים יובילו למספר Twilio, והודעות נכנסות יעברו דרך החיבור של Twilio.');
       } else {
         setTwilioText('twilioStatusTitle', 'Twilio פעיל אבל חסרים פרטי חיבור');
         setTwilioText('twilioStatusSub', 'צריך להשלים Account SID, Auth Token ומספר From או Messaging Service ב-Dokploy.');
@@ -2396,30 +2371,19 @@
       setTwilioText('twilioFrom', from || 'חסר');
       setTwilioText('twilioMessagingService', messagingService || 'לא מוגדר');
       setTwilioText('twilioSignature', status.webhookSignatureRequired ? 'פעילה' : 'כבויה');
-      setTwilioText('twilioWebhookUrl', webhookUrl);
-
       const checks = [
         twilioCheck('מצב Twilio', enabled),
         twilioCheck('פרטי API', configured),
         twilioCheck('מספר או Messaging Service', hasSender),
-        twilioCheck('Webhook מוכן להעתקה', true),
         twilioCheck('חתימת Twilio', Boolean(status.webhookSignatureRequired)),
       ];
       document.getElementById('twilioChecks').innerHTML = checks.join('');
+      await Promise.all([loadTwilioOnboarding(), loadTwilioTemplates()]);
     } catch (err) {
       box?.classList.add('warn');
       setTwilioText('twilioStatusTitle', 'לא ניתן לבדוק את Twilio כרגע');
       setTwilioText('twilioStatusSub', 'נסה לרענן את הדשבורד. אם זה חוזר, בדוק את לוגי השרת.');
     }
-  }
-
-  function copyTwilioWebhook(btn) {
-    if (!lastTwilioWebhookUrl) return;
-    navigator.clipboard.writeText(lastTwilioWebhookUrl).then(() => {
-      const original = btn.textContent;
-      btn.textContent = 'הועתק';
-      setTimeout(() => { btn.textContent = original; }, 1800);
-    });
   }
 
   function parseTemplateVariables(text) {
@@ -2436,6 +2400,7 @@
   }
 
   async function loadTwilioOnboarding() {
+    if (!twilioEnabledForClient) return;
     try {
       const data = await fetch('/api/twilio/onboarding').then(r => r.json());
       const map = {
@@ -2511,6 +2476,7 @@
   }
 
   async function loadTwilioTemplates() {
+    if (!twilioEnabledForClient) return;
     try {
       twilioTemplates = await fetch('/api/twilio/templates').then(r => r.json());
       renderTwilioTemplates();
@@ -2693,8 +2659,6 @@
           loadSettings();
           loadLinks();
           loadTwilioStatus();
-          loadTwilioOnboarding();
-          loadTwilioTemplates();
           loadContactQueueStats();
         }
       } else if (data.authenticated) {
@@ -2769,8 +2733,6 @@
   loadSettings();
   loadLinks();
   loadTwilioStatus();
-  loadTwilioOnboarding();
-  loadTwilioTemplates();
   loadCampaignFiles();
   loadContactQueueStats();
   setInterval(loadContactQueueStats, 5000);
