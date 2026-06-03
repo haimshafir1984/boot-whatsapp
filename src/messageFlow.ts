@@ -99,7 +99,7 @@ async function handleMessage(
   }
   console.log(`[MSG] trigger matched via=${source} age=${Math.round(messageAgeMs / 1000)}s campaign="${trigger.campaignName}" from=${senderJid}`);
 
-  const senderPhone = await transport.resolvePhone(senderJid);
+  const senderPhone = message.senderPhone || await transport.resolvePhone(senderJid);
   const displayName = await message.getDisplayName();
   const pushname =
     displayName.trim() ||

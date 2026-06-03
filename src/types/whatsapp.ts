@@ -3,6 +3,7 @@ export type WhatsAppMessageSource = 'message' | 'message_create' | 'webhook' | '
 export interface IncomingWhatsAppMessage {
   id: string;
   from: string;
+  senderPhone?: string;
   to?: string;
   body: string;
   timestamp?: number;

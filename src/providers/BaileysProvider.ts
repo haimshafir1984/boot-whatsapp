@@ -23,6 +23,22 @@ function jidToPhone(jid: string): string {
   return jid.split('@')[0]?.split(':')[0] ?? jid;
 }
 
+function isPhoneJid(jid?: string | null): boolean {
+  return Boolean(jid && jid.includes('@s.whatsapp.net'));
+}
+
+function pickSenderPhone(raw: any): string | undefined {
+  const key = raw?.key ?? {};
+  const candidates = [
+    key.remoteJidAlt,
+    key.participantAlt,
+    key.remoteJid,
+    key.participant,
+  ];
+  const phoneJid = candidates.find((jid) => isPhoneJid(jid));
+  return phoneJid ? jidToPhone(phoneJid) : undefined;
+}
+
 function normalizeJid(value: string): string {
   const trimmed = value.trim();
   if (trimmed.includes('@')) return trimmed;
@@ -218,6 +234,7 @@ export class BaileysProvider implements WhatsAppProvider {
       const incoming: IncomingWhatsAppMessage = {
         id: raw.key?.id ?? `${from}:${raw.messageTimestamp ?? ''}`,
         from,
+        senderPhone: pickSenderPhone(raw),
         body,
         timestamp: Number(raw.messageTimestamp || Math.floor(Date.now() / 1000)),
         async getDisplayName() {
