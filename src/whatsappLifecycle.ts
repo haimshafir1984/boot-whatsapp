@@ -11,11 +11,23 @@ const CAMPAIGN_START_LEAD_MS = 15 * 60 * 1000;
 let scheduler: NodeJS.Timeout | null = null;
 let transition: Promise<void> | null = null;
 
-function createProvider(storage: Storage, pairingPhone?: string): WhatsAppProvider {
-  if (config.WHATSAPP_PROVIDER === 'BAILEYS') {
-    return createBaileysProvider(storage, pairingPhone);
+type ProviderRuntime = {
+  name: 'WEB_JS' | 'BAILEYS';
+  provider: WhatsAppProvider;
+};
+
+function createProvider(storage: Storage, pairingPhone?: string, providerName = config.WHATSAPP_PROVIDER): ProviderRuntime {
+  if (providerName === 'BAILEYS') {
+    return { name: 'BAILEYS', provider: createBaileysProvider(storage, pairingPhone) };
   }
-  return createWebJsProvider(storage, pairingPhone);
+  return { name: 'WEB_JS', provider: createWebJsProvider(storage, pairingPhone) };
+}
+
+async function initializeProvider(runtime: ProviderRuntime): Promise<WhatsAppProvider> {
+  botState.actualProvider = runtime.name;
+  botState.client = runtime.provider;
+  await runtime.provider.initialize();
+  return runtime.provider;
 }
 
 export async function startWhatsAppBot(storage: Storage, reason = 'manual', pairingPhone?: string): Promise<void> {
@@ -27,12 +39,29 @@ export async function startWhatsAppBot(storage: Storage, reason = 'manual', pair
     botState.lifecycle = 'starting';
     botState.listeningReason = reason;
     botState.intentionalRestart = false;
+    botState.requestedProvider = config.WHATSAPP_PROVIDER;
+    botState.actualProvider = null;
+    botState.providerFallbackReason = null;
 
-    const provider = createProvider(storage, pairingPhone);
-    botState.client = provider;
-    await provider.initialize();
+    const runtime = createProvider(storage, pairingPhone);
+    try {
+      await initializeProvider(runtime);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const canFallback = runtime.name === 'BAILEYS' && process.env.BAILEYS_FALLBACK_TO_WEBJS !== 'false';
+      if (!canFallback) throw err;
+
+      console.warn(`Baileys provider failed during startup; falling back to WEB_JS: ${message}`);
+      botState.providerFallbackReason = message;
+      try {
+        await runtime.provider.destroy();
+      } catch {
+        // Best effort cleanup before starting the fallback provider.
+      }
+      await initializeProvider(createProvider(storage, pairingPhone, 'WEB_JS'));
+    }
     botState.lifecycle = 'running';
-    console.log(`WhatsApp client start requested: ${reason}.`);
+    console.log(`WhatsApp client start requested: ${reason}. provider=${botState.actualProvider ?? 'unknown'}`);
   })();
 
   try {
@@ -58,6 +87,7 @@ export async function stopWhatsAppBot(reason = 'manual'): Promise<void> {
       console.warn('WhatsApp client destroy failed:', err);
     } finally {
       botState.client = null;
+      botState.actualProvider = null;
       botState.qrDataUrl = null;
       botState.pairingCode = null;
       botState.pairingAttempted = false;

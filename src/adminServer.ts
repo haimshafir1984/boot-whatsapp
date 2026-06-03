@@ -941,6 +941,9 @@ export function startAdminServer(storage: Storage): void {
         connectedPhone: config.TWILIO_FROM.replace(/^whatsapp:/, '') || profile.whatsappPhone,
         lifecycle: twilioConfigured() ? 'running' : 'stopped',
         listeningReason: twilioConfigured() ? 'twilio webhook mode' : 'twilio env missing',
+        requestedProvider: config.WHATSAPP_PROVIDER,
+        actualProvider: 'TWILIO_API',
+        providerFallbackReason: null,
         shouldRun: storage.hasCampaignsNeedingBot(),
       });
       return;
@@ -953,6 +956,9 @@ export function startAdminServer(storage: Storage): void {
       connectedPhone: botState.connectedPhone ?? profile.whatsappPhone,
       lifecycle: botState.lifecycle,
       listeningReason: botState.listeningReason,
+      requestedProvider: botState.requestedProvider,
+      actualProvider: botState.actualProvider,
+      providerFallbackReason: botState.providerFallbackReason,
       shouldRun: storage.hasCampaignsNeedingBot(),
     });
   });

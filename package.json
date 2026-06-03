@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts"
+    "dev": "ts-node src/index.ts",
+    "measure:whatsapp-memory": "node scripts/measure-whatsapp-memory.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc13",
