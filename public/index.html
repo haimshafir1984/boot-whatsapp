@@ -18,10 +18,11 @@
     .page, #main-content { width: 100%; max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
     #qr-card, #connected-card { width: 100%; max-width: 560px; align-self: center; }
     #main-content > .card:nth-of-type(1) { order: 1; }
-    #main-content > .card:nth-of-type(3) { order: 2; }
-    #main-content > .card:nth-of-type(4) { order: 3; }
-    #main-content > .card:nth-of-type(2) { order: 4; }
+    #main-content > .card:nth-of-type(2) { order: 2; }
+    #main-content > .card:nth-of-type(3) { order: 3; }
+    #main-content > .card:nth-of-type(4) { order: 4; }
     #main-content > .card:nth-of-type(5) { order: 5; }
+    #main-content > .card:nth-of-type(6) { order: 6; }
 
     /* ── Card ── */
     .card { width: 100%; background: #fff; border-radius: 16px; box-shadow: 0 2px 12px rgba(0,0,0,.09); overflow: hidden; }
@@ -91,6 +92,15 @@
       margin-top: 4px;
     }
     .btn-add:hover { background: #dcfce7; }
+    .primary-action-box {
+      border: 1px solid #bbf7d0;
+      background: #f0fdf4;
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+    .primary-action-title { font-size: .98rem; font-weight: 800; color: #14532d; margin-bottom: 4px; }
+    .primary-action-text { font-size: .82rem; color: #166534; line-height: 1.55; margin-bottom: 12px; }
 
     .results-list { display: flex; flex-direction: column; gap: 10px; }
     .result-row {
@@ -306,6 +316,16 @@
     .field textarea { min-height: 82px; resize: vertical; line-height: 1.45; }
     .field input:focus, .field textarea:focus { outline: none; border-color: #25d366; }
     .field .hint { font-size: .75rem; color: #4b5563; margin-top: 4px; }
+    .field-error {
+      display: none;
+      color: #dc2626;
+      font-size: .76rem;
+      font-weight: 700;
+      margin-top: 5px;
+    }
+    .field.has-error input,
+    .field.has-error textarea { border-color: #dc2626; }
+    .field.has-error .field-error { display: block; }
     .field .preview {
       font-size: .8rem; background: #f3f4f6; border-radius: 6px;
       padding: 6px 10px; margin-top: 6px; color: #374151;
@@ -504,6 +524,8 @@
     }
     .file-manager-title { font-size: .8rem; font-weight: 800; color: #374151; }
     .file-manager input[type=file] { display: none; }
+    .file-manager.dashboard-files { margin: 0; padding: 14px; }
+    .file-manager.dashboard-files .file-manager-title { font-size: .92rem; color: #111827; }
     .file-list { display: flex; flex-direction: column; gap: 6px; }
     .file-item {
       display: flex;
@@ -761,14 +783,37 @@
   <div class="card">
     <div class="card-body">
       <div class="sec-title">קמפיינים</div>
+      <div class="primary-action-box">
+        <div class="primary-action-title">בואי נבנה קמפיין WhatsApp חדש</div>
+        <div class="primary-action-text">הגדירי משפט שהלקוחה תשלח, הודעת תשובה, וקבלי לינק מוכן לשיתוף.</div>
+        <button class="btn-add" id="addCampaignBtn" onclick="openModal()">יצירת קמפיין חדש</button>
+      </div>
       <div id="campaign-list">
         <!-- filled by JS -->
       </div>
-      <button class="btn-add" id="addCampaignBtn" style="margin-top:14px" onclick="openModal()">+ הוסף קמפיין</button>
       <hr />
       <div class="sec-title">תוצאות קמפיינים</div>
       <div class="results-list" id="campaign-results">
         <p style="color:#9ca3af;font-size:.85rem;text-align:center;padding:8px 0">אין תוצאות עדיין</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Client files card -->
+  <div class="card">
+    <div class="card-body">
+      <div class="sec-title">קבצי לקוחה</div>
+      <div class="file-manager dashboard-files">
+        <div class="file-manager-head">
+          <div>
+            <div class="file-manager-title">קבצים שאפשר לשלוח בשיחות</div>
+            <div class="hint">העלי כאן קטלוגים, תמונות מוצרים, מחירונים או קבצי PDF. הקבצים נשמרים ברמת הלקוחה וזמינים לכל הקמפיינים.</div>
+          </div>
+          <button type="button" class="btn-small" onclick="document.getElementById('clientFileUpload').click()">+ העלאת קובץ</button>
+          <input id="clientFileUpload" type="file" accept=".pdf,image/jpeg,image/png,image/webp,video/mp4" onchange="uploadCampaignFile(this)" />
+        </div>
+        <div class="file-list" id="campaignFilesList"></div>
+        <div class="toast" id="filesToast"></div>
       </div>
     </div>
   </div>
@@ -835,7 +880,7 @@
 <!-- ── Modal ───────────────────────────────────────────────────────────── -->
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal">
-    <h2 id="modalTitle">הוסף קמפיין</h2>
+    <h2 id="modalTitle">יצירת קמפיין חדש</h2>
     <div class="modal-subtitle">הגדירי את פרטי הקמפיין ואת כל מה שהמשתמשת תקבל בשיחה אחת.</div>
     <div class="wizard-shell">
       <div class="wizard-progress"><div class="wizard-progress-fill" id="wizardProgressFill"></div></div>
@@ -847,7 +892,7 @@
           <span>2</span><strong>שמירת איש קשר</strong><small>שאלת שם ואישור</small>
         </button>
         <button type="button" class="wizard-step" data-wizard-step="3" onclick="goWizardStep(3)">
-          <span>3</span><strong>שאלות נוספות</strong><small>הודעות, בחירות וקבצים</small>
+          <span>3</span><strong>שאלות המשך</strong><small>לא חובה, אפשר לדלג</small>
         </button>
         <button type="button" class="wizard-step" data-wizard-step="4" onclick="goWizardStep(4)">
           <span>4</span><strong>אישור ולינק</strong><small>סיכום לפני שמירה</small>
@@ -861,14 +906,15 @@
           <div class="editor-section-title">פרטי הקמפיין</div>
           <div class="field">
             <label>שם הקמפיין <span class="required">*</span></label>
-            <input type="text" id="fName" placeholder='למשל: "קמפיין סוף שבוע"' oninput="updateWizardSummary()" />
+            <input type="text" id="fName" placeholder='למשל: "קמפיין סוף שבוע"' oninput="clearFieldError('fName'); updateWizardSummary()" />
+            <div class="field-error" id="fNameError"></div>
           </div>
           <div class="field">
             <label>סוג קמפיין <span class="required">*</span></label>
             <div class="radio-group">
               <label class="radio-btn selected" id="rBtn1" onclick="selectType(1)">
                 <input type="radio" name="triggerType" value="1" checked />
-                <span>Bot</span>
+                <span>קמפיין רגיל</span>
               </label>
               <label class="radio-btn" id="rBtn2" onclick="selectType(2)">
                 <input type="radio" name="triggerType" value="2" />
@@ -879,18 +925,21 @@
           <div id="type1Fields">
             <div class="field">
               <label>משפט הטריגר <span class="required">*</span></label>
-              <input type="text" id="fPhrase" placeholder="הטקסט המדויק שהמשתמשת תשלח" oninput="updateCampaignConversationPreview()" />
+              <input type="text" id="fPhrase" placeholder="הטקסט המדויק שהמשתמשת תשלח" oninput="clearFieldError('fPhrase'); updateCampaignConversationPreview()" />
               <div class="hint">הקישור שיווצר יכין למשתמשת את ההודעה הזו לשליחה.</div>
+              <div class="field-error" id="fPhraseError"></div>
             </div>
           </div>
           <div id="type2Fields" style="display:none">
             <div class="field">
               <label>משפט פתיחה <span class="required">*</span></label>
-              <input type="text" id="fBasePhrase" placeholder="אשמח להצטרף לסטטוס שלך" oninput="updatePreview()" />
+              <input type="text" id="fBasePhrase" placeholder="אשמח להצטרף לסטטוס שלך" oninput="clearFieldError('fBasePhrase'); updatePreview()" />
+              <div class="field-error" id="fBasePhraseError"></div>
             </div>
             <div class="field">
               <label>שם הממליץ <span class="required">*</span></label>
-              <input type="text" id="fReferrer" placeholder="למשל: רות" oninput="updatePreview()" />
+              <input type="text" id="fReferrer" placeholder="למשל: רות" oninput="clearFieldError('fReferrer'); updatePreview()" />
+              <div class="field-error" id="fReferrerError"></div>
               <div class="hint">הודעת הטריגר שתופיע בקישור:</div>
               <div class="preview" id="triggerPreview">[משפט] הגעתי דרך [שם הממליץ]</div>
               <div class="hint" style="margin-top:4px">סיומת לשם השמור: <strong id="suffixPreview">- ([שם הממליץ])</strong></div>
@@ -942,28 +991,19 @@
         </div>
 
         <div class="editor-section wizard-panel" data-wizard-panel="3">
-          <div class="editor-section-title">שאלות נוספות והודעות המשך</div>
+          <div class="editor-section-title">הודעות ושאלות המשך</div>
           <div class="field" style="margin-bottom:0">
-            <label>הודעות המשך נוספות</label>
+            <label>רוצה להוסיף המשך לשיחה?</label>
+            <div class="hint" style="margin-bottom:10px">לא חובה. אפשר לשמור קמפיין בסיסי עכשיו ולהוסיף שאלות והודעות אחר כך.</div>
             <div class="followup-list" id="fFollowupMessages"></div>
-            <div class="hint" style="margin-top:14px;font-weight:700;color:#374151">עץ החלטה</div>
+            <div class="hint" style="margin-top:14px;font-weight:700;color:#374151">שאלות בחירה בהמשך השיחה</div>
             <div class="flow-guide">
               מתאים למגבלות WhatsApp: בכל שאלת בחירה אפשר להגדיר עד 3 תשובות קצרות. המשתמש עונה במספר או בטקסט התשובה, והמערכת ממשיכה לפי הנתיב שבחרת.
-            </div>
-            <div class="file-manager">
-              <div class="file-manager-head">
-                <div>
-                  <div class="file-manager-title">קבצים לשליחה</div>
-                  <div class="hint">PDF, תמונה או MP4 עד 15MB.</div>
-                </div>
-                <button type="button" class="btn-small" onclick="document.getElementById('campaignFileUpload').click()">+ העלה קובץ</button>
-                <input id="campaignFileUpload" type="file" accept=".pdf,image/jpeg,image/png,image/webp,video/mp4" onchange="uploadCampaignFile(this)" />
-              </div>
-              <div class="file-list" id="campaignFilesList"></div>
             </div>
             <div class="decision-flow" id="fDecisionFlow" style="margin-top:8px"></div>
             <button type="button" class="btn-small" style="margin-top:8px" onclick="addDecisionStep()">+ הוסף הודעה / שאלה</button>
             <button type="button" class="btn-small" style="margin-top:8px" onclick="addCampaignFollowupMessage()">+ הוסף הודעת המשך</button>
+            <button type="button" class="btn-small" style="margin-top:8px" onclick="goWizardStep(4)">להמשיך בלי תוספות</button>
           </div>
         </div>
 
@@ -977,6 +1017,7 @@
             <div><span>הודעות המשך / שאלות</span><strong id="wizardSummaryFlow">-</strong></div>
           </div>
           <div class="wizard-link-box">
+            <strong style="display:block;color:#14532d;margin-bottom:4px">הלינק מוכן לשיתוף</strong>
             <div class="hint" id="wizardLinkHint">הלינק יווצר לפי מספר ה-WhatsApp המחובר ומשפט הטריגר.</div>
             <div id="wizardShareLink" class="wizard-share-link">https://wa.me/...</div>
           </div>
@@ -984,8 +1025,8 @@
             <strong>הקמפיין נשמר ומוכן לשיתוף.</strong>
             <p>אפשר להעתיק את הלינק, לפתוח אותו לבדיקה ב-WhatsApp או לחזור לדשבורד.</p>
             <div class="wizard-success-actions">
-              <button type="button" id="wizardCopyLinkBtn" onclick="copyWizardLink(this)">העתק לינק</button>
-              <a id="wizardOpenLinkBtn" href="#" target="_blank" rel="noopener">פתח ב-WhatsApp</a>
+              <button type="button" id="wizardCopyLinkBtn" onclick="copyWizardLink(this)">העתקת לינק לשיתוף</button>
+              <a id="wizardOpenLinkBtn" href="#" target="_blank" rel="noopener">פתיחה לבדיקה ב-WhatsApp</a>
               <button type="button" onclick="closeModal()">חזור לדשבורד</button>
             </div>
           </div>
@@ -1008,7 +1049,7 @@
       <span class="wizard-counter" id="wizardCounter">שלב 1 מתוך 4</span>
       <div class="wizard-footer-actions">
         <button class="btn-cancel" onclick="closeModal()" type="button">ביטול</button>
-        <button class="btn-confirm" id="wizardNextBtn" onclick="nextWizardStep()" type="button">הבא</button>
+        <button class="btn-confirm" id="wizardNextBtn" onclick="nextWizardStep()" type="button">להמשיך לשלב הבא</button>
       </div>
     </div>
   </div>
@@ -1024,7 +1065,7 @@
     decisionFlow: [],
     contactsProvider: 'google',
     referralPrefix: 'הגעתי דרך ',
-    botSuffix: ' - (Bot)',
+    botSuffix: '',
   };
   let editingId = null;
   let lastWizardLink = '';
@@ -1114,9 +1155,9 @@
           <div class="campaign-phrase">"${esc(c.triggerPhrase)}"</div>
           <div class="campaign-meta">
             <span class="badge ${c.triggerType === 1 ? 'badge-bot' : 'badge-ref'}">
-              ${c.triggerType === 1 ? 'Bot' : 'ממליץ'}
+              ${c.triggerType === 1 ? 'קמפיין רגיל' : 'ממליץ'}
             </span>
-            <span class="suffix-tag">→ סיומת: "${esc(c.suffix)}"</span>
+            ${c.triggerType === 2 && c.suffix ? `<span class="suffix-tag">→ סיומת: "${esc(c.suffix)}"</span>` : ''}
             <span style="font-size:.7rem;color:${c.active ? '#16a34a' : '#9ca3af'}">
               ${c.active ? '● פעיל' : '○ מושבת'}
             </span>
@@ -1191,7 +1232,7 @@
   const wizardStepCopy = {
     1: 'מגדירים את שם הקמפיין, סוג הקמפיין ומשפט הטריגר שהמשתמשת תשלח.',
     2: 'לפני שאלות ההמשך, המערכת שואלת שם, שומרת איש קשר, ושולחת הודעת אישור.',
-    3: 'בונים את המשך השיחה: הודעות, שאלות בחירה, קבצים ו-timeout.',
+    3: 'לא חובה: אפשר להוסיף הודעות ושאלות בחירה, או להמשיך ישר לסיכום.',
     4: 'בודקים את הקמפיין, שומרים, ומקבלים לינק מוכן לשיתוף.',
   };
 
@@ -1211,7 +1252,7 @@
     if (copy) copy.textContent = wizardStepCopy[wizardStep];
     document.getElementById('wizardCounter').textContent = `שלב ${wizardStep} מתוך 4`;
     document.getElementById('wizardBackBtn').style.visibility = wizardStep === 1 ? 'hidden' : 'visible';
-    document.getElementById('wizardNextBtn').textContent = wizardStep === 4 ? 'שמור קמפיין' : 'הבא';
+    document.getElementById('wizardNextBtn').textContent = wizardStep === 4 ? 'שמירת הקמפיין והפעלתו' : 'להמשיך לשלב הבא';
     updateCampaignConversationPreview();
     updateWizardSummary();
   }
@@ -1229,41 +1270,57 @@
     goWizardStep(wizardStep - 1);
   }
 
-  function getCampaignTwilioSettings() {
-    return {
-      mode: 'link',
-      templateId: undefined,
-      optInConfirmed: false,
-      audienceNotes: '',
-    };
-  }
-
   function validateWizardStep(step) {
     const errEl = document.getElementById('modalError');
     if (errEl) errEl.textContent = '';
+    clearWizardFieldErrors();
     if (step !== 1) return true;
 
     const name = document.getElementById('fName').value.trim();
     const triggerType = Number(document.querySelector('input[name=triggerType]:checked')?.value || 1);
     if (!name) {
-      if (errEl) errEl.textContent = 'נא להזין שם קמפיין לפני שממשיכים.';
+      setFieldError('fName', 'חסר שם קמפיין. למשל: קמפיין סוף שבוע.');
+      if (errEl) errEl.textContent = 'יש שדה שצריך להשלים לפני שממשיכים.';
       return false;
     }
     if (triggerType === 1 && !document.getElementById('fPhrase').value.trim()) {
-      if (errEl) errEl.textContent = 'נא להזין משפט טריגר שהמשתמשת תשלח.';
+      setFieldError('fPhrase', 'חסר משפט טריגר. זה הטקסט שהלקוחה תשלח ב-WhatsApp.');
+      if (errEl) errEl.textContent = 'יש שדה שצריך להשלים לפני שממשיכים.';
       return false;
     }
     if (triggerType === 2) {
       if (!document.getElementById('fBasePhrase').value.trim()) {
-        if (errEl) errEl.textContent = 'נא להזין את משפט הטריגר הבסיסי.';
+        setFieldError('fBasePhrase', 'חסר משפט פתיחה. למשל: אשמח להצטרף לסטטוס שלך.');
+        if (errEl) errEl.textContent = 'יש שדה שצריך להשלים לפני שממשיכים.';
         return false;
       }
       if (!document.getElementById('fReferrer').value.trim()) {
-        if (errEl) errEl.textContent = 'נא להזין שם ממליץ.';
+        setFieldError('fReferrer', 'חסר שם ממליץ. למשל: רות.');
+        if (errEl) errEl.textContent = 'יש שדה שצריך להשלים לפני שממשיכים.';
         return false;
       }
     }
     return true;
+  }
+
+  function setFieldError(fieldId, message) {
+    const field = document.getElementById(fieldId)?.closest('.field');
+    const error = document.getElementById(`${fieldId}Error`);
+    field?.classList.add('has-error');
+    if (error) error.textContent = message;
+  }
+
+  function clearFieldError(fieldId) {
+    const field = document.getElementById(fieldId)?.closest('.field');
+    const error = document.getElementById(`${fieldId}Error`);
+    field?.classList.remove('has-error');
+    if (error) error.textContent = '';
+    const errEl = document.getElementById('modalError');
+    if (errEl) errEl.textContent = '';
+  }
+
+  function clearWizardFieldErrors() {
+    ['fName', 'fPhrase', 'fBasePhrase', 'fReferrer'].forEach(clearFieldError);
   }
 
   function currentTriggerText() {
@@ -1308,7 +1365,7 @@
     }
     if (nextBtn) {
       nextBtn.disabled = Boolean(saved);
-      nextBtn.textContent = saved ? 'נשמר' : (wizardStep === 4 ? 'שמור קמפיין' : 'הבא');
+      nextBtn.textContent = saved ? 'נשמר' : (wizardStep === 4 ? 'שמירת הקמפיין והפעלתו' : 'להמשיך לשלב הבא');
     }
     if (hint && saved) hint.textContent = 'זה הלינק המוכן לשיתוף לפי מספר ה-WhatsApp ומשפט הטריגר.';
     if (hint && !saved) hint.textContent = myPhone
@@ -1324,9 +1381,9 @@
     const flowCount = conversation.followupMessages.length + conversation.decisionFlow.length;
 
     document.getElementById('wizardSummaryName')?.replaceChildren(document.createTextNode(name));
-    document.getElementById('wizardSummaryType')?.replaceChildren(document.createTextNode(triggerType === 1 ? 'בוט רגיל' : 'שם ממליץ'));
+    document.getElementById('wizardSummaryType')?.replaceChildren(document.createTextNode(triggerType === 1 ? 'קמפיין רגיל' : 'קמפיין ממליץ'));
     document.getElementById('wizardSummaryTrigger')?.replaceChildren(document.createTextNode(trigger));
-    document.getElementById('wizardSummaryAskName')?.replaceChildren(document.createTextNode(conversation.askNameEnabled ? 'פעילה' : 'כבויה'));
+    document.getElementById('wizardSummaryAskName')?.replaceChildren(document.createTextNode(conversation.askNameEnabled ? 'פעילה - המערכת תשאל שם לפני השמירה' : 'כבויה - איש הקשר יישמר בלי שאלת שם'));
     document.getElementById('wizardSummaryFlow')?.replaceChildren(document.createTextNode(flowCount ? `${flowCount} פריטים` : 'ללא המשך'));
     const link = buildCampaignShareLink(trigger);
     lastWizardLink = link;
@@ -1349,7 +1406,7 @@
       return;
     }
     editingId = null;
-    document.getElementById('modalTitle').textContent = 'הוסף קמפיין';
+    document.getElementById('modalTitle').textContent = 'יצירת קמפיין חדש';
     document.getElementById('fName').value      = '';
     document.getElementById('fPhrase').value    = '';
     document.getElementById('fBasePhrase').value = '';
@@ -1431,8 +1488,13 @@
     const triggerType = Number(document.querySelector('input[name=triggerType]:checked').value);
     const errEl       = document.getElementById('modalError');
     errEl.textContent = '';
+    clearWizardFieldErrors();
 
-    if (!name) { errEl.textContent = 'נא להזין שם קמפיין'; return; }
+    if (!name) {
+      setFieldError('fName', 'חסר שם קמפיין. למשל: קמפיין סוף שבוע.');
+      errEl.textContent = 'יש שדה שצריך להשלים לפני שמירה.';
+      return;
+    }
     const startAtLocal = document.getElementById('fStartAt').value;
     const endAtLocal = document.getElementById('fEndAt').value;
     if (startAtLocal && endAtLocal && new Date(startAtLocal).getTime() >= new Date(endAtLocal).getTime()) {
@@ -1442,19 +1504,30 @@
     const startAt = localDateTimeToIso(startAtLocal);
     const endAt = localDateTimeToIso(endAtLocal);
     const conversation = getCampaignConversation();
-    const twilio = getCampaignTwilioSettings();
 
     let body;
     if (triggerType === 1) {
       const phrase = document.getElementById('fPhrase').value.trim();
-      if (!phrase) { errEl.textContent = 'נא להזין משפט טריגר'; return; }
-      body = { name, triggerType, triggerPhrase: phrase, startAt, endAt, conversation, twilio };
+      if (!phrase) {
+        setFieldError('fPhrase', 'חסר משפט טריגר. זה הטקסט שהלקוחה תשלח ב-WhatsApp.');
+        errEl.textContent = 'יש שדה שצריך להשלים לפני שמירה.';
+        return;
+      }
+      body = { name, triggerType, triggerPhrase: phrase, startAt, endAt, conversation };
     } else {
       const basePhrase   = document.getElementById('fBasePhrase').value.trim();
       const referrerName = document.getElementById('fReferrer').value.trim();
-      if (!basePhrase)   { errEl.textContent = 'נא להזין משפט טריגר'; return; }
-      if (!referrerName) { errEl.textContent = 'שם הממליץ הוא שדה חובה'; return; }
-      body = { name, triggerType, basePhrase, referrerName, startAt, endAt, conversation, twilio };
+      if (!basePhrase) {
+        setFieldError('fBasePhrase', 'חסר משפט פתיחה. למשל: אשמח להצטרף לסטטוס שלך.');
+        errEl.textContent = 'יש שדה שצריך להשלים לפני שמירה.';
+        return;
+      }
+      if (!referrerName) {
+        setFieldError('fReferrer', 'חסר שם ממליץ. למשל: רות.');
+        errEl.textContent = 'יש שדה שצריך להשלים לפני שמירה.';
+        return;
+      }
+      body = { name, triggerType, basePhrase, referrerName, startAt, endAt, conversation };
     }
 
     const url    = editingId ? `/api/campaigns/${editingId}` : '/api/campaigns';
@@ -1471,7 +1544,7 @@
       errEl.textContent = data.error || 'שגיאה';
       if (saveBtn) {
         saveBtn.disabled = false;
-        saveBtn.textContent = 'שמור קמפיין';
+        saveBtn.textContent = 'שמירת הקמפיין והפעלתו';
       }
       return;
     }
@@ -1595,12 +1668,6 @@
         select.value = appFiles.some(file => file.id === selected) ? selected : '';
         select.dataset.selectedFile = select.value;
       });
-      document.querySelectorAll('[data-timeout-file]').forEach(select => {
-        const selected = select.value || select.dataset.selectedFile || '';
-        select.innerHTML = fileOptions(selected);
-        select.value = appFiles.some(file => file.id === selected) ? selected : '';
-        select.dataset.selectedFile = select.value;
-      });
     } catch (_) {}
   }
 
@@ -1617,9 +1684,11 @@
     const file = input.files?.[0];
     if (!file) return;
     const errEl = document.getElementById('modalError');
-    errEl.textContent = '';
+    const toastId = input.id === 'clientFileUpload' ? 'filesToast' : 'modalError';
+    if (errEl) errEl.textContent = '';
     if (file.size > 15 * 1024 * 1024) {
-      errEl.textContent = 'הקובץ גדול מדי. המגבלה כרגע היא 15MB.';
+      if (toastId === 'filesToast') showToast('filesToast', 'error', 'הקובץ גדול מדי. אפשר להעלות קובץ עד 15MB.');
+      else if (errEl) errEl.textContent = 'הקובץ גדול מדי. המגבלה כרגע היא 15MB.';
       input.value = '';
       return;
     }
@@ -1632,13 +1701,16 @@
       });
       const data = await res.json();
       if (!res.ok) {
-        errEl.textContent = data.error || 'העלאת הקובץ נכשלה';
+        if (toastId === 'filesToast') showToast('filesToast', 'error', data.error || 'העלאת הקובץ נכשלה');
+        else if (errEl) errEl.textContent = data.error || 'העלאת הקובץ נכשלה';
         return;
       }
       await loadCampaignFiles();
+      if (toastId === 'filesToast') showToast('filesToast', 'success', 'הקובץ עלה ונשמר לשימוש בקמפיינים.');
       updateCampaignConversationPreview();
     } catch (err) {
-      errEl.textContent = 'העלאת הקובץ נכשלה';
+      if (toastId === 'filesToast') showToast('filesToast', 'error', 'העלאת הקובץ נכשלה');
+      else if (errEl) errEl.textContent = 'העלאת הקובץ נכשלה';
     } finally {
       input.value = '';
     }
@@ -1694,22 +1766,19 @@
           <label>אחרי ההודעה לעבור אל</label>
           <select data-step-next onchange="updateCampaignConversationPreview()" data-selected-next="${esc(step.nextStepId || '')}"></select>
         </div>
+        <div class="decision-options" data-options>
+          <div class="decision-options-label">תשובות אפשריות (עד 3)</div>
+          ${options.map((option, optionIndex) => decisionOptionHtml(option, optionIndex)).join('')}
+          <button type="button" class="btn-small" onclick="addDecisionOption(this)">+ הוסף תשובה</button>
+        </div>
         <div class="decision-options" data-question-timeout>
           <div class="decision-options-label">אם לא ענו לשאלה</div>
           <div class="decision-option-grid">
             <input data-timeout-minutes type="number" min="1" max="1440" value="${esc(step.timeoutMinutes || 30)}" oninput="updateCampaignConversationPreview()" placeholder="דקות המתנה" />
             <span class="hint">דקות</span>
-            <div class="decision-option-label">קובץ לשליחה בזמן timeout</div>
-            <select data-timeout-file data-selected-file="${esc(step.timeoutFileId || '')}" onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">${fileOptions(step.timeoutFileId || '')}</select>
-            <label class="decision-inline-check"><input data-timeout-file-sticker type="checkbox" ${step.timeoutFileAsSticker ? 'checked' : ''} onchange="updateCampaignConversationPreview()" /> שלח כמדבקה</label>
-            <div class="decision-option-label">הודעה / כיתוב ל-timeout</div>
-            <textarea data-timeout-text oninput="updateCampaignConversationPreview()" placeholder="למשל: כנראה שעוד לא שמרת, שולחת לך תזכורת קטנה">${esc(step.timeoutText || '')}</textarea>
+            <div class="decision-option-label">הודעה שתישלח אם לא התקבלה תשובה</div>
+            <textarea data-timeout-text oninput="updateCampaignConversationPreview()" placeholder="למשל: שולחת תזכורת קטנה. אפשר לענות כשנוח לך.">${esc(step.timeoutText || '')}</textarea>
           </div>
-        </div>
-        <div class="decision-options" data-options>
-          <div class="decision-options-label">תשובות אפשריות (עד 3)</div>
-          ${options.map((option, optionIndex) => decisionOptionHtml(option, optionIndex)).join('')}
-          <button type="button" class="btn-small" onclick="addDecisionOption(this)">+ הוסף תשובה</button>
         </div>
       </div>
     `;
@@ -1849,21 +1918,21 @@
         nextSelect.style.display = action === 'next' ? '' : 'none';
         fileSelect.style.display = action === 'file' ? '' : 'none';
         stickerWrap.style.display = action === 'file' ? '' : 'none';
-        endText.style.display = action === 'end' || action === 'file' ? '' : 'none';
+        endText.style.display = '';
         option.querySelector('[data-option-next-label]').style.display = action === 'next' ? '' : 'none';
         option.querySelector('[data-option-file-label]').style.display = action === 'file' ? '' : 'none';
-        option.querySelector('[data-option-end-label]').style.display = action === 'end' || action === 'file' ? '' : 'none';
+        option.querySelector('[data-option-end-label]').style.display = '';
         option.querySelector('[data-option-end-text]').placeholder = action === 'file'
           ? 'כיתוב שיופיע עם הקובץ (אופציונלי)'
-          : 'הודעת סיום שתישלח אחרי התשובה הזו';
+          : (action === 'next' ? 'טקסט שיישלח לפני המעבר לשלב הבא' : 'הודעת סיום שתישלח אחרי התשובה הזו');
         option.querySelector('[data-option-end-label]').textContent = action === 'file'
           ? 'כיתוב לקובץ'
-          : 'הודעת פרידה קבועה';
+          : (action === 'next' ? 'טקסט לפני המשך לשלב הבא' : 'הודעת פרידה קבועה');
         if (summary) {
           if (action === 'next') {
             const target = selectedStepLabel(nextSelect);
             summary.textContent = target
-              ? `אחרי שהמשתמש בוחר "${optionText}", ממשיכים אל ${target}.`
+              ? `אחרי שהמשתמש בוחר "${optionText}", נשלח טקסט קצר ואז ממשיכים אל ${target}.`
               : `אחרי שהמשתמש בוחר "${optionText}", צריך לבחור לאיזה שלב להמשיך.`;
           } else if (action === 'file') {
             const file = selectedFileLabel(fileSelect);
@@ -1930,7 +1999,9 @@
               const action = option.querySelector('[data-option-action]')?.value || 'end';
               if (action === 'next') {
                 const nextStepId = option.querySelector('[data-option-next]').value;
+                const nextText = option.querySelector('[data-option-end-text]').value.trim();
                 if (nextStepId) clean.nextStepId = nextStepId;
+                if (nextText) clean.endText = nextText;
               } else if (action === 'file') {
                 const fileId = option.querySelector('[data-option-file]').value;
                 const caption = option.querySelector('[data-option-end-text]').value.trim();
@@ -1947,11 +2018,8 @@
           if (!item.options.length) return null;
           const timeoutMinutes = Number(step.querySelector('[data-timeout-minutes]')?.value);
           const timeoutText = step.querySelector('[data-timeout-text]')?.value.trim() || '';
-          const timeoutFileId = step.querySelector('[data-timeout-file]')?.value || '';
           if (timeoutMinutes > 0) item.timeoutMinutes = timeoutMinutes;
           if (timeoutText) item.timeoutText = timeoutText;
-          if (timeoutFileId) item.timeoutFileId = timeoutFileId;
-          if (step.querySelector('[data-timeout-file-sticker]')?.checked) item.timeoutFileAsSticker = true;
         }
         return item;
       })
@@ -2019,18 +2087,23 @@
       if (step.kind === 'question') {
         const mode = step.presentation === 'list' ? 'רשימה נפתחת' : (step.presentation === 'text' ? 'טקסט ממוספר' : 'כפתורים');
         const options = (step.options || []).map((option, index) => `${index + 1}. ${option.text}`).join('\n');
-        const fileNotes = (step.options || [])
+        const optionNotes = (step.options || [])
+          .filter(option => option.endText || option.fileId)
           .filter(option => option.fileId)
           .map(option => {
             const file = appFiles.find(item => item.id === option.fileId);
             return `אם בוחרים "${option.text}" תישלח ${option.fileAsSticker ? 'מדבקה' : 'קובץ'}${file ? `: ${file.originalName}` : ''}`;
           })
           .join('\n');
-        const timeoutFile = step.timeoutFileId ? appFiles.find(item => item.id === step.timeoutFileId) : null;
-        const timeoutNote = step.timeoutFileId || step.timeoutText
-          ? `אם לא עונים תוך ${step.timeoutMinutes || 30} דקות תישלח ${step.timeoutFileAsSticker ? 'מדבקה' : 'תגובה'}${timeoutFile ? `: ${timeoutFile.originalName}` : ''}`
+        const textNotes = (step.options || [])
+          .filter(option => option.endText && !option.fileId)
+          .map(option => `אם בוחרים "${option.text}" תישלח הודעה: ${option.endText}`)
+          .join('\n');
+        const notes = [optionNotes, textNotes].filter(Boolean).join('\n');
+        const timeoutNote = step.timeoutText
+          ? `אם לא עונים תוך ${step.timeoutMinutes || 30} דקות תישלח הודעה: ${step.timeoutText}`
           : '';
-        return `<div class="chat-row bot"><div class="chat-bubble">${esc(`${step.text}\n(${mode})${options ? '\n\n' + options : ''}${fileNotes ? '\n\n' + fileNotes : ''}${timeoutNote ? '\n\n' + timeoutNote : ''}`)}</div></div>`;
+        return `<div class="chat-row bot"><div class="chat-bubble">${esc(`${step.text}\n(${mode})${options ? '\n\n' + options : ''}${notes ? '\n\n' + notes : ''}${timeoutNote ? '\n\n' + timeoutNote : ''}`)}</div></div>`;
       }
       return `<div class="chat-row bot"><div class="chat-bubble">${esc(step.text)}</div></div>`;
     }).join('');
