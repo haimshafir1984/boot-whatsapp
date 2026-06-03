@@ -23,6 +23,7 @@
     #main-content > .card:nth-of-type(4) { order: 4; }
     #main-content > .card:nth-of-type(5) { order: 5; }
     #main-content > .card:nth-of-type(6) { order: 6; }
+    #main-content > .card:nth-of-type(7) { order: 7; }
 
     /* ── Card ── */
     .card { width: 100%; background: #fff; border-radius: 16px; box-shadow: 0 2px 12px rgba(0,0,0,.09); overflow: hidden; }
@@ -101,6 +102,118 @@
     }
     .primary-action-title { font-size: .98rem; font-weight: 800; color: #14532d; margin-bottom: 4px; }
     .primary-action-text { font-size: .82rem; color: #166534; line-height: 1.55; margin-bottom: 12px; }
+    .requirements-panel {
+      border: 1px solid #dbeafe;
+      background: #eff6ff;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .requirements-panel summary {
+      list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px;
+      cursor: pointer;
+      color: #1e3a8a;
+      font-weight: 800;
+    }
+    .requirements-panel summary::-webkit-details-marker { display: none; }
+    .requirements-panel summary::after {
+      content: '+';
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      background: #fff;
+      color: #1d4ed8;
+      font-weight: 900;
+      flex-shrink: 0;
+    }
+    .requirements-panel[open] summary::after { content: '-'; }
+    .requirements-body {
+      padding: 0 14px 14px;
+      color: #1e3a8a;
+      font-size: .8rem;
+      line-height: 1.6;
+    }
+    .requirements-note {
+      border: 1px solid #bfdbfe;
+      background: #fff;
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      color: #1e40af;
+    }
+    .requirements-list { display: flex; flex-direction: column; gap: 8px; }
+    .requirement-item {
+      background: rgba(255,255,255,.72);
+      border: 1px solid #bfdbfe;
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .requirement-item strong { display: block; color: #172554; margin-bottom: 2px; }
+    .twilio-log-intro {
+      font-size: .82rem;
+      color: #4b5563;
+      line-height: 1.6;
+      margin-bottom: 12px;
+    }
+    .twilio-log-list { display: flex; flex-direction: column; gap: 8px; }
+    .twilio-log-row {
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: #fff;
+    }
+    .twilio-log-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 6px;
+      font-size: .74rem;
+      color: #6b7280;
+    }
+    .twilio-log-badges { display: flex; flex-wrap: wrap; gap: 5px; }
+    .twilio-log-badge {
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: .7rem;
+      font-weight: 800;
+    }
+    .twilio-log-badge.inbound { background: #dbeafe; color: #1d4ed8; }
+    .twilio-log-badge.outbound { background: #dcfce7; color: #166534; }
+    .twilio-log-badge.failed { background: #fee2e2; color: #991b1b; }
+    .twilio-log-badge.ignored { background: #f3f4f6; color: #4b5563; }
+    .twilio-log-addresses {
+      font-size: .74rem;
+      color: #6b7280;
+      margin-bottom: 5px;
+      direction: ltr;
+      text-align: right;
+    }
+    .twilio-log-body {
+      font-size: .82rem;
+      color: #111827;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .twilio-log-details {
+      margin-top: 5px;
+      font-size: .74rem;
+      color: #b45309;
+      line-height: 1.45;
+    }
+    .twilio-log-empty {
+      color: #9ca3af;
+      font-size: .85rem;
+      text-align: center;
+      padding: 12px 0;
+    }
 
     .results-list { display: flex; flex-direction: column; gap: 10px; }
     .result-row {
@@ -799,6 +912,63 @@
     </div>
   </div>
 
+  <!-- Required details card -->
+  <div class="card">
+    <div class="card-body">
+      <details class="requirements-panel">
+        <summary>פרטים נדרשים להקמת WhatsApp ב-Twilio</summary>
+        <div class="requirements-body">
+          <div class="requirements-note">
+            הלקוחה לא צריכה להבין Twilio או Meta. בקמפיינים הנוכחיים המשתמש שולח הודעה ראשונה, ולכן אין צורך לאסוף מהלקוחה אישור opt-in לקמפיין עצמו. הפרטים כאן נדרשים כדי שנוכל להקים עבורה מספר WhatsApp עסקי, לוודא שהמותג מזוהה נכון, ולהפעיל את הקמפיינים בלי שהיא תצטרך לנהל חשבון פייסבוק.
+          </div>
+          <div class="requirements-list">
+            <div class="requirement-item">
+              <strong>שם העסק / שם המותג שיופיע ב-WhatsApp</strong>
+              נדרש כדי להגדיר את שם התצוגה של השולח. השם צריך להיות תואם למותג ולאתר כדי שתהליך האישור יעבור בצורה חלקה.
+            </div>
+            <div class="requirement-item">
+              <strong>מספר WhatsApp ייעודי או מספר חדש מ-Twilio</strong>
+              אפשר להשתמש במספר קיים שמתאים לאימות, או לבקש שנקצה מספר חדש מ-Twilio. אם משתמשים במספר קיים, הוא חייב להיות פנוי מ-WhatsApp רגיל/Business ולקבל קוד אימות ב-SMS או בשיחה.
+            </div>
+            <div class="requirement-item">
+              <strong>אין צורך שללקוחה יהיה Facebook או Meta Business</strong>
+              את שלב החיבור של Twilio/Meta אנחנו מטפלים בו. אם בהמשך יידרשו פרטי אימות עסקי נוספים, נבקש רק את הפרטים הספציפיים שנדרשים ולא נדרוש מהלקוחה לנהל עמוד פייסבוק.
+            </div>
+            <div class="requirement-item">
+              <strong>אתר עסק פעיל, עמוד נחיתה או פרופיל ציבורי</strong>
+              נדרש כדי להראות שהמותג אמיתי ותואם לשם התצוגה. כדאי שהשם באתר או בעמוד הנחיתה יהיה זהה לשם שמבקשים להציג ב-WhatsApp.
+            </div>
+            <div class="requirement-item">
+              <strong>כתובת עסק ותחום פעילות</strong>
+              נדרשים לפרופיל העסקי ולסיווג התחום בזמן הקמת מספר ה-WhatsApp העסקי.
+            </div>
+            <div class="requirement-item">
+              <strong>אימייל תמיכה ותיאור קצר של העסק</strong>
+              נדרשים לפרופיל WhatsApp העסקי, כדי שלקוחות יוכלו להבין מי העסק ואיך לפנות אליו.
+            </div>
+            <div class="requirement-item">
+              <strong>לוגו או תמונת מותג</strong>
+              לא תמיד חובה להתחלה, אבל מומלץ לפרופיל אמין וברור ב-WhatsApp.
+            </div>
+          </div>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <!-- Twilio messages card -->
+  <div class="card">
+    <div class="card-body">
+      <div class="sec-title">ניהול הודעות Twilio</div>
+      <div class="twilio-log-intro">
+        בקמפיינים שמחוברים דרך Twilio, ההודעות לא מופיעות ב-WhatsApp האישי של הלקוחה. כאן אפשר לראות מה התקבל מהמשתמשים, מה נשלח אליהם, והאם הייתה שגיאה בשליחה.
+      </div>
+      <div class="twilio-log-list" id="twilioLogsList">
+        <div class="twilio-log-empty">אין פעילות הודעות עדיין</div>
+      </div>
+    </div>
+  </div>
+
   <!-- Client files card -->
   <div class="card">
     <div class="card-body">
@@ -1213,6 +1383,55 @@
         </div>
       </div>
     `).join('');
+  }
+
+  async function loadTwilioLogs() {
+    const el = document.getElementById('twilioLogsList');
+    if (!el) return;
+    try {
+      const res = await fetch('/api/twilio/logs?limit=25');
+      if (!res.ok) throw new Error('failed');
+      const data = await res.json();
+      renderTwilioLogs(data.items || []);
+    } catch (_) {
+      el.innerHTML = '<div class="twilio-log-empty">לא ניתן לטעון כרגע את יומן הודעות Twilio</div>';
+    }
+  }
+
+  function renderTwilioLogs(items) {
+    const el = document.getElementById('twilioLogsList');
+    if (!el) return;
+    if (!items.length) {
+      el.innerHTML = '<div class="twilio-log-empty">אין פעילות הודעות עדיין</div>';
+      return;
+    }
+    el.innerHTML = items.map(item => {
+      const directionText = item.direction === 'outbound' ? 'נשלחה ללקוח' : 'התקבלה ממשתמש';
+      const statusText = {
+        received: 'התקבלה',
+        sent: 'נשלחה',
+        failed: 'נכשלה',
+        ignored: 'לא טופלה',
+      }[item.status] || item.status || 'לא ידוע';
+      const statusClass = ['failed', 'ignored'].includes(item.status) ? item.status : item.direction;
+      const at = item.at ? new Date(item.at).toLocaleString('he-IL') : '';
+      const from = item.from ? `מאת: ${item.from.replace(/^whatsapp:/, '')}` : '';
+      const to = item.to ? `אל: ${item.to.replace(/^whatsapp:/, '')}` : '';
+      return `
+        <div class="twilio-log-row">
+          <div class="twilio-log-head">
+            <div class="twilio-log-badges">
+              <span class="twilio-log-badge ${esc(item.direction)}">${directionText}</span>
+              <span class="twilio-log-badge ${esc(statusClass)}">${statusText}</span>
+            </div>
+            <span>${esc(at)}</span>
+          </div>
+          <div class="twilio-log-addresses">${esc([from, to].filter(Boolean).join(' | '))}</div>
+          <div class="twilio-log-body">${esc(item.body || 'הודעה ללא טקסט')}</div>
+          ${item.details ? `<div class="twilio-log-details">${esc(item.details)}</div>` : ''}
+        </div>
+      `;
+    }).join('');
   }
 
   async function toggleCampaign(id) {
@@ -2373,9 +2592,11 @@
   loadSettings();
   loadLinks();
   loadCampaignFiles();
+  loadTwilioLogs();
   loadContactQueueStats();
   setInterval(loadContactQueueStats, 5000);
   setInterval(loadCampaignResults, 5000);
+  setInterval(loadTwilioLogs, 5000);
   qrInterval = setInterval(checkQR, 2000);
   checkQR();
 </script>
