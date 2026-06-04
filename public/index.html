@@ -155,6 +155,43 @@
       padding: 10px 12px;
     }
     .requirement-item strong { display: block; color: #172554; margin-bottom: 2px; }
+    .twilio-onboarding-form {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .twilio-onboarding-form .form-field.full { grid-column: 1 / -1; }
+    .twilio-onboarding-form label {
+      display: block;
+      font-weight: 700;
+      color: #172554;
+      margin-bottom: 4px;
+      font-size: .78rem;
+    }
+    .twilio-onboarding-form input,
+    .twilio-onboarding-form select,
+    .twilio-onboarding-form textarea {
+      width: 100%;
+      border: 1px solid #bfdbfe;
+      border-radius: 9px;
+      padding: 9px 10px;
+      font: inherit;
+      font-size: .82rem;
+      background: #fff;
+      color: #111827;
+    }
+    .twilio-onboarding-form textarea {
+      min-height: 74px;
+      resize: vertical;
+    }
+    .twilio-onboarding-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
     .twilio-log-intro {
       font-size: .82rem;
       color: #4b5563;
@@ -798,6 +835,7 @@
       .page, #main-content { max-width: 560px; }
       .settings-preview-grid { grid-template-columns: 1fr; }
       .campaign-editor-grid, .two-fields { grid-template-columns: 1fr; }
+      .twilio-onboarding-form { grid-template-columns: 1fr; }
       .wizard-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .wizard-step {
         min-width: 0;
@@ -823,7 +861,7 @@
       </svg>
       <div>
         <h1>חיבור WhatsApp</h1>
-        <p>סרקי את הקוד כדי לחבר את החשבון</p>
+        <p>סריקת הקוד תחבר את החשבון</p>
       </div>
     </div>
     <div class="card-body">
@@ -845,10 +883,10 @@
       <!-- Phone pairing panel -->
       <div class="auth-panel" id="panel-phone">
         <div class="pair-steps">
-          1. הזיני את מספר הטלפון שלך<br>
-          2. קבלי קוד 8 ספרות<br>
+          1. להזין את מספר הטלפון<br>
+          2. לקבלת קוד 8 ספרות<br>
           3. WhatsApp → הגדרות → מכשירים מקושרים → קשר מכשיר → קשר עם מספר טלפון<br>
-          4. הזיני את הקוד
+          4. להזין את הקוד
         </div>
         <div class="pair-input-row">
           <input type="tel" id="pairPhone" placeholder="9725XXXXXXXX" />
@@ -897,8 +935,8 @@
     <div class="card-body">
       <div class="sec-title">קמפיינים</div>
       <div class="primary-action-box">
-        <div class="primary-action-title">בואי נבנה קמפיין WhatsApp חדש</div>
-        <div class="primary-action-text">הגדירי משפט שהלקוחה תשלח, הודעת תשובה, וקבלי לינק מוכן לשיתוף.</div>
+        <div class="primary-action-title">בניית קמפיין WhatsApp חדש</div>
+        <div class="primary-action-text">להגדיר משפט שהמשתמש ישלח, הודעת תשובה, ולקבל לינק מוכן לשיתוף.</div>
         <button class="btn-add" id="addCampaignBtn" onclick="openModal()">יצירת קמפיין חדש</button>
       </div>
       <div id="campaign-list">
@@ -919,37 +957,72 @@
         <summary>פרטים נדרשים להקמת WhatsApp ב-Twilio</summary>
         <div class="requirements-body">
           <div class="requirements-note">
-            הלקוחה לא צריכה להבין Twilio או Meta. בקמפיינים הנוכחיים המשתמש שולח הודעה ראשונה, ולכן אין צורך לאסוף מהלקוחה אישור opt-in לקמפיין עצמו. הפרטים כאן נדרשים כדי שנוכל להקים עבורה מספר WhatsApp עסקי, לוודא שהמותג מזוהה נכון, ולהפעיל את הקמפיינים בלי שהיא תצטרך לנהל חשבון פייסבוק.
+            הפרטים כאן משמשים להקמת מספר WhatsApp עסקי ב-Twilio, לזיהוי נכון של המותג, וליצירת ערוץ הודעות שאפשר להפעיל ממנו קמפיינים.
           </div>
           <div class="requirements-list">
             <div class="requirement-item">
-              <strong>שם העסק / שם המותג שיופיע ב-WhatsApp</strong>
-              נדרש כדי להגדיר את שם התצוגה של השולח. השם צריך להיות תואם למותג ולאתר כדי שתהליך האישור יעבור בצורה חלקה.
+              <strong>שם שיופיע ב-WhatsApp</strong>
+              נדרש כדי להגדיר את שם התצוגה של השולח. כדאי שהשם יהיה ברור, אמיתי ותואם לשם שבו המותג מוכר ללקוחות.
             </div>
             <div class="requirement-item">
               <strong>מספר WhatsApp ייעודי או מספר חדש מ-Twilio</strong>
               אפשר להשתמש במספר קיים שמתאים לאימות, או לבקש שנקצה מספר חדש מ-Twilio. אם משתמשים במספר קיים, הוא חייב להיות פנוי מ-WhatsApp רגיל/Business ולקבל קוד אימות ב-SMS או בשיחה.
             </div>
             <div class="requirement-item">
-              <strong>אין צורך שללקוחה יהיה Facebook או Meta Business</strong>
-              את שלב החיבור של Twilio/Meta אנחנו מטפלים בו. אם בהמשך יידרשו פרטי אימות עסקי נוספים, נבקש רק את הפרטים הספציפיים שנדרשים ולא נדרוש מהלקוחה לנהל עמוד פייסבוק.
+              <strong>תחום פעילות ותיאור קצר</strong>
+              נדרשים כדי להגדיר את פרופיל ה-WhatsApp העסקי בשפה פשוטה וברורה.
             </div>
             <div class="requirement-item">
-              <strong>אתר עסק פעיל, עמוד נחיתה או פרופיל ציבורי</strong>
-              נדרש כדי להראות שהמותג אמיתי ותואם לשם התצוגה. כדאי שהשם באתר או בעמוד הנחיתה יהיה זהה לשם שמבקשים להציג ב-WhatsApp.
-            </div>
-            <div class="requirement-item">
-              <strong>כתובת עסק ותחום פעילות</strong>
-              נדרשים לפרופיל העסקי ולסיווג התחום בזמן הקמת מספר ה-WhatsApp העסקי.
-            </div>
-            <div class="requirement-item">
-              <strong>אימייל תמיכה ותיאור קצר של העסק</strong>
-              נדרשים לפרופיל WhatsApp העסקי, כדי שלקוחות יוכלו להבין מי העסק ואיך לפנות אליו.
+              <strong>אימייל וטלפון ליצירת קשר</strong>
+              נדרשים כדי שיהיה איש קשר זמין להקמה, לאימותים ולשאלות תפעוליות.
             </div>
             <div class="requirement-item">
               <strong>לוגו או תמונת מותג</strong>
               לא תמיד חובה להתחלה, אבל מומלץ לפרופיל אמין וברור ב-WhatsApp.
             </div>
+          </div>
+          <form class="twilio-onboarding-form" id="twilioOnboardingForm" onsubmit="saveTwilioOnboarding(event)">
+            <div class="form-field">
+              <label for="twilioBrandName">שם שיופיע ב-WhatsApp</label>
+              <input id="twilioBrandName" name="brandName" placeholder="לדוגמה: סטודיו נועה" />
+            </div>
+            <div class="form-field">
+              <label for="twilioBusinessName">שם מלא / שם העסק</label>
+              <input id="twilioBusinessName" name="businessName" placeholder="שם לזיהוי פנימי ולהקמה" />
+            </div>
+            <div class="form-field">
+              <label for="twilioNumberPlan">מספר WhatsApp</label>
+              <select id="twilioNumberPlan" name="firstCampaignUseCase">
+                <option value="">לבחור אפשרות</option>
+                <option value="twilio-number">צריך לקבל מספר חדש מ-Twilio</option>
+                <option value="existing-number">יש מספר קיים שאפשר לחבר</option>
+                <option value="not-sure">עדיין לא בטוח</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label for="twilioSupportPhone">טלפון ליצירת קשר / אימות</label>
+              <input id="twilioSupportPhone" name="supportPhone" placeholder="מספר שאפשר לקבל בו SMS או שיחה" />
+            </div>
+            <div class="form-field">
+              <label for="twilioSupportEmail">אימייל ליצירת קשר</label>
+              <input id="twilioSupportEmail" name="supportEmail" type="email" placeholder="name@example.com" />
+            </div>
+            <div class="form-field">
+              <label for="twilioCategory">תחום פעילות</label>
+              <input id="twilioCategory" name="businessCategory" placeholder="לדוגמה: קוסמטיקה, טיפולים, הדרכה" />
+            </div>
+            <div class="form-field full">
+              <label for="twilioDescription">תיאור קצר שיופיע בפרופיל</label>
+              <textarea id="twilioDescription" name="businessDescription" placeholder="משפט קצר שמסביר מי המותג ומה השירות"></textarea>
+            </div>
+            <div class="form-field full">
+              <label for="twilioNotes">הערות / נתונים נוספים</label>
+              <textarea id="twilioNotes" name="notes" placeholder="כאן אפשר להוסיף מספר קיים, שעות זמינות, בקשות מיוחדות או כל פרט שחשוב להקמה"></textarea>
+            </div>
+          </form>
+          <div class="twilio-onboarding-actions">
+            <button type="button" class="btn-save" style="width:auto;padding:9px 18px" onclick="saveTwilioOnboarding()">שמירת פרטים</button>
+            <div class="toast" id="twilioOnboardingToast"></div>
           </div>
         </div>
       </details>
@@ -961,7 +1034,7 @@
     <div class="card-body">
       <div class="sec-title">ניהול הודעות Twilio</div>
       <div class="twilio-log-intro">
-        בקמפיינים שמחוברים דרך Twilio, ההודעות לא מופיעות ב-WhatsApp האישי של הלקוחה. כאן אפשר לראות מה התקבל מהמשתמשים, מה נשלח אליהם, והאם הייתה שגיאה בשליחה.
+        בקמפיינים שמחוברים דרך Twilio, ההודעות לא מופיעות באפליקציית WhatsApp אישית. כאן אפשר לראות מה התקבל מהמשתמשים, מה נשלח אליהם, והאם הייתה שגיאה בשליחה.
       </div>
       <div class="twilio-log-list" id="twilioLogsList">
         <div class="twilio-log-empty">אין פעילות הודעות עדיין</div>
@@ -972,12 +1045,12 @@
   <!-- Client files card -->
   <div class="card">
     <div class="card-body">
-      <div class="sec-title">קבצי לקוחה</div>
+      <div class="sec-title">קבצי לקוח</div>
       <div class="file-manager dashboard-files">
         <div class="file-manager-head">
           <div>
             <div class="file-manager-title">קבצים שאפשר לשלוח בשיחות</div>
-            <div class="hint">העלי כאן קטלוגים, תמונות מוצרים, מחירונים או קבצי PDF. הקבצים נשמרים ברמת הלקוחה וזמינים לכל הקמפיינים.</div>
+            <div class="hint">אפשר להעלות כאן קטלוגים, תמונות מוצרים, מחירונים או קבצי PDF. הקבצים נשמרים ברמת הלקוח וזמינים לכל הקמפיינים.</div>
           </div>
           <button type="button" class="btn-small" onclick="document.getElementById('clientFileUpload').click()">+ העלאת קובץ</button>
           <input id="clientFileUpload" type="file" accept=".pdf,image/jpeg,image/png,image/webp,video/mp4" onchange="uploadCampaignFile(this)" />
@@ -1037,7 +1110,7 @@
     <div class="card-body">
       <div class="sec-title">קישורי WhatsApp לשיתוף</div>
       <p style="font-size:.8rem;color:#6b7280;margin-bottom:14px">
-        שלח את הקישור הרלוונטי ללקוחות שלך — לחיצה תפתח צ'אט עם הטקסט מוכן לשליחה.
+        אפשר לשלוח את הקישור הרלוונטי ללקוחות — לחיצה תפתח צ'אט עם הטקסט מוכן לשליחה.
       </p>
       <div id="links-list"></div>
     </div>
@@ -1051,7 +1124,7 @@
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal">
     <h2 id="modalTitle">יצירת קמפיין חדש</h2>
-    <div class="modal-subtitle">הגדירי את פרטי הקמפיין ואת כל מה שהמשתמשת תקבל בשיחה אחת.</div>
+    <div class="modal-subtitle">להגדיר את פרטי הקמפיין ואת כל מה שהמשתמש יקבל בשיחה אחת.</div>
     <div class="wizard-shell">
       <div class="wizard-progress"><div class="wizard-progress-fill" id="wizardProgressFill"></div></div>
       <div class="wizard-steps">
@@ -1068,7 +1141,7 @@
           <span>4</span><strong>אישור ולינק</strong><small>סיכום לפני שמירה</small>
         </button>
       </div>
-      <div class="wizard-step-copy" id="wizardStepCopy">מגדירים את שם הקמפיין, סוג הקמפיין ומשפט הטריגר שהמשתמשת תשלח.</div>
+      <div class="wizard-step-copy" id="wizardStepCopy">מגדירים את שם הקמפיין, סוג הקמפיין ומשפט הטריגר שהמשתמש ישלח.</div>
     </div>
     <div class="campaign-editor-grid wizard-grid">
       <div>
@@ -1095,8 +1168,8 @@
           <div id="type1Fields">
             <div class="field">
               <label>משפט הטריגר <span class="required">*</span></label>
-              <input type="text" id="fPhrase" placeholder="הטקסט המדויק שהמשתמשת תשלח" oninput="clearFieldError('fPhrase'); updateCampaignConversationPreview()" />
-              <div class="hint">הקישור שיווצר יכין למשתמשת את ההודעה הזו לשליחה.</div>
+              <input type="text" id="fPhrase" placeholder="הטקסט המדויק שהמשתמש ישלח" oninput="clearFieldError('fPhrase'); updateCampaignConversationPreview()" />
+              <div class="hint">הקישור שיווצר יכין למשתמש את ההודעה הזו לשליחה.</div>
               <div class="field-error" id="fPhraseError"></div>
             </div>
           </div>
@@ -1136,7 +1209,7 @@
           <div class="toggle-row">
             <div>
               <div class="toggle-label">לשאול באיזה שם לשמור</div>
-              <div class="toggle-sub">אם פעיל, המשתמשת תתבקש לבחור שם לפני השמירה</div>
+              <div class="toggle-sub">אם פעיל, המשתמש יתבקש לבחור שם לפני השמירה</div>
             </div>
             <label class="switch">
               <input type="checkbox" id="fAskName" onchange="updateEditorTimeoutVisibility(); updateCampaignConversationPreview();" />
@@ -1229,8 +1302,8 @@
   let appSettings = {
     askNameEnabled: false,
     nameTimeoutMinutes: 5,
-    askNameText: 'ברוכה הבאה🥰\nבאיזה שם תרצי שאשמור אותך?',
-    replyText: 'שמרתי אותך. כדי ליהנות מהסטטוסים שלי, אשמח שתשמרי אותי גם באנשי הקשר.',
+    askNameText: 'שלום וברוכים הבאים\nבאיזה שם לשמור אותך?',
+    replyText: 'הפרטים נשמרו. כדי לקבל עדכונים, חשוב לשמור את המספר באנשי הקשר.',
     followupMessages: [],
     decisionFlow: [],
     contactsProvider: 'google',
@@ -1434,6 +1507,44 @@
     }).join('');
   }
 
+  async function loadTwilioOnboarding() {
+    const form = document.getElementById('twilioOnboardingForm');
+    if (!form) return;
+    try {
+      const res = await fetch('/api/twilio/onboarding');
+      if (!res.ok) return;
+      const data = await res.json();
+      ['brandName', 'businessName', 'firstCampaignUseCase', 'supportPhone', 'supportEmail', 'businessCategory', 'businessDescription', 'notes']
+        .forEach(name => {
+          const field = form.elements[name];
+          if (field) field.value = data[name] || '';
+        });
+    } catch (_) {}
+  }
+
+  async function saveTwilioOnboarding(event) {
+    if (event) event.preventDefault();
+    const form = document.getElementById('twilioOnboardingForm');
+    if (!form) return;
+    const payload = {};
+    ['brandName', 'businessName', 'firstCampaignUseCase', 'supportPhone', 'supportEmail', 'businessCategory', 'businessDescription', 'notes']
+      .forEach(name => {
+        payload[name] = form.elements[name]?.value || '';
+      });
+    try {
+      const res = await fetch('/api/twilio/onboarding', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'שמירת הפרטים נכשלה');
+      showToast('twilioOnboardingToast', 'success', 'הפרטים נשמרו.');
+    } catch (err) {
+      showToast('twilioOnboardingToast', 'error', err?.message || 'שמירת הפרטים נכשלה');
+    }
+  }
+
   async function toggleCampaign(id) {
     await fetch(`/api/campaigns/${id}/toggle`, { method: 'PATCH' });
     loadCampaigns();
@@ -1449,7 +1560,7 @@
 
   let wizardStep = 1;
   const wizardStepCopy = {
-    1: 'מגדירים את שם הקמפיין, סוג הקמפיין ומשפט הטריגר שהמשתמשת תשלח.',
+    1: 'מגדירים את שם הקמפיין, סוג הקמפיין ומשפט הטריגר שהמשתמש ישלח.',
     2: 'לפני שאלות ההמשך, המערכת שואלת שם, שומרת איש קשר, ושולחת הודעת אישור.',
     3: 'לא חובה: אפשר להוסיף הודעות ושאלות בחירה, או להמשיך ישר לסיכום.',
     4: 'בודקים את הקמפיין, שומרים, ומקבלים לינק מוכן לשיתוף.',
@@ -1503,7 +1614,7 @@
       return false;
     }
     if (triggerType === 1 && !document.getElementById('fPhrase').value.trim()) {
-      setFieldError('fPhrase', 'חסר משפט טריגר. זה הטקסט שהלקוחה תשלח ב-WhatsApp.');
+      setFieldError('fPhrase', 'חסר משפט טריגר. זה הטקסט שהמשתמש ישלח ב-WhatsApp.');
       if (errEl) errEl.textContent = 'יש שדה שצריך להשלים לפני שממשיכים.';
       return false;
     }
@@ -1728,7 +1839,7 @@
     if (triggerType === 1) {
       const phrase = document.getElementById('fPhrase').value.trim();
       if (!phrase) {
-        setFieldError('fPhrase', 'חסר משפט טריגר. זה הטקסט שהלקוחה תשלח ב-WhatsApp.');
+        setFieldError('fPhrase', 'חסר משפט טריגר. זה הטקסט שהמשתמש ישלח ב-WhatsApp.');
         errEl.textContent = 'יש שדה שצריך להשלים לפני שמירה.';
         return;
       }
@@ -1856,7 +1967,7 @@
 
   function fileOptions(selected = '') {
     if (!appFiles.length) return '<option value="">אין קבצים זמינים</option>';
-    return '<option value="">בחרי קובץ</option>' + appFiles
+    return '<option value="">בחירת קובץ</option>' + appFiles
       .map(file => `<option value="${esc(file.id)}" ${file.id === selected ? 'selected' : ''}>${esc(file.originalName)}</option>`)
       .join('');
   }
@@ -1972,7 +2083,7 @@
           </select>
           <button type="button" class="btn-small" onclick="removeDecisionStep(this)">מחק</button>
         </div>
-        <textarea data-step-text oninput="updateCampaignConversationPreview()" placeholder="${kind === 'question' ? 'לדוגמה: האם תרצי לקבל חוברת פרסום?' : 'כתבי את ההודעה שתישלח'}">${esc(step.text || '')}</textarea>
+        <textarea data-step-text oninput="updateCampaignConversationPreview()" placeholder="${kind === 'question' ? 'לדוגמה: האם ברצונך לקבל חוברת פרסום?' : 'ההודעה שתישלח'}">${esc(step.text || '')}</textarea>
         <div class="decision-next-row" data-question-presentation>
           <label>סוג הצגה</label>
           <select data-step-presentation onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">
@@ -2121,8 +2232,8 @@
         ? (presentation === 'list' ? 'שאלה עם רשימה נפתחת עד 10 תשובות' : 'שאלה עם עד 3 כפתורים')
         : 'הודעה רגילה';
       step.querySelector('[data-step-text]').placeholder = kind === 'question'
-        ? 'לדוגמה: האם תרצי לקבל חוברת פרסום?'
-        : 'כתבי את ההודעה שתישלח';
+        ? 'לדוגמה: האם ברצונך לקבל חוברת פרסום?'
+        : 'ההודעה שתישלח';
       step.querySelectorAll('[data-decision-option]').forEach(option => {
         const action = option.querySelector('[data-option-action]')?.value || 'end';
         const nextSelect = option.querySelector('[data-option-next]');
@@ -2398,7 +2509,7 @@
       body: JSON.stringify({ contactsProvider: p }),
     });
     if (!response.ok) {
-      alert('שמירת סוג אנשי הקשר נכשלה. נסה שוב.');
+      alert('שמירת סוג אנשי הקשר נכשלה. יש לנסות שוב.');
       return;
     }
     appSettings.contactsProvider = p;
@@ -2482,7 +2593,7 @@
       resEl.innerHTML = '<div class="qr-spinner">⏳ ממתין לרענון QR — הקוד יופיע כאן אוטומטית...</div>';
     } else {
       resEl.innerHTML = `<div class="pair-code-box">${data.code}</div>
-        <p style="font-size:.78rem;color:#6b7280">הזיני את הקוד ב-WhatsApp. הקוד תקף לכמה דקות.</p>`;
+        <p style="font-size:.78rem;color:#6b7280">יש להזין את הקוד ב-WhatsApp. הקוד תקף לכמה דקות.</p>`;
     }
   }
 
@@ -2550,7 +2661,7 @@
         const resEl = document.getElementById('pair-result');
         if (resEl && !resEl.querySelector('.pair-code-box')) {
           resEl.innerHTML = `<div class="pair-code-box">${data.pairingCode}</div>
-            <p style="font-size:.78rem;color:#6b7280">הזיני את הקוד ב-WhatsApp. הקוד תקף לכמה דקות.</p>`;
+            <p style="font-size:.78rem;color:#6b7280">יש להזין את הקוד ב-WhatsApp. הקוד תקף לכמה דקות.</p>`;
           switchTab('phone');
         }
       }
@@ -2592,6 +2703,7 @@
   loadSettings();
   loadLinks();
   loadCampaignFiles();
+  loadTwilioOnboarding();
   loadTwilioLogs();
   loadContactQueueStats();
   setInterval(loadContactQueueStats, 5000);
