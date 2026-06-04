@@ -11,10 +11,14 @@ export interface PendingNameConversation {
   kind: 'name';
   senderJid: string;
   senderPhone: string;
+  campaignId?: string;
   campaignResultId?: string;
   replyText: string;
   followupMessages: string[];
   decisionFlow: import('./storage').DecisionFlowStep[];
+  humanHandoffEnabled?: boolean;
+  humanHandoffText?: string;
+  humanHandoffPhone?: string;
   /** Suffix to append to the final contact name (" - Bot" or " - [referrer]"). */
   suffix: string;
   /** Fallback: the sender's WhatsApp pushname, used if they don't reply. */
@@ -28,8 +32,14 @@ export interface PendingNameConversation {
 export interface PendingDecisionConversation {
   kind: 'decision';
   senderJid: string;
+  senderPhone?: string;
+  campaignId?: string;
+  campaignResultId?: string;
   flow: import('./storage').DecisionFlowStep[];
   stepId: string;
+  humanHandoffEnabled?: boolean;
+  humanHandoffText?: string;
+  humanHandoffPhone?: string;
   timestamp: number;
   /** Cancel this to prevent stale unanswered decision prompts from staying in memory. */
   timeoutHandle?: NodeJS.Timeout;

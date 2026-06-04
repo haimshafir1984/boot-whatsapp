@@ -42,6 +42,9 @@ export interface CampaignConversationSettings {
   replyText: string;
   followupMessages: string[];
   decisionFlow: DecisionFlowStep[];
+  humanHandoffEnabled?: boolean;
+  humanHandoffText?: string;
+  humanHandoffPhone?: string;
 }
 
 export type TwilioCampaignMode = 'link' | 'template';
@@ -83,6 +86,9 @@ export interface AdminSettings {
   replyText: string;
   followupMessages: string[];
   decisionFlow: DecisionFlowStep[];
+  humanHandoffEnabled?: boolean;
+  humanHandoffText?: string;
+  humanHandoffPhone?: string;
   referralPrefix: string;
   botSuffix: string;
 }
@@ -122,6 +128,23 @@ export interface CampaignResult {
   status: CampaignResultStatus;
   triggeredAt: string;
   updatedAt: string;
+}
+
+export type CampaignEventType =
+  | 'step_sent'
+  | 'step_answered'
+  | 'file_sent'
+  | 'completed'
+  | 'human_handoff';
+
+export interface CampaignEvent {
+  id: string;
+  campaignId: string;
+  campaignResultId?: string;
+  phone?: string;
+  type: CampaignEventType;
+  label?: string;
+  createdAt: string;
 }
 
 export interface UploadedFile {
@@ -182,6 +205,7 @@ interface StorageData {
   contactsList: SavedContact[];
   contactQueue: ContactSaveJob[];
   campaignResults: CampaignResult[];
+  campaignEvents: CampaignEvent[];
   uploadedFiles: UploadedFile[];
   clientProfile: ClientProfile;
   adminSettings: AdminSettings;
@@ -200,6 +224,9 @@ const DEFAULT_SETTINGS: AdminSettings = {
   replyText: config.REPLY_TEXT,
   followupMessages: [],
   decisionFlow: [],
+  humanHandoffEnabled: true,
+  humanHandoffText: 'אני מענה אוטומטי.\nלשאלות נוספות אפשר לעבור לשיחה אנושית כאן:\n[מעבר ל-WhatsApp]',
+  humanHandoffPhone: '',
   referralPrefix: config.TRIGGER_REFERRAL_PREFIX,
   botSuffix: config.BOT_SUFFIX,
 };
@@ -255,6 +282,7 @@ export class Storage {
         contactsList: [],
         contactQueue: [],
         campaignResults: [],
+        campaignEvents: [],
         uploadedFiles: [],
         clientProfile: { ...DEFAULT_CLIENT_PROFILE },
         adminSettings: { ...DEFAULT_SETTINGS },
@@ -296,6 +324,7 @@ export class Storage {
         contactsList,
         contactQueue,
         campaignResults: parsed.campaignResults ?? [],
+        campaignEvents: (parsed as any).campaignEvents ?? [],
         uploadedFiles: (parsed as any).uploadedFiles ?? [],
         clientProfile: { ...DEFAULT_CLIENT_PROFILE, ...parsed.clientProfile },
         adminSettings: { ...DEFAULT_SETTINGS, ...migratedSettings },
@@ -310,6 +339,7 @@ export class Storage {
         contactsList: [],
         contactQueue: [],
         campaignResults: [],
+        campaignEvents: [],
         uploadedFiles: [],
         clientProfile: { ...DEFAULT_CLIENT_PROFILE },
         adminSettings: { ...DEFAULT_SETTINGS },
@@ -518,14 +548,53 @@ export class Storage {
       .map((result) => ({ ...result }));
   }
 
-  getCampaignResultSummary(campaignId: string): { total: number; awaitingName: number; pending: number; saved: number; failed: number } {
+  recordCampaignEvent(event: Omit<CampaignEvent, 'id' | 'createdAt'>): CampaignEvent {
+    const saved: CampaignEvent = {
+      id: generateId(),
+      createdAt: new Date().toISOString(),
+      ...event,
+    };
+    this.data.campaignEvents.push(saved);
+    this.persist();
+    return { ...saved };
+  }
+
+  getCampaignEvents(campaignId?: string): CampaignEvent[] {
+    return this.data.campaignEvents
+      .filter((event) => !campaignId || event.campaignId === campaignId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((event) => ({ ...event }));
+  }
+
+  getCampaignResultSummary(campaignId: string): {
+    total: number;
+    awaitingName: number;
+    pending: number;
+    saved: number;
+    failed: number;
+    progressed: number;
+    filesSent: number;
+    completed: number;
+    humanHandoff: number;
+  } {
     const results = this.data.campaignResults.filter((result) => result.campaignId === campaignId);
-    return results.reduce((stats, result) => {
-      stats.total += 1;
-      if (result.status === 'awaiting_name') stats.awaitingName += 1;
-      else stats[result.status] += 1;
-      return stats;
-    }, { total: 0, awaitingName: 0, pending: 0, saved: 0, failed: 0 });
+    const events = this.data.campaignEvents.filter((event) => event.campaignId === campaignId);
+    const uniqueCount = (type: CampaignEventType) => new Set(
+      events
+        .filter((event) => event.type === type)
+        .map((event) => event.campaignResultId || event.phone || event.id),
+    ).size;
+    const stats = results.reduce((acc, result) => {
+      acc.total += 1;
+      if (result.status === 'awaiting_name') acc.awaitingName += 1;
+      else acc[result.status] += 1;
+      return acc;
+    }, { total: 0, awaitingName: 0, pending: 0, saved: 0, failed: 0, progressed: 0, filesSent: 0, completed: 0, humanHandoff: 0 });
+    stats.progressed = uniqueCount('step_answered');
+    stats.filesSent = uniqueCount('file_sent');
+    stats.completed = uniqueCount('completed');
+    stats.humanHandoff = uniqueCount('human_handoff');
+    return stats;
   }
 
   private updateCampaignResultStatuses(resultIds: string[] | undefined, status: ContactSaveStatus, updatedAt: string): void {
@@ -627,6 +696,9 @@ export class Storage {
       replyText: campaign.conversation?.replyText ?? defaults.replyText,
       followupMessages: campaign.conversation?.followupMessages ?? defaults.followupMessages,
       decisionFlow: campaign.conversation?.decisionFlow ?? defaults.decisionFlow,
+      humanHandoffEnabled: campaign.conversation?.humanHandoffEnabled ?? defaults.humanHandoffEnabled,
+      humanHandoffText: campaign.conversation?.humanHandoffText ?? defaults.humanHandoffText,
+      humanHandoffPhone: campaign.conversation?.humanHandoffPhone ?? defaults.humanHandoffPhone,
     };
   }
 

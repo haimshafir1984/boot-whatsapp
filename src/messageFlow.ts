@@ -77,7 +77,22 @@ async function handleMessage(
 
   if (pending) {
     if (pending.kind === 'decision') {
-      await handleDecisionReply(message.body.trim(), pending.flow, pending.stepId, senderJid, storage, transport);
+      await handleDecisionReply(
+        message.body.trim(),
+        pending.flow,
+        pending.stepId,
+        senderJid,
+        storage,
+        transport,
+        pending.campaignId,
+        pending.campaignResultId,
+        pending.senderPhone,
+        {
+          enabled: pending.humanHandoffEnabled,
+          text: pending.humanHandoffText,
+          phone: pending.humanHandoffPhone,
+        },
+      );
       return;
     }
 
@@ -100,6 +115,12 @@ async function handleMessage(
       pending.replyText,
       pending.followupMessages,
       pending.decisionFlow,
+      pending.campaignId,
+      {
+        enabled: pending.humanHandoffEnabled,
+        text: pending.humanHandoffText,
+        phone: pending.humanHandoffPhone,
+      },
     );
     return;
   }
@@ -150,6 +171,12 @@ async function handleMessage(
         settings.replyText,
         settings.followupMessages,
         settings.decisionFlow,
+        campaign.id,
+        {
+          enabled: settings.humanHandoffEnabled,
+          text: settings.humanHandoffText,
+          phone: settings.humanHandoffPhone,
+        },
       );
     }, settings.nameTimeoutMinutes * 60 * 1000);
 
@@ -158,9 +185,13 @@ async function handleMessage(
       senderJid,
       senderPhone,
       campaignResultId: campaignResult.id,
+      campaignId: campaign.id,
       replyText: settings.replyText,
       followupMessages: settings.followupMessages,
       decisionFlow: settings.decisionFlow,
+      humanHandoffEnabled: settings.humanHandoffEnabled,
+      humanHandoffText: settings.humanHandoffText,
+      humanHandoffPhone: settings.humanHandoffPhone,
       suffix: trigger.suffix,
       whatsappName: pushname,
       timestamp: Date.now(),
@@ -178,6 +209,12 @@ async function handleMessage(
       settings.replyText,
       settings.followupMessages,
       settings.decisionFlow,
+      campaign.id,
+      {
+        enabled: settings.humanHandoffEnabled,
+        text: settings.humanHandoffText,
+        phone: settings.humanHandoffPhone,
+      },
     );
   }
 }
@@ -192,6 +229,8 @@ async function queueAndReply(
   replyText = storage.getAdminSettings().replyText,
   followupMessages = storage.getAdminSettings().followupMessages,
   decisionFlow: DecisionFlowStep[] = [],
+  campaignId?: string,
+  humanHandoff: { enabled?: boolean; text?: string; phone?: string } = {},
 ): Promise<void> {
   const job = storage.enqueueContactSave(senderPhone, contactName, campaignResultId);
   if (job) console.log(`   Contact queued for background save/update: ${senderPhone}`);
@@ -210,7 +249,16 @@ async function queueAndReply(
       console.log('   Follow-up reply sent.');
     }
 
-    await sendDecisionFlowStart(transport, storage, senderJid, decisionFlow);
+    await sendDecisionFlowStart(
+      transport,
+      storage,
+      senderJid,
+      decisionFlow,
+      campaignId,
+      campaignResultId,
+      senderPhone,
+      humanHandoff,
+    );
   } catch (err) {
     console.error('   Failed to send reply flow:', err);
   }
@@ -223,6 +271,10 @@ async function handleDecisionReply(
   senderJid: string,
   storage: Storage,
   transport: WhatsAppTransport,
+  campaignId?: string,
+  campaignResultId?: string,
+  senderPhone?: string,
+  humanHandoff: { enabled?: boolean; text?: string; phone?: string } = {},
 ): Promise<void> {
   const step = flow.find((item) => item.id === stepId);
   if (!step || step.kind !== 'question') {
@@ -235,12 +287,37 @@ async function handleDecisionReply(
     return normalized === String(index + 1) || normalized === item.text.trim().toLowerCase();
   });
 
+  if (!option && humanHandoff.enabled) {
+    const handoffText = formatHumanHandoffText(humanHandoff.text, humanHandoff.phone);
+    if (handoffText) await sendBotMessage(transport, senderJid, handoffText);
+    if (campaignId) {
+      storage.recordCampaignEvent({
+        campaignId,
+        campaignResultId,
+        phone: senderPhone,
+        type: 'human_handoff',
+        label: 'מענה אנושי',
+      });
+    }
+    conversationState.remove(senderJid);
+    return;
+  }
+
   if (!option) {
     await sendBotMessage(transport, senderJid, `לא הבנתי את הבחירה.\n\n${formatQuestion(step)}`);
     return;
   }
 
   conversationState.remove(senderJid);
+  if (campaignId) {
+    storage.recordCampaignEvent({
+      campaignId,
+      campaignResultId,
+      phone: senderPhone,
+      type: 'step_answered',
+      label: option.text,
+    });
+  }
   if (option.fileId) {
     await sendDecisionFile(
       transport,
@@ -249,6 +326,9 @@ async function handleDecisionReply(
       option.fileId,
       option.endText?.trim(),
       option.fileAsSticker,
+      campaignId,
+      campaignResultId,
+      senderPhone,
     );
   } else if (option.endText?.trim()) {
     await sendBotMessage(transport, senderJid, option.endText.trim());
@@ -256,7 +336,15 @@ async function handleDecisionReply(
   }
 
   if (option.nextStepId) {
-    await sendDecisionStep(transport, storage, senderJid, flow, option.nextStepId);
+    await sendDecisionStep(transport, storage, senderJid, flow, option.nextStepId, campaignId, campaignResultId, senderPhone, humanHandoff);
+  } else if (campaignId) {
+    storage.recordCampaignEvent({
+      campaignId,
+      campaignResultId,
+      phone: senderPhone,
+      type: 'completed',
+      label: 'סיום תהליך',
+    });
   }
 }
 
@@ -265,10 +353,14 @@ async function sendDecisionFlowStart(
   storage: Storage,
   senderJid: string,
   flow: DecisionFlowStep[],
+  campaignId?: string,
+  campaignResultId?: string,
+  senderPhone?: string,
+  humanHandoff: { enabled?: boolean; text?: string; phone?: string } = {},
 ): Promise<void> {
   const first = flow.find((step) => step.text.trim());
   if (!first) return;
-  await sendDecisionStep(transport, storage, senderJid, flow, first.id);
+  await sendDecisionStep(transport, storage, senderJid, flow, first.id, campaignId, campaignResultId, senderPhone, humanHandoff);
 }
 
 async function sendDecisionStep(
@@ -277,6 +369,10 @@ async function sendDecisionStep(
   senderJid: string,
   flow: DecisionFlowStep[],
   stepId: string,
+  campaignId?: string,
+  campaignResultId?: string,
+  senderPhone?: string,
+  humanHandoff: { enabled?: boolean; text?: string; phone?: string } = {},
 ): Promise<void> {
   const step = flow.find((item) => item.id === stepId);
   if (!step?.text.trim()) return;
@@ -284,8 +380,25 @@ async function sendDecisionStep(
   if (step.kind === 'message') {
     await sendBotMessage(transport, senderJid, step.text.trim());
     console.log('   Decision message sent.');
+    if (campaignId) {
+      storage.recordCampaignEvent({
+        campaignId,
+        campaignResultId,
+        phone: senderPhone,
+        type: 'step_sent',
+        label: step.text.slice(0, 120),
+      });
+    }
     if (step.nextStepId) {
-      await sendDecisionStep(transport, storage, senderJid, flow, step.nextStepId);
+      await sendDecisionStep(transport, storage, senderJid, flow, step.nextStepId, campaignId, campaignResultId, senderPhone, humanHandoff);
+    } else if (campaignId) {
+      storage.recordCampaignEvent({
+        campaignId,
+        campaignResultId,
+        phone: senderPhone,
+        type: 'completed',
+        label: 'סיום תהליך',
+      });
     }
     return;
   }
@@ -323,19 +436,34 @@ async function sendDecisionStep(
     await sendBotMessage(transport, senderJid, formatQuestion(step));
   }
   console.log('   Decision question sent.');
+  if (campaignId) {
+    storage.recordCampaignEvent({
+      campaignId,
+      campaignResultId,
+      phone: senderPhone,
+      type: 'step_sent',
+      label: step.text.slice(0, 120),
+    });
+  }
   const timeoutMinutes = step.timeoutMinutes && step.timeoutMinutes > 0
     ? step.timeoutMinutes
     : DECISION_REPLY_TIMEOUT_MS / 60_000;
   const timeoutHandle = setTimeout(async () => {
     conversationState.remove(senderJid);
     console.log(`   Decision reply timeout - cleared pending state for ${senderJid}.`);
-    await sendDecisionTimeoutAction(transport, storage, senderJid, step);
+    await sendDecisionTimeoutAction(transport, storage, senderJid, step, campaignId, campaignResultId, senderPhone);
   }, timeoutMinutes * 60 * 1000);
   conversationState.set(senderJid, {
     kind: 'decision',
     senderJid,
+    senderPhone,
+    campaignId,
+    campaignResultId,
     flow,
     stepId: step.id,
+    humanHandoffEnabled: humanHandoff.enabled,
+    humanHandoffText: humanHandoff.text,
+    humanHandoffPhone: humanHandoff.phone,
     timestamp: Date.now(),
     timeoutHandle,
   });
@@ -346,6 +474,9 @@ async function sendDecisionTimeoutAction(
   storage: Storage,
   senderJid: string,
   step: DecisionFlowStep,
+  campaignId?: string,
+  campaignResultId?: string,
+  senderPhone?: string,
 ): Promise<void> {
   const caption = step.timeoutText?.trim();
   if (step.timeoutFileId) {
@@ -356,6 +487,9 @@ async function sendDecisionTimeoutAction(
       step.timeoutFileId,
       caption,
       step.timeoutFileAsSticker,
+      campaignId,
+      campaignResultId,
+      senderPhone,
     );
     return;
   }
@@ -372,6 +506,9 @@ async function sendDecisionFile(
   fileId: string,
   caption?: string,
   asSticker?: boolean,
+  campaignId?: string,
+  campaignResultId?: string,
+  senderPhone?: string,
 ): Promise<void> {
   const file = storage.getUploadedFile(fileId);
   if (file && transport.sendFile) {
@@ -379,6 +516,15 @@ async function sendDecisionFile(
     await waitBeforeBotReply();
     await transport.sendFile(senderJid, path.join(config.UPLOADS_PATH, file.filename), caption, { asSticker: canSendAsSticker });
     console.log(canSendAsSticker ? '   Decision sticker sent.' : '   Decision file sent.');
+    if (campaignId) {
+      storage.recordCampaignEvent({
+        campaignId,
+        campaignResultId,
+        phone: senderPhone,
+        type: 'file_sent',
+        label: file.originalName,
+      });
+    }
   } else {
     await sendBotMessage(transport, senderJid, caption || 'הקובץ לא זמין כרגע.');
     console.warn(`   Decision file unavailable: ${fileId}`);
@@ -390,4 +536,11 @@ function formatQuestion(step: DecisionFlowStep): string {
     .map((option: DecisionFlowOption, index) => `${index + 1}. ${option.text}`)
     .join('\n');
   return options ? `${step.text.trim()}\n\n${options}` : step.text.trim();
+}
+
+function formatHumanHandoffText(text?: string, phone?: string): string {
+  const base = (text || 'אני מענה אוטומטי.\nלשאלות נוספות אפשר לעבור לשיחה אנושית כאן:\n[מעבר ל-WhatsApp]').trim();
+  const cleanPhone = String(phone || '').replace(/[^\d+]/g, '').replace(/^\+/, '');
+  if (!cleanPhone) return base;
+  return `${base}\nhttps://wa.me/${cleanPhone}`;
 }

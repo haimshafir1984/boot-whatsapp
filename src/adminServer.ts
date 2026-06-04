@@ -361,6 +361,15 @@ function conversationSettings(
       ? input.followupMessages.filter((message): message is string => typeof message === 'string')
       : defaults.followupMessages,
     decisionFlow: sanitizeDecisionFlow(input?.decisionFlow, defaults.decisionFlow),
+    humanHandoffEnabled: typeof input?.humanHandoffEnabled === 'boolean'
+      ? input.humanHandoffEnabled
+      : Boolean(defaults.humanHandoffEnabled),
+    humanHandoffText: typeof input?.humanHandoffText === 'string'
+      ? input.humanHandoffText.trim().slice(0, 2000)
+      : (defaults.humanHandoffText ?? ''),
+    humanHandoffPhone: typeof input?.humanHandoffPhone === 'string'
+      ? input.humanHandoffPhone.replace(/[^\d+]/g, '').slice(0, 30)
+      : (defaults.humanHandoffPhone ?? ''),
   };
 }
 

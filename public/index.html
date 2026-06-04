@@ -262,6 +262,30 @@
     .result-title { font-weight: 700; font-size: .85rem; margin-bottom: 7px; }
     .result-stats { display: flex; flex-wrap: wrap; gap: 10px; font-size: .73rem; color: #6b7280; }
     .result-stats strong { color: #111827; font-size: .82rem; }
+    .result-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .result-metric {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 8px;
+      background: #f9fafb;
+    }
+    .result-metric strong {
+      display: block;
+      font-size: 1rem;
+      color: #111827;
+      margin-bottom: 2px;
+    }
+    .result-metric span {
+      display: block;
+      font-size: .7rem;
+      color: #6b7280;
+      line-height: 1.35;
+    }
     .result-export {
       color: #166534; background: #f0fdf4; border-radius: 7px;
       font-size: .76rem; font-weight: 700; text-decoration: none; padding: 7px 10px;
@@ -269,6 +293,13 @@
     }
     .result-export:hover { background: #dcfce7; }
     .result-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .human-handoff-box {
+      border: 1px solid #dbeafe;
+      background: #eff6ff;
+      border-radius: 12px;
+      padding: 12px;
+      margin-top: 14px;
+    }
 
     /* ── Divider ── */
     hr { border: none; border-top: 1px solid #e5e7eb; margin: 20px 0; }
@@ -836,6 +867,7 @@
       .settings-preview-grid { grid-template-columns: 1fr; }
       .campaign-editor-grid, .two-fields { grid-template-columns: 1fr; }
       .twilio-onboarding-form { grid-template-columns: 1fr; }
+      .result-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .wizard-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .wizard-step {
         min-width: 0;
@@ -943,7 +975,10 @@
         <!-- filled by JS -->
       </div>
       <hr />
-      <div class="sec-title">תוצאות קמפיינים</div>
+      <div class="sec-title">ביצועי קמפיינים</div>
+      <p style="font-size:.8rem;color:#6b7280;margin-bottom:12px">
+        כאן רואים מה קרה בפועל בקמפיין: כמה אנשים התחילו, כמה קיבלו קובץ, כמה התקדמו, כמה סיימו וכמה עברו לשיחה אנושית.
+      </p>
       <div class="results-list" id="campaign-results">
         <p style="color:#9ca3af;font-size:.85rem;text-align:center;padding:8px 0">אין תוצאות עדיין</p>
       </div>
@@ -1032,13 +1067,18 @@
   <!-- Twilio messages card -->
   <div class="card">
     <div class="card-body">
-      <div class="sec-title">ניהול הודעות Twilio</div>
+      <div class="sec-title">פעילות הודעות לבדיקה</div>
       <div class="twilio-log-intro">
-        בקמפיינים שמחוברים דרך Twilio, ההודעות לא מופיעות באפליקציית WhatsApp אישית. כאן אפשר לראות מה התקבל מהמשתמשים, מה נשלח אליהם, והאם הייתה שגיאה בשליחה.
+        זה אזור משני לבדיקת תקלות. את עיקר המידע כדאי לקרוא באזור ביצועי הקמפיינים למעלה.
       </div>
-      <div class="twilio-log-list" id="twilioLogsList">
-        <div class="twilio-log-empty">אין פעילות הודעות עדיין</div>
-      </div>
+      <details class="requirements-panel">
+        <summary>פתיחת פעילות הודעות אחרונה</summary>
+        <div class="requirements-body">
+          <div class="twilio-log-list" id="twilioLogsList">
+            <div class="twilio-log-empty">אין פעילות הודעות עדיין</div>
+          </div>
+        </div>
+      </details>
     </div>
   </div>
 
@@ -1247,6 +1287,29 @@
             <button type="button" class="btn-small" style="margin-top:8px" onclick="addDecisionStep()">+ הוסף הודעה / שאלה</button>
             <button type="button" class="btn-small" style="margin-top:8px" onclick="addCampaignFollowupMessage()">+ הוסף הודעת המשך</button>
             <button type="button" class="btn-small" style="margin-top:8px" onclick="goWizardStep(4)">להמשיך בלי תוספות</button>
+            <div class="human-handoff-box">
+              <div class="toggle-row">
+                <div>
+                  <div class="toggle-label">מענה אוטומטי כשמבקשים שיחה אנושית</div>
+                  <div class="toggle-sub">אם המשתמש שואל משהו שלא חלק מהבחירות, המערכת תשלח קישור ל-WhatsApp אנושי.</div>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="fHumanHandoffEnabled" onchange="updateHumanHandoffVisibility(); updateCampaignConversationPreview();" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <div id="humanHandoffFields" style="margin-top:12px">
+                <div class="field">
+                  <label>נוסח ההודעה</label>
+                  <textarea id="fHumanHandoffText" oninput="updateCampaignConversationPreview()"></textarea>
+                </div>
+                <div class="field" style="margin-bottom:0">
+                  <label>מספר WhatsApp אנושי</label>
+                  <input type="tel" id="fHumanHandoffPhone" placeholder="9725XXXXXXXX" oninput="updateCampaignConversationPreview()" />
+                  <div class="hint">זה המספר שאליו יועברו שאלות נוספות. אפשר להזין מספר של העסק או של איש קשר אנושי.</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1306,6 +1369,9 @@
     replyText: 'הפרטים נשמרו. כדי לקבל עדכונים, חשוב לשמור את המספר באנשי הקשר.',
     followupMessages: [],
     decisionFlow: [],
+    humanHandoffEnabled: true,
+    humanHandoffText: 'אני מענה אוטומטי.\nלשאלות נוספות אפשר לעבור לשיחה אנושית כאן:\n[מעבר ל-WhatsApp]',
+    humanHandoffPhone: '',
     contactsProvider: 'google',
     referralPrefix: 'הגעתי דרך ',
     botSuffix: '',
@@ -1443,11 +1509,19 @@
         <div class="result-info">
           <div class="result-title">${esc(item.campaignName)}${item.referrerName ? ` · ${esc(item.referrerName)}` : ''}</div>
           <div class="result-stats">
-            <span><strong>${item.total}</strong> טריגרים</span>
+            <span><strong>${item.total}</strong> התחילו שיחה</span>
             <span><strong>${item.saved}</strong> נשמרו</span>
             <span><strong>${item.pending}</strong> ממתינים לשמירה</span>
             <span><strong>${item.awaitingName}</strong> ממתינים לשם</span>
             <span><strong>${item.failed}</strong> נכשלו</span>
+          </div>
+          <div class="result-metrics">
+            <div class="result-metric"><strong>${item.total || 0}</strong><span>אנשים התחילו</span></div>
+            <div class="result-metric"><strong>${item.filesSent || 0}</strong><span>קיבלו קובץ / חוברת</span></div>
+            <div class="result-metric"><strong>${item.progressed || 0}</strong><span>התקדמו בתהליך</span></div>
+            <div class="result-metric"><strong>${item.completed || 0}</strong><span>הגיעו לסיום</span></div>
+            <div class="result-metric"><strong>${item.humanHandoff || 0}</strong><span>עברו למענה אנושי</span></div>
+            <div class="result-metric"><strong>${item.failed || 0}</strong><span>שגיאות שצריך לבדוק</span></div>
           </div>
         </div>
         <div class="result-actions">
@@ -1916,13 +1990,23 @@
     document.getElementById('fReplyText').value = settings.replyText;
     renderCampaignFollowupFields(settings.followupMessages || []);
     renderDecisionFlow(settings.decisionFlow || []);
+    document.getElementById('fHumanHandoffEnabled').checked = settings.humanHandoffEnabled !== false;
+    document.getElementById('fHumanHandoffText').value = settings.humanHandoffText || appSettings.humanHandoffText;
+    document.getElementById('fHumanHandoffPhone').value = settings.humanHandoffPhone || '';
     updateEditorTimeoutVisibility();
+    updateHumanHandoffVisibility();
   }
 
   function updateEditorTimeoutVisibility() {
     const enabled = document.getElementById('fAskName').checked;
     document.getElementById('fTimeoutRow').style.opacity = enabled ? '1' : '0.35';
     document.getElementById('fAskTextField').style.opacity = enabled ? '1' : '0.45';
+  }
+
+  function updateHumanHandoffVisibility() {
+    const enabled = document.getElementById('fHumanHandoffEnabled')?.checked;
+    const fields = document.getElementById('humanHandoffFields');
+    if (fields) fields.style.display = enabled ? '' : 'none';
   }
 
   function renderCampaignFollowupFields(messages = []) {
@@ -2366,6 +2450,9 @@
       .map(el => el.value.trim())
       .filter(Boolean),
       decisionFlow: getDecisionFlow(),
+      humanHandoffEnabled: document.getElementById('fHumanHandoffEnabled')?.checked !== false,
+      humanHandoffText: document.getElementById('fHumanHandoffText')?.value || appSettings.humanHandoffText,
+      humanHandoffPhone: document.getElementById('fHumanHandoffPhone')?.value || '',
     };
   }
 
@@ -2392,7 +2479,11 @@
       `).join('');
     }
     if (decisionFlowEl) {
-      decisionFlowEl.innerHTML = previewDecisionFlow(conversation.decisionFlow || []);
+      const flowPreview = previewDecisionFlow(conversation.decisionFlow || []);
+      const handoffPreview = conversation.humanHandoffEnabled
+        ? `<div class="chat-row bot"><div class="chat-bubble">${esc(formatHumanHandoffPreview(conversation))}</div></div>`
+        : '';
+      decisionFlowEl.innerHTML = flowPreview + handoffPreview;
     }
     if (askRow) askRow.style.display = conversation.askNameEnabled ? 'flex' : 'none';
     updateWizardSummary();
@@ -2437,6 +2528,12 @@
       }
       return `<div class="chat-row bot"><div class="chat-bubble">${esc(step.text)}</div></div>`;
     }).join('');
+  }
+
+  function formatHumanHandoffPreview(conversation) {
+    const text = (conversation.humanHandoffText || appSettings.humanHandoffText).trim();
+    const phone = normalizeSharePhone(conversation.humanHandoffPhone);
+    return phone ? `${text}\nhttps://wa.me/${phone}` : text;
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
