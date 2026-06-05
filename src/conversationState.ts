@@ -19,6 +19,8 @@ export interface PendingNameConversation {
   humanHandoffEnabled?: boolean;
   humanHandoffText?: string;
   humanHandoffPhone?: string;
+  decisionTimeoutMinutes?: number;
+  decisionTimeoutText?: string;
   /** Suffix to append to the final contact name (" - Bot" or " - [referrer]"). */
   suffix: string;
   /** Fallback: the sender's WhatsApp pushname, used if they don't reply. */
@@ -40,6 +42,8 @@ export interface PendingDecisionConversation {
   humanHandoffEnabled?: boolean;
   humanHandoffText?: string;
   humanHandoffPhone?: string;
+  decisionTimeoutMinutes?: number;
+  decisionTimeoutText?: string;
   timestamp: number;
   /** Cancel this to prevent stale unanswered decision prompts from staying in memory. */
   timeoutHandle?: NodeJS.Timeout;

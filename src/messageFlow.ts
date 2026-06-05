@@ -17,6 +17,14 @@ const BOT_REPLY_DELAY_MS = Math.max(
   Number.isFinite(config.BOT_REPLY_DELAY_MS) ? config.BOT_REPLY_DELAY_MS : 3000,
 );
 
+interface CampaignReplyBehavior {
+  enabled?: boolean;
+  text?: string;
+  phone?: string;
+  decisionTimeoutMinutes?: number;
+  decisionTimeoutText?: string;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -91,6 +99,8 @@ async function handleMessage(
           enabled: pending.humanHandoffEnabled,
           text: pending.humanHandoffText,
           phone: pending.humanHandoffPhone,
+          decisionTimeoutMinutes: pending.decisionTimeoutMinutes,
+          decisionTimeoutText: pending.decisionTimeoutText,
         },
       );
       return;
@@ -120,6 +130,8 @@ async function handleMessage(
         enabled: pending.humanHandoffEnabled,
         text: pending.humanHandoffText,
         phone: pending.humanHandoffPhone,
+        decisionTimeoutMinutes: pending.decisionTimeoutMinutes,
+        decisionTimeoutText: pending.decisionTimeoutText,
       },
     );
     return;
@@ -176,6 +188,8 @@ async function handleMessage(
           enabled: settings.humanHandoffEnabled,
           text: settings.humanHandoffText,
           phone: settings.humanHandoffPhone,
+          decisionTimeoutMinutes: settings.decisionTimeoutMinutes,
+          decisionTimeoutText: settings.decisionTimeoutText,
         },
       );
     }, settings.nameTimeoutMinutes * 60 * 1000);
@@ -192,6 +206,8 @@ async function handleMessage(
       humanHandoffEnabled: settings.humanHandoffEnabled,
       humanHandoffText: settings.humanHandoffText,
       humanHandoffPhone: settings.humanHandoffPhone,
+      decisionTimeoutMinutes: settings.decisionTimeoutMinutes,
+      decisionTimeoutText: settings.decisionTimeoutText,
       suffix: trigger.suffix,
       whatsappName: pushname,
       timestamp: Date.now(),
@@ -214,6 +230,8 @@ async function handleMessage(
         enabled: settings.humanHandoffEnabled,
         text: settings.humanHandoffText,
         phone: settings.humanHandoffPhone,
+        decisionTimeoutMinutes: settings.decisionTimeoutMinutes,
+        decisionTimeoutText: settings.decisionTimeoutText,
       },
     );
   }
@@ -230,7 +248,7 @@ async function queueAndReply(
   followupMessages = storage.getAdminSettings().followupMessages,
   decisionFlow: DecisionFlowStep[] = [],
   campaignId?: string,
-  humanHandoff: { enabled?: boolean; text?: string; phone?: string } = {},
+  humanHandoff: CampaignReplyBehavior = {},
 ): Promise<void> {
   const job = storage.enqueueContactSave(senderPhone, contactName, campaignResultId);
   if (job) console.log(`   Contact queued for background save/update: ${senderPhone}`);
@@ -274,7 +292,7 @@ async function handleDecisionReply(
   campaignId?: string,
   campaignResultId?: string,
   senderPhone?: string,
-  humanHandoff: { enabled?: boolean; text?: string; phone?: string } = {},
+  humanHandoff: CampaignReplyBehavior = {},
 ): Promise<void> {
   const step = flow.find((item) => item.id === stepId);
   if (!step || step.kind !== 'question') {
@@ -356,7 +374,7 @@ async function sendDecisionFlowStart(
   campaignId?: string,
   campaignResultId?: string,
   senderPhone?: string,
-  humanHandoff: { enabled?: boolean; text?: string; phone?: string } = {},
+  humanHandoff: CampaignReplyBehavior = {},
 ): Promise<void> {
   const first = flow.find((step) => step.text.trim());
   if (!first) return;
@@ -372,7 +390,7 @@ async function sendDecisionStep(
   campaignId?: string,
   campaignResultId?: string,
   senderPhone?: string,
-  humanHandoff: { enabled?: boolean; text?: string; phone?: string } = {},
+  humanHandoff: CampaignReplyBehavior = {},
 ): Promise<void> {
   const step = flow.find((item) => item.id === stepId);
   if (!step?.text.trim()) return;
@@ -447,11 +465,13 @@ async function sendDecisionStep(
   }
   const timeoutMinutes = step.timeoutMinutes && step.timeoutMinutes > 0
     ? step.timeoutMinutes
-    : DECISION_REPLY_TIMEOUT_MS / 60_000;
+    : (humanHandoff.decisionTimeoutMinutes && humanHandoff.decisionTimeoutMinutes > 0
+      ? humanHandoff.decisionTimeoutMinutes
+      : DECISION_REPLY_TIMEOUT_MS / 60_000);
   const timeoutHandle = setTimeout(async () => {
     conversationState.remove(senderJid);
     console.log(`   Decision reply timeout - cleared pending state for ${senderJid}.`);
-    await sendDecisionTimeoutAction(transport, storage, senderJid, step, campaignId, campaignResultId, senderPhone);
+    await sendDecisionTimeoutAction(transport, storage, senderJid, step, humanHandoff.decisionTimeoutText, campaignId, campaignResultId, senderPhone);
   }, timeoutMinutes * 60 * 1000);
   conversationState.set(senderJid, {
     kind: 'decision',
@@ -474,11 +494,12 @@ async function sendDecisionTimeoutAction(
   storage: Storage,
   senderJid: string,
   step: DecisionFlowStep,
+  defaultTimeoutText?: string,
   campaignId?: string,
   campaignResultId?: string,
   senderPhone?: string,
 ): Promise<void> {
-  const caption = step.timeoutText?.trim();
+  const caption = step.timeoutText?.trim() || defaultTimeoutText?.trim();
   if (step.timeoutFileId) {
     await sendDecisionFile(
       transport,
@@ -540,7 +561,19 @@ function formatQuestion(step: DecisionFlowStep): string {
 
 function formatHumanHandoffText(text?: string, phone?: string): string {
   const base = (text || 'אני מענה אוטומטי.\nלשאלות נוספות אפשר לעבור לשיחה אנושית כאן:\n[מעבר ל-WhatsApp]').trim();
-  const cleanPhone = String(phone || '').replace(/[^\d+]/g, '').replace(/^\+/, '');
+  const cleanPhone = normalizeHumanHandoffPhone(phone);
   if (!cleanPhone) return base;
-  return `${base}\nhttps://wa.me/${cleanPhone}`;
+  const link = `https://wa.me/${cleanPhone}`;
+  return base.includes('[מעבר ל-WhatsApp]')
+    ? base.replace('[מעבר ל-WhatsApp]', link)
+    : `${base}\n${link}`;
+}
+
+function normalizeHumanHandoffPhone(phone?: string): string {
+  const raw = String(phone || '').replace(/[^\d+]/g, '');
+  if (!raw) return '';
+  if (raw.startsWith('+')) return raw.slice(1);
+  if (raw.startsWith('00')) return raw.slice(2);
+  if (raw.startsWith('0') && raw.length >= 9) return `972${raw.slice(1)}`;
+  return raw;
 }

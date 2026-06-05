@@ -42,6 +42,8 @@ export interface CampaignConversationSettings {
   replyText: string;
   followupMessages: string[];
   decisionFlow: DecisionFlowStep[];
+  decisionTimeoutMinutes?: number;
+  decisionTimeoutText?: string;
   humanHandoffEnabled?: boolean;
   humanHandoffText?: string;
   humanHandoffPhone?: string;
@@ -86,6 +88,8 @@ export interface AdminSettings {
   replyText: string;
   followupMessages: string[];
   decisionFlow: DecisionFlowStep[];
+  decisionTimeoutMinutes?: number;
+  decisionTimeoutText?: string;
   humanHandoffEnabled?: boolean;
   humanHandoffText?: string;
   humanHandoffPhone?: string;
@@ -224,6 +228,8 @@ const DEFAULT_SETTINGS: AdminSettings = {
   replyText: config.REPLY_TEXT,
   followupMessages: [],
   decisionFlow: [],
+  decisionTimeoutMinutes: 30,
+  decisionTimeoutText: '',
   humanHandoffEnabled: true,
   humanHandoffText: 'אני מענה אוטומטי.\nלשאלות נוספות אפשר לעבור לשיחה אנושית כאן:\n[מעבר ל-WhatsApp]',
   humanHandoffPhone: '',
@@ -573,6 +579,7 @@ export class Storage {
     saved: number;
     failed: number;
     progressed: number;
+    sentMessages: number;
     filesSent: number;
     completed: number;
     humanHandoff: number;
@@ -589,8 +596,9 @@ export class Storage {
       if (result.status === 'awaiting_name') acc.awaitingName += 1;
       else acc[result.status] += 1;
       return acc;
-    }, { total: 0, awaitingName: 0, pending: 0, saved: 0, failed: 0, progressed: 0, filesSent: 0, completed: 0, humanHandoff: 0 });
+    }, { total: 0, awaitingName: 0, pending: 0, saved: 0, failed: 0, progressed: 0, sentMessages: 0, filesSent: 0, completed: 0, humanHandoff: 0 });
     stats.progressed = uniqueCount('step_answered');
+    stats.sentMessages = stats.total + events.filter((event) => event.type === 'step_sent').length;
     stats.filesSent = uniqueCount('file_sent');
     stats.completed = uniqueCount('completed');
     stats.humanHandoff = uniqueCount('human_handoff');
@@ -696,6 +704,8 @@ export class Storage {
       replyText: campaign.conversation?.replyText ?? defaults.replyText,
       followupMessages: campaign.conversation?.followupMessages ?? defaults.followupMessages,
       decisionFlow: campaign.conversation?.decisionFlow ?? defaults.decisionFlow,
+      decisionTimeoutMinutes: campaign.conversation?.decisionTimeoutMinutes ?? defaults.decisionTimeoutMinutes,
+      decisionTimeoutText: campaign.conversation?.decisionTimeoutText ?? defaults.decisionTimeoutText,
       humanHandoffEnabled: campaign.conversation?.humanHandoffEnabled ?? defaults.humanHandoffEnabled,
       humanHandoffText: campaign.conversation?.humanHandoffText ?? defaults.humanHandoffText,
       humanHandoffPhone: campaign.conversation?.humanHandoffPhone ?? defaults.humanHandoffPhone,

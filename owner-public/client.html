@@ -62,6 +62,17 @@
     .owner-form textarea { min-height: 72px; resize: vertical; }
     .full { grid-column: 1 / -1; }
     .help-text { color: #6b7280; font-size: .78rem; line-height: 1.45; margin-top: 8px; }
+    .webhook-box {
+      border: 1px solid #dbeafe;
+      background: #eff6ff;
+      border-radius: 7px;
+      padding: 10px;
+      direction: ltr;
+      text-align: left;
+      overflow-wrap: anywhere;
+      font-family: Consolas, monospace;
+      font-size: .78rem;
+    }
     .form-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .danger { border: 1px solid #fecaca; background: #fff1f2; color: #b91c1c; border-radius: 6px; padding: 6px 9px; cursor: pointer; font-weight: 700; }
     .mini { border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 6px; padding: 6px 9px; cursor: pointer; font-weight: 700; }
@@ -182,8 +193,14 @@
               <input id="clientTwilioFromEdit" type="tel" dir="ltr" placeholder="+16602902811" />
               <div class="help-text">יש להזין מספר מלא עם קידומת מדינה. לאחר השמירה המערכת תעדכן אוטומטית את היחידה של הלקוח.</div>
             </div>
+            <div class="full">
+              <label>Webhook להדבקה בטוויליו</label>
+              <div class="webhook-box" id="twilioWebhookUrl">-</div>
+              <div class="help-text">את הכתובת הזו מדביקים ב-Twilio בשדה Webhook URL for incoming messages, עם HTTP POST.</div>
+            </div>
             <div class="full form-actions">
               <button class="retry" type="button" onclick="saveTwilioNumber()">שמור ועדכן יחידה</button>
+              <button class="secondary" type="button" onclick="copyTwilioWebhookUrl()">העתקת Webhook</button>
               <span class="muted" id="twilioSaveState"></span>
             </div>
           </div>
@@ -449,6 +466,7 @@
       document.getElementById('twilioSettingsSection').style.display = isTwilioClient ? '' : 'none';
       document.getElementById('twilioFromValue').textContent = displayTwilioFrom(currentClient.twilioFrom) || '-';
       document.getElementById('clientTwilioFromEdit').value = displayTwilioFrom(currentClient.twilioFrom);
+      document.getElementById('twilioWebhookUrl').textContent = currentClient.twilioWebhookUrl || '-';
       document.getElementById('accessCode').textContent = currentClient.accessCode;
       document.getElementById('retryButton').style.display = 'none';
       document.getElementById('updateUnitButton').style.display = 'none';
@@ -482,6 +500,13 @@
 
     function copyAccessCode() {
       if (currentClient) navigator.clipboard.writeText(currentClient.accessCode);
+    }
+
+    function copyTwilioWebhookUrl() {
+      if (currentClient?.twilioWebhookUrl) {
+        navigator.clipboard.writeText(currentClient.twilioWebhookUrl);
+        document.getElementById('twilioSaveState').textContent = 'ה-Webhook הועתק.';
+      }
     }
 
     async function saveTwilioNumber() {

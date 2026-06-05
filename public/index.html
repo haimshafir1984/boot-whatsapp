@@ -293,6 +293,53 @@
     }
     .result-export:hover { background: #dcfce7; }
     .result-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .result-summary-line {
+      margin-top: 7px;
+      color: #374151;
+      font-size: .78rem;
+      line-height: 1.45;
+    }
+    .result-funnel {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .funnel-step {
+      border: 1px solid #dbeafe;
+      background: #eff6ff;
+      border-radius: 8px;
+      padding: 8px;
+      min-height: 62px;
+    }
+    .funnel-step strong {
+      display: block;
+      font-size: 1rem;
+      color: #1e3a8a;
+      margin-bottom: 2px;
+    }
+    .funnel-step span {
+      display: block;
+      color: #1e40af;
+      font-size: .68rem;
+      line-height: 1.25;
+    }
+    .activity-log-simple {
+      margin-top: 10px;
+      border-top: 1px solid #f3f4f6;
+      padding-top: 9px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px 10px;
+      color: #4b5563;
+      font-size: .74rem;
+    }
+    .activity-log-simple div::before {
+      content: '•';
+      color: #16a34a;
+      font-weight: 800;
+      margin-left: 5px;
+    }
     .human-handoff-box {
       border: 1px solid #dbeafe;
       background: #eff6ff;
@@ -868,6 +915,7 @@
       .campaign-editor-grid, .two-fields { grid-template-columns: 1fr; }
       .twilio-onboarding-form { grid-template-columns: 1fr; }
       .result-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .result-funnel, .activity-log-simple { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .wizard-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .wizard-step {
         min-width: 0;
@@ -1310,6 +1358,19 @@
                 </div>
               </div>
             </div>
+            <div class="human-handoff-box">
+              <div class="editor-section-title" style="margin-bottom:8px">אם לא ענו לשאלות</div>
+              <div class="hint" style="margin-bottom:10px">הגדרה כללית לכל שאלות הבחירה בקמפיין. אם המשתמש לא עונה בזמן, המערכת תשלח את ההודעה הזו ותסיים את ההמתנה.</div>
+              <div class="timeout-row" style="opacity:1;margin-bottom:10px">
+                <span>להמתין לתשובה:</span>
+                <input type="number" id="fDecisionTimeoutMinutes" min="1" max="1440" value="30" oninput="updateCampaignConversationPreview()" />
+                <span>דקות</span>
+              </div>
+              <div class="field" style="margin-bottom:0">
+                <label>הודעה אם לא התקבלה תשובה</label>
+                <textarea id="fDecisionTimeoutText" oninput="updateCampaignConversationPreview()" placeholder="למשל: שולחת תזכורת קטנה. אפשר לענות כשנוח לך."></textarea>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1369,6 +1430,8 @@
     replyText: 'הפרטים נשמרו. כדי לקבל עדכונים, חשוב לשמור את המספר באנשי הקשר.',
     followupMessages: [],
     decisionFlow: [],
+    decisionTimeoutMinutes: 30,
+    decisionTimeoutText: '',
     humanHandoffEnabled: true,
     humanHandoffText: 'אני מענה אוטומטי.\nלשאלות נוספות אפשר לעבור לשיחה אנושית כאן:\n[מעבר ל-WhatsApp]',
     humanHandoffPhone: '',
@@ -1504,32 +1567,45 @@
       el.innerHTML = '<p style="color:#9ca3af;font-size:.85rem;text-align:center;padding:8px 0">אין תוצאות עדיין</p>';
       return;
     }
-    el.innerHTML = withResults.map(item => `
-      <div class="result-row">
-        <div class="result-info">
-          <div class="result-title">${esc(item.campaignName)}${item.referrerName ? ` · ${esc(item.referrerName)}` : ''}</div>
-          <div class="result-stats">
-            <span><strong>${item.total}</strong> התחילו שיחה</span>
-            <span><strong>${item.saved}</strong> נשמרו</span>
-            <span><strong>${item.pending}</strong> ממתינים לשמירה</span>
-            <span><strong>${item.awaitingName}</strong> ממתינים לשם</span>
-            <span><strong>${item.failed}</strong> נכשלו</span>
+    el.innerHTML = withResults.map(item => {
+      const started = Number(item.total || 0);
+      const reached = Math.max(started, Number(item.filesSent || 0), Number(item.progressed || 0), Number(item.completed || 0), Number(item.humanHandoff || 0), Number(item.saved || 0));
+      const answered = Number(item.progressed || 0);
+      const completed = Number(item.completed || 0);
+      const handoff = Number(item.humanHandoff || 0);
+      const saved = Number(item.saved || 0);
+      const sentMessages = Number(item.sentMessages || started);
+      const failed = Number(item.failed || 0);
+      const activeText = item.runtimeStatus === 'ended' ? 'הקמפיין הסתיים' : item.runtimeStatus === 'scheduled' ? 'הקמפיין מתוזמן' : 'הקמפיין הופעל';
+      return `
+        <div class="result-row">
+          <div class="result-info">
+            <div class="result-title">${esc(item.campaignName)}${item.referrerName ? ` · ${esc(item.referrerName)}` : ''}</div>
+            <div class="result-summary-line">
+              מתוך ${started} אנשים שהתחילו, ${completed} הגיעו לסיום ו-${handoff} ביקשו שיחה אנושית.
+            </div>
+            <div class="result-funnel">
+              <div class="funnel-step"><strong>${started}</strong><span>התחילו שיחה</span></div>
+              <div class="funnel-step"><strong>${reached}</strong><span>קיבלו הודעה / קובץ</span></div>
+              <div class="funnel-step"><strong>${answered}</strong><span>ענו לשאלה</span></div>
+              <div class="funnel-step"><strong>${completed}</strong><span>הגיעו לסיום</span></div>
+              <div class="funnel-step"><strong>${handoff}</strong><span>עברו לנציג</span></div>
+              <div class="funnel-step"><strong>${saved}</strong><span>נשמרו כאיש קשר</span></div>
+            </div>
+            <div class="activity-log-simple">
+              <div>${activeText}</div>
+              <div>נשלחו ${sentMessages} הודעות אוטומטיות</div>
+              <div>${handoff} אנשים ביקשו נציג</div>
+              <div>${failed} שמירות נכשלו</div>
+            </div>
           </div>
-          <div class="result-metrics">
-            <div class="result-metric"><strong>${item.total || 0}</strong><span>אנשים התחילו</span></div>
-            <div class="result-metric"><strong>${item.filesSent || 0}</strong><span>קיבלו קובץ / חוברת</span></div>
-            <div class="result-metric"><strong>${item.progressed || 0}</strong><span>התקדמו בתהליך</span></div>
-            <div class="result-metric"><strong>${item.completed || 0}</strong><span>הגיעו לסיום</span></div>
-            <div class="result-metric"><strong>${item.humanHandoff || 0}</strong><span>עברו למענה אנושי</span></div>
-            <div class="result-metric"><strong>${item.failed || 0}</strong><span>שגיאות שצריך לבדוק</span></div>
+          <div class="result-actions">
+            <a class="result-export" href="/api/campaign-results/${item.campaignId}/export" download>CSV</a>
+            <a class="result-export" href="/api/campaign-results/${item.campaignId}/export.vcf" download>VCF</a>
           </div>
         </div>
-        <div class="result-actions">
-          <a class="result-export" href="/api/campaign-results/${item.campaignId}/export" download>CSV</a>
-          <a class="result-export" href="/api/campaign-results/${item.campaignId}/export.vcf" download>VCF</a>
-        </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
   }
 
   async function loadTwilioLogs() {
@@ -1990,6 +2066,8 @@
     document.getElementById('fReplyText').value = settings.replyText;
     renderCampaignFollowupFields(settings.followupMessages || []);
     renderDecisionFlow(settings.decisionFlow || []);
+    document.getElementById('fDecisionTimeoutMinutes').value = settings.decisionTimeoutMinutes || appSettings.decisionTimeoutMinutes || 30;
+    document.getElementById('fDecisionTimeoutText').value = settings.decisionTimeoutText || '';
     document.getElementById('fHumanHandoffEnabled').checked = settings.humanHandoffEnabled !== false;
     document.getElementById('fHumanHandoffText').value = settings.humanHandoffText || appSettings.humanHandoffText;
     document.getElementById('fHumanHandoffPhone').value = settings.humanHandoffPhone || '';
@@ -2185,15 +2263,6 @@
           ${options.map((option, optionIndex) => decisionOptionHtml(option, optionIndex)).join('')}
           <button type="button" class="btn-small" onclick="addDecisionOption(this)">+ הוסף תשובה</button>
         </div>
-        <div class="decision-options" data-question-timeout>
-          <div class="decision-options-label">אם לא ענו לשאלה</div>
-          <div class="decision-option-grid">
-            <input data-timeout-minutes type="number" min="1" max="1440" value="${esc(step.timeoutMinutes || 30)}" oninput="updateCampaignConversationPreview()" placeholder="דקות המתנה" />
-            <span class="hint">דקות</span>
-            <div class="decision-option-label">הודעה שתישלח אם לא התקבלה תשובה</div>
-            <textarea data-timeout-text oninput="updateCampaignConversationPreview()" placeholder="למשל: שולחת תזכורת קטנה. אפשר לענות כשנוח לך.">${esc(step.timeoutText || '')}</textarea>
-          </div>
-        </div>
       </div>
     `;
   }
@@ -2215,10 +2284,10 @@
             <div class="decision-action-tabs">
               <button type="button" class="decision-action-tab" data-action="end" onclick="setDecisionOptionAction(this, 'end')">שלח הודעה וסיים</button>
               <button type="button" class="decision-action-tab" data-action="file" onclick="setDecisionOptionAction(this, 'file')">שלח קובץ</button>
-              <button type="button" class="decision-action-tab" data-action="next" onclick="setDecisionOptionAction(this, 'next')">המשך לשלב הבא</button>
+              <button type="button" class="decision-action-tab" data-action="next" onclick="setDecisionOptionAction(this, 'next')">מעבר לשאלה הבאה</button>
             </div>
             <div class="decision-action-summary" data-option-summary></div>
-            <div class="decision-option-label" data-option-next-label>לאיזה שלב ממשיכים אחרי הבחירה?</div>
+            <div class="decision-option-label" data-option-next-label>לאיזו שאלה ממשיכים אחרי הבחירה?</div>
             <select data-option-next onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()" data-selected-next="${esc(option.nextStepId || '')}"></select>
             <div class="decision-option-label" data-option-file-label>איזה קובץ לשלוח?</div>
             <select data-option-file data-selected-file="${esc(option.fileId || '')}" onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">${fileOptions(option.fileId || '')}</select>
@@ -2311,7 +2380,6 @@
       step.querySelector('[data-message-next]').style.display = kind === 'message' ? '' : 'none';
       step.querySelector('[data-question-presentation]').style.display = kind === 'question' ? '' : 'none';
       step.querySelector('[data-options]').style.display = kind === 'question' ? '' : 'none';
-      step.querySelector('[data-question-timeout]').style.display = kind === 'question' ? '' : 'none';
       step.querySelector('.decision-step-subtitle').textContent = kind === 'question'
         ? (presentation === 'list' ? 'שאלה עם רשימה נפתחת עד 10 תשובות' : 'שאלה עם עד 3 כפתורים')
         : 'הודעה רגילה';
@@ -2338,16 +2406,16 @@
         option.querySelector('[data-option-end-label]').style.display = '';
         option.querySelector('[data-option-end-text]').placeholder = action === 'file'
           ? 'כיתוב שיופיע עם הקובץ (אופציונלי)'
-          : (action === 'next' ? 'טקסט שיישלח לפני המעבר לשלב הבא' : 'הודעת סיום שתישלח אחרי התשובה הזו');
+          : (action === 'next' ? 'טקסט מלווה לפני השאלה הבאה' : 'הודעת סיום שתישלח אחרי התשובה הזו');
         option.querySelector('[data-option-end-label]').textContent = action === 'file'
           ? 'כיתוב לקובץ'
-          : (action === 'next' ? 'טקסט לפני המשך לשלב הבא' : 'הודעת פרידה קבועה');
+          : (action === 'next' ? 'טקסט מלווה לפני השאלה הבאה' : 'הודעת פרידה קבועה');
         if (summary) {
           if (action === 'next') {
             const target = selectedStepLabel(nextSelect);
             summary.textContent = target
-              ? `אחרי שהמשתמש בוחר "${optionText}", נשלח טקסט קצר ואז ממשיכים אל ${target}.`
-              : `אחרי שהמשתמש בוחר "${optionText}", צריך לבחור לאיזה שלב להמשיך.`;
+              ? `אחרי שהמשתמש בוחר "${optionText}", נשלח טקסט קצר ואז עוברים אל ${target}.`
+              : `אחרי שהמשתמש בוחר "${optionText}", המערכת תנסה לעבור לשאלה הבאה שתיבנה. אם אין שאלה נוספת, השיחה תסתיים.`;
           } else if (action === 'file') {
             const file = selectedFileLabel(fileSelect);
             summary.textContent = file
@@ -2378,7 +2446,10 @@
     }));
     document.querySelectorAll('[data-step-next], [data-option-next]').forEach(select => {
       const selected = select.value || select.dataset.selectedNext || '';
-      select.innerHTML = '<option value="">סיום שיחה</option>' + steps
+      const emptyLabel = select.matches('[data-option-next]')
+        ? 'השאלה הבאה שתיווצר / סיום אם אין'
+        : 'סיום שיחה';
+      select.innerHTML = `<option value="">${emptyLabel}</option>` + steps
         .filter(step => step.id !== select.closest('[data-decision-step]')?.dataset.stepId)
         .map(step => `<option value="${esc(step.id)}">${esc(step.label)}${step.text ? ` - ${esc(step.text.slice(0, 24))}` : ''}</option>`)
         .join('');
@@ -2388,7 +2459,7 @@
   }
 
   function getDecisionFlow() {
-    return [...document.querySelectorAll('[data-decision-step]')]
+    const steps = [...document.querySelectorAll('[data-decision-step]')]
       .map(step => {
         const kind = step.querySelector('[data-step-kind]').value === 'question' ? 'question' : 'message';
         const item = {
@@ -2414,7 +2485,7 @@
               if (action === 'next') {
                 const nextStepId = option.querySelector('[data-option-next]').value;
                 const nextText = option.querySelector('[data-option-end-text]').value.trim();
-                if (nextStepId) clean.nextStepId = nextStepId;
+                clean.nextStepId = nextStepId || '__NEXT__';
                 if (nextText) clean.endText = nextText;
               } else if (action === 'file') {
                 const fileId = option.querySelector('[data-option-file]').value;
@@ -2430,14 +2501,19 @@
             })
             .filter(Boolean);
           if (!item.options.length) return null;
-          const timeoutMinutes = Number(step.querySelector('[data-timeout-minutes]')?.value);
-          const timeoutText = step.querySelector('[data-timeout-text]')?.value.trim() || '';
-          if (timeoutMinutes > 0) item.timeoutMinutes = timeoutMinutes;
-          if (timeoutText) item.timeoutText = timeoutText;
         }
         return item;
       })
       .filter(Boolean);
+    steps.forEach((step, index) => {
+      step.options?.forEach(option => {
+        if (option.nextStepId === '__NEXT__') {
+          option.nextStepId = steps[index + 1]?.id || '';
+          if (!option.nextStepId) delete option.nextStepId;
+        }
+      });
+    });
+    return steps;
   }
 
   function getCampaignConversation() {
@@ -2450,6 +2526,8 @@
       .map(el => el.value.trim())
       .filter(Boolean),
       decisionFlow: getDecisionFlow(),
+      decisionTimeoutMinutes: Number(document.getElementById('fDecisionTimeoutMinutes')?.value) || appSettings.decisionTimeoutMinutes || 30,
+      decisionTimeoutText: document.getElementById('fDecisionTimeoutText')?.value || '',
       humanHandoffEnabled: document.getElementById('fHumanHandoffEnabled')?.checked !== false,
       humanHandoffText: document.getElementById('fHumanHandoffText')?.value || appSettings.humanHandoffText,
       humanHandoffPhone: document.getElementById('fHumanHandoffPhone')?.value || '',
@@ -2521,13 +2599,12 @@
           .map(option => `אם בוחרים "${option.text}" תישלח הודעה: ${option.endText}`)
           .join('\n');
         const notes = [optionNotes, textNotes].filter(Boolean).join('\n');
-        const timeoutNote = step.timeoutText
-          ? `אם לא עונים תוך ${step.timeoutMinutes || 30} דקות תישלח הודעה: ${step.timeoutText}`
-          : '';
-        return `<div class="chat-row bot"><div class="chat-bubble">${esc(`${step.text}\n(${mode})${options ? '\n\n' + options : ''}${notes ? '\n\n' + notes : ''}${timeoutNote ? '\n\n' + timeoutNote : ''}`)}</div></div>`;
+        return `<div class="chat-row bot"><div class="chat-bubble">${esc(`${step.text}\n(${mode})${options ? '\n\n' + options : ''}${notes ? '\n\n' + notes : ''}`)}</div></div>`;
       }
       return `<div class="chat-row bot"><div class="chat-bubble">${esc(step.text)}</div></div>`;
-    }).join('');
+    }).join('') + (conversation.decisionFlow.some(step => step.kind === 'question') && conversation.decisionTimeoutText
+      ? `<div class="chat-row bot"><div class="chat-bubble">${esc(`אם לא ענו לשאלות תוך ${conversation.decisionTimeoutMinutes || 30} דקות:\n${conversation.decisionTimeoutText}`)}</div></div>`
+      : '');
   }
 
   function formatHumanHandoffPreview(conversation) {

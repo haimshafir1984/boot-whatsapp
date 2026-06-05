@@ -370,6 +370,12 @@ function conversationSettings(
       ? input.followupMessages.filter((message): message is string => typeof message === 'string')
       : defaults.followupMessages,
     decisionFlow: sanitizeDecisionFlow(input?.decisionFlow, defaults.decisionFlow),
+    decisionTimeoutMinutes: typeof input?.decisionTimeoutMinutes === 'number' && input.decisionTimeoutMinutes > 0
+      ? Math.min(Math.max(Math.round(input.decisionTimeoutMinutes), 1), 1440)
+      : (defaults.decisionTimeoutMinutes ?? 30),
+    decisionTimeoutText: typeof input?.decisionTimeoutText === 'string'
+      ? input.decisionTimeoutText.trim().slice(0, 2000)
+      : (defaults.decisionTimeoutText ?? ''),
     humanHandoffEnabled: typeof input?.humanHandoffEnabled === 'boolean'
       ? input.humanHandoffEnabled
       : Boolean(defaults.humanHandoffEnabled),
@@ -628,7 +634,7 @@ export function startAdminServer(storage: Storage): void {
   app.use('/owner/api', access.requireOwner);
 
   app.get('/owner/api/clients', (_req, res) => {
-    res.json(ownerStorage.getClients());
+    res.json(ownerStorage.getClients().map(exposeOwnerClient));
   });
 
   app.get('/owner/api/provisioning-status', (_req, res) => {
@@ -667,6 +673,11 @@ export function startAdminServer(storage: Storage): void {
       throw new Error(message);
     }
   };
+
+  const exposeOwnerClient = (client: ManagedClient) => ({
+    ...client,
+    twilioWebhookUrl: dokployProvisioner.getTwilioWebhookUrl(client),
+  });
 
   app.post('/owner/api/clients', async (req, res) => {
     const name = String(req.body?.name ?? '').trim();
@@ -712,11 +723,11 @@ export function startAdminServer(storage: Storage): void {
       twilioFrom: plan === 'advanced' ? twilioFrom : undefined,
     });
     try {
-      res.status(201).json(await provisionClient(client.id));
+      res.status(201).json(exposeOwnerClient(await provisionClient(client.id)));
     } catch (err: any) {
       res.status(502).json({
         error: err?.message ?? String(err),
-        client: ownerStorage.getClient(client.id),
+        client: ownerStorage.getClient(client.id) ? exposeOwnerClient(ownerStorage.getClient(client.id)!) : null,
       });
     }
   });
@@ -736,7 +747,8 @@ export function startAdminServer(storage: Storage): void {
       res.status(400).json({ error: 'ללקוח במסלול Twilio צריך להיות מספר WhatsApp, למשל +16602902811' });
       return;
     }
-    res.json(ownerStorage.updateClient(client.id, { twilioFrom }));
+    const updated = ownerStorage.updateClient(client.id, { twilioFrom });
+    res.json(updated ? exposeOwnerClient(updated) : null);
   });
 
   app.get('/owner/api/clients/:id', (req, res) => {
@@ -745,7 +757,7 @@ export function startAdminServer(storage: Storage): void {
       res.status(404).json({ error: 'לקוחה לא נמצאה' });
       return;
     }
-    res.json(client);
+    res.json(exposeOwnerClient(client));
   });
 
   app.post('/owner/api/clients/:id/check-ready', async (req, res) => {
@@ -755,7 +767,7 @@ export function startAdminServer(storage: Storage): void {
       return;
     }
     if (!client.managementUrl) {
-      res.json(client);
+      res.json(exposeOwnerClient(client));
       return;
     }
     try {
@@ -763,13 +775,14 @@ export function startAdminServer(storage: Storage): void {
       const response = await fetch(healthUrl, { signal: AbortSignal.timeout(8_000) });
       const health = await response.json().catch(() => null) as { clientConfigured?: boolean } | null;
       if (response.ok && health?.clientConfigured === true) {
-        res.json(ownerStorage.updateClient(client.id, { provisioningStatus: 'ready' }));
+        const updated = ownerStorage.updateClient(client.id, { provisioningStatus: 'ready' });
+        res.json(updated ? exposeOwnerClient(updated) : null);
         return;
       }
     } catch {
       // A deployment may still be building; retain the current state.
     }
-    res.json(client);
+    res.json(exposeOwnerClient(client));
   });
 
   app.post('/owner/api/clients/:id/provision', async (req, res) => {
@@ -779,11 +792,11 @@ export function startAdminServer(storage: Storage): void {
       return;
     }
     try {
-      res.json(await provisionClient(client.id));
+      res.json(exposeOwnerClient(await provisionClient(client.id)));
     } catch (err: any) {
       res.status(502).json({
         error: err?.message ?? String(err),
-        client: ownerStorage.getClient(client.id),
+        client: ownerStorage.getClient(client.id) ? exposeOwnerClient(ownerStorage.getClient(client.id)!) : null,
       });
     }
   });
@@ -1395,6 +1408,7 @@ export function startAdminServer(storage: Storage): void {
       campaignId: campaign.id,
       campaignName: campaign.name,
       referrerName: campaign.referrerName,
+      runtimeStatus: campaign.runtimeStatus,
       ...storage.getCampaignResultSummary(campaign.id),
     }));
     res.json({ summaries });

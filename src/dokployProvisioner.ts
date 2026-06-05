@@ -169,6 +169,15 @@ export class DokployProvisioner {
     return { deleted, warnings };
   }
 
+  getTwilioWebhookUrl(client: ManagedClient): string {
+    if (client.whatsappProvider !== 'TWILIO_API' || !client.managementUrl || !this.config?.twilioWebhookToken) {
+      return '';
+    }
+    const url = new URL('/webhooks/twilio/whatsapp', client.managementUrl);
+    url.searchParams.set('token', this.config.twilioWebhookToken);
+    return url.toString();
+  }
+
   private async runProvision(
     client: ManagedClient,
     saveProgress: (patch: ClientProvisioningPatch) => ManagedClient,
