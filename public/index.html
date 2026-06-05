@@ -2557,7 +2557,7 @@
       `).join('');
     }
     if (decisionFlowEl) {
-      const flowPreview = previewDecisionFlow(conversation.decisionFlow || []);
+      const flowPreview = previewDecisionFlow(conversation.decisionFlow || [], conversation);
       const handoffPreview = conversation.humanHandoffEnabled
         ? `<div class="chat-row bot"><div class="chat-bubble">${esc(formatHumanHandoffPreview(conversation))}</div></div>`
         : '';
@@ -2567,7 +2567,7 @@
     updateWizardSummary();
   }
 
-  function previewDecisionFlow(flow = []) {
+  function previewDecisionFlow(flow = [], conversation = getCampaignConversation()) {
     if (!flow.length) return '';
     const byId = new Map(flow.map(step => [step.id, step]));
     const first = flow.find(step => step.text?.trim());

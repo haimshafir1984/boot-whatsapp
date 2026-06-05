@@ -15,6 +15,7 @@ export interface ManagedClient {
   serviceExpiresAt?: string;
   whatsappProvider: 'WEB_JS' | 'BAILEYS' | 'TWILIO_API';
   twilioFrom?: string;
+  botReplyDelayMs?: number;
   managementUrl: string;
   provisioningStatus: ClientProvisioningStatus;
   railwayServiceId?: string;
@@ -79,7 +80,7 @@ export class OwnerStorage {
   addClient(
     name: string,
     accessCode: string,
-    options: Partial<Pick<ManagedClient, 'plan' | 'readonlyDashboard' | 'maxCampaigns' | 'serviceExpiresAt' | 'whatsappProvider' | 'twilioFrom'>> = {},
+    options: Partial<Pick<ManagedClient, 'plan' | 'readonlyDashboard' | 'maxCampaigns' | 'serviceExpiresAt' | 'whatsappProvider' | 'twilioFrom' | 'botReplyDelayMs'>> = {},
   ): ManagedClient {
     const plan = options.plan ?? 'self_service';
     const client: ManagedClient = {
@@ -93,6 +94,7 @@ export class OwnerStorage {
       serviceExpiresAt: options.serviceExpiresAt,
       whatsappProvider: options.whatsappProvider ?? (plan === 'advanced' ? 'TWILIO_API' : DEFAULT_WHATSAPP_PROVIDER),
       twilioFrom: options.twilioFrom,
+      botReplyDelayMs: options.botReplyDelayMs,
       managementUrl: '',
       provisioningStatus: 'pending_setup',
       createdAt: new Date().toISOString(),

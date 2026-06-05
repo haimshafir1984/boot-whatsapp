@@ -34,6 +34,7 @@ interface DokployProvisioningConfig {
   twilioQuickReplyContentSid?: string;
   twilioListPickerContentSid?: string;
   twilioMediaBaseUrl?: string;
+  botReplyDelayMs?: number;
 }
 
 interface DokployApplication {
@@ -84,6 +85,7 @@ export class DokployProvisioner {
     const twilioQuickReplyContentSid = env.DOKPLOY_TWILIO_QUICK_REPLY_CONTENT_SID?.trim();
     const twilioListPickerContentSid = env.DOKPLOY_TWILIO_LIST_PICKER_CONTENT_SID?.trim();
     const twilioMediaBaseUrl = env.DOKPLOY_TWILIO_MEDIA_BASE_URL?.trim();
+    const botReplyDelayMs = Number(env.DOKPLOY_BOT_REPLY_DELAY_MS);
     const missing = [
       !token && 'DOKPLOY_API_TOKEN',
       !environmentId && 'DOKPLOY_ENVIRONMENT_ID',
@@ -128,6 +130,7 @@ export class DokployProvisioner {
       twilioQuickReplyContentSid,
       twilioListPickerContentSid,
       twilioMediaBaseUrl,
+      botReplyDelayMs: Number.isFinite(botReplyDelayMs) && botReplyDelayMs >= 0 ? Math.round(botReplyDelayMs) : undefined,
     };
   }
 
@@ -256,6 +259,10 @@ export class DokployProvisioner {
     ];
     if (current.serviceExpiresAt) {
       envLines.push(`CLIENT_SERVICE_EXPIRES_AT=${escapeEnvValue(current.serviceExpiresAt)}`);
+    }
+    const botReplyDelayMs = current.botReplyDelayMs ?? this.config.botReplyDelayMs ?? 1000;
+    if (typeof botReplyDelayMs === 'number') {
+      envLines.push(`BOT_REPLY_DELAY_MS=${String(Math.max(0, Math.round(botReplyDelayMs)))}`);
     }
     if (this.config.googleClientId && this.config.googleClientSecret) {
       envLines.push(`GOOGLE_CLIENT_ID=${escapeEnvValue(this.config.googleClientId)}`);

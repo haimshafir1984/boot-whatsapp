@@ -104,6 +104,7 @@
           <div class="line"><span class="label">תוקף פעילות</span><span class="value" id="serviceExpiresAt">-</span></div>
           <div class="line"><span class="label">חיבור WhatsApp</span><span class="value" id="whatsappProvider">-</span></div>
           <div class="line" id="twilioFromLine" style="display:none"><span class="label">מספר Twilio</span><span class="value code" id="twilioFromValue">-</span></div>
+          <div class="line" id="botReplyDelayLine" style="display:none"><span class="label">דיליי בין הודעות</span><span class="value code" id="botReplyDelayValue">-</span></div>
           <div class="line">
             <span class="label">סיסמת כניסה ללקוחה</span>
             <span><span class="value code" id="accessCode"></span><button class="copy" onclick="copyAccessCode()">העתק</button></span>
@@ -194,6 +195,11 @@
               <div class="help-text">יש להזין מספר מלא עם קידומת מדינה. לאחר השמירה המערכת תעדכן אוטומטית את היחידה של הלקוח.</div>
             </div>
             <div class="full">
+              <label>דיליי בין הודעות אוטומטיות</label>
+              <input id="clientBotReplyDelayEdit" type="number" min="0" max="60000" step="100" dir="ltr" placeholder="1000" />
+              <div class="help-text">הערך נמדד במילישניות: 1000 = שנייה אחת, 500 = חצי שנייה, 0 = ללא המתנה. מומלץ להתחיל עם 500-1000.</div>
+            </div>
+            <div class="full">
               <label>Webhook להדבקה בטוויליו</label>
               <div class="webhook-box" id="twilioWebhookUrl">-</div>
               <div class="help-text">את הכתובת הזו מדביקים ב-Twilio בשדה Webhook URL for incoming messages, עם HTTP POST.</div>
@@ -263,6 +269,12 @@
 
     function displayTwilioFrom(value) {
       return value ? String(value).replace(/^whatsapp:/i, '') : '';
+    }
+
+    function displayDelay(value) {
+      const delay = Number(value ?? 1000);
+      if (!Number.isFinite(delay)) return '1000ms';
+      return `${delay}ms`;
     }
 
     function formatDate(value) {
@@ -463,9 +475,12 @@
         'WhatsApp Web';
       const isTwilioClient = currentClient.whatsappProvider === 'TWILIO_API';
       document.getElementById('twilioFromLine').style.display = isTwilioClient ? '' : 'none';
+      document.getElementById('botReplyDelayLine').style.display = isTwilioClient ? '' : 'none';
       document.getElementById('twilioSettingsSection').style.display = isTwilioClient ? '' : 'none';
       document.getElementById('twilioFromValue').textContent = displayTwilioFrom(currentClient.twilioFrom) || '-';
+      document.getElementById('botReplyDelayValue').textContent = displayDelay(currentClient.botReplyDelayMs);
       document.getElementById('clientTwilioFromEdit').value = displayTwilioFrom(currentClient.twilioFrom);
+      document.getElementById('clientBotReplyDelayEdit').value = currentClient.botReplyDelayMs ?? 1000;
       document.getElementById('twilioWebhookUrl').textContent = currentClient.twilioWebhookUrl || '-';
       document.getElementById('accessCode').textContent = currentClient.accessCode;
       document.getElementById('retryButton').style.display = 'none';
@@ -518,7 +533,10 @@
       const response = await fetch(`/owner/api/clients/${encodeURIComponent(currentClient.id)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ twilioFrom: document.getElementById('clientTwilioFromEdit').value }),
+        body: JSON.stringify({
+          twilioFrom: document.getElementById('clientTwilioFromEdit').value,
+          botReplyDelayMs: document.getElementById('clientBotReplyDelayEdit').value,
+        }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {

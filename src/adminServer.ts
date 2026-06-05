@@ -122,6 +122,14 @@ function normalizeTwilioFrom(value: unknown): string | null | undefined {
   return `whatsapp:${compact}`;
 }
 
+function normalizeBotReplyDelayMs(value: unknown): number | null | undefined {
+  const raw = String(value ?? '').trim();
+  if (!raw) return undefined;
+  const delay = Number(raw);
+  if (!Number.isFinite(delay) || delay < 0 || delay > 60_000) return null;
+  return Math.round(delay);
+}
+
 function buildContactsVCard(contacts: Array<{ name?: string; phone: string }>): string {
   return contacts
     .filter((contact) => contact.phone.trim())
@@ -460,14 +468,21 @@ function sanitizeDecisionFlow(
     .slice(0, 20);
 
   const ids = new Set(steps.map((step) => step.id));
-  return steps.map((step) => ({
-    ...step,
-    nextStepId: step.nextStepId && ids.has(step.nextStepId) ? step.nextStepId : undefined,
-    options: step.options?.map((option) => ({
-      ...option,
-      nextStepId: option.nextStepId && ids.has(option.nextStepId) ? option.nextStepId : undefined,
-    })),
-  }));
+  return steps.map((step, index) => {
+    const nextSequentialStepId = steps[index + 1]?.id;
+    const stepNextStepId = step.nextStepId === '__NEXT__' ? nextSequentialStepId : step.nextStepId;
+    return {
+      ...step,
+      nextStepId: stepNextStepId && ids.has(stepNextStepId) ? stepNextStepId : undefined,
+      options: step.options?.map((option) => {
+        const optionNextStepId = option.nextStepId === '__NEXT__' ? nextSequentialStepId : option.nextStepId;
+        return {
+          ...option,
+          nextStepId: optionNextStepId && ids.has(optionNextStepId) ? optionNextStepId : undefined,
+        };
+      }),
+    };
+  });
 }
 
 function campaignTwilioSettings(input: any): Campaign['twilio'] {
@@ -690,6 +705,7 @@ export function startAdminServer(storage: Storage): void {
       ? req.body.serviceExpiresAt.trim()
       : undefined;
     const twilioFrom = normalizeTwilioFrom(req.body?.twilioFrom);
+    const botReplyDelayMs = normalizeBotReplyDelayMs(req.body?.botReplyDelayMs);
     if (!name) {
       res.status(400).json({ error: 'שם לקוחה חסר' });
       return;
@@ -704,6 +720,10 @@ export function startAdminServer(storage: Storage): void {
     }
     if (twilioFrom === null) {
       res.status(400).json({ error: 'מספר Twilio חייב להיות בפורמט מלא עם קידומת מדינה, למשל +16602902811' });
+      return;
+    }
+    if (botReplyDelayMs === null) {
+      res.status(400).json({ error: 'דיליי הודעות חייב להיות מספר בין 0 ל-60000 מילישניות' });
       return;
     }
     if (plan === 'advanced' && !twilioFrom) {
@@ -721,6 +741,7 @@ export function startAdminServer(storage: Storage): void {
       serviceExpiresAt,
       whatsappProvider: plan === 'advanced' ? 'TWILIO_API' : 'BAILEYS',
       twilioFrom: plan === 'advanced' ? twilioFrom : undefined,
+      botReplyDelayMs,
     });
     try {
       res.status(201).json(exposeOwnerClient(await provisionClient(client.id)));
@@ -738,16 +759,28 @@ export function startAdminServer(storage: Storage): void {
       res.status(404).json({ error: 'לקוחה לא נמצאה' });
       return;
     }
-    const twilioFrom = normalizeTwilioFrom(req.body?.twilioFrom);
-    if (twilioFrom === null) {
-      res.status(400).json({ error: 'מספר Twilio חייב להיות בפורמט מלא עם קידומת מדינה, למשל +16602902811' });
-      return;
+    const patch: Partial<ManagedClient> = {};
+    if ('twilioFrom' in req.body) {
+      const twilioFrom = normalizeTwilioFrom(req.body?.twilioFrom);
+      if (twilioFrom === null) {
+        res.status(400).json({ error: 'מספר Twilio חייב להיות בפורמט מלא עם קידומת מדינה, למשל +16602902811' });
+        return;
+      }
+      if (client.whatsappProvider === 'TWILIO_API' && !twilioFrom) {
+        res.status(400).json({ error: 'ללקוח במסלול Twilio צריך להיות מספר WhatsApp, למשל +16602902811' });
+        return;
+      }
+      patch.twilioFrom = twilioFrom;
     }
-    if (client.whatsappProvider === 'TWILIO_API' && !twilioFrom) {
-      res.status(400).json({ error: 'ללקוח במסלול Twilio צריך להיות מספר WhatsApp, למשל +16602902811' });
-      return;
+    if ('botReplyDelayMs' in req.body) {
+      const botReplyDelayMs = normalizeBotReplyDelayMs(req.body?.botReplyDelayMs);
+      if (botReplyDelayMs === null) {
+        res.status(400).json({ error: 'דיליי הודעות חייב להיות מספר בין 0 ל-60000 מילישניות' });
+        return;
+      }
+      patch.botReplyDelayMs = botReplyDelayMs;
     }
-    const updated = ownerStorage.updateClient(client.id, { twilioFrom });
+    const updated = ownerStorage.updateClient(client.id, patch);
     res.json(updated ? exposeOwnerClient(updated) : null);
   });
 

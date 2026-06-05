@@ -302,7 +302,10 @@ async function handleDecisionReply(
 
   const normalized = answer.trim().toLowerCase();
   const option = step.options?.find((item, index) => {
-    return normalized === String(index + 1) || normalized === item.text.trim().toLowerCase();
+    const optionId = String(item.id ?? '').trim().toLowerCase();
+    return normalized === String(index + 1) ||
+      Boolean(optionId && normalized === optionId) ||
+      normalized === item.text.trim().toLowerCase();
   });
 
   if (!option && humanHandoff.enabled) {
