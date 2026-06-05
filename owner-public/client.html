@@ -61,6 +61,7 @@
     }
     .owner-form textarea { min-height: 72px; resize: vertical; }
     .full { grid-column: 1 / -1; }
+    .help-text { color: #6b7280; font-size: .78rem; line-height: 1.45; margin-top: 8px; }
     .form-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .danger { border: 1px solid #fecaca; background: #fff1f2; color: #b91c1c; border-radius: 6px; padding: 6px 9px; cursor: pointer; font-weight: 700; }
     .mini { border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 6px; padding: 6px 9px; cursor: pointer; font-weight: 700; }
@@ -91,6 +92,7 @@
           <div class="line"><span class="label">מגבלת קמפיינים</span><span class="value" id="maxCampaigns">-</span></div>
           <div class="line"><span class="label">תוקף פעילות</span><span class="value" id="serviceExpiresAt">-</span></div>
           <div class="line"><span class="label">חיבור WhatsApp</span><span class="value" id="whatsappProvider">-</span></div>
+          <div class="line" id="twilioFromLine" style="display:none"><span class="label">מספר Twilio</span><span class="value code" id="twilioFromValue">-</span></div>
           <div class="line">
             <span class="label">סיסמת כניסה ללקוחה</span>
             <span><span class="value code" id="accessCode"></span><button class="copy" onclick="copyAccessCode()">העתק</button></span>
@@ -172,6 +174,20 @@
           <div class="check"><span class="dot" id="googleDot"></span><span id="googleState">Google Contacts טרם חובר</span></div>
           <div class="check"><span class="dot" id="campaignDot"></span><span id="campaignState">אין קמפיין פעיל</span></div>
         </section>
+        <section id="twilioSettingsSection" style="display:none">
+          <h2>חיבור Twilio ללקוח</h2>
+          <div class="owner-form">
+            <div class="full">
+              <label>מספר WhatsApp של הלקוח בטוויליו</label>
+              <input id="clientTwilioFromEdit" type="tel" dir="ltr" placeholder="+16602902811" />
+              <div class="help-text">יש להזין מספר מלא עם קידומת מדינה. לאחר השמירה המערכת תעדכן אוטומטית את היחידה של הלקוח.</div>
+            </div>
+            <div class="full form-actions">
+              <button class="retry" type="button" onclick="saveTwilioNumber()">שמור ועדכן יחידה</button>
+              <span class="muted" id="twilioSaveState"></span>
+            </div>
+          </div>
+        </section>
         <button class="retry" id="retryButton" style="display:none" onclick="retryProvision()">נסה שוב להקים את היחידה</button>
         <button class="secondary" id="updateUnitButton" style="display:none" onclick="retryProvision()">עדכן יחידה וקמפיינים</button>
         <button class="secondary" id="readyButton" style="display:none" onclick="checkReady()">בדוק אם הלינק כבר מוכן</button>
@@ -226,6 +242,10 @@
         self_service: 'עצמאי',
         advanced: 'Twilio מתקדם',
       }[plan] || plan || '-';
+    }
+
+    function displayTwilioFrom(value) {
+      return value ? String(value).replace(/^whatsapp:/i, '') : '';
     }
 
     function formatDate(value) {
@@ -424,6 +444,11 @@
         currentClient.whatsappProvider === 'TWILIO_API' ? 'Twilio' :
         currentClient.whatsappProvider === 'BAILEYS' ? 'Baileys' :
         'WhatsApp Web';
+      const isTwilioClient = currentClient.whatsappProvider === 'TWILIO_API';
+      document.getElementById('twilioFromLine').style.display = isTwilioClient ? '' : 'none';
+      document.getElementById('twilioSettingsSection').style.display = isTwilioClient ? '' : 'none';
+      document.getElementById('twilioFromValue').textContent = displayTwilioFrom(currentClient.twilioFrom) || '-';
+      document.getElementById('clientTwilioFromEdit').value = displayTwilioFrom(currentClient.twilioFrom);
       document.getElementById('accessCode').textContent = currentClient.accessCode;
       document.getElementById('retryButton').style.display = 'none';
       document.getElementById('updateUnitButton').style.display = 'none';
@@ -457,6 +482,36 @@
 
     function copyAccessCode() {
       if (currentClient) navigator.clipboard.writeText(currentClient.accessCode);
+    }
+
+    async function saveTwilioNumber() {
+      if (!currentClient) return;
+      const state = document.getElementById('twilioSaveState');
+      const error = document.getElementById('error');
+      state.textContent = 'שומר ומעדכן יחידה...';
+      error.textContent = '';
+      const response = await fetch(`/owner/api/clients/${encodeURIComponent(currentClient.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ twilioFrom: document.getElementById('clientTwilioFromEdit').value }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        state.textContent = '';
+        error.textContent = body.error || 'שמירת מספר Twilio נכשלה';
+        return;
+      }
+      currentClient = body;
+      const provisionResponse = await fetch(`/owner/api/clients/${encodeURIComponent(currentClient.id)}/provision`, { method: 'POST' });
+      const provisionBody = await provisionResponse.json().catch(() => ({}));
+      if (!provisionResponse.ok) {
+        state.textContent = '';
+        error.textContent = provisionBody.error || 'עדכון היחידה נכשל';
+        loadClient();
+        return;
+      }
+      state.textContent = 'נשמר. הפריסה עודכנה.';
+      loadClient();
     }
 
     async function retryProvision() {

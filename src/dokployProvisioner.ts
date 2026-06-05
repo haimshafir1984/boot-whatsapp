@@ -257,9 +257,10 @@ export class DokployProvisioner {
       envLines.push(`GOOGLE_OAUTH_STATE_SECRET=${escapeEnvValue(this.config.googleOauthStateSecret)}`);
     }
     if (current.whatsappProvider === 'TWILIO_API') {
+      const twilioFrom = current.twilioFrom || this.config.twilioFrom;
       envLines.push(`TWILIO_ACCOUNT_SID=${escapeEnvValue(this.config.twilioAccountSid!)}`);
       envLines.push(`TWILIO_AUTH_TOKEN=${escapeEnvValue(this.config.twilioAuthToken!)}`);
-      if (this.config.twilioFrom) envLines.push(`TWILIO_FROM=${escapeEnvValue(this.config.twilioFrom)}`);
+      if (twilioFrom) envLines.push(`TWILIO_FROM=${escapeEnvValue(twilioFrom)}`);
       if (this.config.twilioMessagingServiceSid) envLines.push(`TWILIO_MESSAGING_SERVICE_SID=${escapeEnvValue(this.config.twilioMessagingServiceSid)}`);
       envLines.push(`TWILIO_WEBHOOK_TOKEN=${escapeEnvValue(this.config.twilioWebhookToken!)}`);
       if (this.config.twilioQuickReplyContentSid) envLines.push(`TWILIO_QUICK_REPLY_CONTENT_SID=${escapeEnvValue(this.config.twilioQuickReplyContentSid)}`);
@@ -315,7 +316,7 @@ export class DokployProvisioner {
     const missing = [
       !this.config?.twilioAccountSid && 'DOKPLOY_TWILIO_ACCOUNT_SID',
       !this.config?.twilioAuthToken && 'DOKPLOY_TWILIO_AUTH_TOKEN',
-      !(this.config?.twilioFrom || this.config?.twilioMessagingServiceSid) && 'DOKPLOY_TWILIO_FROM or DOKPLOY_TWILIO_MESSAGING_SERVICE_SID',
+      !(client.twilioFrom || this.config?.twilioFrom || this.config?.twilioMessagingServiceSid) && 'client Twilio number or DOKPLOY_TWILIO_FROM or DOKPLOY_TWILIO_MESSAGING_SERVICE_SID',
       !this.config?.twilioWebhookToken && 'DOKPLOY_TWILIO_WEBHOOK_TOKEN',
     ].filter(Boolean);
     if (missing.length) {

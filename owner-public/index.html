@@ -25,7 +25,7 @@
     h2 { font-size: 1.38rem; margin: 0 0 5px; }
     .sub { color: #6b7280; font-size: .88rem; }
     .create {
-      display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)) auto;
+      display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)) auto;
       gap: 8px; min-width: min(620px, 100%);
     }
     input, select {
@@ -71,6 +71,14 @@
       overflow-wrap: anywhere;
       white-space: normal;
     }
+    .twilio-number {
+      display: block;
+      margin-top: 5px;
+      color: #6b7280;
+      font-size: .76rem;
+      direction: ltr;
+      text-align: right;
+    }
     .retry { border: 1px solid #fecaca; background: #fff; color: #b91c1c; border-radius: 6px; padding: 6px 9px; cursor: pointer; margin-top: 6px; }
     .check-ready { border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 6px; padding: 6px 9px; cursor: pointer; margin-top: 6px; }
     .delete-client { border: 1px solid #fecaca; background: #fff1f2; color: #b91c1c; border-radius: 6px; padding: 7px 10px; cursor: pointer; font-weight: 700; }
@@ -79,7 +87,7 @@
     #error { color: #b91c1c; font-size: .8rem; margin-top: 8px; min-height: 18px; }
     @media (max-width: 760px) {
       .top { flex-direction: column; align-items: stretch; }
-      .create { min-width: 0; flex-direction: column; }
+      .create { min-width: 0; grid-template-columns: 1fr; }
       table, thead, tbody, tr, th, td { display: block; }
       thead { display: none; }
       tr { padding: 10px 0; border-bottom: 1px solid #e5e7eb; }
@@ -106,6 +114,7 @@
           <option value="self_service" selected>עצמאי</option>
           <option value="advanced">Twilio מתקדם</option>
         </select>
+        <input id="clientTwilioFrom" type="tel" dir="ltr" placeholder="מספר Twilio +16602902811" style="display:none" />
         <input id="clientMaxCampaigns" type="number" min="1" max="50" value="7" placeholder="מקס׳ קמפיינים" />
         <input id="clientExpiresAt" type="date" />
         <button class="primary" type="submit">צור יחידת לקוחה</button>
@@ -138,6 +147,13 @@
       const plan = document.getElementById('clientPlan').value;
       document.getElementById('clientMaxCampaigns').value =
         plan === 'advanced' ? '5' : plan === 'basic' ? '1' : '7';
+      const twilioInput = document.getElementById('clientTwilioFrom');
+      twilioInput.style.display = plan === 'advanced' ? '' : 'none';
+      twilioInput.required = plan === 'advanced';
+    }
+
+    function displayTwilioFrom(value) {
+      return value ? String(value).replace(/^whatsapp:/i, '') : '';
     }
 
     function getTwilioWebhookUrl(client) {
@@ -168,7 +184,7 @@
               const webhookUrl = getTwilioWebhookUrl(client);
               return `
             <tr>
-              <td><strong>${esc(client.name)}</strong></td>
+              <td><strong>${esc(client.name)}</strong>${client.twilioFrom ? `<span class="twilio-number">${esc(displayTwilioFrom(client.twilioFrom))}</span>` : ''}</td>
               <td>
                 <span class="status ${esc(client.provisioningStatus)}">${statusLabel(client.provisioningStatus)}</span>
                 ${client.provisioningStatus === 'failed' ? `<div><button class="retry" onclick="retryProvision('${encodeURIComponent(client.id)}')">נסה שוב</button>${client.managementUrl ? ` <button class="check-ready" onclick="checkReady('${encodeURIComponent(client.id)}')">בדוק מוכנות</button>` : ''}</div>` : ''}
@@ -207,6 +223,7 @@
           name: document.getElementById('clientName').value,
           accessCode: document.getElementById('clientAccessCode').value,
           plan: document.getElementById('clientPlan').value,
+          twilioFrom: document.getElementById('clientTwilioFrom').value,
           maxCampaigns: Number(document.getElementById('clientMaxCampaigns').value),
           serviceExpiresAt: document.getElementById('clientExpiresAt').value
             ? new Date(document.getElementById('clientExpiresAt').value + 'T23:59:59').toISOString()
@@ -223,6 +240,7 @@
       }
       document.getElementById('clientName').value = '';
       document.getElementById('clientAccessCode').value = '';
+      document.getElementById('clientTwilioFrom').value = '';
       document.getElementById('clientPlan').value = 'self_service';
       syncPlanDefaults();
       document.getElementById('clientExpiresAt').value = '';
@@ -273,6 +291,7 @@
       window.location.href = '/owner/login';
     }
 
+    syncPlanDefaults();
     loadClients();
   </script>
 </body>

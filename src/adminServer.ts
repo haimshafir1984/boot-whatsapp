@@ -113,6 +113,15 @@ function normalizeVCardPhone(phone: string): string {
   return `+${trimmed.replace(/[^\d]/g, '')}`;
 }
 
+function normalizeTwilioFrom(value: unknown): string | null | undefined {
+  const raw = String(value ?? '').trim();
+  if (!raw) return undefined;
+  const withoutPrefix = raw.replace(/^whatsapp:/i, '').trim();
+  const compact = withoutPrefix.replace(/[\s().-]/g, '');
+  if (!/^\+\d{8,15}$/.test(compact)) return null;
+  return `whatsapp:${compact}`;
+}
+
 function buildContactsVCard(contacts: Array<{ name?: string; phone: string }>): string {
   return contacts
     .filter((contact) => contact.phone.trim())
@@ -669,6 +678,7 @@ export function startAdminServer(storage: Storage): void {
     const serviceExpiresAt = typeof req.body?.serviceExpiresAt === 'string' && req.body.serviceExpiresAt.trim()
       ? req.body.serviceExpiresAt.trim()
       : undefined;
+    const twilioFrom = normalizeTwilioFrom(req.body?.twilioFrom);
     if (!name) {
       res.status(400).json({ error: 'שם לקוחה חסר' });
       return;
@@ -681,6 +691,14 @@ export function startAdminServer(storage: Storage): void {
       res.status(400).json({ error: 'הסיסמה ללקוחה ארוכה מדי' });
       return;
     }
+    if (twilioFrom === null) {
+      res.status(400).json({ error: 'מספר Twilio חייב להיות בפורמט מלא עם קידומת מדינה, למשל +16602902811' });
+      return;
+    }
+    if (plan === 'advanced' && !twilioFrom) {
+      res.status(400).json({ error: 'במסלול Twilio מתקדם צריך להזין את מספר ה-WhatsApp של הלקוחה, למשל +16602902811' });
+      return;
+    }
     if (dokployProvisioner.configurationError) {
       res.status(503).json({ error: dokployProvisioner.configurationError });
       return;
@@ -691,6 +709,7 @@ export function startAdminServer(storage: Storage): void {
       maxCampaigns,
       serviceExpiresAt,
       whatsappProvider: plan === 'advanced' ? 'TWILIO_API' : 'BAILEYS',
+      twilioFrom: plan === 'advanced' ? twilioFrom : undefined,
     });
     try {
       res.status(201).json(await provisionClient(client.id));
@@ -700,6 +719,24 @@ export function startAdminServer(storage: Storage): void {
         client: ownerStorage.getClient(client.id),
       });
     }
+  });
+
+  app.patch('/owner/api/clients/:id', (req, res) => {
+    const client = ownerStorage.getClient(req.params.id);
+    if (!client) {
+      res.status(404).json({ error: 'לקוחה לא נמצאה' });
+      return;
+    }
+    const twilioFrom = normalizeTwilioFrom(req.body?.twilioFrom);
+    if (twilioFrom === null) {
+      res.status(400).json({ error: 'מספר Twilio חייב להיות בפורמט מלא עם קידומת מדינה, למשל +16602902811' });
+      return;
+    }
+    if (client.whatsappProvider === 'TWILIO_API' && !twilioFrom) {
+      res.status(400).json({ error: 'ללקוח במסלול Twilio צריך להיות מספר WhatsApp, למשל +16602902811' });
+      return;
+    }
+    res.json(ownerStorage.updateClient(client.id, { twilioFrom }));
   });
 
   app.get('/owner/api/clients/:id', (req, res) => {
