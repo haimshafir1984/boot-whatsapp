@@ -49,7 +49,20 @@ export interface PendingDecisionConversation {
   timeoutHandle?: NodeJS.Timeout;
 }
 
-export type PendingConversation = PendingNameConversation | PendingDecisionConversation;
+export interface PendingHandoffConversation {
+  kind: 'handoff';
+  senderJid: string;
+  senderPhone?: string;
+  campaignId?: string;
+  campaignResultId?: string;
+  humanHandoffEnabled?: boolean;
+  humanHandoffText?: string;
+  humanHandoffPhone?: string;
+  timestamp: number;
+  timeoutHandle?: NodeJS.Timeout;
+}
+
+export type PendingConversation = PendingNameConversation | PendingDecisionConversation | PendingHandoffConversation;
 
 class ConversationStateManager {
   private readonly map = new Map<string, PendingConversation>();

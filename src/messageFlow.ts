@@ -12,6 +12,7 @@ import {
 const handledMessageIds = new Set<string>();
 const MAX_TRIGGER_AGE_MS = 2 * 60 * 1000;
 const DECISION_REPLY_TIMEOUT_MS = 30 * 60 * 1000;
+const HUMAN_HANDOFF_WINDOW_MS = 24 * 60 * 60 * 1000;
 const BOT_REPLY_DELAY_MS = Math.max(
   0,
   Number.isFinite(config.BOT_REPLY_DELAY_MS) ? config.BOT_REPLY_DELAY_MS : 3000,
@@ -102,6 +103,23 @@ async function handleMessage(
           decisionTimeoutMinutes: pending.decisionTimeoutMinutes,
           decisionTimeoutText: pending.decisionTimeoutText,
         },
+      );
+      return;
+    }
+
+    if (pending.kind === 'handoff') {
+      await sendHumanHandoff(
+        transport,
+        storage,
+        senderJid,
+        {
+          enabled: pending.humanHandoffEnabled,
+          text: pending.humanHandoffText,
+          phone: pending.humanHandoffPhone,
+        },
+        pending.campaignId,
+        pending.campaignResultId,
+        pending.senderPhone,
       );
       return;
     }
@@ -309,17 +327,7 @@ async function handleDecisionReply(
   });
 
   if (!option && humanHandoff.enabled) {
-    const handoffText = formatHumanHandoffText(humanHandoff.text, humanHandoff.phone);
-    if (handoffText) await sendBotMessage(transport, senderJid, handoffText);
-    if (campaignId) {
-      storage.recordCampaignEvent({
-        campaignId,
-        campaignResultId,
-        phone: senderPhone,
-        type: 'human_handoff',
-        label: 'מענה אנושי',
-      });
-    }
+    await sendHumanHandoff(transport, storage, senderJid, humanHandoff, campaignId, campaignResultId, senderPhone);
     conversationState.remove(senderJid);
     return;
   }
@@ -366,6 +374,7 @@ async function handleDecisionReply(
       type: 'completed',
       label: 'סיום תהליך',
     });
+    keepHumanHandoffOpen(senderJid, campaignId, campaignResultId, senderPhone, humanHandoff);
   }
 }
 
@@ -420,6 +429,7 @@ async function sendDecisionStep(
         type: 'completed',
         label: 'סיום תהליך',
       });
+      keepHumanHandoffOpen(senderJid, campaignId, campaignResultId, senderPhone, humanHandoff);
     }
     return;
   }
@@ -484,6 +494,56 @@ async function sendDecisionStep(
     campaignResultId,
     flow,
     stepId: step.id,
+    humanHandoffEnabled: humanHandoff.enabled,
+    humanHandoffText: humanHandoff.text,
+    humanHandoffPhone: humanHandoff.phone,
+    decisionTimeoutMinutes: humanHandoff.decisionTimeoutMinutes,
+    decisionTimeoutText: humanHandoff.decisionTimeoutText,
+    timestamp: Date.now(),
+    timeoutHandle,
+  });
+}
+
+async function sendHumanHandoff(
+  transport: WhatsAppTransport,
+  storage: Storage,
+  senderJid: string,
+  humanHandoff: CampaignReplyBehavior = {},
+  campaignId?: string,
+  campaignResultId?: string,
+  senderPhone?: string,
+): Promise<void> {
+  if (!humanHandoff.enabled) return;
+  const handoffText = formatHumanHandoffText(humanHandoff.text, humanHandoff.phone);
+  if (handoffText) await sendBotMessage(transport, senderJid, handoffText);
+  if (campaignId) {
+    storage.recordCampaignEvent({
+      campaignId,
+      campaignResultId,
+      phone: senderPhone,
+      type: 'human_handoff',
+      label: 'מענה אנושי',
+    });
+  }
+}
+
+function keepHumanHandoffOpen(
+  senderJid: string,
+  campaignId: string | undefined,
+  campaignResultId: string | undefined,
+  senderPhone: string | undefined,
+  humanHandoff: CampaignReplyBehavior = {},
+): void {
+  if (!humanHandoff.enabled) return;
+  const timeoutHandle = setTimeout(() => {
+    conversationState.remove(senderJid);
+  }, HUMAN_HANDOFF_WINDOW_MS);
+  conversationState.set(senderJid, {
+    kind: 'handoff',
+    senderJid,
+    senderPhone,
+    campaignId,
+    campaignResultId,
     humanHandoffEnabled: humanHandoff.enabled,
     humanHandoffText: humanHandoff.text,
     humanHandoffPhone: humanHandoff.phone,
