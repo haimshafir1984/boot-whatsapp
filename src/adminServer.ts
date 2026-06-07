@@ -793,6 +793,35 @@ export function startAdminServer(storage: Storage): void {
     res.json(exposeOwnerClient(client));
   });
 
+  app.post('/owner/api/clients/redeploy-all', async (_req, res) => {
+    const clients = ownerStorage
+      .getClients()
+      .filter((client) => client.provisioningStatus !== 'disabled');
+    const results: Array<{ id: string; name: string; ok: boolean; error?: string }> = [];
+
+    for (const client of clients) {
+      try {
+        await provisionClient(client.id);
+        results.push({ id: client.id, name: client.name, ok: true });
+      } catch (err: any) {
+        results.push({
+          id: client.id,
+          name: client.name,
+          ok: false,
+          error: err?.message ?? String(err),
+        });
+      }
+    }
+
+    res.json({
+      ok: results.every((item) => item.ok),
+      total: results.length,
+      succeeded: results.filter((item) => item.ok).length,
+      failed: results.filter((item) => !item.ok).length,
+      results,
+    });
+  });
+
   app.post('/owner/api/clients/:id/check-ready', async (req, res) => {
     const client = ownerStorage.getClient(req.params.id);
     if (!client) {

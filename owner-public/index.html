@@ -40,6 +40,19 @@
       border: 1px solid #dbeafe; background: #eff6ff; color: #1e3a8a;
       padding: 12px 14px; border-radius: 8px; font-size: .84rem; margin-bottom: 18px;
     }
+    .bulk-actions {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      border: 1px solid #e5e7eb; background: #fff; padding: 12px 14px;
+      border-radius: 8px; margin-bottom: 18px;
+    }
+    .bulk-actions strong { display: block; font-size: .9rem; margin-bottom: 3px; }
+    .bulk-actions span { color: #6b7280; font-size: .8rem; line-height: 1.45; }
+    .bulk-redeploy {
+      border: 1px solid #2563eb; background: #2563eb; color: #fff;
+      border-radius: 7px; padding: 9px 13px; cursor: pointer; font-weight: 700;
+      white-space: nowrap;
+    }
+    .bulk-redeploy:disabled { opacity: .65; cursor: progress; }
     table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e5e7eb; }
     th, td { text-align: right; padding: 12px 13px; border-bottom: 1px solid #e5e7eb; font-size: .84rem; }
     th { background: #f9fafb; color: #6b7280; font-size: .75rem; }
@@ -88,6 +101,8 @@
     @media (max-width: 760px) {
       .top { flex-direction: column; align-items: stretch; }
       .create { min-width: 0; grid-template-columns: 1fr; }
+      .bulk-actions { display: block; }
+      .bulk-redeploy { width: 100%; margin-top: 10px; }
       table, thead, tbody, tr, th, td { display: block; }
       thead { display: none; }
       tr { padding: 10px 0; border-bottom: 1px solid #e5e7eb; }
@@ -123,6 +138,13 @@
     </div>
     <div class="notice">
       בעת יצירת לקוחה המערכת מקימה עבורה שירות ושטח אחסון נפרדים בשרת הפרטי. בסיום יופיע לינק אישי, ואת הסיסמה שולחים בנפרד.
+    </div>
+    <div class="bulk-actions">
+      <div>
+        <strong>עדכון כל יחידות הלקוחות</strong>
+        <span>מפעיל פריסה מחדש לכל הלקוחות, כדי שכל דפי הלקוח יקבלו את הגרסה האחרונה של המערכת.</span>
+      </div>
+      <button class="bulk-redeploy" id="redeployAllBtn" onclick="redeployAllClients()">פרוס מחדש את כל הלקוחות</button>
     </div>
     <div id="error"></div>
     <div id="clients"></div>
@@ -273,6 +295,33 @@
     async function checkReady(id) {
       await fetch(`/owner/api/clients/${id}/check-ready`, { method: 'POST' });
       loadClients();
+    }
+
+    async function redeployAllClients() {
+      if (!confirm('לפרוס מחדש את כל יחידות הלקוחות? הפעולה יכולה לקחת כמה דקות.')) return;
+      const error = document.getElementById('error');
+      const button = document.getElementById('redeployAllBtn');
+      error.textContent = '';
+      button.disabled = true;
+      button.textContent = 'מפעיל פריסה לכל הלקוחות...';
+      try {
+        const response = await fetch('/owner/api/clients/redeploy-all', { method: 'POST' });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          error.textContent = body.error || 'הפריסה לכל הלקוחות נכשלה';
+          return;
+        }
+        const failedText = body.failed
+          ? ` ${body.failed} נכשלו וצריך לבדוק ידנית.`
+          : '';
+        error.textContent = `הפריסה הופעלה: ${body.succeeded || 0} מתוך ${body.total || 0} לקוחות.${failedText}`;
+        loadClients();
+      } catch (err) {
+        error.textContent = 'לא ניתן להפעיל כרגע פריסה לכל הלקוחות';
+      } finally {
+        button.disabled = false;
+        button.textContent = 'פרוס מחדש את כל הלקוחות';
+      }
     }
 
     function copyCode(code) {

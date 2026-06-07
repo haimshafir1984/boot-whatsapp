@@ -17,13 +17,15 @@
 
     .page, #main-content { width: 100%; max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
     #qr-card, #connected-card { width: 100%; max-width: 560px; align-self: center; }
-    #main-content > .card:nth-of-type(1) { order: 1; }
-    #main-content > .card:nth-of-type(2) { order: 2; }
-    #main-content > .card:nth-of-type(3) { order: 3; }
-    #main-content > .card:nth-of-type(4) { order: 4; }
-    #main-content > .card:nth-of-type(5) { order: 5; }
-    #main-content > .card:nth-of-type(6) { order: 6; }
-    #main-content > .card:nth-of-type(7) { order: 7; }
+    #dashboardHeaderCard { order: 0; }
+    #contactsProviderCard { order: 1; }
+    #campaignBuilderCard { order: 2; }
+    #existingCampaignsCard { order: 3; }
+    #campaignLinksCard { order: 4; }
+    #twilioSetupCard { order: 5; }
+    #twilioMessagesCard { order: 6; }
+    #campaignPerformanceCard { order: 7; }
+    #clientFilesCard { order: 8; }
 
     /* ── Card ── */
     .card { width: 100%; background: #fff; border-radius: 16px; box-shadow: 0 2px 12px rgba(0,0,0,.09); overflow: hidden; }
@@ -997,7 +999,7 @@
   <div id="main-content">
 
   <!-- Header card -->
-  <div class="card">
+  <div class="card" id="dashboardHeaderCard">
     <div class="card-header">
       <svg width="30" height="30" viewBox="0 0 32 32" fill="none">
         <circle cx="16" cy="16" r="16" fill="white" fill-opacity=".2"/>
@@ -1010,31 +1012,41 @@
     </div>
   </div>
 
-  <!-- Campaigns card -->
-  <div class="card">
+  <!-- Campaign builder card -->
+  <div class="card" id="campaignBuilderCard">
     <div class="card-body">
-      <div class="sec-title">קמפיינים</div>
+      <div class="sec-title">בניית קמפיינים</div>
       <div class="primary-action-box">
         <div class="primary-action-title">בניית קמפיין WhatsApp חדש</div>
         <div class="primary-action-text">להגדיר משפט שהמשתמש ישלח, הודעת תשובה, ולקבל לינק מוכן לשיתוף.</div>
         <button class="btn-add" id="addCampaignBtn" onclick="openModal()">יצירת קמפיין חדש</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Existing campaigns card -->
+  <div class="card" id="existingCampaignsCard">
+    <div class="card-body">
+      <div class="sec-title">קמפיינים קיימים</div>
       <div id="campaign-list">
         <!-- filled by JS -->
-      </div>
-      <hr />
-      <div class="sec-title">ביצועי קמפיינים</div>
-      <p style="font-size:.8rem;color:#6b7280;margin-bottom:12px">
-        כאן רואים מה קרה בפועל בקמפיין: כמה אנשים התחילו, כמה קיבלו קובץ, כמה התקדמו, כמה סיימו וכמה עברו לשיחה אנושית.
-      </p>
-      <div class="results-list" id="campaign-results">
-        <p style="color:#9ca3af;font-size:.85rem;text-align:center;padding:8px 0">אין תוצאות עדיין</p>
       </div>
     </div>
   </div>
 
+  <!-- WhatsApp links card -->
+  <div class="card" id="campaignLinksCard">
+    <div class="card-body">
+      <div class="sec-title">לינקים לקמפיינים</div>
+      <p style="font-size:.8rem;color:#6b7280;margin-bottom:14px">
+        אפשר לשלוח את הקישור הרלוונטי ללקוחות — לחיצה תפתח צ'אט עם הטקסט מוכן לשליחה.
+      </p>
+      <div id="links-list"></div>
+    </div>
+  </div>
+
   <!-- Required details card -->
-  <div class="card">
+  <div class="card" id="twilioSetupCard" style="display:none">
     <div class="card-body">
       <details class="requirements-panel">
         <summary>פרטים נדרשים להקמת WhatsApp ב-Twilio</summary>
@@ -1113,7 +1125,7 @@
   </div>
 
   <!-- Twilio messages card -->
-  <div class="card">
+  <div class="card" id="twilioMessagesCard" style="display:none">
     <div class="card-body">
       <div class="sec-title">פעילות הודעות לבדיקה</div>
       <div class="twilio-log-intro">
@@ -1130,8 +1142,21 @@
     </div>
   </div>
 
+  <!-- Campaign performance card -->
+  <div class="card" id="campaignPerformanceCard">
+    <div class="card-body">
+      <div class="sec-title">ביצועי קמפיינים</div>
+      <p style="font-size:.8rem;color:#6b7280;margin-bottom:12px">
+        כאן רואים מה קרה בפועל בקמפיין: כמה אנשים התחילו, כמה קיבלו קובץ, כמה התקדמו, כמה סיימו וכמה עברו לשיחה אנושית.
+      </p>
+      <div class="results-list" id="campaign-results">
+        <p style="color:#9ca3af;font-size:.85rem;text-align:center;padding:8px 0">אין תוצאות עדיין</p>
+      </div>
+    </div>
+  </div>
+
   <!-- Client files card -->
-  <div class="card">
+  <div class="card" id="clientFilesCard">
     <div class="card-body">
       <div class="sec-title">קבצי לקוח</div>
       <div class="file-manager dashboard-files">
@@ -1150,9 +1175,9 @@
   </div>
 
   <!-- Contacts provider card -->
-  <div class="card">
+  <div class="card" id="contactsProviderCard">
     <div class="card-body">
-      <div class="sec-title">שמירת אנשי קשר</div>
+      <div class="sec-title">חיבור Google</div>
       <div class="queue-stats" id="contactQueueStats">
         <div class="queue-stat"><strong id="queuePending">0</strong><span>ממתינים</span></div>
         <div class="queue-stat"><strong id="queueSaved">0</strong><span>נשמרו</span></div>
@@ -1190,17 +1215,6 @@
           <button class="btn-save" style="width:auto;padding:9px 18px;margin-right:8px">⬇️ הורד VCF</button>
         </a>
       </div>
-    </div>
-  </div>
-
-  <!-- WhatsApp links card -->
-  <div class="card">
-    <div class="card-body">
-      <div class="sec-title">קישורי WhatsApp לשיתוף</div>
-      <p style="font-size:.8rem;color:#6b7280;margin-bottom:14px">
-        אפשר לשלוח את הקישור הרלוונטי ללקוחות — לחיצה תפתח צ'אט עם הטקסט מוכן לשליחה.
-      </p>
-      <div id="links-list"></div>
     </div>
   </div>
 
@@ -1442,7 +1456,7 @@
   let editingId = null;
   let lastWizardLink = '';
   let appFiles = [];
-  let appCapabilities = { readonlyDashboard: false, maxCampaigns: 7, serviceExpired: false, campaignCount: 0 };
+  let appCapabilities = { readonlyDashboard: false, maxCampaigns: 7, serviceExpired: false, campaignCount: 0, whatsappProvider: '' };
   let lastCampaigns = [];
 
   // ── Campaigns ───────────────────────────────────────────────────────────────
@@ -1475,6 +1489,11 @@
       addBtn.style.display = canEditCampaigns() ? '' : 'none';
       addBtn.disabled = appCapabilities.campaignCount >= appCapabilities.maxCampaigns;
     }
+    const isTwilioClient = appCapabilities.whatsappProvider === 'TWILIO_API';
+    ['twilioSetupCard', 'twilioMessagesCard'].forEach((id) => {
+      const card = document.getElementById(id);
+      if (card) card.style.display = isTwilioClient ? '' : 'none';
+    });
     renderCampaigns(lastCampaigns || []);
   }
 
