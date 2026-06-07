@@ -254,6 +254,7 @@ export class DokployProvisioner {
       'STORAGE_PATH=./data/contacts.json',
       'SESSION_PATH=./data/session',
       'GOOGLE_TOKEN_PATH=./data/google-token.json',
+      'CONVERSATION_STATE_PATH=./data/conversation-state.json',
       'OWNER_STORAGE_PATH=./data/owner/clients.json',
       'PORT=3001',
     ];

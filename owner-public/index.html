@@ -307,20 +307,39 @@
       try {
         const response = await fetch('/owner/api/clients/redeploy-all', { method: 'POST' });
         const body = await response.json().catch(() => ({}));
-        if (!response.ok) {
+        if (!response.ok && response.status !== 409) {
           error.textContent = body.error || 'הפריסה לכל הלקוחות נכשלה';
           return;
         }
-        const failedText = body.failed
-          ? ` ${body.failed} נכשלו וצריך לבדוק ידנית.`
-          : '';
-        error.textContent = `הפריסה הופעלה: ${body.succeeded || 0} מתוך ${body.total || 0} לקוחות.${failedText}`;
-        loadClients();
+        await pollBulkRedeploy();
       } catch (err) {
         error.textContent = 'לא ניתן להפעיל כרגע פריסה לכל הלקוחות';
       } finally {
         button.disabled = false;
         button.textContent = 'פרוס מחדש את כל הלקוחות';
+      }
+    }
+
+    async function pollBulkRedeploy() {
+      const error = document.getElementById('error');
+      const button = document.getElementById('redeployAllBtn');
+      while (true) {
+        const response = await fetch('/owner/api/clients/redeploy-all/status');
+        const body = await response.json().catch(() => ({}));
+        const completed = body.results?.length || 0;
+        const total = body.total || 0;
+        const current = body.current ? ` כעת: ${body.current}.` : '';
+        error.textContent = `פריסה מחדש מתקדמת: ${completed} מתוך ${total} לקוחות.${current}`;
+        loadClients();
+        if (!body.running) {
+          const failedText = body.failed
+            ? ` ${body.failed} נכשלו וצריך לבדוק ידנית.`
+            : '';
+          error.textContent = `הפריסה הסתיימה: ${body.succeeded || 0} מתוך ${body.total || 0} לקוחות עודכנו.${failedText}`;
+          return;
+        }
+        button.textContent = `פורס מחדש ${completed}/${total}`;
+        await new Promise(resolve => setTimeout(resolve, 3000));
       }
     }
 

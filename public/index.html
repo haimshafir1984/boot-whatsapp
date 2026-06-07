@@ -1557,6 +1557,9 @@
           </div>
           ${scheduleText ? `<div style="font-size:.72rem;color:#6b7280;margin-top:5px">${esc(scheduleText)}</div>` : ''}
         </div>
+        <div class="campaign-actions">
+          <button class="btn-icon btn-toggle" onclick="dryRunCampaign('${c.id}')" title="בדיקת זרימה">בדיקה</button>
+        </div>
         <div class="campaign-actions" style="${canEditCampaigns() ? '' : 'display:none'}">
           <button class="btn-icon btn-toggle" onclick="toggleCampaign('${c.id}', ${c.active})" title="${c.active ? 'השבת' : 'הפעל'}">
             ${c.active ? '⏸' : '▶'}
@@ -1575,6 +1578,30 @@
       const data = await res.json();
       renderCampaignResults(data.summaries || []);
     } catch (_) {}
+  }
+
+  async function dryRunCampaign(id) {
+    try {
+      const res = await fetch(`/api/campaigns/${encodeURIComponent(id)}/dry-run`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'בדיקת הקמפיין נכשלה');
+      const lines = [
+        `בדיקת זרימה: ${data.campaignName}`,
+        `טריגר: ${data.triggerPhrase}`,
+        '',
+        ...(data.messages || []).map((message, index) => {
+          const from = message.from === 'user'
+            ? 'משתמש'
+            : message.from === 'system'
+              ? 'הערת מערכת'
+              : 'הבוט';
+          return `${index + 1}. ${from}:\n${message.text}`;
+        }),
+      ];
+      alert(lines.join('\n\n'));
+    } catch (err) {
+      alert(err?.message || 'לא ניתן להציג בדיקת זרימה כרגע');
+    }
   }
 
   function renderCampaignResults(summaries) {

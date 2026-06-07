@@ -57,6 +57,7 @@ export const config = {
   STORAGE_PATH: process.env.STORAGE_PATH ?? './data/contacts.json',
   UPLOADS_PATH: process.env.UPLOADS_PATH ?? './data/uploads',
   GOOGLE_TOKEN_PATH: process.env.GOOGLE_TOKEN_PATH ?? './data/google-token.json',
+  CONVERSATION_STATE_PATH: process.env.CONVERSATION_STATE_PATH ?? './data/conversation-state.json',
   GOOGLE_CREDENTIALS_PATH: process.env.GOOGLE_CREDENTIALS_PATH ?? './credentials.json',
   OWNER_STORAGE_PATH: process.env.OWNER_STORAGE_PATH ?? './data/owner/clients.json',
 } as const;

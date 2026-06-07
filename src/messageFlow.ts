@@ -224,6 +224,7 @@ async function handleMessage(
       humanHandoffEnabled: settings.humanHandoffEnabled,
       humanHandoffText: settings.humanHandoffText,
       humanHandoffPhone: settings.humanHandoffPhone,
+      nameTimeoutMinutes: settings.nameTimeoutMinutes,
       decisionTimeoutMinutes: settings.decisionTimeoutMinutes,
       decisionTimeoutText: settings.decisionTimeoutText,
       suffix: trigger.suffix,

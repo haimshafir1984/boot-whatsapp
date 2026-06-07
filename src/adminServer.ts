@@ -30,6 +30,7 @@ import {
 import { createAccessControl } from './accessControl';
 import { ManagedClient, OwnerStorage } from './ownerStorage';
 import { DokployProvisioner } from './dokployProvisioner';
+import { conversationState } from './conversationState';
 import { handleIncomingWhatsAppMessage } from './messageFlow';
 import { TwilioProvider } from './providers/TwilioProvider';
 import { getTwilioEvents, recordTwilioEvent } from './twilioEvents';
@@ -495,6 +496,58 @@ function campaignTwilioSettings(input: any): Campaign['twilio'] {
   };
 }
 
+function buildCampaignDryRun(campaign: Campaign, storage: Storage) {
+  const conversation = storage.getCampaignConversationSettings(campaign);
+  const messages: Array<{ from: 'user' | 'bot' | 'system'; text: string }> = [
+    { from: 'user', text: campaign.triggerPhrase },
+  ];
+  if (conversation.askNameEnabled) {
+    messages.push({
+      from: 'bot',
+      text: conversation.askNameText.replace('{timeout}', String(conversation.nameTimeoutMinutes)),
+    });
+    messages.push({ from: 'user', text: 'שם לדוגמה' });
+  }
+  if (conversation.replyText.trim()) {
+    messages.push({ from: 'bot', text: conversation.replyText.trim() });
+  }
+  for (const followup of conversation.followupMessages) {
+    if (followup.trim()) messages.push({ from: 'bot', text: followup.trim() });
+  }
+  const flow = conversation.decisionFlow || [];
+  const visited = new Set<string>();
+  let step = flow.find((item) => item.text.trim());
+  while (step && !visited.has(step.id) && visited.size < 20) {
+    visited.add(step.id);
+    if (step.kind === 'question') {
+      const options = (step.options ?? []).map((option, index) => `${index + 1}. ${option.text}`).join('\n');
+      messages.push({ from: 'bot', text: options ? `${step.text.trim()}\n\n${options}` : step.text.trim() });
+      const selected = step.options?.[0];
+      if (!selected) break;
+      messages.push({ from: 'user', text: selected.text });
+      if (selected.fileId) {
+        const file = storage.getUploadedFile(selected.fileId);
+        messages.push({ from: 'bot', text: file ? `קובץ לדוגמה: ${file.originalName}` : 'קובץ לא זמין' });
+      }
+      if (selected.endText?.trim()) messages.push({ from: 'bot', text: selected.endText.trim() });
+      step = selected.nextStepId ? flow.find((item) => item.id === selected.nextStepId) : undefined;
+    } else {
+      messages.push({ from: 'bot', text: step.text.trim() });
+      const nextStepId = step.nextStepId;
+      step = nextStepId ? flow.find((item) => item.id === nextStepId) : undefined;
+    }
+  }
+  if (conversation.humanHandoffEnabled) {
+    messages.push({ from: 'system', text: 'אם המשתמש ישאל משהו שלא קשור לבחירות, תישלח הודעת מעבר לנציג.' });
+  }
+  return {
+    campaignId: campaign.id,
+    campaignName: campaign.name,
+    triggerPhrase: campaign.triggerPhrase,
+    messages,
+  };
+}
+
 export function startAdminServer(storage: Storage): void {
   const app = express();
   const publicDir = path.join(__dirname, '..', 'public');
@@ -519,11 +572,45 @@ export function startAdminServer(storage: Storage): void {
     res.sendFile(path.join(ownerPublicDir, 'login.html'));
   });
   app.get('/health', (_req, res) => {
+    const campaigns = storage.getCampaigns();
+    const activeCampaigns = campaigns.filter((campaign) => campaign.runtimeStatus === 'active');
+    const queueStats = storage.getContactQueueStats();
+    const twilioEvents = getTwilioEvents(5);
     res.json({
       ok: true,
       clientConfigured: Boolean(process.env.CLIENT_ACCESS_TOKEN?.trim()),
       whatsappProvider: config.WHATSAPP_PROVIDER,
       twilioConfigured: twilioConfigured(),
+      googleConnected: isGoogleConnected(),
+      readonlyDashboard: config.CLIENT_READONLY_DASHBOARD,
+      serviceExpiresAt: config.CLIENT_SERVICE_EXPIRES_AT || null,
+      campaigns: {
+        total: campaigns.length,
+        active: activeCampaigns.length,
+        scheduled: campaigns.filter((campaign) => campaign.runtimeStatus === 'scheduled').length,
+        ended: campaigns.filter((campaign) => campaign.runtimeStatus === 'ended').length,
+        disabled: campaigns.filter((campaign) => campaign.runtimeStatus === 'disabled').length,
+      },
+      contactQueue: queueStats,
+      conversations: {
+        pending: conversationState.size(),
+      },
+      whatsapp: {
+        ready: botState.ready,
+        authenticated: botState.authenticated,
+        lifecycle: botState.lifecycle,
+        shouldRun: storage.hasCampaignsNeedingBot(),
+        connectedPhone: (botState.connectedPhone ?? storage.getClientProfile().whatsappPhone) || null,
+        listeningReason: botState.listeningReason,
+        requestedProvider: botState.requestedProvider,
+        actualProvider: botState.actualProvider,
+        providerFallbackReason: botState.providerFallbackReason,
+      },
+      twilio: {
+        configured: twilioConfigured(),
+        recentEvents: twilioEvents,
+        lastEventAt: twilioEvents[0]?.at ?? null,
+      },
     });
   });
 
@@ -689,6 +776,65 @@ export function startAdminServer(storage: Storage): void {
     }
   };
 
+  type BulkRedeployResult = { id: string; name: string; ok: boolean; error?: string };
+  let bulkRedeployJob: {
+    running: boolean;
+    startedAt: string;
+    finishedAt?: string;
+    total: number;
+    current?: string;
+    results: BulkRedeployResult[];
+  } | null = null;
+
+  const runBulkRedeploy = async () => {
+    const clients = ownerStorage
+      .getClients()
+      .filter((client) => client.provisioningStatus !== 'disabled');
+    bulkRedeployJob = {
+      running: true,
+      startedAt: new Date().toISOString(),
+      total: clients.length,
+      results: [],
+    };
+
+    for (const client of clients) {
+      bulkRedeployJob.current = client.name;
+      try {
+        await provisionClient(client.id);
+        bulkRedeployJob.results.push({ id: client.id, name: client.name, ok: true });
+      } catch (err: any) {
+        bulkRedeployJob.results.push({
+          id: client.id,
+          name: client.name,
+          ok: false,
+          error: err?.message ?? String(err),
+        });
+      }
+    }
+
+    bulkRedeployJob.running = false;
+    bulkRedeployJob.current = undefined;
+    bulkRedeployJob.finishedAt = new Date().toISOString();
+  };
+
+  const exposeBulkRedeployJob = () => {
+    const job = bulkRedeployJob;
+    if (!job) {
+      return {
+        running: false,
+        total: 0,
+        succeeded: 0,
+        failed: 0,
+        results: [] as BulkRedeployResult[],
+      };
+    }
+    return {
+      ...job,
+      succeeded: job.results.filter((item) => item.ok).length,
+      failed: job.results.filter((item) => !item.ok).length,
+    };
+  };
+
   const exposeOwnerClient = (client: ManagedClient) => ({
     ...client,
     twilioWebhookUrl: dokployProvisioner.getTwilioWebhookUrl(client),
@@ -794,32 +940,28 @@ export function startAdminServer(storage: Storage): void {
   });
 
   app.post('/owner/api/clients/redeploy-all', async (_req, res) => {
-    const clients = ownerStorage
-      .getClients()
-      .filter((client) => client.provisioningStatus !== 'disabled');
-    const results: Array<{ id: string; name: string; ok: boolean; error?: string }> = [];
-
-    for (const client of clients) {
-      try {
-        await provisionClient(client.id);
-        results.push({ id: client.id, name: client.name, ok: true });
-      } catch (err: any) {
-        results.push({
-          id: client.id,
-          name: client.name,
+    if (bulkRedeployJob?.running) {
+      res.status(409).json(exposeBulkRedeployJob());
+      return;
+    }
+    void runBulkRedeploy().catch((err) => {
+      console.error('Bulk client redeploy failed:', err);
+      if (bulkRedeployJob) {
+        bulkRedeployJob.running = false;
+        bulkRedeployJob.finishedAt = new Date().toISOString();
+        bulkRedeployJob.results.push({
+          id: 'bulk-redeploy',
+          name: 'פריסה לכל הלקוחות',
           ok: false,
           error: err?.message ?? String(err),
         });
       }
-    }
-
-    res.json({
-      ok: results.every((item) => item.ok),
-      total: results.length,
-      succeeded: results.filter((item) => item.ok).length,
-      failed: results.filter((item) => !item.ok).length,
-      results,
     });
+    res.status(202).json(exposeBulkRedeployJob());
+  });
+
+  app.get('/owner/api/clients/redeploy-all/status', (_req, res) => {
+    res.json(exposeBulkRedeployJob());
   });
 
   app.post('/owner/api/clients/:id/check-ready', async (req, res) => {
@@ -1648,6 +1790,15 @@ export function startAdminServer(storage: Storage): void {
   app.delete('/api/campaigns/:id', requireWritableClient, (req, res) => {
     const ok = storage.deleteCampaign(String(req.params.id));
     res.json({ ok });
+  });
+
+  app.get('/api/campaigns/:id/dry-run', (req, res) => {
+    const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
+    if (!campaign) {
+      res.status(404).json({ error: 'קמפיין לא נמצא' });
+      return;
+    }
+    res.json(buildCampaignDryRun(campaign, storage));
   });
 
   app.patch('/api/campaigns/:id/toggle', requireWritableClient, (req, res) => {
