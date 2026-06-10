@@ -1467,6 +1467,7 @@
     lastCampaigns = list;
     appCapabilities.campaignCount = list.length;
     renderCampaigns(list);
+    await ensureSharePhone();
     renderLinks(list); // keep links in sync
     loadCampaignResults();
   }
@@ -1865,8 +1866,13 @@
       const res = await fetch('/api/config');
       const cfg = await res.json();
       myPhone = normalizeSharePhone(cfg.phone);
+      myPhoneStatus = {
+        source: cfg.phoneSource || (myPhone ? 'unknown' : 'missing'),
+        reason: cfg.missingPhoneReason || '',
+      };
     } catch {
       myPhone = '';
+      myPhoneStatus = { source: 'missing', reason: 'לא ניתן לטעון את מספר ה-WhatsApp כרגע.' };
     }
     return normalizeSharePhone(myPhone);
   }
@@ -2080,7 +2086,7 @@
     await ensureSharePhone();
     const link = buildCampaignShareLink(savedTrigger);
     lastWizardLink = link;
-    document.getElementById('wizardShareLink')?.replaceChildren(document.createTextNode(link || 'מספר WhatsApp לא זמין כרגע'));
+    document.getElementById('wizardShareLink')?.replaceChildren(document.createTextNode(link || (myPhoneStatus.reason || 'מספר WhatsApp לא זמין כרגע')));
     setWizardSavedState(true, link);
     if (saveBtn) saveBtn.disabled = true;
     await Promise.all([loadCampaigns(), loadLinks(), loadCampaignResults()]);
@@ -2674,6 +2680,7 @@
   // ── WhatsApp links ──────────────────────────────────────────────────────────
 
   let myPhone = '';
+  let myPhoneStatus = { source: 'missing', reason: '' };
 
   async function loadLinks() {
     const [cfgRes, campRes] = await Promise.all([
@@ -2683,6 +2690,10 @@
     const cfg  = await cfgRes.json();
     const list = await campRes.json();
     myPhone = normalizeSharePhone(cfg.phone);
+    myPhoneStatus = {
+      source: cfg.phoneSource || (myPhone ? 'unknown' : 'missing'),
+      reason: cfg.missingPhoneReason || '',
+    };
     renderLinks(list);
   }
 
@@ -2692,6 +2703,19 @@
 
     if (!active.length) {
       el.innerHTML = '<p style="color:#9ca3af;font-size:.85rem;text-align:center;padding:8px 0">אין קמפיינים פעילים</p>';
+      return;
+    }
+
+    if (!normalizeSharePhone(myPhone)) {
+      const reason = myPhoneStatus.reason || 'כדי ליצור לינק צריך קודם לחבר מספר WhatsApp פעיל.';
+      el.innerHTML = `
+        <div style="border:1px solid #fecaca;background:#fef2f2;color:#991b1b;border-radius:10px;padding:12px;font-size:.84rem;line-height:1.55">
+          <strong>אי אפשר ליצור לינק כרגע</strong><br>
+          ${esc(reason)}<br>
+          ${appCapabilities.whatsappProvider === 'TWILIO_API'
+            ? 'יש להגדיר מספר Twilio ללקוחה ולפרוס אותה מחדש.'
+            : 'יש לחבר את WhatsApp ללקוחה, ואז לרענן את הדף.'}
+        </div>`;
       return;
     }
 

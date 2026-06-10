@@ -123,6 +123,14 @@ function normalizeTwilioFrom(value: unknown): string | null | undefined {
   return `whatsapp:${compact}`;
 }
 
+function normalizeSharePhone(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const withoutWhatsappPrefix = raw.replace(/^whatsapp:/i, '');
+  const withoutJid = withoutWhatsappPrefix.split('@')[0]?.split(':')[0] ?? withoutWhatsappPrefix;
+  return withoutJid.replace(/[^\d]/g, '');
+}
+
 function normalizeBotReplyDelayMs(value: unknown): number | null | undefined {
   const raw = String(value ?? '').trim();
   if (!raw) return undefined;
@@ -1351,12 +1359,25 @@ export function startAdminServer(storage: Storage): void {
   app.get('/api/config', (_req, res) => {
     const profile = storage.getClientProfile();
     if (config.WHATSAPP_PROVIDER === 'TWILIO_API') {
-      const twilioPhone = config.TWILIO_FROM.replace(/^whatsapp:/, '').replace(/[^\d]/g, '');
-      res.json({ phone: twilioPhone });
+      const twilioPhone = normalizeSharePhone(config.TWILIO_FROM);
+      const fallbackPhone = normalizeSharePhone(profile.whatsappPhone || config.MY_CONTACT.phone);
+      const phone = twilioPhone || fallbackPhone;
+      res.json({
+        phone,
+        phoneSource: twilioPhone ? 'twilio' : (fallbackPhone ? 'profile' : 'missing'),
+        missingPhoneReason: phone ? undefined : 'לא הוגדר מספר Twilio ללקוחה.',
+      });
       return;
     }
-    const fallbackPhone = config.MY_CONTACT.phone.replace('+', '');
-    res.json({ phone: botState.connectedPhone ?? (profile.whatsappPhone || fallbackPhone) });
+    const connectedPhone = normalizeSharePhone(botState.connectedPhone);
+    const savedPhone = normalizeSharePhone(profile.whatsappPhone);
+    const fallbackPhone = normalizeSharePhone(config.MY_CONTACT.phone);
+    const phone = connectedPhone || savedPhone || fallbackPhone;
+    res.json({
+      phone,
+      phoneSource: connectedPhone ? 'connected' : (savedPhone ? 'profile' : (fallbackPhone ? 'environment' : 'missing')),
+      missingPhoneReason: phone ? undefined : 'אין עדיין מספר WhatsApp מחובר ללקוחה.',
+    });
   });
 
   app.get('/api/capabilities', (_req, res) => {
