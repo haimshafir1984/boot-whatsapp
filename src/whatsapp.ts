@@ -129,8 +129,11 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
     if (message.to?.endsWith('@g.us')) return;
 
     const trigger = detectTrigger(message.body, storage.getActiveCampaigns());
-    if (trigger.matched) {
-      console.log(`[SELF-TEST] Outgoing trigger detected for "${trigger.campaignName}". Incoming messages use the normal message handler.`);
+    const connectedPhone = client.info?.wid?.user ?? '';
+    const targetPhone = String(message.to ?? '').split('@')[0]?.split(':')[0] ?? '';
+    if (trigger.matched && connectedPhone && targetPhone === connectedPhone) {
+      console.log(`[SELF-TEST] WebJS self trigger matched for "${trigger.campaignName}".`);
+      await handleIncomingMessage(message, storage, client, 'message_create');
     }
   });
 

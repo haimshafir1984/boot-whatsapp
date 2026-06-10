@@ -250,6 +250,7 @@ export class DokployProvisioner {
       `CLIENT_READONLY_DASHBOARD=${current.readonlyDashboard ? 'true' : 'false'}`,
       `CLIENT_MAX_CAMPAIGNS=${String(current.maxCampaigns)}`,
       `WHATSAPP_PROVIDER=${escapeEnvValue(current.whatsappProvider)}`,
+      'WHATSAPP_KEEP_CONNECTED=true',
       'BAILEYS_FALLBACK_TO_WEBJS=true',
       'STORAGE_PATH=./data/contacts.json',
       'SESSION_PATH=./data/session',

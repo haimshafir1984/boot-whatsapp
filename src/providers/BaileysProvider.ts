@@ -5,6 +5,7 @@ import { config } from '../config';
 import { botState } from '../botState';
 import { handleIncomingWhatsAppMessage } from '../messageFlow';
 import { Storage } from '../storage';
+import { detectTrigger } from '../triggerDetector';
 import { IncomingWhatsAppMessage, WhatsAppProvider, WhatsAppTransport } from '../types/whatsapp';
 
 type BaileysModule = typeof import('@whiskeysockets/baileys');
@@ -226,24 +227,38 @@ export class BaileysProvider implements WhatsAppProvider {
 
   private async handleMessages(messages: BaileysMessage[]): Promise<void> {
     for (const raw of messages as any[]) {
-      if (!raw?.message || raw.key?.fromMe) continue;
+      if (!raw?.message) continue;
       const from = raw.key?.remoteJid;
       const body = getMessageText(raw).trim();
       if (!from || !body) continue;
+      const fromMe = Boolean(raw.key?.fromMe);
+      if (fromMe && !this.isSelfTriggerMessage(from, body)) continue;
 
       const incoming: IncomingWhatsAppMessage = {
         id: raw.key?.id ?? `${from}:${raw.messageTimestamp ?? ''}`,
         from,
-        senderPhone: pickSenderPhone(raw),
+        senderPhone: pickSenderPhone(raw) || (fromMe ? jidToPhone(this.socket?.user?.id ?? from) : undefined),
         body,
         timestamp: Number(raw.messageTimestamp || Math.floor(Date.now() / 1000)),
         async getDisplayName() {
-          return raw.pushName?.trim() || '';
+          return raw.pushName?.trim() || (fromMe ? 'המספר המחובר' : '');
         },
       };
 
       await handleIncomingWhatsAppMessage(incoming, this.storage, this.createTransport(), 'baileys');
     }
+  }
+
+  private isSelfTriggerMessage(remoteJid: string, body: string): boolean {
+    const connectedPhone = jidToPhone(this.socket?.user?.id ?? '');
+    const remotePhone = jidToPhone(remoteJid);
+    if (!connectedPhone || !remotePhone || connectedPhone !== remotePhone) return false;
+    const trigger = detectTrigger(body, this.storage.getActiveCampaigns());
+    if (trigger.matched) {
+      console.log(`[SELF-TEST] Baileys self trigger matched for "${trigger.campaignName}".`);
+      return true;
+    }
+    return false;
   }
 
   private createTransport(): WhatsAppTransport {

@@ -111,6 +111,16 @@ export function startWhatsAppScheduler(storage: Storage): void {
   if (scheduler) return;
 
   const tick = () => {
+    if (config.WHATSAPP_KEEP_CONNECTED) {
+      if (botState.lifecycle === 'stopped') {
+        console.log('WhatsApp keep-connected mode is enabled - starting client.');
+      }
+      startWhatsAppBot(storage, 'keep connected').catch((err) =>
+        console.error('Keep-connected WhatsApp start failed:', err),
+      );
+      return;
+    }
+
     const shouldRun = storage.hasCampaignsNeedingBot(new Date(), CAMPAIGN_START_LEAD_MS);
     if (shouldRun) {
       if (botState.lifecycle === 'stopped') {
