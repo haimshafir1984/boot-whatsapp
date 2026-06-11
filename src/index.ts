@@ -12,6 +12,10 @@ import { startContactSaveQueue } from './contactQueue';
 import { startWhatsAppScheduler } from './whatsappLifecycle';
 import { conversationState, PersistablePendingConversation } from './conversationState';
 
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection:', reason);
+});
+
 function removeSingletonLocks(dir: string): void {
   if (!fs.existsSync(dir)) return;
   try {

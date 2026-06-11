@@ -267,6 +267,22 @@ function normalizeContactsProvider(provider: unknown): AdminSettings['contactsPr
     : DEFAULT_SETTINGS.contactsProvider;
 }
 
+function emptyStorageData(): StorageData {
+  return {
+    savedContacts: [],
+    contactsList: [],
+    contactQueue: [],
+    campaignResults: [],
+    campaignEvents: [],
+    uploadedFiles: [],
+    clientProfile: { ...DEFAULT_CLIENT_PROFILE },
+    adminSettings: { ...DEFAULT_SETTINGS },
+    campaigns: [],
+    twilioOnboarding: { ...DEFAULT_TWILIO_ONBOARDING },
+    twilioTemplates: [],
+  };
+}
+
 // ─── Storage class ────────────────────────────────────────────────────────────
 
 export class Storage {
@@ -282,86 +298,79 @@ export class Storage {
     const dir = path.dirname(this.filePath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-    if (!fs.existsSync(this.filePath)) {
-      return {
-        savedContacts: [],
-        contactsList: [],
-        contactQueue: [],
-        campaignResults: [],
-        campaignEvents: [],
-        uploadedFiles: [],
-        clientProfile: { ...DEFAULT_CLIENT_PROFILE },
-        adminSettings: { ...DEFAULT_SETTINGS },
-        campaigns: [],
-        twilioOnboarding: { ...DEFAULT_TWILIO_ONBOARDING },
-        twilioTemplates: [],
-      };
-    }
+    if (!fs.existsSync(this.filePath)) return emptyStorageData();
     try {
-      const parsed = JSON.parse(
-        fs.readFileSync(this.filePath, 'utf-8'),
-      ) as Partial<StorageData> & { adminSettings?: Partial<AdminSettings> & { triggerType?: number } };
-
-      // Migrate: drop legacy triggerType field from adminSettings
-      const { triggerType: _legacy, ...cleanSettings } = parsed.adminSettings ?? {};
-      const rawSettings = cleanSettings as Partial<AdminSettings> & { contactsProvider?: unknown };
-      const migratedSettings: Partial<AdminSettings> = {
-        ...cleanSettings,
-        contactsProvider: normalizeContactsProvider(rawSettings.contactsProvider),
-      };
-
-      const contactsList = (parsed as any).contactsList ?? [];
-      const existingQueue = (parsed as any).contactQueue;
-      const contactQueue = Array.isArray(existingQueue)
-        ? existingQueue
-        : contactsList.map((contact: SavedContact) => ({
-            id: generateId(),
-            phone: contact.phone,
-            name: contact.name,
-            provider: migratedSettings.contactsProvider ?? DEFAULT_SETTINGS.contactsProvider,
-            status: 'saved' as const,
-            attempts: 1,
-            createdAt: contact.savedAt,
-            updatedAt: contact.savedAt,
-          }));
-
-      return {
-        savedContacts: parsed.savedContacts ?? [],
-        contactsList,
-        contactQueue,
-        campaignResults: parsed.campaignResults ?? [],
-        campaignEvents: (parsed as any).campaignEvents ?? [],
-        uploadedFiles: (parsed as any).uploadedFiles ?? [],
-        clientProfile: { ...DEFAULT_CLIENT_PROFILE, ...parsed.clientProfile },
-        adminSettings: { ...DEFAULT_SETTINGS, ...migratedSettings },
-        campaigns: parsed.campaigns ?? [],
-        twilioOnboarding: { ...DEFAULT_TWILIO_ONBOARDING, ...(parsed as any).twilioOnboarding },
-        twilioTemplates: (parsed as any).twilioTemplates ?? [],
-      };
+      return this.parseStorageFile(this.filePath);
     } catch {
-      console.warn('⚠️  Could not parse storage file – starting fresh.');
-      return {
-        savedContacts: [],
-        contactsList: [],
-        contactQueue: [],
-        campaignResults: [],
-        campaignEvents: [],
-        uploadedFiles: [],
-        clientProfile: { ...DEFAULT_CLIENT_PROFILE },
-        adminSettings: { ...DEFAULT_SETTINGS },
-        campaigns: [],
-        twilioOnboarding: { ...DEFAULT_TWILIO_ONBOARDING },
-        twilioTemplates: [],
-      };
+      const backupPath = `${this.filePath}.bak`;
+      if (fs.existsSync(backupPath)) {
+        try {
+          console.warn('⚠️  Could not parse storage file - loading backup.');
+          return this.parseStorageFile(backupPath);
+        } catch {
+          console.warn('⚠️  Could not parse storage backup - starting fresh.');
+        }
+      } else {
+        console.warn('⚠️  Could not parse storage file - starting fresh.');
+      }
+      return emptyStorageData();
     }
   }
 
+  private parseStorageFile(filePath: string): StorageData {
+    const parsed = JSON.parse(
+      fs.readFileSync(filePath, 'utf-8'),
+    ) as Partial<StorageData> & { adminSettings?: Partial<AdminSettings> & { triggerType?: number } };
+
+    // Migrate: drop legacy triggerType field from adminSettings
+    const { triggerType: _legacy, ...cleanSettings } = parsed.adminSettings ?? {};
+    const rawSettings = cleanSettings as Partial<AdminSettings> & { contactsProvider?: unknown };
+    const migratedSettings: Partial<AdminSettings> = {
+      ...cleanSettings,
+      contactsProvider: normalizeContactsProvider(rawSettings.contactsProvider),
+    };
+
+    const contactsList = (parsed as any).contactsList ?? [];
+    const existingQueue = (parsed as any).contactQueue;
+    const contactQueue = Array.isArray(existingQueue)
+      ? existingQueue
+      : contactsList.map((contact: SavedContact) => ({
+          id: generateId(),
+          phone: contact.phone,
+          name: contact.name,
+          provider: migratedSettings.contactsProvider ?? DEFAULT_SETTINGS.contactsProvider,
+          status: 'saved' as const,
+          attempts: 1,
+          createdAt: contact.savedAt,
+          updatedAt: contact.savedAt,
+        }));
+
+    return {
+      savedContacts: parsed.savedContacts ?? [],
+      contactsList,
+      contactQueue,
+      campaignResults: parsed.campaignResults ?? [],
+      campaignEvents: (parsed as any).campaignEvents ?? [],
+      uploadedFiles: (parsed as any).uploadedFiles ?? [],
+      clientProfile: { ...DEFAULT_CLIENT_PROFILE, ...parsed.clientProfile },
+      adminSettings: { ...DEFAULT_SETTINGS, ...migratedSettings },
+      campaigns: parsed.campaigns ?? [],
+      twilioOnboarding: { ...DEFAULT_TWILIO_ONBOARDING, ...(parsed as any).twilioOnboarding },
+      twilioTemplates: (parsed as any).twilioTemplates ?? [],
+    };
+  }
+
   private persist(): void {
-    fs.writeFileSync(
-      this.filePath,
-      JSON.stringify(this.data, null, 2),
-      'utf-8',
-    );
+    const dir = path.dirname(this.filePath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+    const tempPath = `${this.filePath}.tmp`;
+    const backupPath = `${this.filePath}.bak`;
+    fs.writeFileSync(tempPath, JSON.stringify(this.data), 'utf-8');
+    if (fs.existsSync(this.filePath)) {
+      fs.copyFileSync(this.filePath, backupPath);
+    }
+    fs.renameSync(tempPath, this.filePath);
   }
 
   // ─── Contacts ──────────────────────────────────────────────────────────────

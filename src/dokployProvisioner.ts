@@ -251,7 +251,7 @@ export class DokployProvisioner {
       `CLIENT_MAX_CAMPAIGNS=${String(current.maxCampaigns)}`,
       `WHATSAPP_PROVIDER=${escapeEnvValue(current.whatsappProvider)}`,
       'WHATSAPP_KEEP_CONNECTED=true',
-      'BAILEYS_FALLBACK_TO_WEBJS=true',
+      'BAILEYS_FALLBACK_TO_WEBJS=false',
       'STORAGE_PATH=./data/contacts.json',
       'SESSION_PATH=./data/session',
       'GOOGLE_TOKEN_PATH=./data/google-token.json',

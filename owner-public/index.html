@@ -92,6 +92,14 @@
       direction: ltr;
       text-align: right;
     }
+    .provider-lines {
+      margin-top: 6px;
+      color: #4b5563;
+      font-size: .76rem;
+      line-height: 1.55;
+    }
+    .provider-lines .warn { color: #b45309; font-weight: 700; }
+    .provider-lines .ok { color: #166534; font-weight: 700; }
     .retry { border: 1px solid #fecaca; background: #fff; color: #b91c1c; border-radius: 6px; padding: 6px 9px; cursor: pointer; margin-top: 6px; }
     .check-ready { border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 6px; padding: 6px 9px; cursor: pointer; margin-top: 6px; }
     .delete-client { border: 1px solid #fecaca; background: #fff1f2; color: #b91c1c; border-radius: 6px; padding: 7px 10px; cursor: pointer; font-weight: 700; }
@@ -150,6 +158,9 @@
     <div id="clients"></div>
   </main>
   <script>
+    const liveClientSummaries = new Map();
+    const ownerClientRows = new Map();
+
     function esc(value) {
       return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
@@ -182,6 +193,33 @@
       return value ? String(value).replace(/^whatsapp:/i, '') : '';
     }
 
+    function providerLabel(value) {
+      return {
+        TWILIO_API: 'קמפיין פרסומי',
+        BAILEYS: 'Baileys',
+        WEB_JS: 'WebJS',
+      }[value] || value || '-';
+    }
+
+    function renderProviderLines(client) {
+      const summary = liveClientSummaries.get(client.id);
+      const requested = summary?.whatsappRequestedProvider || client.whatsappProvider;
+      const actual = summary?.whatsappActualProvider || (summary?.whatsappReady ? requested : '');
+      const readyText = summary
+        ? (summary.whatsappReady ? '<span class="ok">מחובר</span>' : '<span class="warn">לא מחובר</span>')
+        : '<span>בודק חיבור...</span>';
+      const fallback = summary?.whatsappProviderFallbackReason
+        ? `<div class="warn">עבר לחיבור חלופי: ${esc(summary.whatsappProviderFallbackReason)}</div>`
+        : '';
+      return `
+        <div class="provider-lines" id="provider-${esc(client.id)}">
+          <div>${readyText}</div>
+          <div>סוג חיבור מוגדר: ${esc(providerLabel(requested))}</div>
+          <div>סוג חיבור בפועל: ${esc(providerLabel(actual))}</div>
+          ${fallback}
+        </div>`;
+    }
+
     function displayDelay(value) {
       const delay = Number(value ?? 1000);
       return Number.isFinite(delay) ? `${delay}ms` : '1000ms';
@@ -204,6 +242,8 @@
         return;
       }
       const clients = await response.json();
+      ownerClientRows.clear();
+      clients.forEach((client) => ownerClientRows.set(client.id, client));
       const el = document.getElementById('clients');
       if (!clients.length) {
         el.innerHTML = '<div class="empty">עדיין לא נוצרו יחידות לקוחה.</div>';
@@ -216,7 +256,7 @@
               const webhookUrl = getTwilioWebhookUrl(client);
               return `
             <tr>
-              <td><strong>${esc(client.name)}</strong>${client.twilioFrom ? `<span class="twilio-number">${esc(displayTwilioFrom(client.twilioFrom))} | דיליי ${esc(displayDelay(client.botReplyDelayMs))}</span>` : ''}</td>
+              <td><strong>${esc(client.name)}</strong>${client.twilioFrom ? `<span class="twilio-number">${esc(displayTwilioFrom(client.twilioFrom))} | דיליי ${esc(displayDelay(client.botReplyDelayMs))}</span>` : ''}${renderProviderLines(client)}</td>
               <td>
                 <span class="status ${esc(client.provisioningStatus)}">${statusLabel(client.provisioningStatus)}</span>
                 ${client.provisioningStatus === 'failed' ? `<div><button class="retry" onclick="retryProvision('${encodeURIComponent(client.id)}')">נסה שוב</button>${client.managementUrl ? ` <button class="check-ready" onclick="checkReady('${encodeURIComponent(client.id)}')">בדוק מוכנות</button>` : ''}</div>` : ''}
@@ -239,6 +279,23 @@
             </tr>`;
             }).join('')}</tbody>
         </table>`;
+      loadClientSummaries();
+    }
+
+    async function loadClientSummaries() {
+      try {
+        const response = await fetch('/owner/api/client-summaries');
+        if (!response.ok) return;
+        const data = await response.json();
+        for (const item of data.summaries || []) {
+          liveClientSummaries.set(item.id, item.summary || {});
+        }
+        document.querySelectorAll('[id^="provider-"]').forEach((el) => {
+          const clientId = el.id.replace(/^provider-/, '');
+          const client = ownerClientRows.get(clientId);
+          if (client) el.outerHTML = renderProviderLines(client);
+        });
+      } catch (_) {}
     }
 
     document.getElementById('createForm').addEventListener('submit', async (event) => {

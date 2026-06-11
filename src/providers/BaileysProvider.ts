@@ -97,6 +97,10 @@ export class BaileysProvider implements WhatsAppProvider {
       printQRInTerminal: false,
       version,
       browser: ['FlowsBiz', 'Chrome', '1.0.0'],
+      syncFullHistory: false,
+      shouldSyncHistoryMessage: () => false,
+      markOnlineOnConnect: false,
+      generateHighQualityLinkPreview: false,
     });
 
     this.socket.ev.on('creds.update', saveCreds);

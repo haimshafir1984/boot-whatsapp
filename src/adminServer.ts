@@ -48,6 +48,9 @@ interface OwnerClientSummary {
   whatsappShouldRun: boolean;
   whatsappLifecycle?: string;
   whatsappListeningReason?: string;
+  whatsappRequestedProvider?: string;
+  whatsappActualProvider?: string;
+  whatsappProviderFallbackReason?: string;
   connectedPhone?: string;
   googleConnected: boolean;
   serviceExpired?: boolean;
@@ -307,6 +310,9 @@ async function fetchClientSummary(client: ManagedClient): Promise<OwnerClientSum
       listeningReason?: string;
       shouldRun?: boolean;
       connectedPhone?: string;
+      requestedProvider?: string;
+      actualProvider?: string;
+      providerFallbackReason?: string;
     }>('/api/qr'),
     getJson<{ serviceExpired?: boolean; serviceExpiresAt?: string; campaignCount?: number }>('/api/capabilities'),
   ]);
@@ -342,6 +348,9 @@ async function fetchClientSummary(client: ManagedClient): Promise<OwnerClientSum
     whatsappShouldRun: Boolean(qr?.shouldRun),
     whatsappLifecycle: qr?.lifecycle,
     whatsappListeningReason: qr?.listeningReason,
+    whatsappRequestedProvider: qr?.requestedProvider,
+    whatsappActualProvider: qr?.actualProvider,
+    whatsappProviderFallbackReason: qr?.providerFallbackReason,
     connectedPhone: qr?.connectedPhone,
     googleConnected: Boolean(google?.connected),
     serviceExpired: Boolean(capabilities?.serviceExpired),
@@ -745,6 +754,34 @@ export function startAdminServer(storage: Storage): void {
 
   app.get('/owner/api/clients', (_req, res) => {
     res.json(ownerStorage.getClients().map(exposeOwnerClient));
+  });
+
+  app.get('/owner/api/client-summaries', async (_req, res) => {
+    const clients = ownerStorage.getClients();
+    const summaries = await Promise.all(clients.map(async (client) => {
+      try {
+        return { id: client.id, summary: await fetchClientSummary(client) };
+      } catch (err: any) {
+        return {
+          id: client.id,
+          summary: {
+            reachable: false,
+            error: err?.message ?? String(err),
+            campaignCount: 0,
+            activeCampaigns: 0,
+            endedCampaigns: 0,
+            savedContacts: 0,
+            pendingContacts: 0,
+            failedContacts: 0,
+            whatsappReady: false,
+            whatsappShouldRun: false,
+            googleConnected: false,
+            campaigns: [],
+          } satisfies OwnerClientSummary,
+        };
+      }
+    }));
+    res.json({ summaries });
   });
 
   app.get('/owner/api/provisioning-status', (_req, res) => {
@@ -1365,7 +1402,7 @@ export function startAdminServer(storage: Storage): void {
       res.json({
         phone,
         phoneSource: twilioPhone ? 'twilio' : (fallbackPhone ? 'profile' : 'missing'),
-        missingPhoneReason: phone ? undefined : 'לא הוגדר מספר Twilio ללקוחה.',
+        missingPhoneReason: phone ? undefined : 'לא הוגדר מספר לקמפיין הפרסומי.',
       });
       return;
     }

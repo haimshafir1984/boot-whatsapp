@@ -26,6 +26,10 @@ interface CampaignReplyBehavior {
   decisionTimeoutText?: string;
 }
 
+function logTimerError(label: string, err: unknown): void {
+  console.error(`[TIMER] ${label} failed:`, err);
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -187,29 +191,35 @@ async function handleMessage(
     await sendBotMessage(transport, senderJid, askText);
     console.log('   Asked for preferred name.');
 
-    const timeoutHandle = setTimeout(async () => {
-      conversationState.remove(senderJid);
-      const finalName = `${pushname}${trigger.suffix}`;
-      console.log(`\n   Timeout - saving ${senderPhone} as "${finalName}"`);
-      await queueAndReply(
-        transport,
-        storage,
-        senderJid,
-        senderPhone,
-        finalName,
-        campaignResult.id,
-        settings.replyText,
-        settings.followupMessages,
-        settings.decisionFlow,
-        campaign.id,
-        {
-          enabled: settings.humanHandoffEnabled,
-          text: settings.humanHandoffText,
-          phone: settings.humanHandoffPhone,
-          decisionTimeoutMinutes: settings.decisionTimeoutMinutes,
-          decisionTimeoutText: settings.decisionTimeoutText,
-        },
-      );
+    const timeoutHandle = setTimeout(() => {
+      void (async () => {
+        try {
+          conversationState.remove(senderJid);
+          const finalName = `${pushname}${trigger.suffix}`;
+          console.log(`\n   Timeout - saving ${senderPhone} as "${finalName}"`);
+          await queueAndReply(
+            transport,
+            storage,
+            senderJid,
+            senderPhone,
+            finalName,
+            campaignResult.id,
+            settings.replyText,
+            settings.followupMessages,
+            settings.decisionFlow,
+            campaign.id,
+            {
+              enabled: settings.humanHandoffEnabled,
+              text: settings.humanHandoffText,
+              phone: settings.humanHandoffPhone,
+              decisionTimeoutMinutes: settings.decisionTimeoutMinutes,
+              decisionTimeoutText: settings.decisionTimeoutText,
+            },
+          );
+        } catch (err) {
+          logTimerError('name timeout', err);
+        }
+      })();
     }, settings.nameTimeoutMinutes * 60 * 1000);
 
     conversationState.set(senderJid, {
@@ -482,10 +492,16 @@ async function sendDecisionStep(
     : (humanHandoff.decisionTimeoutMinutes && humanHandoff.decisionTimeoutMinutes > 0
       ? humanHandoff.decisionTimeoutMinutes
       : DECISION_REPLY_TIMEOUT_MS / 60_000);
-  const timeoutHandle = setTimeout(async () => {
-    conversationState.remove(senderJid);
-    console.log(`   Decision reply timeout - cleared pending state for ${senderJid}.`);
-    await sendDecisionTimeoutAction(transport, storage, senderJid, step, humanHandoff.decisionTimeoutText, campaignId, campaignResultId, senderPhone);
+  const timeoutHandle = setTimeout(() => {
+    void (async () => {
+      try {
+        conversationState.remove(senderJid);
+        console.log(`   Decision reply timeout - cleared pending state for ${senderJid}.`);
+        await sendDecisionTimeoutAction(transport, storage, senderJid, step, humanHandoff.decisionTimeoutText, campaignId, campaignResultId, senderPhone);
+      } catch (err) {
+        logTimerError('decision timeout', err);
+      }
+    })();
   }, timeoutMinutes * 60 * 1000);
   conversationState.set(senderJid, {
     kind: 'decision',

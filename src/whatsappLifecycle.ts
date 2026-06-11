@@ -48,7 +48,7 @@ export async function startWhatsAppBot(storage: Storage, reason = 'manual', pair
       await initializeProvider(runtime);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const canFallback = runtime.name === 'BAILEYS' && process.env.BAILEYS_FALLBACK_TO_WEBJS !== 'false';
+      const canFallback = runtime.name === 'BAILEYS' && process.env.BAILEYS_FALLBACK_TO_WEBJS === 'true';
       if (!canFallback) throw err;
 
       console.warn(`Baileys provider failed during startup; falling back to WEB_JS: ${message}`);

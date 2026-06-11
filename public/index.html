@@ -1049,10 +1049,10 @@
   <div class="card" id="twilioSetupCard" style="display:none">
     <div class="card-body">
       <details class="requirements-panel">
-        <summary>פרטים נדרשים להקמת WhatsApp ב-Twilio</summary>
+        <summary>פרטים נדרשים לקמפיין פרסומי</summary>
         <div class="requirements-body">
           <div class="requirements-note">
-            הפרטים כאן משמשים להקמת מספר WhatsApp עסקי ב-Twilio, לזיהוי נכון של המותג, וליצירת ערוץ הודעות שאפשר להפעיל ממנו קמפיינים.
+            הפרטים כאן משמשים להקמת ערוץ WhatsApp עסקי, לזיהוי נכון של המותג, וליצירת קמפיינים פרסומיים שאפשר להפעיל בצורה מסודרת.
           </div>
           <div class="requirements-list">
             <div class="requirement-item">
@@ -1060,8 +1060,8 @@
               נדרש כדי להגדיר את שם התצוגה של השולח. כדאי שהשם יהיה ברור, אמיתי ותואם לשם שבו המותג מוכר ללקוחות.
             </div>
             <div class="requirement-item">
-              <strong>מספר WhatsApp ייעודי או מספר חדש מ-Twilio</strong>
-              אפשר להשתמש במספר קיים שמתאים לאימות, או לבקש שנקצה מספר חדש מ-Twilio. אם משתמשים במספר קיים, הוא חייב להיות פנוי מ-WhatsApp רגיל/Business ולקבל קוד אימות ב-SMS או בשיחה.
+              <strong>מספר WhatsApp ייעודי או מספר חדש לקמפיין</strong>
+              אפשר להשתמש במספר קיים שמתאים לאימות, או לבקש שנקצה מספר חדש לקמפיין. אם משתמשים במספר קיים, הוא חייב להיות פנוי מ-WhatsApp רגיל/Business ולקבל קוד אימות ב-SMS או בשיחה.
             </div>
             <div class="requirement-item">
               <strong>תחום פעילות ותיאור קצר</strong>
@@ -1089,7 +1089,7 @@
               <label for="twilioNumberPlan">מספר WhatsApp</label>
               <select id="twilioNumberPlan" name="firstCampaignUseCase">
                 <option value="">לבחור אפשרות</option>
-                <option value="twilio-number">צריך לקבל מספר חדש מ-Twilio</option>
+                <option value="twilio-number">צריך לקבל מספר חדש לקמפיין</option>
                 <option value="existing-number">יש מספר קיים שאפשר לחבר</option>
                 <option value="not-sure">עדיין לא בטוח</option>
               </select>
@@ -1490,11 +1490,11 @@
       addBtn.style.display = canEditCampaigns() ? '' : 'none';
       addBtn.disabled = appCapabilities.campaignCount >= appCapabilities.maxCampaigns;
     }
-    const isTwilioClient = appCapabilities.whatsappProvider === 'TWILIO_API';
-    ['twilioSetupCard', 'twilioMessagesCard'].forEach((id) => {
-      const card = document.getElementById(id);
-      if (card) card.style.display = isTwilioClient ? '' : 'none';
-    });
+    const isPromotionalClient = appCapabilities.whatsappProvider === 'TWILIO_API';
+    const promotionalSetupCard = document.getElementById('twilioSetupCard');
+    if (promotionalSetupCard) promotionalSetupCard.style.display = isPromotionalClient ? '' : 'none';
+    const technicalMessagesCard = document.getElementById('twilioMessagesCard');
+    if (technicalMessagesCard) technicalMessagesCard.style.display = 'none';
     renderCampaigns(lastCampaigns || []);
   }
 
@@ -1658,13 +1658,15 @@
   async function loadTwilioLogs() {
     const el = document.getElementById('twilioLogsList');
     if (!el) return;
+    const card = document.getElementById('twilioMessagesCard');
+    if (!card || card.style.display === 'none') return;
     try {
       const res = await fetch('/api/twilio/logs?limit=25');
       if (!res.ok) throw new Error('failed');
       const data = await res.json();
       renderTwilioLogs(data.items || []);
     } catch (_) {
-      el.innerHTML = '<div class="twilio-log-empty">לא ניתן לטעון כרגע את יומן הודעות Twilio</div>';
+      el.innerHTML = '<div class="twilio-log-empty">לא ניתן לטעון כרגע את פעילות ההודעות</div>';
     }
   }
 
@@ -2713,7 +2715,7 @@
           <strong>אי אפשר ליצור לינק כרגע</strong><br>
           ${esc(reason)}<br>
           ${appCapabilities.whatsappProvider === 'TWILIO_API'
-            ? 'יש להגדיר מספר Twilio ללקוחה ולפרוס אותה מחדש.'
+            ? 'יש להגדיר מספר לקמפיין הפרסומי ולפרוס את הלקוחה מחדש.'
             : 'יש לחבר את WhatsApp ללקוחה, ואז לרענן את הדף.'}
         </div>`;
       return;
