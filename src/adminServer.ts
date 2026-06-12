@@ -391,6 +391,15 @@ function conversationSettings(
       ? input.nameTimeoutMinutes
       : defaults.nameTimeoutMinutes,
     askNameText: typeof input?.askNameText === 'string' ? input.askNameText : defaults.askNameText,
+    preNamePromptText: typeof input?.preNamePromptText === 'string'
+      ? input.preNamePromptText.trim().slice(0, 2000)
+      : (defaults.preNamePromptText ?? ''),
+    preNamePromptAutoContinue: typeof input?.preNamePromptAutoContinue === 'boolean'
+      ? input.preNamePromptAutoContinue
+      : (defaults.preNamePromptAutoContinue ?? false),
+    preNamePromptTimeoutMinutes: typeof input?.preNamePromptTimeoutMinutes === 'number' && input.preNamePromptTimeoutMinutes > 0
+      ? Math.min(Math.max(Math.round(input.preNamePromptTimeoutMinutes), 1), 60)
+      : (defaults.preNamePromptTimeoutMinutes ?? 1),
     replyText: typeof input?.replyText === 'string' ? input.replyText : defaults.replyText,
     followupMessages: Array.isArray(input?.followupMessages)
       ? input.followupMessages.filter((message): message is string => typeof message === 'string')
@@ -519,6 +528,13 @@ function buildCampaignDryRun(campaign: Campaign, storage: Storage) {
     { from: 'user', text: campaign.triggerPhrase },
   ];
   if (conversation.askNameEnabled) {
+    if (conversation.preNamePromptText?.trim()) {
+      messages.push({
+        from: 'bot',
+        text: conversation.preNamePromptText.trim(),
+      });
+      messages.push({ from: 'user', text: 'שמרתי' });
+    }
     messages.push({
       from: 'bot',
       text: conversation.askNameText.replace('{timeout}', String(conversation.nameTimeoutMinutes)),

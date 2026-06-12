@@ -1324,6 +1324,17 @@
             <span>דקות</span>
           </div>
           <hr />
+          <div class="field" id="fPreNamePromptField">
+            <label>הודעה לפני שאלת השם - אופציונלי</label>
+            <textarea id="fPreNamePromptText" placeholder="לדוגמה: אם תרצה לראות יותר תוכן שלי, שמור אותי בשם חיים שפיר. שמרת?" oninput="updateCampaignConversationPreview()"></textarea>
+            <div class="hint">אם ממלאים את השדה הזה, המערכת תחכה לתשובה כלשהי מהמשתמש ורק אחר כך תשאל באיזה שם לשמור אותו.</div>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:.82rem;color:#374151">
+              <input type="checkbox" id="fPreNamePromptAutoContinue" onchange="updateCampaignConversationPreview()" />
+              אם לא התקבלה תשובה, לשלוח בכל זאת את שאלת השם אחרי
+              <input type="number" id="fPreNamePromptTimeout" min="1" max="60" value="1" style="width:72px" oninput="updateCampaignConversationPreview()" />
+              דקות
+            </label>
+          </div>
           <div class="field" id="fAskTextField">
             <label>הודעת שאלת שם</label>
             <textarea id="fAskNameText" oninput="updateCampaignConversationPreview()"></textarea>
@@ -1417,6 +1428,7 @@
         <div class="phone-preview" aria-label="תצוגת שיחה לדוגמה">
           <div class="phone-preview-title">תצוגת השיחה בקמפיין</div>
           <div class="chat-row user"><div class="chat-bubble" id="campaignPreviewTrigger"></div></div>
+          <div id="campaignPreviewPreName"></div>
           <div class="chat-row bot" id="campaignPreviewAskRow"><div class="chat-bubble" id="campaignPreviewAsk"></div></div>
           <div class="chat-row bot"><div class="chat-bubble" id="campaignPreviewReply"></div></div>
           <div id="campaignPreviewFollowups"></div>
@@ -1441,6 +1453,9 @@
     askNameEnabled: false,
     nameTimeoutMinutes: 5,
     askNameText: 'שלום וברוכים הבאים\nבאיזה שם לשמור אותך?',
+    preNamePromptText: '',
+    preNamePromptAutoContinue: false,
+    preNamePromptTimeoutMinutes: 1,
     replyText: 'הפרטים נשמרו. כדי לקבל עדכונים, חשוב לשמור את המספר באנשי הקשר.',
     followupMessages: [],
     decisionFlow: [],
@@ -1917,7 +1932,12 @@
     document.getElementById('wizardSummaryName')?.replaceChildren(document.createTextNode(name));
     document.getElementById('wizardSummaryType')?.replaceChildren(document.createTextNode(triggerType === 1 ? 'קמפיין רגיל' : 'קמפיין ממליץ'));
     document.getElementById('wizardSummaryTrigger')?.replaceChildren(document.createTextNode(trigger));
-    document.getElementById('wizardSummaryAskName')?.replaceChildren(document.createTextNode(conversation.askNameEnabled ? 'פעילה - המערכת תשאל שם לפני השמירה' : 'כבויה - איש הקשר יישמר בלי שאלת שם'));
+    const askNameSummary = conversation.askNameEnabled
+      ? (conversation.preNamePromptText?.trim()
+        ? 'פעילה - קודם הודעת שמירה, ואז שאלת שם'
+        : 'פעילה - המערכת תשאל שם לפני השמירה')
+      : 'כבויה - איש הקשר יישמר בלי שאלת שם';
+    document.getElementById('wizardSummaryAskName')?.replaceChildren(document.createTextNode(askNameSummary));
     document.getElementById('wizardSummaryFlow')?.replaceChildren(document.createTextNode(flowCount ? `${flowCount} פריטים` : 'ללא המשך'));
     const link = buildCampaignShareLink(trigger);
     lastWizardLink = link;
@@ -2117,6 +2137,9 @@
     document.getElementById('fAskName').checked = settings.askNameEnabled;
     document.getElementById('fTimeout').value = settings.nameTimeoutMinutes;
     document.getElementById('fAskNameText').value = settings.askNameText;
+    document.getElementById('fPreNamePromptText').value = settings.preNamePromptText || '';
+    document.getElementById('fPreNamePromptAutoContinue').checked = Boolean(settings.preNamePromptAutoContinue);
+    document.getElementById('fPreNamePromptTimeout').value = settings.preNamePromptTimeoutMinutes || 1;
     document.getElementById('fReplyText').value = settings.replyText;
     renderCampaignFollowupFields(settings.followupMessages || []);
     renderDecisionFlow(settings.decisionFlow || []);
@@ -2132,6 +2155,7 @@
   function updateEditorTimeoutVisibility() {
     const enabled = document.getElementById('fAskName').checked;
     document.getElementById('fTimeoutRow').style.opacity = enabled ? '1' : '0.35';
+    document.getElementById('fPreNamePromptField').style.opacity = enabled ? '1' : '0.45';
     document.getElementById('fAskTextField').style.opacity = enabled ? '1' : '0.45';
   }
 
@@ -2575,6 +2599,9 @@
       askNameEnabled: document.getElementById('fAskName').checked,
       nameTimeoutMinutes: Number(document.getElementById('fTimeout').value) || appSettings.nameTimeoutMinutes,
       askNameText: document.getElementById('fAskNameText').value,
+      preNamePromptText: document.getElementById('fPreNamePromptText')?.value || '',
+      preNamePromptAutoContinue: document.getElementById('fPreNamePromptAutoContinue')?.checked || false,
+      preNamePromptTimeoutMinutes: Number(document.getElementById('fPreNamePromptTimeout')?.value) || 1,
       replyText: document.getElementById('fReplyText').value,
       followupMessages: [...document.querySelectorAll('[data-campaign-followup]')]
       .map(el => el.value.trim())
@@ -2599,10 +2626,20 @@
     const askEl = document.getElementById('campaignPreviewAsk');
     const replyEl = document.getElementById('campaignPreviewReply');
     const askRow = document.getElementById('campaignPreviewAskRow');
+    const preNameEl = document.getElementById('campaignPreviewPreName');
     const followupsEl = document.getElementById('campaignPreviewFollowups');
     const decisionFlowEl = document.getElementById('campaignPreviewDecisionFlow');
 
     if (triggerEl) triggerEl.textContent = triggerText;
+    if (preNameEl) {
+      const preNameText = conversation.askNameEnabled ? conversation.preNamePromptText.trim() : '';
+      preNameEl.innerHTML = preNameText
+        ? `
+          <div class="chat-row bot"><div class="chat-bubble">${esc(preNameText)}</div></div>
+          <div class="chat-row user"><div class="chat-bubble">שמרתי</div></div>
+        `
+        : '';
+    }
     if (askEl) askEl.textContent = askNameText;
     if (replyEl) replyEl.textContent = conversation.replyText;
     if (followupsEl) {

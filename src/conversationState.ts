@@ -33,6 +33,29 @@ export interface PendingNameConversation {
   timeoutHandle: NodeJS.Timeout;
 }
 
+export interface PendingPreNamePromptConversation {
+  kind: 'pre-name-prompt';
+  senderJid: string;
+  senderPhone: string;
+  campaignId?: string;
+  campaignResultId?: string;
+  replyText: string;
+  followupMessages: string[];
+  decisionFlow: import('./storage').DecisionFlowStep[];
+  humanHandoffEnabled?: boolean;
+  humanHandoffText?: string;
+  humanHandoffPhone?: string;
+  nameTimeoutMinutes?: number;
+  preNamePromptTimeoutMinutes?: number;
+  askNameText: string;
+  decisionTimeoutMinutes?: number;
+  decisionTimeoutText?: string;
+  suffix: string;
+  whatsappName: string;
+  timestamp: number;
+  timeoutHandle: NodeJS.Timeout;
+}
+
 export interface PendingDecisionConversation {
   kind: 'decision';
   senderJid: string;
@@ -64,10 +87,11 @@ export interface PendingHandoffConversation {
   timeoutHandle?: NodeJS.Timeout;
 }
 
-export type PendingConversation = PendingNameConversation | PendingDecisionConversation | PendingHandoffConversation;
+export type PendingConversation = PendingNameConversation | PendingPreNamePromptConversation | PendingDecisionConversation | PendingHandoffConversation;
 
 export type PersistablePendingConversation =
   | Omit<PendingNameConversation, 'timeoutHandle'>
+  | Omit<PendingPreNamePromptConversation, 'timeoutHandle'>
   | Omit<PendingDecisionConversation, 'timeoutHandle'>
   | Omit<PendingHandoffConversation, 'timeoutHandle'>;
 
@@ -118,7 +142,7 @@ class ConversationStateManager {
       const entries = Object.entries(parsed.conversations ?? {});
       for (const [jid, state] of entries) {
         if (!state || typeof state !== 'object') continue;
-        if (state.kind !== 'name' && state.kind !== 'decision' && state.kind !== 'handoff') continue;
+        if (state.kind !== 'name' && state.kind !== 'pre-name-prompt' && state.kind !== 'decision' && state.kind !== 'handoff') continue;
         const timeoutHandle = schedule(jid, state);
         if (!timeoutHandle) continue;
         this.map.set(jid, { ...state, timeoutHandle } as PendingConversation);

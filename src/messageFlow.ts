@@ -1,7 +1,7 @@
 import { config } from './config';
 import path from 'path';
 import { conversationState } from './conversationState';
-import { DecisionFlowOption, DecisionFlowStep, Storage } from './storage';
+import { CampaignConversationSettings, DecisionFlowOption, DecisionFlowStep, Storage } from './storage';
 import { detectTrigger } from './triggerDetector';
 import {
   IncomingWhatsAppMessage,
@@ -89,6 +89,35 @@ async function handleMessage(
   const pending = conversationState.get(senderJid);
 
   if (pending) {
+    if (pending.kind === 'pre-name-prompt') {
+      clearTimeout(pending.timeoutHandle);
+      conversationState.remove(senderJid);
+      await askForContactName(
+        transport,
+        storage,
+        senderJid,
+        pending.senderPhone,
+        pending.whatsappName,
+        pending.suffix,
+        pending.campaignResultId,
+        pending.campaignId,
+        {
+          askNameEnabled: true,
+          askNameText: pending.askNameText,
+          nameTimeoutMinutes: pending.nameTimeoutMinutes ?? 5,
+          replyText: pending.replyText,
+          followupMessages: pending.followupMessages,
+          decisionFlow: pending.decisionFlow,
+          humanHandoffEnabled: pending.humanHandoffEnabled,
+          humanHandoffText: pending.humanHandoffText,
+          humanHandoffPhone: pending.humanHandoffPhone,
+          decisionTimeoutMinutes: pending.decisionTimeoutMinutes,
+          decisionTimeoutText: pending.decisionTimeoutText,
+        },
+      );
+      return;
+    }
+
     if (pending.kind === 'decision') {
       await handleDecisionReply(
         message.body.trim(),
@@ -184,64 +213,69 @@ async function handleMessage(
 
   const settings = storage.getCampaignConversationSettings(campaign);
   if (settings.askNameEnabled) {
-    const askText = settings.askNameText.replace(
-      '{timeout}',
-      String(settings.nameTimeoutMinutes),
-    );
-    await sendBotMessage(transport, senderJid, askText);
-    console.log('   Asked for preferred name.');
-
-    const timeoutHandle = setTimeout(() => {
-      void (async () => {
-        try {
-          conversationState.remove(senderJid);
-          const finalName = `${pushname}${trigger.suffix}`;
-          console.log(`\n   Timeout - saving ${senderPhone} as "${finalName}"`);
-          await queueAndReply(
-            transport,
-            storage,
-            senderJid,
-            senderPhone,
-            finalName,
-            campaignResult.id,
-            settings.replyText,
-            settings.followupMessages,
-            settings.decisionFlow,
-            campaign.id,
-            {
-              enabled: settings.humanHandoffEnabled,
-              text: settings.humanHandoffText,
-              phone: settings.humanHandoffPhone,
-              decisionTimeoutMinutes: settings.decisionTimeoutMinutes,
-              decisionTimeoutText: settings.decisionTimeoutText,
-            },
-          );
-        } catch (err) {
-          logTimerError('name timeout', err);
-        }
-      })();
-    }, settings.nameTimeoutMinutes * 60 * 1000);
-
-    conversationState.set(senderJid, {
-      kind: 'name',
-      senderJid,
-      senderPhone,
-      campaignResultId: campaignResult.id,
-      campaignId: campaign.id,
-      replyText: settings.replyText,
-      followupMessages: settings.followupMessages,
-      decisionFlow: settings.decisionFlow,
-      humanHandoffEnabled: settings.humanHandoffEnabled,
-      humanHandoffText: settings.humanHandoffText,
-      humanHandoffPhone: settings.humanHandoffPhone,
-      nameTimeoutMinutes: settings.nameTimeoutMinutes,
-      decisionTimeoutMinutes: settings.decisionTimeoutMinutes,
-      decisionTimeoutText: settings.decisionTimeoutText,
-      suffix: trigger.suffix,
-      whatsappName: pushname,
-      timestamp: Date.now(),
-      timeoutHandle,
-    });
+    const preNamePromptText = settings.preNamePromptText?.trim();
+    if (preNamePromptText) {
+      await sendBotMessage(transport, senderJid, preNamePromptText);
+      console.log('   Pre-name prompt sent.');
+      const timeoutMinutes = settings.preNamePromptTimeoutMinutes && settings.preNamePromptTimeoutMinutes > 0
+        ? settings.preNamePromptTimeoutMinutes
+        : 1;
+      const timeoutHandle = setTimeout(() => {
+        void (async () => {
+          try {
+            conversationState.remove(senderJid);
+            if (!settings.preNamePromptAutoContinue) return;
+            await askForContactName(
+              transport,
+              storage,
+              senderJid,
+              senderPhone,
+              pushname,
+              trigger.suffix,
+              campaignResult.id,
+              campaign.id,
+              settings,
+            );
+          } catch (err) {
+            logTimerError('pre-name prompt timeout', err);
+          }
+        })();
+      }, timeoutMinutes * 60 * 1000);
+      conversationState.set(senderJid, {
+        kind: 'pre-name-prompt',
+        senderJid,
+        senderPhone,
+        campaignResultId: campaignResult.id,
+        campaignId: campaign.id,
+        replyText: settings.replyText,
+        followupMessages: settings.followupMessages,
+        decisionFlow: settings.decisionFlow,
+        humanHandoffEnabled: settings.humanHandoffEnabled,
+        humanHandoffText: settings.humanHandoffText,
+        humanHandoffPhone: settings.humanHandoffPhone,
+        nameTimeoutMinutes: settings.nameTimeoutMinutes,
+        preNamePromptTimeoutMinutes: timeoutMinutes,
+        askNameText: settings.askNameText,
+        decisionTimeoutMinutes: settings.decisionTimeoutMinutes,
+        decisionTimeoutText: settings.decisionTimeoutText,
+        suffix: trigger.suffix,
+        whatsappName: pushname,
+        timestamp: Date.now(),
+        timeoutHandle,
+      });
+    } else {
+      await askForContactName(
+        transport,
+        storage,
+        senderJid,
+        senderPhone,
+        pushname,
+        trigger.suffix,
+        campaignResult.id,
+        campaign.id,
+        settings,
+      );
+    }
   } else {
     const contactName = `${pushname}${trigger.suffix}`;
     await queueAndReply(
@@ -264,6 +298,77 @@ async function handleMessage(
       },
     );
   }
+}
+
+async function askForContactName(
+  transport: WhatsAppTransport,
+  storage: Storage,
+  senderJid: string,
+  senderPhone: string,
+  whatsappName: string,
+  suffix: string,
+  campaignResultId: string | undefined,
+  campaignId: string | undefined,
+  settings: CampaignConversationSettings,
+): Promise<void> {
+  const askText = settings.askNameText.replace(
+    '{timeout}',
+    String(settings.nameTimeoutMinutes),
+  );
+  await sendBotMessage(transport, senderJid, askText);
+  console.log('   Asked for preferred name.');
+
+  const timeoutHandle = setTimeout(() => {
+    void (async () => {
+      try {
+        conversationState.remove(senderJid);
+        const finalName = `${whatsappName}${suffix}`;
+        console.log(`\n   Timeout - saving ${senderPhone} as "${finalName}"`);
+        await queueAndReply(
+          transport,
+          storage,
+          senderJid,
+          senderPhone,
+          finalName,
+          campaignResultId,
+          settings.replyText,
+          settings.followupMessages,
+          settings.decisionFlow,
+          campaignId,
+          {
+            enabled: settings.humanHandoffEnabled,
+            text: settings.humanHandoffText,
+            phone: settings.humanHandoffPhone,
+            decisionTimeoutMinutes: settings.decisionTimeoutMinutes,
+            decisionTimeoutText: settings.decisionTimeoutText,
+          },
+        );
+      } catch (err) {
+        logTimerError('name timeout', err);
+      }
+    })();
+  }, settings.nameTimeoutMinutes * 60 * 1000);
+
+  conversationState.set(senderJid, {
+    kind: 'name',
+    senderJid,
+    senderPhone,
+    campaignResultId,
+    campaignId,
+    replyText: settings.replyText,
+    followupMessages: settings.followupMessages,
+    decisionFlow: settings.decisionFlow,
+    humanHandoffEnabled: settings.humanHandoffEnabled,
+    humanHandoffText: settings.humanHandoffText,
+    humanHandoffPhone: settings.humanHandoffPhone,
+    nameTimeoutMinutes: settings.nameTimeoutMinutes,
+    decisionTimeoutMinutes: settings.decisionTimeoutMinutes,
+    decisionTimeoutText: settings.decisionTimeoutText,
+    suffix,
+    whatsappName,
+    timestamp: Date.now(),
+    timeoutHandle,
+  });
 }
 
 async function queueAndReply(

@@ -39,6 +39,9 @@ export interface CampaignConversationSettings {
   askNameEnabled: boolean;
   nameTimeoutMinutes: number;
   askNameText: string;
+  preNamePromptText?: string;
+  preNamePromptAutoContinue?: boolean;
+  preNamePromptTimeoutMinutes?: number;
   replyText: string;
   followupMessages: string[];
   decisionFlow: DecisionFlowStep[];
@@ -710,6 +713,9 @@ export class Storage {
       askNameEnabled: campaign.conversation?.askNameEnabled ?? defaults.askNameEnabled,
       nameTimeoutMinutes: campaign.conversation?.nameTimeoutMinutes ?? defaults.nameTimeoutMinutes,
       askNameText: campaign.conversation?.askNameText ?? defaults.askNameText,
+      preNamePromptText: campaign.conversation?.preNamePromptText ?? '',
+      preNamePromptAutoContinue: campaign.conversation?.preNamePromptAutoContinue ?? false,
+      preNamePromptTimeoutMinutes: campaign.conversation?.preNamePromptTimeoutMinutes ?? 1,
       replyText: campaign.conversation?.replyText ?? defaults.replyText,
       followupMessages: campaign.conversation?.followupMessages ?? defaults.followupMessages,
       decisionFlow: campaign.conversation?.decisionFlow ?? defaults.decisionFlow,
