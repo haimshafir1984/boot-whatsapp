@@ -27,17 +27,24 @@ export function detectTrigger(
   activeCampaigns: Campaign[],
 ): TriggerResult {
   const text = normalize(messageBody);
+  let bestMatch: { campaign: Campaign; triggerText: string } | null = null;
 
   for (const campaign of activeCampaigns) {
     const triggerText = normalize(campaign.triggerPhrase);
     if (triggerText && text.includes(triggerText)) {
-      return {
-        matched: true,
-        campaignId: campaign.id,
-        suffix: campaign.suffix,
-        campaignName: campaign.name,
-      };
+      if (!bestMatch || triggerText.length >= bestMatch.triggerText.length) {
+        bestMatch = { campaign, triggerText };
+      }
     }
+  }
+
+  if (bestMatch) {
+    return {
+      matched: true,
+      campaignId: bestMatch.campaign.id,
+      suffix: bestMatch.campaign.suffix,
+      campaignName: bestMatch.campaign.name,
+    };
   }
 
   return { matched: false, campaignId: '', suffix: '', campaignName: '' };
