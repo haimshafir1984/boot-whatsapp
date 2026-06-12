@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { Storage } from './storage';
 import { botState } from './botState';
 import { config } from './config';
@@ -21,6 +23,22 @@ function createProvider(storage: Storage, pairingPhone?: string, providerName = 
     return { name: 'BAILEYS', provider: createBaileysProvider(storage, pairingPhone) };
   }
   return { name: 'WEB_JS', provider: createWebJsProvider(storage, pairingPhone) };
+}
+
+function clearRuntimeConnectionState(reason: string): void {
+  botState.client = null;
+  botState.actualProvider = null;
+  botState.providerFallbackReason = null;
+  botState.qrDataUrl = null;
+  botState.pairingCode = null;
+  botState.pairingPhone = null;
+  botState.pairingAttempted = false;
+  botState.authenticated = false;
+  botState.ready = false;
+  botState.connectedPhone = null;
+  botState.lifecycle = 'stopped';
+  botState.listeningReason = reason;
+  botState.intentionalRestart = false;
 }
 
 async function initializeProvider(runtime: ProviderRuntime): Promise<WhatsAppProvider> {
@@ -116,6 +134,29 @@ export async function stopWhatsAppBot(reason = 'manual'): Promise<void> {
   } finally {
     transition = null;
   }
+}
+
+export async function resetWhatsAppSession(reason = 'manual QR reset'): Promise<void> {
+  if (transition) await transition;
+
+  try {
+    await stopWhatsAppBot(reason);
+  } catch (err) {
+    console.warn('WhatsApp stop before session reset failed:', err);
+  }
+
+  const baileysSessionPath = path.join(config.SESSION_PATH, 'baileys');
+  try {
+    if (fs.existsSync(baileysSessionPath)) {
+      fs.rmSync(baileysSessionPath, { recursive: true, force: true });
+      console.log(`Baileys session cleared: ${baileysSessionPath}`);
+    }
+  } catch (err) {
+    console.error('Failed to clear Baileys session:', err);
+    throw err;
+  }
+
+  clearRuntimeConnectionState(reason);
 }
 
 export function startWhatsAppScheduler(storage: Storage): void {

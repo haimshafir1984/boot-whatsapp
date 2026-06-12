@@ -2891,7 +2891,7 @@
     return `
       <div class="qr-spinner" style="color:#b45309;line-height:1.7">
         ${message}<br>
-        אם לא מופיע קוד QR תוך כמה שניות, כדאי להפעיל את החיבור מחדש.
+        אם לא מופיע קוד QR תוך כמה שניות, אפשר לאפס רק את חיבור WhatsApp וליצור QR חדש.
       </div>
       <button class="btn-save" style="width:auto;padding:9px 18px;margin-top:10px" onclick="restartWhatsApp()">נסה להתחבר מחדש</button>
     `;
@@ -3007,11 +3007,16 @@
   }
 
   async function restartWhatsApp() {
-    document.getElementById('qr-content').innerHTML = '<div class="qr-spinner">&#x23F3; מפעיל את החיבור מחדש...</div>';
+    document.getElementById('qr-content').innerHTML = '<div class="qr-spinner">&#x23F3; מאפס את חיבור WhatsApp ומכין QR חדש...</div>';
     qrWaitingSince = Date.now();
     qrRetryGraceUntil = Date.now() + 25_000;
-    await fetch('/api/whatsapp/stop', { method: 'POST' }).catch(() => null);
-    await fetch('/api/whatsapp/start', { method: 'POST' }).catch(() => null);
+    const res = await fetch('/api/whatsapp/reset-session', { method: 'POST' }).catch(() => null);
+    if (!res || !res.ok) {
+      const data = res ? await res.json().catch(() => ({})) : {};
+      document.getElementById('qr-content').innerHTML =
+        connectionRetryHtml(`לא הצלחנו לאפס את חיבור WhatsApp.<br><span style="font-size:.76rem;color:#92400e">${esc(data.error || 'נסו שוב בעוד רגע.')}</span>`);
+      return;
+    }
     checkQR();
   }
 

@@ -19,7 +19,7 @@ import {
 } from './storage';
 import { config } from './config';
 import { botState } from './botState';
-import { startWhatsAppBot, stopWhatsAppBot } from './whatsappLifecycle';
+import { resetWhatsAppSession, startWhatsAppBot, stopWhatsAppBot } from './whatsappLifecycle';
 import {
   isGoogleConnected,
   getGoogleAuthUrl,
@@ -1328,6 +1328,16 @@ export function startAdminServer(storage: Storage): void {
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? 'שגיאה בכיבוי הבוט' });
+    }
+  });
+
+  app.post('/api/whatsapp/reset-session', async (_req, res) => {
+    try {
+      await resetWhatsAppSession('manual dashboard QR reset');
+      await startWhatsAppBot(storage, 'manual dashboard QR reset');
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message ?? 'שגיאה באיפוס חיבור WhatsApp' });
     }
   });
 
