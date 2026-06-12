@@ -49,7 +49,18 @@ export async function startWhatsAppBot(storage: Storage, reason = 'manual', pair
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const canFallback = runtime.name === 'BAILEYS' && process.env.BAILEYS_FALLBACK_TO_WEBJS === 'true';
-      if (!canFallback) throw err;
+      if (!canFallback) {
+        botState.client = null;
+        botState.actualProvider = null;
+        botState.qrDataUrl = null;
+        botState.pairingCode = null;
+        botState.authenticated = false;
+        botState.ready = false;
+        botState.connectedPhone = null;
+        botState.lifecycle = 'stopped';
+        botState.listeningReason = `connection failed: ${message}`;
+        throw err;
+      }
 
       console.warn(`Baileys provider failed during startup; falling back to WEB_JS: ${message}`);
       botState.providerFallbackReason = message;
