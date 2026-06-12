@@ -118,6 +118,11 @@ async function handleMessage(
       return;
     }
 
+    if (message.isReaction) {
+      console.log(`[MSG] reaction ignored for pending ${pending.kind} via=${source} from=${senderJid}`);
+      return;
+    }
+
     if (pending.kind === 'decision') {
       await handleDecisionReply(
         message.body.trim(),
@@ -187,6 +192,8 @@ async function handleMessage(
     );
     return;
   }
+
+  if (message.isReaction) return;
 
   const activeCampaigns = storage.getActiveCampaigns();
   const trigger = detectTrigger(message.body, activeCampaigns);

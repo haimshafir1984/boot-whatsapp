@@ -6,6 +6,7 @@ export interface IncomingWhatsAppMessage {
   senderPhone?: string;
   to?: string;
   body: string;
+  isReaction?: boolean;
   timestamp?: number;
   getDisplayName(): Promise<string>;
 }

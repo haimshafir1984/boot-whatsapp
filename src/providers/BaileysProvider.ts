@@ -47,17 +47,26 @@ function normalizeJid(value: string): string {
   return `${phone}@s.whatsapp.net`;
 }
 
-function getMessageText(message: any): string {
+function getMessageContent(message: any): { body: string; isReaction: boolean } {
   const content = message?.message;
-  if (!content) return '';
-  return (
-    content.conversation ||
-    content.extendedTextMessage?.text ||
-    content.imageMessage?.caption ||
-    content.videoMessage?.caption ||
-    content.documentMessage?.caption ||
-    ''
-  );
+  if (!content) return { body: '', isReaction: false };
+
+  const reactionText = content.reactionMessage?.text;
+  if (typeof reactionText === 'string') {
+    return { body: reactionText.trim() || 'תגובה', isReaction: true };
+  }
+
+  return {
+    body: (
+      content.conversation ||
+      content.extendedTextMessage?.text ||
+      content.imageMessage?.caption ||
+      content.videoMessage?.caption ||
+      content.documentMessage?.caption ||
+      ''
+    ),
+    isReaction: false,
+  };
 }
 
 function getMimeType(filePath: string): string {
@@ -240,7 +249,8 @@ export class BaileysProvider implements WhatsAppProvider {
     for (const raw of messages as any[]) {
       if (!raw?.message) continue;
       const from = raw.key?.remoteJid;
-      const body = getMessageText(raw).trim();
+      const content = getMessageContent(raw);
+      const body = content.body.trim();
       if (!from || !body) continue;
       const fromMe = Boolean(raw.key?.fromMe);
       if (fromMe && !this.isSelfTriggerMessage(from, body)) continue;
@@ -250,6 +260,7 @@ export class BaileysProvider implements WhatsAppProvider {
         from,
         senderPhone: pickSenderPhone(raw) || (fromMe ? jidToPhone(this.socket?.user?.id ?? from) : undefined),
         body,
+        isReaction: content.isReaction,
         timestamp: Number(raw.messageTimestamp || Math.floor(Date.now() / 1000)),
         async getDisplayName() {
           return raw.pushName?.trim() || (fromMe ? 'המספר המחובר' : '');
