@@ -2890,7 +2890,7 @@
     return `
       <div class="qr-spinner" style="color:#b45309;line-height:1.7">
         ${message}<br>
-        אם זה נמשך יותר מדקה, כדאי להפעיל את החיבור מחדש.
+        אם לא מופיע קוד QR תוך כמה שניות, כדאי להפעיל את החיבור מחדש.
       </div>
       <button class="btn-save" style="width:auto;padding:9px 18px;margin-top:10px" onclick="restartWhatsApp()">נסה להתחבר מחדש</button>
     `;
@@ -2958,13 +2958,10 @@
         if (!qrWaitingSince) qrWaitingSince = Date.now();
         qrCard.style.display = 'block';
         if (connectedCard) connectedCard.style.display = 'none';
-        const waitingMs = Date.now() - qrWaitingSince;
         document.getElementById('qr-content').innerHTML =
           failedReason
             ? connectionRetryHtml(`לא הצלחנו להתחבר ל-WhatsApp כרגע.<br><span style="font-size:.76rem;color:#92400e">${esc(failedReason)}</span>`)
-            : (waitingMs > 60_000
-              ? connectionRetryHtml('החיבור ל-WhatsApp מתעכב ולא התקבל קוד QR חדש.')
-              : '<div class="qr-spinner">&#x23F3; מתחבר ל-WhatsApp — אנא המתן...</div>');
+            : connectionRetryHtml('מנסים להכין קוד QR לחיבור WhatsApp.');
       }
       // Auto-display pairing code if it arrived via polling
       if (data.pairingCode) {

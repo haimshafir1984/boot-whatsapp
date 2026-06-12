@@ -219,6 +219,13 @@ export class BaileysProvider implements WhatsAppProvider {
       const statusCode = update.lastDisconnect?.error?.output?.statusCode;
       const loggedOut = statusCode === baileys.DisconnectReason.loggedOut;
       console.warn(`Baileys disconnected. status=${statusCode ?? 'unknown'}`);
+      botState.listeningReason = loggedOut
+        ? 'connection failed: החיבור ל-WhatsApp התנתק. יש לסרוק QR מחדש.'
+        : `connection failed: החיבור ל-WhatsApp התנתק זמנית (${statusCode ?? 'unknown'}).`;
+      if (loggedOut) {
+        botState.lifecycle = 'stopped';
+        botState.qrDataUrl = null;
+      }
 
       if (!this.intentionalClose && !loggedOut) {
         this.reconnectTimer = setTimeout(() => {
