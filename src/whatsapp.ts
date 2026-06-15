@@ -153,11 +153,13 @@ async function handleIncomingMessage(
 }
 
 function toIncomingMessage(message: Message): IncomingWhatsAppMessage {
+  const hasMedia = Boolean((message as any).hasMedia);
   return {
     id: (message.id as any)?._serialized ?? `${message.from}:${message.timestamp ?? ''}`,
     from: message.from,
     to: message.to,
-    body: message.body,
+    body: message.body || (hasMedia ? '[media]' : ''),
+    hasUserSignal: Boolean(message.body?.trim() || hasMedia),
     timestamp: message.timestamp,
     async getDisplayName() {
       const contact = await message.getContact();

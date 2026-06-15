@@ -1,4 +1,3 @@
-import fs from 'fs';
 import path from 'path';
 import QRCode from 'qrcode';
 import { config } from '../config';
@@ -47,26 +46,32 @@ function normalizeJid(value: string): string {
   return `${phone}@s.whatsapp.net`;
 }
 
-function getMessageContent(message: any): { body: string; isReaction: boolean } {
+function getMessageContent(message: any): { body: string; isReaction: boolean; hasUserSignal: boolean } {
   const content = message?.message;
-  if (!content) return { body: '', isReaction: false };
+  if (!content) return { body: '', isReaction: false, hasUserSignal: false };
 
   const reactionText = content.reactionMessage?.text;
   if (typeof reactionText === 'string') {
-    return { body: reactionText.trim() || 'תגובה', isReaction: true };
+    return { body: reactionText.trim() || 'תגובה', isReaction: true, hasUserSignal: true };
   }
 
-  return {
-    body: (
-      content.conversation ||
-      content.extendedTextMessage?.text ||
-      content.imageMessage?.caption ||
-      content.videoMessage?.caption ||
-      content.documentMessage?.caption ||
-      ''
-    ),
-    isReaction: false,
-  };
+  const body = (
+    content.conversation ||
+    content.extendedTextMessage?.text ||
+    content.imageMessage?.caption ||
+    content.videoMessage?.caption ||
+    content.documentMessage?.caption ||
+    ''
+  );
+  const hasUserSignal = Boolean(
+    body.trim() ||
+    content.imageMessage ||
+    content.videoMessage ||
+    content.documentMessage ||
+    content.audioMessage ||
+    content.stickerMessage,
+  );
+  return { body, isReaction: false, hasUserSignal };
 }
 
 function getMimeType(filePath: string): string {
@@ -153,23 +158,23 @@ export class BaileysProvider implements WhatsAppProvider {
   async sendFile(to: string, filePath: string, caption?: string, options: { asSticker?: boolean } = {}): Promise<void> {
     this.assertReady();
     const jid = normalizeJid(to);
-    const buffer = fs.readFileSync(filePath);
     const mimeType = getMimeType(filePath);
+    const media = { url: filePath };
 
     if (options.asSticker && mimeType.startsWith('image/')) {
-      await this.socket!.sendMessage(jid, { sticker: buffer });
+      await this.socket!.sendMessage(jid, { sticker: media });
       return;
     }
     if (mimeType.startsWith('image/')) {
-      await this.socket!.sendMessage(jid, { image: buffer, caption: caption?.trim() || undefined });
+      await this.socket!.sendMessage(jid, { image: media, caption: caption?.trim() || undefined });
       return;
     }
     if (mimeType.startsWith('video/')) {
-      await this.socket!.sendMessage(jid, { video: buffer, caption: caption?.trim() || undefined, mimetype: mimeType });
+      await this.socket!.sendMessage(jid, { video: media, caption: caption?.trim() || undefined, mimetype: mimeType });
       return;
     }
     await this.socket!.sendMessage(jid, {
-      document: buffer,
+      document: media,
       fileName: path.basename(filePath),
       mimetype: mimeType,
       caption: caption?.trim() || undefined,
@@ -251,7 +256,7 @@ export class BaileysProvider implements WhatsAppProvider {
       const from = raw.key?.remoteJid;
       const content = getMessageContent(raw);
       const body = content.body.trim();
-      if (!from || !body) continue;
+      if (!from || (!body && !content.hasUserSignal)) continue;
       const fromMe = Boolean(raw.key?.fromMe);
       if (fromMe && !this.isSelfTriggerMessage(from, body)) continue;
 
@@ -261,6 +266,7 @@ export class BaileysProvider implements WhatsAppProvider {
         senderPhone: pickSenderPhone(raw) || (fromMe ? jidToPhone(this.socket?.user?.id ?? from) : undefined),
         body,
         isReaction: content.isReaction,
+        hasUserSignal: content.hasUserSignal,
         timestamp: Number(raw.messageTimestamp || Math.floor(Date.now() / 1000)),
         async getDisplayName() {
           return raw.pushName?.trim() || (fromMe ? 'המספר המחובר' : '');

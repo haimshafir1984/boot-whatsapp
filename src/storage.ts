@@ -141,6 +141,7 @@ export type CampaignEventType =
   | 'step_sent'
   | 'step_answered'
   | 'file_sent'
+  | 'file_failed'
   | 'completed'
   | 'human_handoff';
 
@@ -714,7 +715,7 @@ export class Storage {
       nameTimeoutMinutes: campaign.conversation?.nameTimeoutMinutes ?? defaults.nameTimeoutMinutes,
       askNameText: campaign.conversation?.askNameText ?? defaults.askNameText,
       preNamePromptText: campaign.conversation?.preNamePromptText ?? '',
-      preNamePromptAutoContinue: campaign.conversation?.preNamePromptAutoContinue ?? false,
+      preNamePromptAutoContinue: campaign.conversation?.preNamePromptAutoContinue ?? true,
       preNamePromptTimeoutMinutes: campaign.conversation?.preNamePromptTimeoutMinutes ?? 1,
       replyText: campaign.conversation?.replyText ?? defaults.replyText,
       followupMessages: campaign.conversation?.followupMessages ?? defaults.followupMessages,

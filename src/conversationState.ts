@@ -116,6 +116,15 @@ class ConversationStateManager {
     return this.map.get(jid);
   }
 
+  findByPhone(phone: string | undefined): PendingConversation | undefined {
+    const normalized = normalizePhone(phone);
+    if (!normalized) return undefined;
+    for (const state of this.map.values()) {
+      if (normalizePhone(state.senderPhone) === normalized) return state;
+    }
+    return undefined;
+  }
+
   remove(jid: string): void {
     this.clearTimer(this.map.get(jid));
     this.map.delete(jid);
@@ -183,6 +192,10 @@ class ConversationStateManager {
       console.warn('Could not persist conversation state:', err);
     }
   }
+}
+
+function normalizePhone(phone: string | undefined): string {
+  return String(phone ?? '').replace(/\D/g, '');
 }
 
 export const conversationState = new ConversationStateManager();
