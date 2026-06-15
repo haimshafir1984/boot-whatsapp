@@ -43,6 +43,8 @@ export interface CampaignConversationSettings {
   preNamePromptAutoContinue?: boolean;
   preNamePromptTimeoutMinutes?: number;
   replyText: string;
+  completionLinks?: CompletionLink[];
+  completionFileIds?: string[];
   followupMessages: string[];
   decisionFlow: DecisionFlowStep[];
   decisionTimeoutMinutes?: number;
@@ -50,6 +52,11 @@ export interface CampaignConversationSettings {
   humanHandoffEnabled?: boolean;
   humanHandoffText?: string;
   humanHandoffPhone?: string;
+}
+
+export interface CompletionLink {
+  label: string;
+  url: string;
 }
 
 export type TwilioCampaignMode = 'link' | 'template';
@@ -89,6 +96,8 @@ export interface AdminSettings {
   contactsProvider: 'google' | 'manual';
   askNameText: string;
   replyText: string;
+  completionLinks: CompletionLink[];
+  completionFileIds: string[];
   followupMessages: string[];
   decisionFlow: DecisionFlowStep[];
   decisionTimeoutMinutes?: number;
@@ -132,16 +141,28 @@ export interface CampaignResult {
   id: string;
   campaignId: string;
   phone: string;
+  whatsappName?: string;
+  fallbackName?: string;
+  lastStage?: string;
+  lastEventAt?: string;
   status: CampaignResultStatus;
   triggeredAt: string;
   updatedAt: string;
 }
 
 export type CampaignEventType =
+  | 'pre_name_prompt_sent'
+  | 'pre_name_replied'
+  | 'pre_name_auto_continue'
+  | 'ask_name_sent'
   | 'step_sent'
   | 'step_answered'
   | 'file_sent'
   | 'file_failed'
+  | 'completion_sent'
+  | 'completion_link_sent'
+  | 'completion_file_sent'
+  | 'completion_file_failed'
   | 'completed'
   | 'human_handoff';
 
@@ -231,6 +252,8 @@ const DEFAULT_SETTINGS: AdminSettings = {
   askNameText: config.ASK_NAME_TEXT,
   replyText: config.REPLY_TEXT,
   followupMessages: [],
+  completionLinks: [],
+  completionFileIds: [],
   decisionFlow: [],
   decisionTimeoutMinutes: 30,
   decisionTimeoutText: '',
@@ -545,12 +568,16 @@ export class Storage {
 
   // Campaign results
 
-  recordCampaignTrigger(campaignId: string, phone: string): CampaignResult {
+  recordCampaignTrigger(campaignId: string, phone: string, whatsappName = ''): CampaignResult {
     const now = new Date().toISOString();
     const result: CampaignResult = {
       id: generateId(),
       campaignId,
       phone,
+      whatsappName,
+      fallbackName: '',
+      lastStage: 'triggered',
+      lastEventAt: now,
       status: 'awaiting_name',
       triggeredAt: now,
       updatedAt: now,
@@ -558,6 +585,44 @@ export class Storage {
     this.data.campaignResults.push(result);
     this.persist();
     return { ...result };
+  }
+
+  markCampaignResultStage(resultId: string | undefined, stage: string, fallbackName?: string): void {
+    if (!resultId) return;
+    const result = this.data.campaignResults.find((item) => item.id === resultId);
+    if (!result) return;
+    const now = new Date().toISOString();
+    result.lastStage = stage;
+    result.lastEventAt = now;
+    result.updatedAt = now;
+    if (fallbackName !== undefined) result.fallbackName = fallbackName;
+    this.persist();
+  }
+
+  queueAwaitingNameCampaignResults(campaignId: string): { queued: number; skipped: number } {
+    const campaign = this.data.campaigns.find((item) => item.id === campaignId);
+    const suffix = campaign?.suffix ?? '';
+    const campaignName = campaign?.name?.trim() || 'קמפיין';
+    let queued = 0;
+    let skipped = 0;
+
+    for (const result of this.data.campaignResults) {
+      if (result.campaignId !== campaignId || result.status !== 'awaiting_name') continue;
+      const baseName = result.whatsappName?.trim()
+        || result.fallbackName?.trim()
+        || `${campaignName} - ${result.phone}`;
+      const finalName = baseName.endsWith(suffix) ? baseName : `${baseName}${suffix}`;
+      const job = this.enqueueContactSave(result.phone, finalName, result.id);
+      if (job) {
+        result.lastStage = 'manually_queued_stuck';
+        result.lastEventAt = new Date().toISOString();
+        queued += 1;
+      } else {
+        skipped += 1;
+      }
+    }
+    if (queued || skipped) this.persist();
+    return { queued, skipped };
   }
 
   getCampaignResults(campaignId?: string): CampaignResult[] {
@@ -574,6 +639,14 @@ export class Storage {
       ...event,
     };
     this.data.campaignEvents.push(saved);
+    if (event.campaignResultId) {
+      const result = this.data.campaignResults.find((item) => item.id === event.campaignResultId);
+      if (result) {
+        result.lastStage = event.type;
+        result.lastEventAt = saved.createdAt;
+        result.updatedAt = saved.createdAt;
+      }
+    }
     this.persist();
     return { ...saved };
   }
@@ -594,6 +667,15 @@ export class Storage {
     progressed: number;
     sentMessages: number;
     filesSent: number;
+    filesFailed: number;
+    completionSent: number;
+    completionLinksSent: number;
+    completionFilesSent: number;
+    completionFilesFailed: number;
+    preNamePromptSent: number;
+    preNameReplied: number;
+    preNameAutoContinued: number;
+    askNameSent: number;
     completed: number;
     humanHandoff: number;
   } {
@@ -609,10 +691,39 @@ export class Storage {
       if (result.status === 'awaiting_name') acc.awaitingName += 1;
       else acc[result.status] += 1;
       return acc;
-    }, { total: 0, awaitingName: 0, pending: 0, saved: 0, failed: 0, progressed: 0, sentMessages: 0, filesSent: 0, completed: 0, humanHandoff: 0 });
+    }, {
+      total: 0,
+      awaitingName: 0,
+      pending: 0,
+      saved: 0,
+      failed: 0,
+      progressed: 0,
+      sentMessages: 0,
+      filesSent: 0,
+      filesFailed: 0,
+      completionSent: 0,
+      completionLinksSent: 0,
+      completionFilesSent: 0,
+      completionFilesFailed: 0,
+      preNamePromptSent: 0,
+      preNameReplied: 0,
+      preNameAutoContinued: 0,
+      askNameSent: 0,
+      completed: 0,
+      humanHandoff: 0,
+    });
     stats.progressed = uniqueCount('step_answered');
     stats.sentMessages = stats.total + events.filter((event) => event.type === 'step_sent').length;
     stats.filesSent = uniqueCount('file_sent');
+    stats.filesFailed = uniqueCount('file_failed');
+    stats.completionSent = uniqueCount('completion_sent');
+    stats.completionLinksSent = uniqueCount('completion_link_sent');
+    stats.completionFilesSent = uniqueCount('completion_file_sent');
+    stats.completionFilesFailed = uniqueCount('completion_file_failed');
+    stats.preNamePromptSent = uniqueCount('pre_name_prompt_sent');
+    stats.preNameReplied = uniqueCount('pre_name_replied');
+    stats.preNameAutoContinued = uniqueCount('pre_name_auto_continue');
+    stats.askNameSent = uniqueCount('ask_name_sent');
     stats.completed = uniqueCount('completed');
     stats.humanHandoff = uniqueCount('human_handoff');
     return stats;
@@ -718,6 +829,8 @@ export class Storage {
       preNamePromptAutoContinue: campaign.conversation?.preNamePromptAutoContinue ?? true,
       preNamePromptTimeoutMinutes: campaign.conversation?.preNamePromptTimeoutMinutes ?? 1,
       replyText: campaign.conversation?.replyText ?? defaults.replyText,
+      completionLinks: campaign.conversation?.completionLinks ?? [],
+      completionFileIds: campaign.conversation?.completionFileIds ?? [],
       followupMessages: campaign.conversation?.followupMessages ?? defaults.followupMessages,
       decisionFlow: campaign.conversation?.decisionFlow ?? defaults.decisionFlow,
       decisionTimeoutMinutes: campaign.conversation?.decisionTimeoutMinutes ?? defaults.decisionTimeoutMinutes,

@@ -15,6 +15,8 @@ export interface PendingNameConversation {
   campaignId?: string;
   campaignResultId?: string;
   replyText: string;
+  completionLinks?: import('./storage').CompletionLink[];
+  completionFileIds?: string[];
   followupMessages: string[];
   decisionFlow: import('./storage').DecisionFlowStep[];
   humanHandoffEnabled?: boolean;
@@ -40,6 +42,8 @@ export interface PendingPreNamePromptConversation {
   campaignId?: string;
   campaignResultId?: string;
   replyText: string;
+  completionLinks?: import('./storage').CompletionLink[];
+  completionFileIds?: string[];
   followupMessages: string[];
   decisionFlow: import('./storage').DecisionFlowStep[];
   humanHandoffEnabled?: boolean;

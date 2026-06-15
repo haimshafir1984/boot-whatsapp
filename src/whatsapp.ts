@@ -17,7 +17,11 @@ import { botState } from './botState';
 import { handleIncomingWhatsAppMessage } from './messageFlow';
 import { IncomingWhatsAppMessage, WhatsAppTransport } from './types/whatsapp';
 
+const RECONNECT_BACKOFF_MS = [10_000, 30_000, 60_000, 120_000, 300_000];
+
 export function createWhatsAppClient(storage: Storage, pairingPhone?: string): Client {
+  let reconnectTimer: NodeJS.Timeout | null = null;
+  let closed = false;
   const clientOptions: any = {
     authStrategy: new LocalAuth({ dataPath: config.SESSION_PATH }),
     puppeteer: {
@@ -69,6 +73,8 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
 
   client.on('ready', () => {
     botState.ready = true;
+    botState.notReadySince = null;
+    botState.reconnectAttempts = 0;
     botState.connectedPhone = (client.info?.wid?.user ?? null) as string | null;
     if (botState.connectedPhone) {
       storage.updateClientProfile({ whatsappPhone: botState.connectedPhone });
@@ -92,6 +98,7 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
     console.error('Auth failure:', msg);
     botState.authenticated = false;
     botState.ready = false;
+    botState.notReadySince = botState.notReadySince ?? Date.now();
     botState.connectedPhone = null;
     botState.pairingAttempted = false;
     botState.pairingCode = null;
@@ -101,18 +108,26 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
     console.warn('Disconnected:', reason);
     botState.authenticated = false;
     botState.ready = false;
+    botState.notReadySince = botState.notReadySince ?? Date.now();
     botState.connectedPhone = null;
     botState.pairingAttempted = false;
     botState.pairingCode = null;
 
-    if (!botState.intentionalRestart) {
-      console.log('   Reconnecting in 10s...');
-      setTimeout(() => {
+    if (!botState.intentionalRestart && !closed) {
+      const attempt = botState.reconnectAttempts + 1;
+      const delay = RECONNECT_BACKOFF_MS[Math.min(attempt - 1, RECONNECT_BACKOFF_MS.length - 1)];
+      botState.reconnectAttempts = attempt;
+      botState.lastReconnectAt = new Date().toISOString();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      console.log(`   Reconnecting in ${delay}ms... attempt=${attempt}`);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        if (botState.intentionalRestart || closed) return;
         console.log('   Reconnecting now...');
         client.initialize().catch((err) =>
           console.error('   Reconnect failed:', err),
         );
-      }, 10_000);
+      }, delay);
     }
   });
 
@@ -136,6 +151,21 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
       await handleIncomingMessage(message, storage, client, 'message_create');
     }
   });
+
+  const originalDestroy = client.destroy.bind(client);
+  const originalLogout = client.logout.bind(client);
+  (client as any).destroy = async () => {
+    closed = true;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    return originalDestroy();
+  };
+  (client as any).logout = async () => {
+    closed = true;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    return originalLogout();
+  };
 
   botState.client = client;
   return client;

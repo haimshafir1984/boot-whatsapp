@@ -13,7 +13,7 @@ type BaileysMessage = NonNullable<Parameters<Parameters<BaileysSocket['ev']['on'
   ? T
   : any;
 
-const RECONNECT_DELAY_MS = 10_000;
+const RECONNECT_BACKOFF_MS = [10_000, 30_000, 60_000, 120_000, 300_000];
 
 function authPath(): string {
   return path.join(config.SESSION_PATH, 'baileys');
@@ -99,6 +99,16 @@ export class BaileysProvider implements WhatsAppProvider {
 
   async initialize(): Promise<void> {
     this.intentionalClose = false;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    if (this.socket) {
+      try {
+        this.socket.end(undefined);
+      } catch {
+        // Best effort cleanup before replacing the socket.
+      }
+      this.socket = null;
+    }
     const baileys = await import('@whiskeysockets/baileys');
     const pino = (await import('pino')).default;
     const { state, saveCreds } = await baileys.useMultiFileAuthState(authPath());
@@ -217,6 +227,8 @@ export class BaileysProvider implements WhatsAppProvider {
       botState.pairingCode = null;
       botState.authenticated = true;
       botState.ready = true;
+      botState.notReadySince = null;
+      botState.reconnectAttempts = 0;
       botState.connectedPhone = jidToPhone(this.socket?.user?.id ?? '');
       if (botState.connectedPhone) {
         this.storage.updateClientProfile({ whatsappPhone: botState.connectedPhone });
@@ -227,6 +239,7 @@ export class BaileysProvider implements WhatsAppProvider {
     if (update.connection === 'close') {
       botState.authenticated = false;
       botState.ready = false;
+      botState.notReadySince = botState.notReadySince ?? Date.now();
       botState.connectedPhone = null;
       botState.pairingCode = null;
 
@@ -242,10 +255,15 @@ export class BaileysProvider implements WhatsAppProvider {
       }
 
       if (!this.intentionalClose && !loggedOut) {
+        const attempt = botState.reconnectAttempts + 1;
+        const delay = RECONNECT_BACKOFF_MS[Math.min(attempt - 1, RECONNECT_BACKOFF_MS.length - 1)];
+        botState.reconnectAttempts = attempt;
+        botState.lastReconnectAt = new Date().toISOString();
+        if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
         this.reconnectTimer = setTimeout(() => {
-          console.log('Baileys reconnecting...');
+          console.log(`Baileys reconnecting... attempt=${attempt} delay=${delay}`);
           this.initialize().catch((err) => console.error('Baileys reconnect failed:', err));
-        }, RECONNECT_DELAY_MS);
+        }, delay);
       }
     }
   }

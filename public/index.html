@@ -291,7 +291,7 @@
     .result-export {
       color: #166534; background: #f0fdf4; border-radius: 7px;
       font-size: .76rem; font-weight: 700; text-decoration: none; padding: 7px 10px;
-      flex-shrink: 0;
+      flex-shrink: 0; border: none; cursor: pointer;
     }
     .result-export:hover { background: #dcfce7; }
     .result-actions { display: flex; gap: 6px; flex-shrink: 0; }
@@ -1344,6 +1344,18 @@
             <label>הודעת סיום</label>
             <textarea id="fReplyText" oninput="updateCampaignConversationPreview()"></textarea>
           </div>
+          <div class="field">
+            <label>לינקים בהודעת הסיום</label>
+            <div class="hint" style="margin-bottom:10px">יישלחו אחרי הודעת הסיום, ככותרת וקישור.</div>
+            <div class="followup-list" id="fCompletionLinks"></div>
+            <button type="button" class="btn-small" onclick="addCompletionLink()">+ הוסף לינק</button>
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>קבצים בהודעת הסיום</label>
+            <div class="hint" style="margin-bottom:10px">אפשר לבחור קבצים שהועלו למערכת. הם יישלחו אחרי הטקסט והלינקים.</div>
+            <div class="followup-list" id="fCompletionFiles"></div>
+            <button type="button" class="btn-small" onclick="addCompletionFile()">+ הוסף קובץ</button>
+          </div>
         </div>
 
         <div class="editor-section wizard-panel" data-wizard-panel="3">
@@ -1431,6 +1443,7 @@
           <div id="campaignPreviewPreName"></div>
           <div class="chat-row bot" id="campaignPreviewAskRow"><div class="chat-bubble" id="campaignPreviewAsk"></div></div>
           <div class="chat-row bot"><div class="chat-bubble" id="campaignPreviewReply"></div></div>
+          <div id="campaignPreviewCompletion"></div>
           <div id="campaignPreviewFollowups"></div>
           <div id="campaignPreviewDecisionFlow"></div>
         </div>
@@ -1454,9 +1467,11 @@
     nameTimeoutMinutes: 5,
     askNameText: 'שלום וברוכים הבאים\nבאיזה שם לשמור אותך?',
     preNamePromptText: '',
-    preNamePromptAutoContinue: false,
+    preNamePromptAutoContinue: true,
     preNamePromptTimeoutMinutes: 1,
     replyText: 'הפרטים נשמרו. כדי לקבל עדכונים, חשוב לשמור את המספר באנשי הקשר.',
+    completionLinks: [],
+    completionFileIds: [],
     followupMessages: [],
     decisionFlow: [],
     decisionTimeoutMinutes: 30,
@@ -1664,10 +1679,25 @@
           <div class="result-actions">
             <a class="result-export" href="/api/campaign-results/${item.campaignId}/export" download>CSV</a>
             <a class="result-export" href="/api/campaign-results/${item.campaignId}/export.vcf" download>VCF</a>
+            ${Number(item.awaitingName || 0) > 0 ? `<button class="result-export" type="button" onclick="queueAwaitingName('${item.campaignId}')">שמור תקועים</button>` : ''}
           </div>
         </div>
       `;
     }).join('');
+  }
+
+  async function queueAwaitingName(campaignId) {
+    if (!confirm('להכניס לתור שמירה את כל מי שנתקע בשאלת השם בקמפיין הזה?')) return;
+    try {
+      const res = await fetch(`/api/campaign-results/${campaignId}/queue-awaiting-name`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'שמירת התקועים נכשלה');
+      alert(`הוכנסו לתור ${data.queued || 0} אנשי קשר. דולגו ${data.skipped || 0}.`);
+      await loadCampaignResults();
+      await loadContactQueueStats();
+    } catch (err) {
+      alert(err?.message || 'שמירת התקועים נכשלה');
+    }
   }
 
   async function loadTwilioLogs() {
@@ -1927,7 +1957,10 @@
     const triggerType = Number(document.querySelector('input[name=triggerType]:checked')?.value || 1);
     const trigger = currentTriggerText() || '-';
     const conversation = getCampaignConversation();
-    const flowCount = conversation.followupMessages.length + conversation.decisionFlow.length;
+    const flowCount = conversation.followupMessages.length
+      + conversation.decisionFlow.length
+      + conversation.completionLinks.length
+      + conversation.completionFileIds.length;
 
     document.getElementById('wizardSummaryName')?.replaceChildren(document.createTextNode(name));
     document.getElementById('wizardSummaryType')?.replaceChildren(document.createTextNode(triggerType === 1 ? 'קמפיין רגיל' : 'קמפיין ממליץ'));
@@ -2141,6 +2174,8 @@
     document.getElementById('fPreNamePromptAutoContinue').checked = Boolean(settings.preNamePromptAutoContinue);
     document.getElementById('fPreNamePromptTimeout').value = settings.preNamePromptTimeoutMinutes || 1;
     document.getElementById('fReplyText').value = settings.replyText;
+    renderCompletionLinks(settings.completionLinks || []);
+    renderCompletionFiles(settings.completionFileIds || []);
     renderCampaignFollowupFields(settings.followupMessages || []);
     renderDecisionFlow(settings.decisionFlow || []);
     document.getElementById('fDecisionTimeoutMinutes').value = settings.decisionTimeoutMinutes || appSettings.decisionTimeoutMinutes || 30;
@@ -2195,6 +2230,57 @@
     updateCampaignConversationPreview();
   }
 
+  function renderCompletionLinks(links = []) {
+    const el = document.getElementById('fCompletionLinks');
+    if (!el) return;
+    el.innerHTML = links.map(link => completionLinkHtml(link)).join('');
+  }
+
+  function completionLinkHtml(link = {}) {
+    return `
+      <div class="followup-row">
+        <input data-completion-link-label value="${esc(link.label || '')}" oninput="updateCampaignConversationPreview()" placeholder="כותרת הלינק" />
+        <input data-completion-link-url value="${esc(link.url || '')}" oninput="updateCampaignConversationPreview()" placeholder="https://example.com" dir="ltr" />
+        <button type="button" class="btn-small" onclick="removeCompletionRow(this)">מחק</button>
+      </div>
+    `;
+  }
+
+  function addCompletionLink(value = {}) {
+    const el = document.getElementById('fCompletionLinks');
+    if (!el) return;
+    el.insertAdjacentHTML('beforeend', completionLinkHtml(value));
+    el.querySelector('.followup-row:last-child input')?.focus();
+    updateCampaignConversationPreview();
+  }
+
+  function renderCompletionFiles(fileIds = []) {
+    const el = document.getElementById('fCompletionFiles');
+    if (!el) return;
+    el.innerHTML = fileIds.map(fileId => completionFileHtml(fileId)).join('');
+  }
+
+  function completionFileHtml(fileId = '') {
+    return `
+      <div class="followup-row">
+        <select data-completion-file data-selected-file="${esc(fileId)}" onchange="updateCampaignConversationPreview()">${fileOptions(fileId)}</select>
+        <button type="button" class="btn-small" onclick="removeCompletionRow(this)">מחק</button>
+      </div>
+    `;
+  }
+
+  function addCompletionFile(fileId = '') {
+    const el = document.getElementById('fCompletionFiles');
+    if (!el) return;
+    el.insertAdjacentHTML('beforeend', completionFileHtml(fileId));
+    updateCampaignConversationPreview();
+  }
+
+  function removeCompletionRow(btn) {
+    btn.closest('.followup-row')?.remove();
+    updateCampaignConversationPreview();
+  }
+
   function makeFlowId(prefix = 'step') {
     return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   }
@@ -2232,7 +2318,7 @@
       const res = await fetch('/api/files');
       appFiles = await res.json();
       renderCampaignFiles();
-      document.querySelectorAll('[data-option-file]').forEach(select => {
+      document.querySelectorAll('[data-option-file], [data-completion-file]').forEach(select => {
         const selected = select.value || select.dataset.selectedFile || '';
         select.innerHTML = fileOptions(selected);
         select.value = appFiles.some(file => file.id === selected) ? selected : '';
@@ -2603,6 +2689,15 @@
       preNamePromptAutoContinue: document.getElementById('fPreNamePromptAutoContinue')?.checked || false,
       preNamePromptTimeoutMinutes: Number(document.getElementById('fPreNamePromptTimeout')?.value) || 1,
       replyText: document.getElementById('fReplyText').value,
+      completionLinks: [...document.querySelectorAll('#fCompletionLinks .followup-row')]
+        .map(row => ({
+          label: row.querySelector('[data-completion-link-label]')?.value.trim() || '',
+          url: row.querySelector('[data-completion-link-url]')?.value.trim() || '',
+        }))
+        .filter(link => link.url),
+      completionFileIds: [...document.querySelectorAll('[data-completion-file]')]
+        .map(el => el.value.trim())
+        .filter(Boolean),
       followupMessages: [...document.querySelectorAll('[data-campaign-followup]')]
       .map(el => el.value.trim())
       .filter(Boolean),
@@ -2627,6 +2722,7 @@
     const replyEl = document.getElementById('campaignPreviewReply');
     const askRow = document.getElementById('campaignPreviewAskRow');
     const preNameEl = document.getElementById('campaignPreviewPreName');
+    const completionEl = document.getElementById('campaignPreviewCompletion');
     const followupsEl = document.getElementById('campaignPreviewFollowups');
     const decisionFlowEl = document.getElementById('campaignPreviewDecisionFlow');
 
@@ -2642,6 +2738,16 @@
     }
     if (askEl) askEl.textContent = askNameText;
     if (replyEl) replyEl.textContent = conversation.replyText;
+    if (completionEl) {
+      const linkPreview = (conversation.completionLinks || []).length
+        ? `<div class="chat-row bot"><div class="chat-bubble">${esc(conversation.completionLinks.map(link => `${link.label || link.url}\n${link.url}`).join('\n\n'))}</div></div>`
+        : '';
+      const filePreview = (conversation.completionFileIds || []).map(fileId => {
+        const file = appFiles.find(item => item.id === fileId);
+        return `<div class="chat-row bot"><div class="chat-bubble">קובץ: ${esc(file?.originalName || 'קובץ שנבחר')}</div></div>`;
+      }).join('');
+      completionEl.innerHTML = linkPreview + filePreview;
+    }
     if (followupsEl) {
       followupsEl.innerHTML = conversation.followupMessages.map(message => `
         <div class="chat-row bot"><div class="chat-bubble">${esc(message)}</div></div>

@@ -9,6 +9,7 @@ import { WhatsAppProvider } from './types/whatsapp';
 
 const SCHEDULER_INTERVAL_MS = 60 * 1000;
 const CAMPAIGN_START_LEAD_MS = 15 * 60 * 1000;
+const WATCHDOG_NOT_READY_MS = Number(process.env.WHATSAPP_WATCHDOG_NOT_READY_MS ?? 3 * 60 * 1000);
 
 let scheduler: NodeJS.Timeout | null = null;
 let transition: Promise<void> | null = null;
@@ -35,6 +36,7 @@ function clearRuntimeConnectionState(reason: string): void {
   botState.pairingAttempted = false;
   botState.authenticated = false;
   botState.ready = false;
+  botState.notReadySince = null;
   botState.connectedPhone = null;
   botState.lifecycle = 'stopped';
   botState.listeningReason = reason;
@@ -60,6 +62,8 @@ export async function startWhatsAppBot(storage: Storage, reason = 'manual', pair
     botState.requestedProvider = config.WHATSAPP_PROVIDER;
     botState.actualProvider = null;
     botState.providerFallbackReason = null;
+    botState.notReadySince = null;
+    botState.reconnectAttempts = 0;
 
     const runtime = createProvider(storage, pairingPhone);
     try {
@@ -74,6 +78,7 @@ export async function startWhatsAppBot(storage: Storage, reason = 'manual', pair
         botState.pairingCode = null;
         botState.authenticated = false;
         botState.ready = false;
+        botState.notReadySince = Date.now();
         botState.connectedPhone = null;
         botState.lifecycle = 'stopped';
         botState.listeningReason = `connection failed: ${message}`;
@@ -102,7 +107,11 @@ export async function startWhatsAppBot(storage: Storage, reason = 'manual', pair
 
 export async function stopWhatsAppBot(reason = 'manual'): Promise<void> {
   if (transition) await transition;
-  if (!botState.client || botState.lifecycle === 'stopped' || botState.lifecycle === 'stopping') return;
+  if (botState.lifecycle === 'stopped' || botState.lifecycle === 'stopping') return;
+  if (!botState.client) {
+    clearRuntimeConnectionState(reason);
+    return;
+  }
 
   transition = (async () => {
     console.log(`WhatsApp client stopping: ${reason}.`);
@@ -122,6 +131,7 @@ export async function stopWhatsAppBot(reason = 'manual'): Promise<void> {
       botState.pairingAttempted = false;
       botState.authenticated = false;
       botState.ready = false;
+      botState.notReadySince = null;
       botState.connectedPhone = null;
       botState.lifecycle = 'stopped';
       botState.intentionalRestart = false;
@@ -162,7 +172,28 @@ export async function resetWhatsAppSession(reason = 'manual QR reset'): Promise<
 export function startWhatsAppScheduler(storage: Storage): void {
   if (scheduler) return;
 
+  const restartUnhealthyConnection = async (reason: string) => {
+    botState.lastWatchdogRestartAt = new Date().toISOString();
+    console.warn(`WhatsApp watchdog restarting connection: ${reason}`);
+    await stopWhatsAppBot(`watchdog: ${reason}`);
+    await startWhatsAppBot(storage, `watchdog: ${reason}`);
+  };
+
+  const watchdog = () => {
+    if (botState.lifecycle !== 'running' || botState.ready) return false;
+    const since = botState.notReadySince ?? Date.now();
+    botState.notReadySince = since;
+    const notReadyFor = Date.now() - since;
+    if (notReadyFor < WATCHDOG_NOT_READY_MS) return false;
+    restartUnhealthyConnection(`not ready for ${Math.round(notReadyFor / 1000)}s`).catch((err) =>
+      console.error('WhatsApp watchdog restart failed:', err),
+    );
+    return true;
+  };
+
   const tick = () => {
+    if (watchdog()) return;
+
     if (config.WHATSAPP_KEEP_CONNECTED) {
       if (botState.lifecycle === 'stopped') {
         console.log('WhatsApp keep-connected mode is enabled - starting client.');

@@ -1,7 +1,7 @@
 import { config } from './config';
 import path from 'path';
 import { conversationState } from './conversationState';
-import { CampaignConversationSettings, DecisionFlowOption, DecisionFlowStep, Storage } from './storage';
+import { CampaignConversationSettings, CompletionLink, DecisionFlowOption, DecisionFlowStep, Storage } from './storage';
 import { detectTrigger } from './triggerDetector';
 import {
   IncomingWhatsAppMessage,
@@ -26,6 +26,11 @@ interface CampaignReplyBehavior {
   phone?: string;
   decisionTimeoutMinutes?: number;
   decisionTimeoutText?: string;
+}
+
+interface CompletionDelivery {
+  links?: CompletionLink[];
+  fileIds?: string[];
 }
 
 function logTimerError(label: string, err: unknown): void {
@@ -95,6 +100,16 @@ async function handleMessage(
     if (pending.kind === 'pre-name-prompt') {
       console.log(`[PRE_NAME_REPLY] via=${source} from=${senderJid} phone=${pending.senderPhone} kind=${message.isReaction ? 'reaction' : (message.body?.trim() ? 'text' : 'non_text')}`);
       clearTimeout(pending.timeoutHandle);
+      storage.markCampaignResultStage(pending.campaignResultId, 'pre_name_replied', pending.whatsappName);
+      if (pending.campaignId) {
+        storage.recordCampaignEvent({
+          campaignId: pending.campaignId,
+          campaignResultId: pending.campaignResultId,
+          phone: pending.senderPhone,
+          type: 'pre_name_replied',
+          label: message.isReaction ? 'reaction' : (message.body?.trim() ? 'text' : 'non_text'),
+        });
+      }
       try {
         await askForContactName(
           transport,
@@ -110,6 +125,8 @@ async function handleMessage(
             askNameText: pending.askNameText,
             nameTimeoutMinutes: pending.nameTimeoutMinutes ?? 5,
             replyText: pending.replyText,
+            completionLinks: pending.completionLinks,
+            completionFileIds: pending.completionFileIds,
             followupMessages: pending.followupMessages,
             decisionFlow: pending.decisionFlow,
             humanHandoffEnabled: pending.humanHandoffEnabled,
@@ -207,6 +224,10 @@ async function handleMessage(
         decisionTimeoutMinutes: pending.decisionTimeoutMinutes,
         decisionTimeoutText: pending.decisionTimeoutText,
       },
+      {
+        links: pending.completionLinks,
+        fileIds: pending.completionFileIds,
+      },
     );
     return;
   }
@@ -232,7 +253,7 @@ async function handleMessage(
     config.CONTACT_NAME_FALLBACK.replace('{phone}', senderPhone);
   const campaign = activeCampaigns.find((item) => item.id === trigger.campaignId);
   if (!campaign) return;
-  const campaignResult = storage.recordCampaignTrigger(trigger.campaignId, senderPhone);
+  const campaignResult = storage.recordCampaignTrigger(trigger.campaignId, senderPhone, pushname);
 
   console.log(`\n[${trigger.campaignName}] from ${senderPhone} (${pushname})`);
 
@@ -240,7 +261,16 @@ async function handleMessage(
   if (settings.askNameEnabled) {
     const preNamePromptText = settings.preNamePromptText?.trim();
     if (preNamePromptText) {
+      storage.markCampaignResultStage(campaignResult.id, 'pre_name_prompt_sending', pushname);
       await sendBotMessage(transport, senderJid, preNamePromptText);
+      storage.markCampaignResultStage(campaignResult.id, 'pre_name_prompt_sent', pushname);
+      storage.recordCampaignEvent({
+        campaignId: campaign.id,
+        campaignResultId: campaignResult.id,
+        phone: senderPhone,
+        type: 'pre_name_prompt_sent',
+        label: preNamePromptText.slice(0, 120),
+      });
       console.log(`[SEND_OK] pre_name_prompt campaign=${campaign.id} to=${senderPhone}`);
       const timeoutMinutes = settings.preNamePromptTimeoutMinutes && settings.preNamePromptTimeoutMinutes > 0
         ? settings.preNamePromptTimeoutMinutes
@@ -252,6 +282,8 @@ async function handleMessage(
         campaignResultId: campaignResult.id,
         campaignId: campaign.id,
         replyText: settings.replyText,
+        completionLinks: settings.completionLinks,
+        completionFileIds: settings.completionFileIds,
         followupMessages: settings.followupMessages,
         decisionFlow: settings.decisionFlow,
         humanHandoffEnabled: settings.humanHandoffEnabled,
@@ -294,6 +326,7 @@ async function handleMessage(
     }
   } else {
     const contactName = `${pushname}${trigger.suffix}`;
+    storage.markCampaignResultStage(campaignResult.id, 'queue_without_name', contactName);
     await queueAndReply(
       transport,
       storage,
@@ -311,6 +344,10 @@ async function handleMessage(
         phone: settings.humanHandoffPhone,
         decisionTimeoutMinutes: settings.decisionTimeoutMinutes,
         decisionTimeoutText: settings.decisionTimeoutText,
+      },
+      {
+        links: settings.completionLinks,
+        fileIds: settings.completionFileIds,
       },
     );
   }
@@ -332,7 +369,18 @@ async function askForContactName(
     String(settings.nameTimeoutMinutes),
   );
   console.log(`[SEND] ask_name campaign=${campaignId ?? ''} to=${senderPhone}`);
+  storage.markCampaignResultStage(campaignResultId, 'ask_name_sending', `${whatsappName}${suffix}`);
   await sendBotMessage(transport, senderJid, askText);
+  storage.markCampaignResultStage(campaignResultId, 'ask_name_sent', `${whatsappName}${suffix}`);
+  if (campaignId) {
+    storage.recordCampaignEvent({
+      campaignId,
+      campaignResultId,
+      phone: senderPhone,
+      type: 'ask_name_sent',
+      label: askText.slice(0, 120),
+    });
+  }
   console.log(`[SEND_OK] ask_name campaign=${campaignId ?? ''} to=${senderPhone}`);
 
   const timeoutHandle = setTimeout(() => {
@@ -341,6 +389,7 @@ async function askForContactName(
         conversationState.remove(senderJid);
         const finalName = `${whatsappName}${suffix}`;
         console.log(`\n   Timeout - saving ${senderPhone} as "${finalName}"`);
+        storage.markCampaignResultStage(campaignResultId, 'name_timeout_saving', finalName);
         await queueAndReply(
           transport,
           storage,
@@ -359,6 +408,10 @@ async function askForContactName(
             decisionTimeoutMinutes: settings.decisionTimeoutMinutes,
             decisionTimeoutText: settings.decisionTimeoutText,
           },
+          {
+            links: settings.completionLinks,
+            fileIds: settings.completionFileIds,
+          },
         );
       } catch (err) {
         logTimerError('name timeout', err);
@@ -373,6 +426,8 @@ async function askForContactName(
     campaignResultId,
     campaignId,
     replyText: settings.replyText,
+    completionLinks: settings.completionLinks,
+    completionFileIds: settings.completionFileIds,
     followupMessages: settings.followupMessages,
     decisionFlow: settings.decisionFlow,
     humanHandoffEnabled: settings.humanHandoffEnabled,
@@ -405,9 +460,20 @@ function schedulePreNamePromptTimeout(
       try {
         if (settings.preNamePromptAutoContinue === false) {
           console.log(`[PRE_NAME_TIMEOUT] auto_continue_disabled campaign=${campaignId ?? ''} phone=${senderPhone}`);
+          storage.markCampaignResultStage(campaignResultId, 'pre_name_timeout_blocked', `${whatsappName}${suffix}`);
           return;
         }
         console.log(`[PRE_NAME_AUTO_CONTINUE] campaign=${campaignId ?? ''} phone=${senderPhone}`);
+        storage.markCampaignResultStage(campaignResultId, 'pre_name_auto_continue', `${whatsappName}${suffix}`);
+        if (campaignId) {
+          storage.recordCampaignEvent({
+            campaignId,
+            campaignResultId,
+            phone: senderPhone,
+            type: 'pre_name_auto_continue',
+            label: 'auto continue',
+          });
+        }
         await askForContactName(
           transport,
           storage,
@@ -450,6 +516,8 @@ function keepPreNamePromptRetry(
             askNameText: state.askNameText,
             nameTimeoutMinutes: state.nameTimeoutMinutes ?? 5,
             replyText: state.replyText,
+            completionLinks: state.completionLinks,
+            completionFileIds: state.completionFileIds,
             followupMessages: state.followupMessages,
             decisionFlow: state.decisionFlow,
             humanHandoffEnabled: state.humanHandoffEnabled,
@@ -479,16 +547,33 @@ async function queueAndReply(
   decisionFlow: DecisionFlowStep[] = [],
   campaignId?: string,
   humanHandoff: CampaignReplyBehavior = {},
+  completion: CompletionDelivery = {},
 ): Promise<void> {
+  storage.markCampaignResultStage(campaignResultId, 'contact_queueing', contactName);
   const job = storage.enqueueContactSave(senderPhone, contactName, campaignResultId);
-  if (job) console.log(`   Contact queued for background save/update: ${senderPhone}`);
+  if (job) {
+    storage.markCampaignResultStage(campaignResultId, 'contact_queued', contactName);
+    console.log(`   Contact queued for background save/update: ${senderPhone}`);
+  }
 
   try {
     const finalReplyText = replyText.trim();
     if (finalReplyText) {
       await sendBotMessage(transport, senderJid, finalReplyText);
       console.log('   Text reply sent.');
+      if (campaignId) {
+        storage.recordCampaignEvent({
+          campaignId,
+          campaignResultId,
+          phone: senderPhone,
+          type: 'completion_sent',
+          label: finalReplyText.slice(0, 120),
+        });
+      }
     }
+
+    await sendCompletionLinks(transport, storage, senderJid, completion.links, campaignId, campaignResultId, senderPhone);
+    await sendCompletionFiles(transport, storage, senderJid, completion.fileIds, campaignId, campaignResultId, senderPhone);
 
     for (const followupText of followupMessages) {
       const text = followupText.trim();
@@ -509,6 +594,58 @@ async function queueAndReply(
     );
   } catch (err) {
     console.error('   Failed to send reply flow:', err);
+  }
+}
+
+async function sendCompletionLinks(
+  transport: WhatsAppTransport,
+  storage: Storage,
+  senderJid: string,
+  links: CompletionLink[] | undefined,
+  campaignId?: string,
+  campaignResultId?: string,
+  senderPhone?: string,
+): Promise<void> {
+  const cleanLinks = (links ?? []).filter((link) => link.url?.trim());
+  if (!cleanLinks.length) return;
+  const text = cleanLinks
+    .map((link) => `${link.label?.trim() || link.url}\n${link.url}`)
+    .join('\n\n');
+  await sendBotMessage(transport, senderJid, text);
+  console.log('   Completion links sent.');
+  if (campaignId) {
+    storage.recordCampaignEvent({
+      campaignId,
+      campaignResultId,
+      phone: senderPhone,
+      type: 'completion_link_sent',
+      label: String(cleanLinks.length),
+    });
+  }
+}
+
+async function sendCompletionFiles(
+  transport: WhatsAppTransport,
+  storage: Storage,
+  senderJid: string,
+  fileIds: string[] | undefined,
+  campaignId?: string,
+  campaignResultId?: string,
+  senderPhone?: string,
+): Promise<void> {
+  for (const fileId of fileIds ?? []) {
+    await sendDecisionFile(
+      transport,
+      storage,
+      senderJid,
+      fileId,
+      undefined,
+      false,
+      campaignId,
+      campaignResultId,
+      senderPhone,
+      { sent: 'completion_file_sent', failed: 'completion_file_failed' },
+    );
   }
 }
 
@@ -811,6 +948,7 @@ async function sendDecisionFile(
   campaignId?: string,
   campaignResultId?: string,
   senderPhone?: string,
+  eventTypes: { sent: 'file_sent' | 'completion_file_sent'; failed: 'file_failed' | 'completion_file_failed' } = { sent: 'file_sent', failed: 'file_failed' },
 ): Promise<void> {
   const file = storage.getUploadedFile(fileId);
   if (file && transport.sendFile) {
@@ -831,7 +969,7 @@ async function sendDecisionFile(
           campaignId,
           campaignResultId,
           phone: senderPhone,
-          type: 'file_sent',
+          type: eventTypes.sent,
           label: file.originalName,
         });
       }
@@ -842,7 +980,7 @@ async function sendDecisionFile(
           campaignId,
           campaignResultId,
           phone: senderPhone,
-          type: 'file_failed',
+          type: eventTypes.failed,
           label: file.originalName,
         });
       }

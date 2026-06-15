@@ -13,6 +13,7 @@ import {
   AdminSettings,
   Campaign,
   CampaignConversationSettings,
+  CompletionLink,
   DecisionFlowOption,
   DecisionFlowStep,
   TwilioTemplateDraft,
@@ -396,11 +397,15 @@ function conversationSettings(
       : (defaults.preNamePromptText ?? ''),
     preNamePromptAutoContinue: typeof input?.preNamePromptAutoContinue === 'boolean'
       ? input.preNamePromptAutoContinue
-      : (defaults.preNamePromptAutoContinue ?? false),
+      : (defaults.preNamePromptAutoContinue ?? true),
     preNamePromptTimeoutMinutes: typeof input?.preNamePromptTimeoutMinutes === 'number' && input.preNamePromptTimeoutMinutes > 0
       ? Math.min(Math.max(Math.round(input.preNamePromptTimeoutMinutes), 1), 60)
       : (defaults.preNamePromptTimeoutMinutes ?? 1),
     replyText: typeof input?.replyText === 'string' ? input.replyText : defaults.replyText,
+    completionLinks: sanitizeCompletionLinks(input?.completionLinks, defaults.completionLinks ?? []),
+    completionFileIds: Array.isArray(input?.completionFileIds)
+      ? input.completionFileIds.filter((id): id is string => typeof id === 'string' && Boolean(id.trim())).map((id) => id.trim().slice(0, 80)).slice(0, 10)
+      : (defaults.completionFileIds ?? []),
     followupMessages: Array.isArray(input?.followupMessages)
       ? input.followupMessages.filter((message): message is string => typeof message === 'string')
       : defaults.followupMessages,
@@ -421,6 +426,27 @@ function conversationSettings(
       ? input.humanHandoffPhone.replace(/[^\d+]/g, '').slice(0, 30)
       : (defaults.humanHandoffPhone ?? ''),
   };
+}
+
+function sanitizeCompletionLinks(input: unknown, defaults: CompletionLink[]): CompletionLink[] {
+  if (!Array.isArray(input)) return defaults;
+  return input
+    .map((raw): CompletionLink | null => {
+      if (!raw || typeof raw !== 'object') return null;
+      const item = raw as Partial<CompletionLink>;
+      const label = typeof item.label === 'string' ? item.label.trim().slice(0, 120) : '';
+      const url = typeof item.url === 'string' ? item.url.trim().slice(0, 1000) : '';
+      if (!url) return null;
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+      } catch {
+        return null;
+      }
+      return { label: label || url, url };
+    })
+    .filter((link): link is CompletionLink => Boolean(link))
+    .slice(0, 10);
 }
 
 function sanitizeDecisionFlow(
@@ -544,6 +570,16 @@ function buildCampaignDryRun(campaign: Campaign, storage: Storage) {
   if (conversation.replyText.trim()) {
     messages.push({ from: 'bot', text: conversation.replyText.trim() });
   }
+  if (conversation.completionLinks?.length) {
+    messages.push({
+      from: 'bot',
+      text: conversation.completionLinks.map((link) => `${link.label}: ${link.url}`).join('\n'),
+    });
+  }
+  for (const fileId of conversation.completionFileIds ?? []) {
+    const file = storage.getUploadedFile(fileId);
+    messages.push({ from: 'bot', text: file ? `קובץ סיום: ${file.originalName}` : 'קובץ סיום לא זמין' });
+  }
   for (const followup of conversation.followupMessages) {
     if (followup.trim()) messages.push({ from: 'bot', text: followup.trim() });
   }
@@ -633,6 +669,10 @@ export function startAdminServer(storage: Storage): void {
         authenticated: botState.authenticated,
         lifecycle: botState.lifecycle,
         shouldRun: storage.hasCampaignsNeedingBot(),
+        notReadySince: botState.notReadySince ? new Date(botState.notReadySince).toISOString() : null,
+        reconnectAttempts: botState.reconnectAttempts,
+        lastReconnectAt: botState.lastReconnectAt,
+        lastWatchdogRestartAt: botState.lastWatchdogRestartAt,
         connectedPhone: (botState.connectedPhone ?? storage.getClientProfile().whatsappPhone) || null,
         listeningReason: botState.listeningReason,
         requestedProvider: botState.requestedProvider,
@@ -1711,10 +1751,14 @@ export function startAdminServer(storage: Storage): void {
 
     const csvValue = (value: string) => `"${value.replace(/"/g, '""')}"`;
     const rows = [
-      'campaign,phone,status,triggeredAt,updatedAt',
+      'campaign,phone,whatsappName,fallbackName,lastStage,lastEventAt,status,triggeredAt,updatedAt',
       ...storage.getCampaignResults(campaign.id).map((result) => [
         csvValue(campaign.name),
         csvValue(result.phone),
+        csvValue(result.whatsappName ?? ''),
+        csvValue(result.fallbackName ?? ''),
+        csvValue(result.lastStage ?? ''),
+        csvValue(result.lastEventAt ?? ''),
         csvValue(result.status),
         csvValue(result.triggeredAt),
         csvValue(result.updatedAt),
@@ -1723,6 +1767,21 @@ export function startAdminServer(storage: Storage): void {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="campaign-${campaign.id}-results.csv"`);
     res.send('\uFEFF' + rows.join('\n'));
+  });
+
+  app.post('/api/campaign-results/:id/queue-awaiting-name', requireWritableClient, (req, res) => {
+    const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
+    if (!campaign) {
+      res.status(404).json({ error: 'קמפיין לא נמצא' });
+      return;
+    }
+    const result = storage.queueAwaitingNameCampaignResults(campaign.id);
+    res.json({
+      ok: true,
+      campaignId: campaign.id,
+      ...result,
+      summary: storage.getCampaignResultSummary(campaign.id),
+    });
   });
 
   app.get('/api/campaign-results/:id/export.vcf', (req, res) => {
