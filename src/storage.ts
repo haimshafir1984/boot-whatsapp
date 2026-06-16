@@ -152,6 +152,7 @@ export interface CampaignResult {
 
 export type CampaignEventType =
   | 'pre_name_prompt_sent'
+  | 'pre_name_prompt_failed'
   | 'pre_name_replied'
   | 'pre_name_auto_continue'
   | 'ask_name_sent'
@@ -673,6 +674,7 @@ export class Storage {
     completionFilesSent: number;
     completionFilesFailed: number;
     preNamePromptSent: number;
+    preNamePromptFailed: number;
     preNameReplied: number;
     preNameAutoContinued: number;
     askNameSent: number;
@@ -706,6 +708,7 @@ export class Storage {
       completionFilesSent: 0,
       completionFilesFailed: 0,
       preNamePromptSent: 0,
+      preNamePromptFailed: 0,
       preNameReplied: 0,
       preNameAutoContinued: 0,
       askNameSent: 0,
@@ -721,6 +724,7 @@ export class Storage {
     stats.completionFilesSent = uniqueCount('completion_file_sent');
     stats.completionFilesFailed = uniqueCount('completion_file_failed');
     stats.preNamePromptSent = uniqueCount('pre_name_prompt_sent');
+    stats.preNamePromptFailed = uniqueCount('pre_name_prompt_failed');
     stats.preNameReplied = uniqueCount('pre_name_replied');
     stats.preNameAutoContinued = uniqueCount('pre_name_auto_continue');
     stats.askNameSent = uniqueCount('ask_name_sent');

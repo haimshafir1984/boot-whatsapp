@@ -15,6 +15,8 @@ const DECISION_REPLY_TIMEOUT_MS = 30 * 60 * 1000;
 const HUMAN_HANDOFF_WINDOW_MS = 24 * 60 * 60 * 1000;
 const ASK_NAME_RETRY_DELAY_MS = 5_000;
 const FILE_SEND_RETRY_DELAY_MS = 5_000;
+const TEXT_SEND_RETRY_DELAY_MS = 3_000;
+const TEXT_SEND_ATTEMPTS = 2;
 const BOT_REPLY_DELAY_MS = Math.max(
   0,
   Number.isFinite(config.BOT_REPLY_DELAY_MS) ? config.BOT_REPLY_DELAY_MS : 3000,
@@ -46,8 +48,25 @@ async function waitBeforeBotReply(): Promise<void> {
 }
 
 async function sendBotMessage(transport: WhatsAppTransport, to: string, text: string): Promise<void> {
-  await waitBeforeBotReply();
-  await transport.sendMessage(to, text);
+  const cleanText = text.trim();
+  if (!cleanText) return;
+
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= TEXT_SEND_ATTEMPTS; attempt += 1) {
+    await waitBeforeBotReply();
+    try {
+      await transport.sendMessage(to, cleanText);
+      return;
+    } catch (err) {
+      lastError = err;
+      if (attempt < TEXT_SEND_ATTEMPTS) {
+        console.warn(`[SEND_RETRY] text attempt=${attempt} to=${to}:`, err);
+        await sleep(TEXT_SEND_RETRY_DELAY_MS);
+      }
+    }
+  }
+
+  throw lastError;
 }
 
 export async function handleIncomingWhatsAppMessage(
@@ -262,7 +281,31 @@ async function handleMessage(
     const preNamePromptText = settings.preNamePromptText?.trim();
     if (preNamePromptText) {
       storage.markCampaignResultStage(campaignResult.id, 'pre_name_prompt_sending', pushname);
-      await sendBotMessage(transport, senderJid, preNamePromptText);
+      try {
+        await sendBotMessage(transport, senderJid, preNamePromptText);
+      } catch (err) {
+        console.error(`[SEND_FAIL] pre_name_prompt campaign=${campaign.id} to=${senderPhone}:`, err);
+        storage.markCampaignResultStage(campaignResult.id, 'pre_name_prompt_failed', pushname);
+        storage.recordCampaignEvent({
+          campaignId: campaign.id,
+          campaignResultId: campaignResult.id,
+          phone: senderPhone,
+          type: 'pre_name_prompt_failed',
+          label: preNamePromptText.slice(0, 120),
+        });
+        await askForContactName(
+          transport,
+          storage,
+          senderJid,
+          senderPhone,
+          pushname,
+          trigger.suffix,
+          campaignResult.id,
+          campaign.id,
+          settings,
+        );
+        return;
+      }
       storage.markCampaignResultStage(campaignResult.id, 'pre_name_prompt_sent', pushname);
       storage.recordCampaignEvent({
         campaignId: campaign.id,
@@ -556,9 +599,9 @@ async function queueAndReply(
     console.log(`   Contact queued for background save/update: ${senderPhone}`);
   }
 
-  try {
-    const finalReplyText = replyText.trim();
-    if (finalReplyText) {
+  const finalReplyText = replyText.trim();
+  if (finalReplyText) {
+    await runReplyStep('completion text', async () => {
       await sendBotMessage(transport, senderJid, finalReplyText);
       console.log('   Text reply sent.');
       if (campaignId) {
@@ -570,18 +613,26 @@ async function queueAndReply(
           label: finalReplyText.slice(0, 120),
         });
       }
-    }
+    });
+  }
 
+  await runReplyStep('completion links', async () => {
     await sendCompletionLinks(transport, storage, senderJid, completion.links, campaignId, campaignResultId, senderPhone);
+  });
+  await runReplyStep('completion files', async () => {
     await sendCompletionFiles(transport, storage, senderJid, completion.fileIds, campaignId, campaignResultId, senderPhone);
+  });
 
-    for (const followupText of followupMessages) {
-      const text = followupText.trim();
-      if (!text) continue;
+  for (const followupText of followupMessages) {
+    const text = followupText.trim();
+    if (!text) continue;
+    await runReplyStep('follow-up text', async () => {
       await sendBotMessage(transport, senderJid, text);
       console.log('   Follow-up reply sent.');
-    }
+    });
+  }
 
+  await runReplyStep('decision flow start', async () => {
     await sendDecisionFlowStart(
       transport,
       storage,
@@ -592,8 +643,14 @@ async function queueAndReply(
       senderPhone,
       humanHandoff,
     );
+  });
+}
+
+async function runReplyStep(label: string, action: () => Promise<void>): Promise<void> {
+  try {
+    await action();
   } catch (err) {
-    console.error('   Failed to send reply flow:', err);
+    console.error(`   Failed to send ${label}:`, err);
   }
 }
 
@@ -634,18 +691,22 @@ async function sendCompletionFiles(
   senderPhone?: string,
 ): Promise<void> {
   for (const fileId of fileIds ?? []) {
-    await sendDecisionFile(
-      transport,
-      storage,
-      senderJid,
-      fileId,
-      undefined,
-      false,
-      campaignId,
-      campaignResultId,
-      senderPhone,
-      { sent: 'completion_file_sent', failed: 'completion_file_failed' },
-    );
+    try {
+      await sendDecisionFile(
+        transport,
+        storage,
+        senderJid,
+        fileId,
+        undefined,
+        false,
+        campaignId,
+        campaignResultId,
+        senderPhone,
+        { sent: 'completion_file_sent', failed: 'completion_file_failed' },
+      );
+    } catch (err) {
+      console.error(`   Completion file failed hard: ${fileId}`, err);
+    }
   }
 }
 
@@ -984,15 +1045,36 @@ async function sendDecisionFile(
           label: file.originalName,
         });
       }
-      await sendBotMessage(
-        transport,
-        senderJid,
-        formatFileFailureFallback(caption),
-      );
+      await sendFileFallback(transport, senderJid, caption);
     }
   } else {
-    await sendBotMessage(transport, senderJid, caption || 'הקובץ לא זמין כרגע.');
+    if (campaignId) {
+      storage.recordCampaignEvent({
+        campaignId,
+        campaignResultId,
+        phone: senderPhone,
+        type: eventTypes.failed,
+        label: file?.originalName || fileId,
+      });
+    }
+    await sendFileFallback(transport, senderJid, caption);
     console.warn(`   Decision file unavailable: ${fileId}`);
+  }
+}
+
+async function sendFileFallback(
+  transport: WhatsAppTransport,
+  senderJid: string,
+  caption?: string,
+): Promise<void> {
+  try {
+    await sendBotMessage(
+      transport,
+      senderJid,
+      formatFileFailureFallback(caption),
+    );
+  } catch (err) {
+    console.error('   Failed to send file fallback text:', err);
   }
 }
 
