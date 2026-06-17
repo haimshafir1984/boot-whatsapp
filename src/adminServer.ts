@@ -977,10 +977,6 @@ export function startAdminServer(storage: Storage): void {
       res.status(400).json({ error: 'במסלול Twilio מתקדם צריך להזין את מספר ה-WhatsApp של הלקוחה, למשל +16602902811' });
       return;
     }
-    if (dokployProvisioner.configurationError) {
-      res.status(503).json({ error: dokployProvisioner.configurationError });
-      return;
-    }
     const client = ownerStorage.addClient(name, accessCode, {
       plan,
       readonlyDashboard: plan === 'basic',
@@ -990,6 +986,17 @@ export function startAdminServer(storage: Storage): void {
       twilioFrom: plan === 'advanced' ? twilioFrom : undefined,
       botReplyDelayMs,
     });
+    if (dokployProvisioner.configurationError) {
+      const localClient = ownerStorage.updateClient(client.id, {
+        provisioningStatus: 'failed',
+        provisioningError: dokployProvisioner.configurationError,
+      })!;
+      res.status(201).json({
+        ...exposeOwnerClient(localClient),
+        warning: dokployProvisioner.configurationError,
+      });
+      return;
+    }
     try {
       res.status(201).json(exposeOwnerClient(await provisionClient(client.id)));
     } catch (err: any) {

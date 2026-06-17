@@ -77,8 +77,56 @@
     .danger { border: 1px solid #fecaca; background: #fff1f2; color: #b91c1c; border-radius: 6px; padding: 6px 9px; cursor: pointer; font-weight: 700; }
     .mini { border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 6px; padding: 6px 9px; cursor: pointer; font-weight: 700; }
     .plan-pill { border-radius: 999px; background: #eef2ff; color: #3730a3; padding: 4px 9px; font-size: .74rem; font-weight: 800; }
+    .flow-owner {
+      border: 1px solid #dbeafe;
+      background: #eff6ff;
+      border-radius: 8px;
+      padding: 13px;
+      margin-bottom: 16px;
+    }
+    .flow-owner-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 10px; }
+    .flow-owner-title { font-weight: 800; color: #172554; font-size: .92rem; }
+    .flow-owner-sub { color: #1e40af; font-size: .76rem; line-height: 1.45; margin-top: 3px; }
+    .flow-owner-list { display: flex; flex-direction: column; gap: 8px; }
+    .flow-owner-row {
+      display: grid;
+      grid-template-columns: 64px minmax(0, 1fr) 130px;
+      gap: 8px;
+      align-items: start;
+      border: 1px solid #bfdbfe;
+      background: #fff;
+      border-radius: 8px;
+      padding: 10px;
+    }
+    .flow-owner-order label { display: block; color: #6b7280; font-size: .68rem; margin-bottom: 4px; }
+    .flow-owner-order input { width: 100%; text-align: center; padding: 7px 4px; }
+    .flow-owner-main strong { display: block; font-size: .84rem; margin-bottom: 6px; }
+    .flow-owner-main textarea,
+    .flow-owner-main input {
+      width: 100%;
+      border: 1px solid #d1d5db;
+      border-radius: 7px;
+      padding: 8px 9px;
+      font: inherit;
+      font-size: .82rem;
+    }
+    .flow-owner-main textarea { min-height: 56px; resize: vertical; }
+    .flow-owner-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+    .flow-owner-actions button,
+    .flow-owner-palette button {
+      border: 1px solid #bfdbfe;
+      background: #fff;
+      color: #1d4ed8;
+      border-radius: 7px;
+      padding: 7px 8px;
+      cursor: pointer;
+      font-weight: 800;
+      font-size: .73rem;
+    }
+    .flow-owner-actions .danger-mini { border-color: #fecaca; color: #b91c1c; background: #fff1f2; }
+    .flow-owner-palette { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
     @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .heading { flex-direction: column; } }
-    @media (max-width: 520px) { .stats-grid, .campaign-metrics, .owner-form { grid-template-columns: 1fr; } }
+    @media (max-width: 520px) { .stats-grid, .campaign-metrics, .owner-form, .flow-owner-row { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -115,6 +163,23 @@
         </section>
         <section>
           <h2>קמפיינים ותוצאות</h2>
+          <div class="flow-owner">
+            <div class="flow-owner-head">
+              <div>
+                <div class="flow-owner-title">תבנית מסלול ללקוחה</div>
+                <div class="flow-owner-sub">אתה בוחר אילו שלבים יהיו ובאיזה מספר. הלקוחה תקבל קמפיין בנוי לפי המסלול, בלי לראות את כלי הבנייה עצמו.</div>
+              </div>
+            </div>
+            <div id="ownerFlowSteps" class="flow-owner-list"></div>
+            <div class="flow-owner-palette">
+              <button type="button" onclick="addOwnerFlowStep('preName')">+ שמרתי</button>
+              <button type="button" onclick="addOwnerFlowStep('askName')">+ שאלת שם</button>
+              <button type="button" onclick="addOwnerFlowStep('reply')">+ הודעת סיום</button>
+              <button type="button" onclick="addOwnerFlowStep('link')">+ לינק</button>
+              <button type="button" onclick="addOwnerFlowStep('followup')">+ הודעת המשך</button>
+              <button type="button" onclick="addOwnerFlowStep('question')">+ שאלת בחירה</button>
+            </div>
+          </div>
           <div class="owner-form" id="ownerCampaignForm">
             <div>
               <label>שם קמפיין</label>
@@ -223,6 +288,11 @@
   </main>
   <script>
     let currentClient = null;
+    let ownerFlowSteps = [
+      { id: makeOwnerFlowId(), type: 'preName', value: 'שמרת אותי באנשי הקשר?' },
+      { id: makeOwnerFlowId(), type: 'askName', value: 'באיזה שם לשמור אותך?' },
+      { id: makeOwnerFlowId(), type: 'reply', value: 'תודה, שמרתי אותך.' },
+    ];
 
     function statusLabel(status) {
       return {
@@ -238,6 +308,167 @@
 
     function esc(value) {
       return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function makeOwnerFlowId() {
+      return `flow-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    }
+
+    function ownerFlowTitle(type) {
+      return {
+        preName: 'הודעת שמרתי',
+        askName: 'שאלת שם',
+        reply: 'הודעת סיום',
+        link: 'לינק בסיום',
+        followup: 'הודעת המשך',
+        question: 'שאלת בחירה',
+      }[type] || type;
+    }
+
+    function ownerFlowPlaceholder(type) {
+      return {
+        preName: 'שמרת אותי באנשי הקשר?',
+        askName: 'באיזה שם לשמור אותך?',
+        reply: 'תודה, שמרתי אותך.',
+        link: 'כותרת | https://example.com',
+        followup: 'הודעה נוספת אחרי הסיום',
+        question: 'רוצה לקבל עוד פרטים?',
+      }[type] || '';
+    }
+
+    function normalizeOwnerFlowOrder() {
+      ownerFlowSteps = ownerFlowSteps
+        .map((step, index) => ({ ...step, order: Number(step.order) || index + 1 }))
+        .sort((a, b) => a.order - b.order)
+        .map((step, index) => ({ ...step, order: index + 1 }));
+    }
+
+    function renderOwnerFlowSteps() {
+      const el = document.getElementById('ownerFlowSteps');
+      if (!el) return;
+      normalizeOwnerFlowOrder();
+      el.innerHTML = ownerFlowSteps.map((step, index) => `
+        <div class="flow-owner-row">
+          <div class="flow-owner-order">
+            <label>מספר שלב</label>
+            <input type="number" min="1" max="30" value="${index + 1}" onchange="setOwnerFlowOrder('${step.id}', this.value)" />
+          </div>
+          <div class="flow-owner-main">
+            <strong>${esc(ownerFlowTitle(step.type))}</strong>
+            ${step.type === 'link'
+              ? `<input value="${esc(step.value || '')}" placeholder="${esc(ownerFlowPlaceholder(step.type))}" oninput="updateOwnerFlowValue('${step.id}', this.value)" />`
+              : `<textarea placeholder="${esc(ownerFlowPlaceholder(step.type))}" oninput="updateOwnerFlowValue('${step.id}', this.value)">${esc(step.value || '')}</textarea>`}
+          </div>
+          <div class="flow-owner-actions">
+            <button type="button" onclick="moveOwnerFlowStep('${step.id}', -1)">↑</button>
+            <button type="button" onclick="moveOwnerFlowStep('${step.id}', 1)">↓</button>
+            <button type="button" class="danger-mini" onclick="removeOwnerFlowStep('${step.id}')">מחק</button>
+          </div>
+        </div>
+      `).join('');
+      applyOwnerFlowToForm();
+    }
+
+    function addOwnerFlowStep(type) {
+      ownerFlowSteps.push({
+        id: makeOwnerFlowId(),
+        type,
+        order: ownerFlowSteps.length + 1,
+        value: ownerFlowPlaceholder(type),
+      });
+      renderOwnerFlowSteps();
+    }
+
+    function removeOwnerFlowStep(id) {
+      ownerFlowSteps = ownerFlowSteps.filter((step) => step.id !== id);
+      renderOwnerFlowSteps();
+    }
+
+    function updateOwnerFlowValue(id, value) {
+      ownerFlowSteps = ownerFlowSteps.map((step) => step.id === id ? { ...step, value } : step);
+      applyOwnerFlowToForm();
+    }
+
+    function setOwnerFlowOrder(id, value) {
+      const nextOrder = Math.max(1, Math.min(Number(value) || 1, ownerFlowSteps.length));
+      ownerFlowSteps = ownerFlowSteps.map((step) => step.id === id ? { ...step, order: nextOrder } : step);
+      normalizeOwnerFlowOrder();
+      const currentIndex = ownerFlowSteps.findIndex((step) => step.id === id);
+      if (currentIndex >= 0) {
+        const [step] = ownerFlowSteps.splice(currentIndex, 1);
+        ownerFlowSteps.splice(nextOrder - 1, 0, step);
+      }
+      ownerFlowSteps = ownerFlowSteps.map((step, index) => ({ ...step, order: index + 1 }));
+      renderOwnerFlowSteps();
+    }
+
+    function moveOwnerFlowStep(id, direction) {
+      normalizeOwnerFlowOrder();
+      const index = ownerFlowSteps.findIndex((step) => step.id === id);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= ownerFlowSteps.length) return;
+      const copy = [...ownerFlowSteps];
+      [copy[index], copy[nextIndex]] = [copy[nextIndex], copy[index]];
+      ownerFlowSteps = copy.map((step, idx) => ({ ...step, order: idx + 1 }));
+      renderOwnerFlowSteps();
+    }
+
+    function parseOwnerLink(raw) {
+      const value = String(raw || '').trim();
+      if (!value) return null;
+      const parts = value.split('|').map((part) => part.trim()).filter(Boolean);
+      if (parts.length >= 2) return { label: parts[0], url: parts.slice(1).join('|') };
+      return { label: value, url: value };
+    }
+
+    function buildOwnerConversationFromFlow() {
+      normalizeOwnerFlowOrder();
+      const preName = ownerFlowSteps.find((step) => step.type === 'preName')?.value?.trim() || '';
+      const askName = ownerFlowSteps.find((step) => step.type === 'askName')?.value?.trim() || '';
+      const reply = ownerFlowSteps.find((step) => step.type === 'reply')?.value?.trim() || document.getElementById('ocReplyText').value.trim();
+      const links = ownerFlowSteps
+        .filter((step) => step.type === 'link')
+        .map((step) => parseOwnerLink(step.value))
+        .filter(Boolean);
+      const followups = ownerFlowSteps
+        .filter((step) => step.type === 'followup')
+        .map((step) => String(step.value || '').trim())
+        .filter(Boolean);
+      const questions = ownerFlowSteps
+        .filter((step) => step.type === 'question')
+        .map((step) => String(step.value || '').trim())
+        .filter(Boolean)
+        .map((text) => ({
+          id: makeOwnerFlowId(),
+          kind: 'question',
+          presentation: 'text',
+          text,
+          options: [
+            { id: makeOwnerFlowId('yes'), text: 'כן' },
+            { id: makeOwnerFlowId('no'), text: 'לא' },
+          ],
+        }));
+      return {
+        askNameEnabled: Boolean(askName),
+        nameTimeoutMinutes: 5,
+        askNameText: askName || 'באיזה שם לשמור אותך?',
+        preNamePromptText: preName,
+        preNamePromptAutoContinue: Boolean(preName),
+        preNamePromptTimeoutMinutes: 1,
+        replyText: reply || 'תודה, שמרתי אותך.',
+        completionLinks: links,
+        completionFileIds: [],
+        followupMessages: followups,
+        decisionFlow: questions,
+      };
+    }
+
+    function applyOwnerFlowToForm() {
+      const conversation = buildOwnerConversationFromFlow();
+      document.getElementById('ocAskName').checked = conversation.askNameEnabled;
+      document.getElementById('ocAskNameText').value = conversation.askNameText;
+      document.getElementById('ocReplyText').value = conversation.replyText;
+      toggleOwnerAskName();
     }
 
     function runtimeLabel(status) {
@@ -319,6 +550,7 @@
       const replyText = document.getElementById('ocReplyText').value.trim() || 'תודה, שמרתי אותך.';
       const askNameEnabled = document.getElementById('ocAskName').checked;
       const askNameText = document.getElementById('ocAskNameText').value.trim() || 'באיזה שם לשמור אותך?';
+      const ownerConversation = buildOwnerConversationFromFlow();
       const body = {
         name: document.getElementById('ocName').value.trim(),
         triggerType,
@@ -327,14 +559,7 @@
         referrerName: document.getElementById('ocReferrer').value.trim(),
         startAt: localDateTimeToIso(document.getElementById('ocStartAt').value),
         endAt: localDateTimeToIso(document.getElementById('ocEndAt').value),
-        conversation: {
-          askNameEnabled,
-          nameTimeoutMinutes: 5,
-          askNameText,
-          replyText,
-          followupMessages: [],
-          decisionFlow: [],
-        },
+        conversation: ownerConversation,
       };
       const response = await fetch(`/owner/api/clients/${encodeURIComponent(currentClient.id)}/campaigns`, {
         method: 'POST',
@@ -573,6 +798,7 @@
       loadClient();
     }
 
+    renderOwnerFlowSteps();
     loadClient();
   </script>
 </body>
