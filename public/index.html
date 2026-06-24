@@ -727,7 +727,13 @@
     .followup-list { display: flex; flex-direction: column; gap: 10px; }
     .followup-row { display: flex; gap: 8px; align-items: flex-start; }
     .followup-row textarea { flex: 1; min-height: 64px; }
-    .decision-flow { display: flex; flex-direction: column; gap: 12px; }
+    .decision-flow { display: flex; flex-direction: column; gap: 8px; }
+    .decision-step-body { display: block; }
+    .decision-step:not(.active) { background: #fff; cursor: pointer; }
+    .decision-step:not(.active) .decision-step-body { display: none; }
+    .decision-step.active { border-color: #25d366; background: #f8fffb; box-shadow: 0 0 0 3px rgba(37,211,102,.12); }
+    .decision-step:not(.active) .decision-step-head { margin-bottom: 0; }
+    .decision-step:not(.active) .decision-step-head > select { display: none; }
     .flow-guide {
       border: 1px solid #dbeafe;
       background: #eff6ff;
@@ -1310,7 +1316,7 @@
               </label>
             </div>
           </div>
-          <div class="flow-guide" style="margin-bottom:14px"><strong>Twilio בלי טמפלייט מאושר:</strong> הלקוח פותח את השיחה דרך לינק הקמפיין ושולח את משפט הטריגר. כל המשך הקמפיין נשלח בתוך חלון השיחה הפעיל.</div><div id="type1Fields">
+          <div id="type1Fields">
             <div class="field">
               <label>משפט הטריגר <span class="required">*</span></label>
               <input type="text" id="fPhrase" placeholder="הטקסט המדויק שהמשתמש ישלח" oninput="clearFieldError('fPhrase'); updateCampaignConversationPreview()" />
@@ -1333,7 +1339,7 @@
               <div class="hint" style="margin-top:4px">סיומת לשם השמור: <strong id="suffixPreview">- ([שם הממליץ])</strong></div>
             </div>
           </div>
-          <div class="field" style="margin-bottom:0">
+          <div class="field" style="display:none;margin-bottom:0">
             <label>זמן פעילות הקמפיין</label>
             <div class="two-fields">
               <div>
@@ -1350,7 +1356,7 @@
         </div>
 
         <div class="editor-section wizard-panel" data-wizard-panel="2">
-          <div class="editor-section-title">מה יישלח בשיחה</div>
+          <div class="editor-section-title">שמירת איש קשר</div>
           <div class="toggle-row">
             <div>
               <div class="toggle-label">לשאול באיזה שם לשמור</div>
@@ -1382,22 +1388,6 @@
             <label>הודעת שאלת שם</label>
             <textarea id="fAskNameText" oninput="updateCampaignConversationPreview()"></textarea>
             <div class="hint">ניתן להשתמש ב-{timeout} כדי להציג את זמן ההמתנה.</div>
-          </div>
-          <div class="field">
-            <label>הודעת סיום</label>
-            <textarea id="fReplyText" oninput="updateCampaignConversationPreview()"></textarea>
-          </div>
-          <div class="field">
-            <label>לינקים בהודעת הסיום</label>
-            <div class="hint" style="margin-bottom:10px">יישלחו אחרי הודעת הסיום, ככותרת וקישור.</div>
-            <div class="followup-list" id="fCompletionLinks"></div>
-            <button type="button" class="btn-small" onclick="addCompletionLink()">+ הוסף לינק</button>
-          </div>
-          <div class="field" style="margin-bottom:0">
-            <label>קבצים בהודעת הסיום</label>
-            <div class="hint" style="margin-bottom:10px">אפשר לבחור קבצים שהועלו למערכת. הם יישלחו אחרי הטקסט והלינקים.</div>
-            <div class="followup-list" id="fCompletionFiles"></div>
-            <button type="button" class="btn-small" onclick="addCompletionFile()">+ הוסף קובץ</button>
           </div>
           <div class="field" style="margin-bottom:0">
             <div class="toggle-row">
@@ -1432,7 +1422,7 @@
               <button type="button" class="btn-small" onclick="addTwilioQuickStep('score')">+ סקר 1/2/3</button>
               <button type="button" class="btn-small" onclick="addTwilioQuickStep('list')">+ רשימת בחירה</button>
               <button type="button" class="btn-small" onclick="addTwilioQuickStep('message')">+ הודעה רגילה</button>
-              <button type="button" class="btn-small" onclick="addCompletionFile(); goWizardStep(2)">+ קובץ בסיום</button>
+              <button type="button" class="btn-small" onclick="addCompletionFile(); goWizardStep(4)">+ קובץ בסיום</button>
               <button type="button" class="btn-small" onclick="enableContactCardShortcut()">+ איש קשר לשמירה</button>
             </div>
             <div class="decision-flow" id="fDecisionFlow" style="margin-top:8px"></div>
@@ -1477,7 +1467,26 @@
         </div>
 
         <div class="editor-section wizard-panel" data-wizard-panel="4">
-          <div class="editor-section-title">סיכום לפני שמירה</div>
+          <div class="editor-section-title">סיום ואישור</div>
+          <div class="editor-section-title" style="margin-top:2px">הודעת סיום וקבצים</div>
+          <div class="hint" style="margin:-4px 0 12px">זה החלק האחרון שהלקוח יקבל אחרי שאלת השם ושאלות ההמשך.</div>
+          <div class="field">
+            <label>הודעת סיום</label>
+            <textarea id="fReplyText" oninput="updateCampaignConversationPreview()"></textarea>
+          </div>
+          <div class="field">
+            <label>לינקים בהודעת הסיום</label>
+            <div class="hint" style="margin-bottom:10px">יישלחו אחרי הודעת הסיום, ככותרת וקישור.</div>
+            <div class="followup-list" id="fCompletionLinks"></div>
+            <button type="button" class="btn-small" onclick="addCompletionLink()">+ הוסף לינק</button>
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>קבצים בהודעת הסיום</label>
+            <div class="hint" style="margin-bottom:10px">אפשר לבחור קבצים שהועלו למערכת. הם יישלחו אחרי הטקסט והלינקים.</div>
+            <div class="followup-list" id="fCompletionFiles"></div>
+            <button type="button" class="btn-small" onclick="addCompletionFile()">+ הוסף קובץ</button>
+          </div>
+          <hr />
           <div class="wizard-summary">
             <div><span>שם הקמפיין</span><strong id="wizardSummaryName">-</strong></div>
             <div><span>סוג</span><strong id="wizardSummaryType">-</strong></div>
@@ -1550,6 +1559,7 @@
   };
   let editingId = null;
   let lastWizardLink = '';
+  let activeDecisionStepId = '';
   let appFiles = [];
   let appCapabilities = { readonlyDashboard: false, maxCampaigns: 7, serviceExpired: false, campaignCount: 0, whatsappProvider: '' };
   let lastCampaigns = [];
@@ -2464,11 +2474,13 @@
     const el = document.getElementById('fDecisionFlow');
     if (!el) return;
     if (!steps.length) {
+      activeDecisionStepId = '';
       el.innerHTML = '<div class="decision-empty">אין עדיין שלבי החלטה.</div>';
       updateCampaignConversationPreview();
       return;
     }
 
+    ensureActiveDecisionStep(steps);
     el.innerHTML = steps.map((step, index) => decisionStepHtml(step, index, steps)).join('');
     updateDecisionStepVisibility();
     refreshDecisionNextOptions();
@@ -2476,55 +2488,82 @@
     updateCampaignConversationPreview();
   }
 
+  function ensureActiveDecisionStep(steps = []) {
+    if (!steps.length) {
+      activeDecisionStepId = '';
+      return;
+    }
+    const ids = steps.map(step => step.id).filter(Boolean);
+    if (!activeDecisionStepId || !ids.includes(activeDecisionStepId)) activeDecisionStepId = ids[0] || steps[0].id || '';
+  }
+
+  function selectDecisionStep(id) {
+    activeDecisionStepId = id || '';
+    updateActiveDecisionStep();
+  }
+
+  function updateActiveDecisionStep() {
+    const steps = [...document.querySelectorAll('[data-decision-step]')];
+    if (!steps.length) return;
+    if (!activeDecisionStepId || !steps.some(step => step.dataset.stepId === activeDecisionStepId)) {
+      activeDecisionStepId = steps[0].dataset.stepId || '';
+    }
+    steps.forEach(step => step.classList.toggle('active', step.dataset.stepId === activeDecisionStepId));
+  }
+
   function decisionStepHtml(step, index, steps) {
+    const stepId = step.id || makeFlowId();
     const kind = step.kind === 'question' || step.kind === 'score_question' ? step.kind : 'message';
     const presentation = ['text', 'buttons', 'list'].includes(step.presentation) ? step.presentation : 'buttons';
+    const isActive = activeDecisionStepId === stepId;
     const options = Array.isArray(step.options) && step.options.length
       ? step.options.slice(0, presentation === 'buttons' ? 3 : 10)
       : [
           { id: makeFlowId('option'), text: '', endText: '', nextStepId: '' },
           { id: makeFlowId('option'), text: '', endText: '', nextStepId: '' },
         ];
+    const titlePreview = (step.text || '').trim();
     return `
-      <div class="decision-step" data-decision-step data-step-id="${esc(step.id || makeFlowId())}">
-        <div class="decision-step-head">
+      <div class="decision-step ${isActive ? 'active' : ''}" data-decision-step data-step-id="${esc(stepId)}">
+        <div class="decision-step-head" onclick="selectDecisionStep('${esc(stepId)}')">
           <div>
-            <div class="decision-step-title">שלב ${index + 1}</div>
+            <div class="decision-step-title">שלב ${index + 1}${titlePreview ? ` · ${esc(titlePreview.slice(0, 34))}` : ''}</div>
             <div class="decision-step-subtitle">${kind === 'question' ? 'שאלה עם עד 3 תשובות' : 'הודעה רגילה'}</div>
           </div>
-          <select data-step-kind onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">
+          <select data-step-kind onclick="event.stopPropagation()" onchange="selectDecisionStep('${esc(stepId)}'); updateDecisionStepVisibility(); updateCampaignConversationPreview()">
             <option value="message" ${kind === 'message' ? 'selected' : ''}>הודעה רגילה</option>
             <option value="question" ${kind === 'question' ? 'selected' : ''}>שאלת בחירה</option>
             <option value="score_question" ${kind === 'score_question' ? 'selected' : ''}>סקר 1/2/3</option>
           </select>
-          <div class="decision-step-actions">
+          <div class="decision-step-actions" onclick="event.stopPropagation()">
             <button type="button" class="btn-small move-step" data-move="up" onclick="moveDecisionStep(this, -1)" title="העבר למעלה">↑</button>
             <button type="button" class="btn-small move-step" data-move="down" onclick="moveDecisionStep(this, 1)" title="העבר למטה">↓</button>
             <button type="button" class="btn-small" onclick="removeDecisionStep(this)">מחק</button>
           </div>
         </div>
-        <textarea data-step-text oninput="updateCampaignConversationPreview()" placeholder="${kind === 'question' ? 'לדוגמה: האם ברצונך לקבל חוברת פרסום?' : 'ההודעה שתישלח'}">${esc(step.text || '')}</textarea>
-        <div class="decision-next-row" data-question-presentation>
-          <label>סוג הצגה</label>
-          <select data-step-presentation onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">
-            <option value="buttons" ${presentation === 'buttons' ? 'selected' : ''}>כפתורים</option>
-            <option value="list" ${presentation === 'list' ? 'selected' : ''}>רשימה נפתחת</option>
-            <option value="text" ${presentation === 'text' ? 'selected' : ''}>טקסט ממוספר</option>
-          </select>
-        </div>
-        <div class="decision-next-row" data-message-next>
-          <label>אחרי ההודעה לעבור אל</label>
-          <select data-step-next onchange="updateCampaignConversationPreview()" data-selected-next="${esc(step.nextStepId || '')}"></select>
-        </div>
-        <div class="decision-options" data-options>
-          <div class="decision-options-label">תשובות אפשריות (עד 3)</div>
-          ${options.map((option, optionIndex) => decisionOptionHtml(option, optionIndex)).join('')}
-          <button type="button" class="btn-small" onclick="addDecisionOption(this)">+ הוסף תשובה</button>
+        <div class="decision-step-body">
+          <textarea data-step-text oninput="updateDecisionStepVisibility(); updateCampaignConversationPreview()" placeholder="${kind === 'question' ? 'לדוגמה: האם ברצונך לקבל חוברת פרסום?' : 'ההודעה שתישלח'}">${esc(step.text || '')}</textarea>
+          <div class="decision-next-row" data-question-presentation>
+            <label>סוג הצגה</label>
+            <select data-step-presentation onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">
+              <option value="buttons" ${presentation === 'buttons' ? 'selected' : ''}>כפתורים</option>
+              <option value="list" ${presentation === 'list' ? 'selected' : ''}>רשימה נפתחת</option>
+              <option value="text" ${presentation === 'text' ? 'selected' : ''}>טקסט ממוספר</option>
+            </select>
+          </div>
+          <div class="decision-next-row" data-message-next>
+            <label>אחרי ההודעה לעבור אל</label>
+            <select data-step-next onchange="updateCampaignConversationPreview()" data-selected-next="${esc(step.nextStepId || '')}"></select>
+          </div>
+          <div class="decision-options" data-options>
+            <div class="decision-options-label">תשובות אפשריות (עד 3)</div>
+            ${options.map((option, optionIndex) => decisionOptionHtml(option, optionIndex)).join('')}
+            <button type="button" class="btn-small" onclick="addDecisionOption(this)">+ הוסף תשובה</button>
+          </div>
         </div>
       </div>
     `;
   }
-
   function decisionOptionHtml(option = {}, index = 0) {
     const action = option.fileId ? 'file' : (option.nextStepId ? 'next' : 'end');
     return `
@@ -2586,6 +2625,7 @@
         { id: makeFlowId('option'), text: '', endText: '', nextStepId: '' },
       ],
     });
+    activeDecisionStepId = steps[steps.length - 1]?.id || '';
     renderDecisionFlow(steps);
   }
 
@@ -2609,6 +2649,7 @@
     const step = btn.closest('[data-decision-step]');
     const id = step?.dataset.stepId;
     step?.remove();
+    if (activeDecisionStepId === id) activeDecisionStepId = document.querySelector('[data-decision-step]')?.dataset.stepId || '';
     document.querySelectorAll('[data-step-next], [data-option-next]').forEach(select => {
       if (select.dataset.selectedNext === id || select.value === id) select.dataset.selectedNext = '';
     });
@@ -2673,6 +2714,10 @@
       step.querySelector('[data-message-next]').style.display = kind === 'message' ? '' : 'none';
       step.querySelector('[data-question-presentation]').style.display = kind === 'question' ? '' : 'none';
       step.querySelector('[data-options]').style.display = isChoice ? '' : 'none';
+      const title = step.querySelector('.decision-step-title');
+      const titleText = step.querySelector('[data-step-text]')?.value.trim();
+      const stepIndex = [...document.querySelectorAll('[data-decision-step]')].indexOf(step);
+      if (title) title.textContent = 'שלב ' + (stepIndex + 1) + (titleText ? ' · ' + titleText.slice(0, 34) : '');
       step.querySelector('.decision-step-subtitle').textContent = kind === 'score_question'
         ? 'סקר 1/2/3 בכפתורים'
         : (kind === 'question' ? (presentation === 'list' ? 'שאלה עם רשימה נפתחת עד 10 תשובות' : 'שאלה עם עד 3 כפתורים') : 'הודעה רגילה');
@@ -2720,6 +2765,7 @@
         }
       });
     });
+    updateActiveDecisionStep();
   }
 
   function updateDecisionStepMoveButtons() {
