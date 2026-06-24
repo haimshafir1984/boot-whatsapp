@@ -63,6 +63,19 @@ function escapeEnvValue(value: string): string {
   return JSON.stringify(value);
 }
 
+function clientBaseUrl(config: DokployProvisioningConfig, service: string): string {
+  const protocol = config.domainHttps ? 'https' : 'http';
+  return `${protocol}://${service}.${config.domainSuffix}`;
+}
+
+function clientTwilioMediaBaseUrl(config: DokployProvisioningConfig, service: string, current: ManagedClient): string {
+  if (config.twilioMediaBaseUrl) return config.twilioMediaBaseUrl;
+  const baseUrl = current.managementUrl
+    ? new URL('/', current.managementUrl).toString().replace(/\/$/, '')
+    : clientBaseUrl(config, service);
+  return `${baseUrl}/twilio-media`;
+}
+
 export class DokployProvisioner {
   private readonly config: DokployProvisioningConfig | null;
   private provisioningQueue: Promise<void> = Promise.resolve();
@@ -283,7 +296,7 @@ export class DokployProvisioner {
       envLines.push(`TWILIO_WEBHOOK_TOKEN=${escapeEnvValue(this.config.twilioWebhookToken!)}`);
       if (this.config.twilioQuickReplyContentSid) envLines.push(`TWILIO_QUICK_REPLY_CONTENT_SID=${escapeEnvValue(this.config.twilioQuickReplyContentSid)}`);
       if (this.config.twilioListPickerContentSid) envLines.push(`TWILIO_LIST_PICKER_CONTENT_SID=${escapeEnvValue(this.config.twilioListPickerContentSid)}`);
-      if (this.config.twilioMediaBaseUrl) envLines.push(`TWILIO_MEDIA_BASE_URL=${escapeEnvValue(this.config.twilioMediaBaseUrl)}`);
+      envLines.push(`DOKPLOY_TWILIO_MEDIA_BASE_URL=${escapeEnvValue(clientTwilioMediaBaseUrl(this.config, name, current))}`);
       envLines.push('TWILIO_REQUIRE_SIGNATURE=true');
     }
 
