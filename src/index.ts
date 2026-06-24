@@ -38,6 +38,10 @@ function restoredConversationTtlMs(state: PersistablePendingConversation): numbe
   if (state.kind === 'pre-name-prompt') {
     return Math.max(1, state.preNamePromptTimeoutMinutes ?? 1) * 60 * 1000;
   }
+  if (state.kind === 'contact-card-confirmation') {
+    const minutes = state.contactCardConfirmationTimeoutMinutes || 30;
+    return Math.max(1, minutes) * 60 * 1000;
+  }
   if (state.kind === 'decision') {
     const step = state.flow.find((item) => item.id === state.stepId);
     const minutes = step?.timeoutMinutes || state.decisionTimeoutMinutes || 30;

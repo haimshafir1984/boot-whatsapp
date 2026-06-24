@@ -23,6 +23,8 @@ export interface PendingNameConversation {
   contactCardPhone?: string;
   contactCardEmail?: string;
   contactCardOrganization?: string;
+  contactCardWaitForConfirmation?: boolean;
+  contactCardConfirmationTimeoutMinutes?: number;
   followupMessages: string[];
   decisionFlow: import('./storage').DecisionFlowStep[];
   humanHandoffEnabled?: boolean;
@@ -56,6 +58,8 @@ export interface PendingPreNamePromptConversation {
   contactCardPhone?: string;
   contactCardEmail?: string;
   contactCardOrganization?: string;
+  contactCardWaitForConfirmation?: boolean;
+  contactCardConfirmationTimeoutMinutes?: number;
   followupMessages: string[];
   decisionFlow: import('./storage').DecisionFlowStep[];
   humanHandoffEnabled?: boolean;
@@ -90,6 +94,23 @@ export interface PendingDecisionConversation {
   timeoutHandle?: NodeJS.Timeout;
 }
 
+export interface PendingContactCardConfirmationConversation {
+  kind: 'contact-card-confirmation';
+  senderJid: string;
+  senderPhone?: string;
+  campaignId?: string;
+  campaignResultId?: string;
+  followupMessages: string[];
+  decisionFlow: import('./storage').DecisionFlowStep[];
+  humanHandoffEnabled?: boolean;
+  humanHandoffText?: string;
+  humanHandoffPhone?: string;
+  decisionTimeoutMinutes?: number;
+  decisionTimeoutText?: string;
+  contactCardConfirmationTimeoutMinutes?: number;
+  timestamp: number;
+  timeoutHandle?: NodeJS.Timeout;
+}
 export interface PendingHandoffConversation {
   kind: 'handoff';
   senderJid: string;
@@ -103,12 +124,13 @@ export interface PendingHandoffConversation {
   timeoutHandle?: NodeJS.Timeout;
 }
 
-export type PendingConversation = PendingNameConversation | PendingPreNamePromptConversation | PendingDecisionConversation | PendingHandoffConversation;
+export type PendingConversation = PendingNameConversation | PendingPreNamePromptConversation | PendingDecisionConversation | PendingContactCardConfirmationConversation | PendingHandoffConversation;
 
 export type PersistablePendingConversation =
   | Omit<PendingNameConversation, 'timeoutHandle'>
   | Omit<PendingPreNamePromptConversation, 'timeoutHandle'>
   | Omit<PendingDecisionConversation, 'timeoutHandle'>
+  | Omit<PendingContactCardConfirmationConversation, 'timeoutHandle'>
   | Omit<PendingHandoffConversation, 'timeoutHandle'>;
 
 interface ConversationStateSnapshot {
@@ -167,7 +189,7 @@ class ConversationStateManager {
       const entries = Object.entries(parsed.conversations ?? {});
       for (const [jid, state] of entries) {
         if (!state || typeof state !== 'object') continue;
-        if (state.kind !== 'name' && state.kind !== 'pre-name-prompt' && state.kind !== 'decision' && state.kind !== 'handoff') continue;
+        if (state.kind !== 'name' && state.kind !== 'pre-name-prompt' && state.kind !== 'decision' && state.kind !== 'contact-card-confirmation' && state.kind !== 'handoff') continue;
         const timeoutHandle = schedule(jid, state);
         if (!timeoutHandle) continue;
         this.map.set(jid, { ...state, timeoutHandle } as PendingConversation);

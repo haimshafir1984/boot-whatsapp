@@ -51,6 +51,8 @@ export interface CampaignConversationSettings {
   contactCardPhone?: string;
   contactCardEmail?: string;
   contactCardOrganization?: string;
+  contactCardWaitForConfirmation?: boolean;
+  contactCardConfirmationTimeoutMinutes?: number;
   followupMessages: string[];
   decisionFlow: DecisionFlowStep[];
   decisionTimeoutMinutes?: number;
@@ -111,6 +113,8 @@ export interface AdminSettings {
   contactCardPhone?: string;
   contactCardEmail?: string;
   contactCardOrganization?: string;
+  contactCardWaitForConfirmation?: boolean;
+  contactCardConfirmationTimeoutMinutes?: number;
   followupMessages: string[];
   decisionFlow: DecisionFlowStep[];
   decisionTimeoutMinutes?: number;
@@ -189,6 +193,7 @@ export type CampaignEventType =
   | 'completion_link_sent'
   | 'completion_file_sent'
   | 'completion_file_failed'
+  | 'contact_card_confirmed'
   | 'completed'
   | 'human_handoff';
 
@@ -281,6 +286,8 @@ const DEFAULT_SETTINGS: AdminSettings = {
   completionLinks: [],
   completionFileIds: [],
   contactCardPlacement: 'after_completion',
+  contactCardWaitForConfirmation: false,
+  contactCardConfirmationTimeoutMinutes: 30,
   decisionFlow: [],
   decisionTimeoutMinutes: 30,
   decisionTimeoutText: '',
@@ -893,6 +900,8 @@ export class Storage {
       contactCardPhone: campaign.conversation?.contactCardPhone ?? defaults.contactCardPhone ?? '',
       contactCardEmail: campaign.conversation?.contactCardEmail ?? defaults.contactCardEmail ?? '',
       contactCardOrganization: campaign.conversation?.contactCardOrganization ?? defaults.contactCardOrganization ?? '',
+      contactCardWaitForConfirmation: campaign.conversation?.contactCardWaitForConfirmation ?? defaults.contactCardWaitForConfirmation ?? false,
+      contactCardConfirmationTimeoutMinutes: campaign.conversation?.contactCardConfirmationTimeoutMinutes ?? defaults.contactCardConfirmationTimeoutMinutes ?? 30,
       followupMessages: campaign.conversation?.followupMessages ?? defaults.followupMessages,
       decisionFlow: campaign.conversation?.decisionFlow ?? defaults.decisionFlow,
       decisionTimeoutMinutes: campaign.conversation?.decisionTimeoutMinutes ?? defaults.decisionTimeoutMinutes,

@@ -44,6 +44,8 @@ interface CompletionDelivery {
   fileIds?: string[];
   contactCard?: CompletionContactCard;
   contactCardPlacement?: 'after_completion' | 'before_questions';
+  contactCardWaitForConfirmation?: boolean;
+  contactCardConfirmationTimeoutMinutes?: number;
 }
 
 function logTimerError(label: string, err: unknown): void {
@@ -163,6 +165,8 @@ async function handleMessage(
             contactCardPhone: pending.contactCardPhone,
             contactCardEmail: pending.contactCardEmail,
             contactCardOrganization: pending.contactCardOrganization,
+            contactCardWaitForConfirmation: pending.contactCardWaitForConfirmation,
+            contactCardConfirmationTimeoutMinutes: pending.contactCardConfirmationTimeoutMinutes,
             followupMessages: pending.followupMessages,
             decisionFlow: pending.decisionFlow,
             humanHandoffEnabled: pending.humanHandoffEnabled,
@@ -216,6 +220,37 @@ async function handleMessage(
       return;
     }
 
+    if (pending.kind === 'contact-card-confirmation') {
+      clearTimeout(pending.timeoutHandle);
+      conversationState.remove(pending.senderJid);
+      if (pending.campaignId) {
+        storage.recordCampaignEvent({
+          campaignId: pending.campaignId,
+          campaignResultId: pending.campaignResultId,
+          phone: pending.senderPhone,
+          type: 'contact_card_confirmed',
+          label: message.body.trim().slice(0, 120),
+        });
+      }
+      await continueAfterContactCard(
+        transport,
+        storage,
+        pending.senderJid,
+        pending.senderPhone || senderPhone,
+        pending.campaignResultId,
+        pending.followupMessages,
+        pending.decisionFlow,
+        pending.campaignId,
+        {
+          enabled: pending.humanHandoffEnabled,
+          text: pending.humanHandoffText,
+          phone: pending.humanHandoffPhone,
+          decisionTimeoutMinutes: pending.decisionTimeoutMinutes,
+          decisionTimeoutText: pending.decisionTimeoutText,
+        },
+      );
+      return;
+    }
     if (pending.kind === 'handoff') {
       await sendHumanHandoff(
         transport,
@@ -352,6 +387,8 @@ async function handleMessage(
         contactCardPhone: settings.contactCardPhone,
         contactCardEmail: settings.contactCardEmail,
         contactCardOrganization: settings.contactCardOrganization,
+        contactCardWaitForConfirmation: settings.contactCardWaitForConfirmation,
+        contactCardConfirmationTimeoutMinutes: settings.contactCardConfirmationTimeoutMinutes,
         followupMessages: settings.followupMessages,
         decisionFlow: settings.decisionFlow,
         humanHandoffEnabled: settings.humanHandoffEnabled,
@@ -417,6 +454,9 @@ async function handleMessage(
         links: settings.completionLinks,
         fileIds: settings.completionFileIds,
         contactCard: contactCardFromSettings(settings),
+        contactCardPlacement: settings.contactCardPlacement,
+        contactCardWaitForConfirmation: settings.contactCardWaitForConfirmation,
+        contactCardConfirmationTimeoutMinutes: settings.contactCardConfirmationTimeoutMinutes,
       },
     );
   }
@@ -662,24 +702,108 @@ async function queueAndReply(
     await sendCompletionFiles(transport, storage, senderJid, completion.fileIds, campaignId, campaignResultId, senderPhone);
   });
   const contactCardPlacement = completion.contactCardPlacement ?? 'after_completion';
-  if (contactCardPlacement !== 'before_questions') {
-    await runReplyStep('contact card', async () => {
+  const sendContactCardAndMaybeWait = async (label: string): Promise<boolean> => {
+    await runReplyStep(label, async () => {
       await sendCompletionContactCard(transport, storage, senderJid, completion.contactCard, campaignId, campaignResultId, senderPhone);
     });
+    if (!completion.contactCard?.enabled || !completion.contactCardWaitForConfirmation) return false;
+    waitForContactCardConfirmation(
+      transport,
+      storage,
+      senderJid,
+      senderPhone,
+      campaignResultId,
+      followupMessages,
+      decisionFlow,
+      campaignId,
+      humanHandoff,
+      completion.contactCardConfirmationTimeoutMinutes,
+    );
+    return true;
+  };
+
+  if (contactCardPlacement === 'before_questions') {
+    if (await sendContactCardAndMaybeWait('contact card before follow-up')) return;
+  } else {
+    if (await sendContactCardAndMaybeWait('contact card')) return;
   }
 
+  await continueAfterContactCard(
+    transport,
+    storage,
+    senderJid,
+    senderPhone,
+    campaignResultId,
+    followupMessages,
+    decisionFlow,
+    campaignId,
+    humanHandoff,
+  );
+}
+
+function waitForContactCardConfirmation(
+  transport: WhatsAppTransport,
+  storage: Storage,
+  senderJid: string,
+  senderPhone: string,
+  campaignResultId: string | undefined,
+  followupMessages: string[],
+  decisionFlow: DecisionFlowStep[],
+  campaignId: string | undefined,
+  humanHandoff: CampaignReplyBehavior,
+  timeoutMinutes = 30,
+): void {
+  const minutes = Math.min(Math.max(Math.round(timeoutMinutes || 30), 1), 1440);
+  const timeoutHandle = setTimeout(() => {
+    continueAfterContactCard(
+      transport,
+      storage,
+      senderJid,
+      senderPhone,
+      campaignResultId,
+      followupMessages,
+      decisionFlow,
+      campaignId,
+      humanHandoff,
+    ).catch((err) => logTimerError('contact card confirmation timeout', err));
+    conversationState.remove(senderJid);
+  }, minutes * 60 * 1000);
+  conversationState.set(senderJid, {
+    kind: 'contact-card-confirmation',
+    senderJid,
+    senderPhone,
+    campaignId,
+    campaignResultId,
+    followupMessages,
+    decisionFlow,
+    humanHandoffEnabled: humanHandoff.enabled,
+    humanHandoffText: humanHandoff.text,
+    humanHandoffPhone: humanHandoff.phone,
+    decisionTimeoutMinutes: humanHandoff.decisionTimeoutMinutes,
+    decisionTimeoutText: humanHandoff.decisionTimeoutText,
+    contactCardConfirmationTimeoutMinutes: minutes,
+    timestamp: Date.now(),
+    timeoutHandle,
+  });
+}
+
+async function continueAfterContactCard(
+  transport: WhatsAppTransport,
+  storage: Storage,
+  senderJid: string,
+  senderPhone: string,
+  campaignResultId: string | undefined,
+  followupMessages: string[],
+  decisionFlow: DecisionFlowStep[],
+  campaignId: string | undefined,
+  humanHandoff: CampaignReplyBehavior,
+): Promise<void> {
   for (const followupText of followupMessages) {
     const text = followupText.trim();
     if (!text) continue;
     await runReplyStep('follow-up text', async () => {
       await sendBotMessage(transport, senderJid, text);
       console.log('   Follow-up reply sent.');
-    });
-  }
-
-  if (contactCardPlacement === 'before_questions') {
-    await runReplyStep('contact card before questions', async () => {
-      await sendCompletionContactCard(transport, storage, senderJid, completion.contactCard, campaignId, campaignResultId, senderPhone);
     });
   }
 
@@ -696,7 +820,6 @@ async function queueAndReply(
     );
   });
 }
-
 async function runReplyStep(label: string, action: () => Promise<void>): Promise<void> {
   try {
     await action();

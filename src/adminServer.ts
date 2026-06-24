@@ -497,6 +497,12 @@ function conversationSettings(
     contactCardOrganization: typeof input?.contactCardOrganization === 'string'
       ? input.contactCardOrganization.trim().slice(0, 120)
       : (defaults.contactCardOrganization ?? ''),
+    contactCardWaitForConfirmation: typeof input?.contactCardWaitForConfirmation === 'boolean'
+      ? input.contactCardWaitForConfirmation
+      : Boolean(defaults.contactCardWaitForConfirmation),
+    contactCardConfirmationTimeoutMinutes: typeof input?.contactCardConfirmationTimeoutMinutes === 'number' && input.contactCardConfirmationTimeoutMinutes > 0
+      ? Math.min(Math.max(Math.round(input.contactCardConfirmationTimeoutMinutes), 1), 1440)
+      : (defaults.contactCardConfirmationTimeoutMinutes ?? 30),
     followupMessages: Array.isArray(input?.followupMessages)
       ? input.followupMessages.filter((message): message is string => typeof message === 'string')
       : defaults.followupMessages,

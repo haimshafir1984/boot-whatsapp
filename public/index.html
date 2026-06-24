@@ -1408,10 +1408,22 @@
               <div class="field contact-placement-field">
                 <label>מתי לשלוח את כרטיס איש הקשר?</label>
                 <select id="fContactCardPlacement" onchange="updateCampaignConversationPreview()">
-                  <option value="before_questions">אחרי שאלת השם, לפני שאלות הקמפיין</option>
+                  <option value="before_questions">אחרי ההודעה הראשית, לפני הודעות המשך ושאלות</option>
                   <option value="after_completion">בסיום הקמפיין</option>
                 </select>
-                <div class="hint">כך אפשר לבנות סדר כמו: שאלת שם -> תשמור גם אותי + vCard -> שאלות.</div>
+                <div class="hint">כך אפשר לבנות סדר כמו: הודעה ראשית -> תשמור גם אותי + vCard -> הודעות המשך או שאלות.</div>
+              </div>
+              <div class="field contact-placement-field">
+                <label style="display:flex;align-items:center;gap:8px;margin:0">
+                  <input type="checkbox" id="fContactCardWaitForConfirmation" onchange="updateCampaignConversationPreview()" />
+                  לחכות שהלקוחה תענה ששמרה לפני שממשיכים
+                </label>
+                <div class="hint" style="margin-top:8px">מתאים לזרימה כמו: שליחת vCard -> הלקוחה כותבת "שמרתי" -> הודעת המשך.</div>
+                <div class="timeout-row" style="opacity:1;margin-top:8px">
+                  <span>אם לא ענו, להמשיך אחרי:</span>
+                  <input type="number" id="fContactCardConfirmationTimeout" min="1" max="1440" value="30" oninput="updateCampaignConversationPreview()" />
+                  <span>דקות</span>
+                </div>
               </div>
             </div>
           </div>
@@ -1649,10 +1661,7 @@
       return;
     }
     el.innerHTML = list.map(c => {
-      const scheduleText = [
-        c.startAt ? `התחלה: ${formatSchedule(c.startAt)}` : '',
-        c.endAt ? `סיום: ${formatSchedule(c.endAt)}` : '',
-      ].filter(Boolean).join(' · ');
+
       return `
       <div class="campaign-card ${c.active ? '' : 'inactive'}" id="c-${c.id}">
         <div class="campaign-info">
@@ -1669,7 +1678,6 @@
             <span style="font-size:.7rem;color:#2563eb">${statusLabel(c.runtimeStatus)}</span>
             <span style="font-size:.7rem;color:#6b7280">${(c.conversation?.askNameEnabled ?? appSettings.askNameEnabled) ? 'שואלת שם' : 'ללא שאלת שם'}</span>
           </div>
-          ${scheduleText ? `<div style="font-size:.72rem;color:#6b7280;margin-top:5px">${esc(scheduleText)}</div>` : ''}
         </div>
         <div class="campaign-actions">
           <button class="btn-icon btn-toggle" onclick="dryRunCampaign('${c.id}')" title="בדיקת זרימה">בדיקה</button>
@@ -2267,6 +2275,8 @@
     document.getElementById('fContactCardOrganization').value = settings.contactCardOrganization || '';
     const contactPlacement = document.getElementById('fContactCardPlacement');
     if (contactPlacement) contactPlacement.value = settings.contactCardPlacement || 'after_completion';
+    document.getElementById('fContactCardWaitForConfirmation').checked = Boolean(settings.contactCardWaitForConfirmation);
+    document.getElementById('fContactCardConfirmationTimeout').value = settings.contactCardConfirmationTimeoutMinutes || 30;
     updateContactCardVisibility();
     renderCampaignFollowupFields(settings.followupMessages || []);
     renderDecisionFlow(settings.decisionFlow || []);
@@ -2929,6 +2939,8 @@
       contactCardPhone: document.getElementById('fContactCardPhone')?.value || '',
       contactCardEmail: document.getElementById('fContactCardEmail')?.value || '',
       contactCardOrganization: document.getElementById('fContactCardOrganization')?.value || '',
+      contactCardWaitForConfirmation: document.getElementById('fContactCardWaitForConfirmation')?.checked || false,
+      contactCardConfirmationTimeoutMinutes: Number(document.getElementById('fContactCardConfirmationTimeout')?.value) || 30,
       followupMessages: [...document.querySelectorAll('[data-campaign-followup]')]
       .map(el => el.value.trim())
       .filter(Boolean),
