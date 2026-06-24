@@ -68,7 +68,7 @@ export class TwilioProvider implements WhatsAppProvider {
             body: text,
             actions: quickReplyButtons.map((button, index) => ({
               id: String(index + 1),
-              title: button.text.slice(0, 20),
+              title: truncateButtonTitle(button.text),
             })),
           },
         },
@@ -203,6 +203,10 @@ export class TwilioProvider implements WhatsAppProvider {
     }
     return responseBody.sid;
   }
+}
+
+function truncateButtonTitle(value: string): string {
+  return Array.from(value.trim()).slice(0, 20).join('');
 }
 
 function normalizeWhatsAppAddress(value: string): string {

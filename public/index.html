@@ -846,6 +846,14 @@
       font-size: .8rem;
     }
     .decision-option-grid { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; }
+    .decision-option-text-row {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: 86px minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+    }
+    .decision-option-emoji { min-width: 0; }
     .decision-option-action-select { display: none; }
     .decision-action-tabs {
       grid-column: 1 / -1;
@@ -2571,8 +2579,21 @@
         <div class="decision-option-number">${index + 1}</div>
         <div>
           <div class="decision-option-grid">
-            <input data-option-text value="${esc(option.text || '')}" maxlength="20" oninput="updateDecisionStepVisibility(); updateCampaignConversationPreview()" placeholder="נוסח התשובה" />
-            <button type="button" class="btn-small" onclick="removeDecisionOption(this)">מחק</button>
+            <div class="decision-option-text-row">
+              <select class="decision-option-emoji" onchange="applyOptionEmoji(this)" title="אימוג׳י לכפתור">
+                <option value="">בלי</option>
+                <option value="✅">✅</option>
+                <option value="☑️">☑️</option>
+                <option value="👉">👉</option>
+                <option value="📌">📌</option>
+                <option value="⭐">⭐</option>
+                <option value="🔥">🔥</option>
+                <option value="🎁">🎁</option>
+                <option value="💬">💬</option>
+              </select>
+              <input data-option-text value="${esc(option.text || '')}" maxlength="20" oninput="updateDecisionStepVisibility(); updateCampaignConversationPreview()" placeholder="נוסח התשובה" />
+              <button type="button" class="btn-small" onclick="removeDecisionOption(this)">מחק</button>
+            </div>
             <select class="decision-option-action-select" data-option-action onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">
               <option value="end" ${action === 'end' ? 'selected' : ''}>סיום</option>
               <option value="file" ${action === 'file' ? 'selected' : ''}>שליחת קובץ</option>
@@ -2691,6 +2712,23 @@
     const select = option?.querySelector('[data-option-action]');
     if (!select) return;
     select.value = action;
+    updateDecisionStepVisibility();
+    updateCampaignConversationPreview();
+  }
+
+  function applyOptionEmoji(select) {
+    const option = select.closest('[data-decision-option]');
+    const input = option?.querySelector('[data-option-text]');
+    if (!input) return;
+    const emoji = select.value;
+    const knownPrefixes = ['✅', '☑️', '👉', '📌', '⭐', '🔥', '🎁', '💬'];
+    let text = input.value.trim();
+    for (const prefix of knownPrefixes) {
+      if (text === prefix) text = '';
+      if (text.startsWith(prefix + ' ')) text = text.slice(prefix.length + 1).trimStart();
+    }
+    input.value = emoji ? `${emoji} ${text}`.slice(0, 20) : text;
+    select.value = '';
     updateDecisionStepVisibility();
     updateCampaignConversationPreview();
   }
