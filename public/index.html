@@ -1406,6 +1406,11 @@
               <div class="two-fields"><div><label>שם איש הקשר</label><input type="text" id="fContactCardName" placeholder="שם העסק / איש הקשר" oninput="updateCampaignConversationPreview()" /></div><div><label>טלפון לשמירה</label><input type="tel" id="fContactCardPhone" placeholder="9725XXXXXXXX" oninput="updateCampaignConversationPreview()" /></div></div>
               <div class="two-fields" style="margin-top:10px"><div><label>אימייל</label><input type="email" id="fContactCardEmail" placeholder="name@example.com" oninput="updateCampaignConversationPreview()" /></div><div><label>ארגון</label><input type="text" id="fContactCardOrganization" placeholder="שם העסק" oninput="updateCampaignConversationPreview()" /></div></div>
               <div class="field contact-placement-field">
+                <label>הודעה לפני שליחת איש קשר</label>
+                <textarea id="fContactCardIntroText" placeholder="לדוגמה: שימרי אותי באנשי הקשר כדי לראות את הסטטוסים שלי" oninput="updateCampaignConversationPreview()"></textarea>
+                <div class="hint">אופציונלי. אם השדה ריק, יישלח רק כרטיס איש הקשר.</div>
+              </div>
+              <div class="field contact-placement-field">
                 <label>מתי לשלוח את כרטיס איש הקשר?</label>
                 <select id="fContactCardPlacement" onchange="updateCampaignConversationPreview()">
                   <option value="before_questions">אחרי ההודעה הראשית, לפני הודעות המשך ושאלות</option>
@@ -1442,6 +1447,7 @@
               <button type="button" class="btn-small" onclick="addTwilioQuickStep('score')">+ סקר 1/2/3</button>
               <button type="button" class="btn-small" onclick="addTwilioQuickStep('list')">+ רשימת בחירה</button>
               <button type="button" class="btn-small" onclick="addTwilioQuickStep('message')">+ הודעה רגילה</button>
+              <button type="button" class="btn-small" onclick="addTwilioQuickStep('wait_reply')">+ הודעה שממתינה לתשובה</button>
               <button type="button" class="btn-small" onclick="addCompletionFile(); goWizardStep(4)">+ קובץ בסיום</button>
               <button type="button" class="btn-small" onclick="enableContactCardShortcut()">+ איש קשר לשמירה</button>
             </div>
@@ -2273,6 +2279,7 @@
     document.getElementById('fContactCardPhone').value = settings.contactCardPhone || '';
     document.getElementById('fContactCardEmail').value = settings.contactCardEmail || '';
     document.getElementById('fContactCardOrganization').value = settings.contactCardOrganization || '';
+    document.getElementById('fContactCardIntroText').value = settings.contactCardIntroText || '';
     const contactPlacement = document.getElementById('fContactCardPlacement');
     if (contactPlacement) contactPlacement.value = settings.contactCardPlacement || 'after_completion';
     document.getElementById('fContactCardWaitForConfirmation').checked = Boolean(settings.contactCardWaitForConfirmation);
@@ -2531,7 +2538,7 @@
 
   function decisionStepHtml(step, index, steps) {
     const stepId = step.id || makeFlowId();
-    const kind = step.kind === 'question' || step.kind === 'score_question' ? step.kind : 'message';
+    const kind = step.kind === 'question' || step.kind === 'score_question' || step.kind === 'wait_reply' ? step.kind : 'message';
     const presentation = ['text', 'buttons', 'list'].includes(step.presentation) ? step.presentation : 'buttons';
     const isActive = activeDecisionStepId === stepId;
     const options = Array.isArray(step.options) && step.options.length
@@ -2550,6 +2557,7 @@
           </div>
           <select data-step-kind onclick="event.stopPropagation()" onchange="selectDecisionStep('${esc(stepId)}'); updateDecisionStepVisibility(); updateCampaignConversationPreview()">
             <option value="message" ${kind === 'message' ? 'selected' : ''}>הודעה רגילה</option>
+            <option value="wait_reply" ${kind === 'wait_reply' ? 'selected' : ''}>הודעה שממתינה לתשובה</option>
             <option value="question" ${kind === 'question' ? 'selected' : ''}>שאלת בחירה</option>
             <option value="score_question" ${kind === 'score_question' ? 'selected' : ''}>סקר 1/2/3</option>
           </select>
@@ -2759,7 +2767,7 @@
       const isChoice = kind === 'question' || kind === 'score_question';
       const presentation = kind === 'score_question' ? 'buttons' : (step.querySelector('[data-step-presentation]')?.value || 'buttons');
       if (kind === 'score_question' && step.querySelector('[data-step-presentation]')) step.querySelector('[data-step-presentation]').value = 'buttons';
-      step.querySelector('[data-message-next]').style.display = kind === 'message' ? '' : 'none';
+      step.querySelector('[data-message-next]').style.display = (kind === 'message' || kind === 'wait_reply') ? '' : 'none';
       step.querySelector('[data-question-presentation]').style.display = kind === 'question' ? '' : 'none';
       step.querySelector('[data-options]').style.display = isChoice ? '' : 'none';
       const title = step.querySelector('.decision-step-title');
@@ -2768,7 +2776,7 @@
       if (title) title.textContent = 'שלב ' + (stepIndex + 1) + (titleText ? ' · ' + titleText.slice(0, 34) : '');
       step.querySelector('.decision-step-subtitle').textContent = kind === 'score_question'
         ? 'סקר 1/2/3 בכפתורים'
-        : (kind === 'question' ? (presentation === 'list' ? 'שאלה עם רשימה נפתחת עד 10 תשובות' : 'שאלה עם עד 3 כפתורים') : 'הודעה רגילה');
+        : (kind === 'question' ? (presentation === 'list' ? 'שאלה עם רשימה נפתחת עד 10 תשובות' : 'שאלה עם עד 3 כפתורים') : (kind === 'wait_reply' ? 'הודעה שממתינה לתשובת המשתמש' : 'הודעה רגילה'));
       step.querySelector('[data-step-text]').placeholder = kind === 'question'
         ? 'לדוגמה: האם ברצונך לקבל חוברת פרסום?'
         : 'ההודעה שתישלח';
@@ -2859,14 +2867,14 @@
     const steps = [...document.querySelectorAll('[data-decision-step]')]
       .map(step => {
         const rawKind = step.querySelector('[data-step-kind]').value;
-        const kind = rawKind === 'question' || rawKind === 'score_question' ? rawKind : 'message';
+        const kind = rawKind === 'question' || rawKind === 'score_question' || rawKind === 'wait_reply' ? rawKind : 'message';
         const item = {
           id: step.dataset.stepId || makeFlowId(),
           kind,
           text: step.querySelector('[data-step-text]').value.trim(),
         };
         if (!item.text) return null;
-        if (kind === 'message') {
+        if (kind === 'message' || kind === 'wait_reply') {
           const nextStepId = step.querySelector('[data-step-next]')?.value || '';
           if (nextStepId) item.nextStepId = nextStepId;
         } else {
@@ -2939,6 +2947,7 @@
       contactCardPhone: document.getElementById('fContactCardPhone')?.value || '',
       contactCardEmail: document.getElementById('fContactCardEmail')?.value || '',
       contactCardOrganization: document.getElementById('fContactCardOrganization')?.value || '',
+      contactCardIntroText: document.getElementById('fContactCardIntroText')?.value || '',
       contactCardWaitForConfirmation: document.getElementById('fContactCardWaitForConfirmation')?.checked || false,
       contactCardConfirmationTimeoutMinutes: Number(document.getElementById('fContactCardConfirmationTimeout')?.value) || 30,
       followupMessages: [...document.querySelectorAll('[data-campaign-followup]')]
@@ -3013,14 +3022,16 @@
       const linkPreview = (conversation.completionLinks || []).length
         ? `<div class="chat-row bot"><div class="chat-bubble">${esc(conversation.completionLinks.map(link => `${link.label || link.url}\n${link.url}`).join('\n\n'))}</div></div>`
         : '';
-      const contactCardPreview = conversation.sendContactCard
+      const contactIntroPreview = conversation.sendContactCard && conversation.contactCardIntroText?.trim()
+        ? `<div class="chat-row bot"><div class="chat-bubble">${esc(conversation.contactCardIntroText.trim())}</div></div>`
+        : '';      const contactCardPreview = conversation.sendContactCard
         ? `<div class="chat-row bot"><div class="chat-bubble">איש קשר לשמירה: ${esc(conversation.contactCardName || 'איש קשר')}</div></div>`
         : '';
       const filePreview = (conversation.completionFileIds || []).map(fileId => {
         const file = appFiles.find(item => item.id === fileId);
         return `<div class="chat-row bot"><div class="chat-bubble">קובץ: ${esc(file?.originalName || 'קובץ שנבחר')}</div></div>`;
       }).join('');
-      completionEl.innerHTML = linkPreview + filePreview + (conversation.contactCardPlacement === 'before_questions' ? contactCardPreview : '');
+      completionEl.innerHTML = linkPreview + filePreview + (conversation.contactCardPlacement === 'before_questions' ? contactIntroPreview + contactCardPreview : '');
     }
     if (followupsEl) {
       followupsEl.innerHTML = conversation.followupMessages.map(message => `

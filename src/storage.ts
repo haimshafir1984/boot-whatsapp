@@ -51,6 +51,7 @@ export interface CampaignConversationSettings {
   contactCardPhone?: string;
   contactCardEmail?: string;
   contactCardOrganization?: string;
+  contactCardIntroText?: string;
   contactCardWaitForConfirmation?: boolean;
   contactCardConfirmationTimeoutMinutes?: number;
   followupMessages: string[];
@@ -78,7 +79,7 @@ export interface CampaignTwilioSettings {
 
 export interface DecisionFlowStep {
   id: string;
-  kind: 'message' | 'question' | 'score_question';
+  kind: 'message' | 'wait_reply' | 'question' | 'score_question';
   presentation?: 'text' | 'buttons' | 'list';
   text: string;
   nextStepId?: string;
@@ -113,6 +114,7 @@ export interface AdminSettings {
   contactCardPhone?: string;
   contactCardEmail?: string;
   contactCardOrganization?: string;
+  contactCardIntroText?: string;
   contactCardWaitForConfirmation?: boolean;
   contactCardConfirmationTimeoutMinutes?: number;
   followupMessages: string[];
@@ -286,6 +288,7 @@ const DEFAULT_SETTINGS: AdminSettings = {
   completionLinks: [],
   completionFileIds: [],
   contactCardPlacement: 'after_completion',
+  contactCardIntroText: '',
   contactCardWaitForConfirmation: false,
   contactCardConfirmationTimeoutMinutes: 30,
   decisionFlow: [],
@@ -900,6 +903,7 @@ export class Storage {
       contactCardPhone: campaign.conversation?.contactCardPhone ?? defaults.contactCardPhone ?? '',
       contactCardEmail: campaign.conversation?.contactCardEmail ?? defaults.contactCardEmail ?? '',
       contactCardOrganization: campaign.conversation?.contactCardOrganization ?? defaults.contactCardOrganization ?? '',
+      contactCardIntroText: campaign.conversation?.contactCardIntroText ?? defaults.contactCardIntroText ?? '',
       contactCardWaitForConfirmation: campaign.conversation?.contactCardWaitForConfirmation ?? defaults.contactCardWaitForConfirmation ?? false,
       contactCardConfirmationTimeoutMinutes: campaign.conversation?.contactCardConfirmationTimeoutMinutes ?? defaults.contactCardConfirmationTimeoutMinutes ?? 30,
       followupMessages: campaign.conversation?.followupMessages ?? defaults.followupMessages,

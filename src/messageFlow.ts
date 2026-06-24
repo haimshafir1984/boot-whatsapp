@@ -44,6 +44,7 @@ interface CompletionDelivery {
   fileIds?: string[];
   contactCard?: CompletionContactCard;
   contactCardPlacement?: 'after_completion' | 'before_questions';
+  contactCardIntroText?: string;
   contactCardWaitForConfirmation?: boolean;
   contactCardConfirmationTimeoutMinutes?: number;
 }
@@ -165,6 +166,7 @@ async function handleMessage(
             contactCardPhone: pending.contactCardPhone,
             contactCardEmail: pending.contactCardEmail,
             contactCardOrganization: pending.contactCardOrganization,
+            contactCardIntroText: pending.contactCardIntroText,
             contactCardWaitForConfirmation: pending.contactCardWaitForConfirmation,
             contactCardConfirmationTimeoutMinutes: pending.contactCardConfirmationTimeoutMinutes,
             followupMessages: pending.followupMessages,
@@ -200,6 +202,28 @@ async function handleMessage(
 
     if (pending.kind === 'decision') {
       await handleDecisionReply(
+        message.body.trim(),
+        pending.flow,
+        pending.stepId,
+        pending.senderJid,
+        storage,
+        transport,
+        pending.campaignId,
+        pending.campaignResultId,
+        pending.senderPhone,
+        {
+          enabled: pending.humanHandoffEnabled,
+          text: pending.humanHandoffText,
+          phone: pending.humanHandoffPhone,
+          decisionTimeoutMinutes: pending.decisionTimeoutMinutes,
+          decisionTimeoutText: pending.decisionTimeoutText,
+        },
+      );
+      return;
+    }
+
+    if (pending.kind === 'wait-reply') {
+      await handleWaitReply(
         message.body.trim(),
         pending.flow,
         pending.stepId,
@@ -455,6 +479,7 @@ async function handleMessage(
         fileIds: settings.completionFileIds,
         contactCard: contactCardFromSettings(settings),
         contactCardPlacement: settings.contactCardPlacement,
+        contactCardIntroText: settings.contactCardIntroText,
         contactCardWaitForConfirmation: settings.contactCardWaitForConfirmation,
         contactCardConfirmationTimeoutMinutes: settings.contactCardConfirmationTimeoutMinutes,
       },
@@ -522,6 +547,9 @@ async function askForContactName(
             fileIds: settings.completionFileIds,
             contactCard: contactCardFromSettings(settings),
             contactCardPlacement: settings.contactCardPlacement,
+            contactCardIntroText: settings.contactCardIntroText,
+            contactCardWaitForConfirmation: settings.contactCardWaitForConfirmation,
+            contactCardConfirmationTimeoutMinutes: settings.contactCardConfirmationTimeoutMinutes,
           },
         );
       } catch (err) {
@@ -545,6 +573,9 @@ async function askForContactName(
     contactCardPhone: settings.contactCardPhone,
     contactCardEmail: settings.contactCardEmail,
     contactCardOrganization: settings.contactCardOrganization,
+    contactCardIntroText: settings.contactCardIntroText,
+    contactCardWaitForConfirmation: settings.contactCardWaitForConfirmation,
+    contactCardConfirmationTimeoutMinutes: settings.contactCardConfirmationTimeoutMinutes,
     followupMessages: settings.followupMessages,
     decisionFlow: settings.decisionFlow,
     humanHandoffEnabled: settings.humanHandoffEnabled,
@@ -636,10 +667,14 @@ function keepPreNamePromptRetry(
             completionLinks: state.completionLinks,
             completionFileIds: state.completionFileIds,
             sendContactCard: state.sendContactCard,
+            contactCardPlacement: state.contactCardPlacement,
             contactCardName: state.contactCardName,
             contactCardPhone: state.contactCardPhone,
             contactCardEmail: state.contactCardEmail,
             contactCardOrganization: state.contactCardOrganization,
+            contactCardIntroText: state.contactCardIntroText,
+            contactCardWaitForConfirmation: state.contactCardWaitForConfirmation,
+            contactCardConfirmationTimeoutMinutes: state.contactCardConfirmationTimeoutMinutes,
             followupMessages: state.followupMessages,
             decisionFlow: state.decisionFlow,
             humanHandoffEnabled: state.humanHandoffEnabled,
@@ -678,8 +713,9 @@ async function queueAndReply(
     console.log(`   Contact queued for background save/update: ${senderPhone}`);
   }
 
+  const contactCardPlacement = completion.contactCardPlacement ?? 'after_completion';
   const finalReplyText = replyText.trim();
-  if (finalReplyText) {
+  if (finalReplyText && contactCardPlacement !== 'before_questions') {
     await runReplyStep('completion text', async () => {
       await sendBotMessage(transport, senderJid, finalReplyText);
       console.log('   Text reply sent.');
@@ -701,8 +737,13 @@ async function queueAndReply(
   await runReplyStep('completion files', async () => {
     await sendCompletionFiles(transport, storage, senderJid, completion.fileIds, campaignId, campaignResultId, senderPhone);
   });
-  const contactCardPlacement = completion.contactCardPlacement ?? 'after_completion';
   const sendContactCardAndMaybeWait = async (label: string): Promise<boolean> => {
+    const introText = completion.contactCardIntroText?.trim();
+    if (introText) {
+      await runReplyStep(`${label} intro`, async () => {
+        await sendBotMessage(transport, senderJid, introText);
+      });
+    }
     await runReplyStep(label, async () => {
       await sendCompletionContactCard(transport, storage, senderJid, completion.contactCard, campaignId, campaignResultId, senderPhone);
     });
@@ -861,6 +902,7 @@ function contactCardFromSettings(settings: {
   contactCardPhone?: string;
   contactCardEmail?: string;
   contactCardOrganization?: string;
+  contactCardIntroText?: string;
 }): CompletionContactCard | undefined {
   if (!settings.sendContactCard) return undefined;
   return {
@@ -912,25 +954,32 @@ async function sendCompletionContactCard(
 ): Promise<void> {
   if (!contactCard?.enabled) return;
   const name = (contactCard.name || 'Contact').trim();
-  const phone = (contactCard.phone || '').trim();
+  const phone = normalizeVCardPhone((contactCard.phone || '').trim());
   const email = (contactCard.email || '').trim();
   const organization = (contactCard.organization || '').trim();
   if (!name && !phone && !email) return;
 
   fs.mkdirSync(config.UPLOADS_PATH, { recursive: true });
-  const filePath = path.join(config.UPLOADS_PATH, 'contact-card.vcf');
+  const safeFileName = [
+    'contact-card',
+    campaignId || 'default',
+    campaignResultId || senderPhone || 'contact',
+  ].join('-').replace(/[^a-z0-9.-]+/gi, '-').slice(0, 120) + '.vcf';
+  const filePath = path.join(config.UPLOADS_PATH, safeFileName);
   const lines = [
     'BEGIN:VCARD',
     'VERSION:3.0',
     `FN:${escapeVCardValue(name || phone || email || 'Contact')}`,
+    `N:${escapeVCardValue(name || phone || email || 'Contact')};;;;`,
   ];
-  if (phone) lines.push(`TEL;TYPE=CELL:${escapeVCardValue(phone)}`);
+  if (phone) lines.push(`TEL;TYPE=CELL,VOICE:${escapeVCardValue(phone)}`);
   if (email) lines.push(`EMAIL:${escapeVCardValue(email)}`);
   if (organization) lines.push(`ORG:${escapeVCardValue(organization)}`);
   lines.push('END:VCARD');
   fs.writeFileSync(filePath, `${lines.join('\r\n')}\r\n`, 'utf8');
 
-  await sendFileWithRetry(transport, senderJid, filePath, undefined, {}, `${name}.vcf`);
+  const displayFileName = `${(name || 'contact').replace(/[\/:*?"<>|]+/g, '-').slice(0, 80)}.vcf`;
+  await sendFileWithRetry(transport, senderJid, filePath, undefined, {}, displayFileName);
   console.log('   Contact card sent.');
   if (campaignId) {
     storage.recordCampaignEvent({
@@ -941,6 +990,17 @@ async function sendCompletionContactCard(
       label: `contact card: ${name}`.slice(0, 120),
     });
   }
+}
+
+function normalizeVCardPhone(value: string): string {
+  const ascii = value.replace(/[^\x00-\x7F]/g, '');
+  const clean = ascii.replace(/[^\d+]/g, '');
+  if (!clean) return '';
+  if (clean.startsWith('+')) return clean;
+  const digits = clean.replace(/\D/g, '');
+  if (digits.startsWith('972')) return `+${digits}`;
+  if (digits.startsWith('0') && digits.length >= 9) return `+972${digits.slice(1)}`;
+  return digits ? `+${digits}` : '';
 }
 
 function escapeVCardValue(value: string): string {
@@ -1048,6 +1108,44 @@ async function handleDecisionReply(
   }
 }
 
+async function handleWaitReply(
+  answer: string,
+  flow: DecisionFlowStep[],
+  stepId: string,
+  senderJid: string,
+  storage: Storage,
+  transport: WhatsAppTransport,
+  campaignId?: string,
+  campaignResultId?: string,
+  senderPhone?: string,
+  humanHandoff: CampaignReplyBehavior = {},
+): Promise<void> {
+  const step = flow.find((item) => item.id === stepId);
+  conversationState.remove(senderJid);
+  if (!step || step.kind !== 'wait_reply') return;
+  if (campaignId) {
+    storage.recordCampaignEvent({
+      campaignId,
+      campaignResultId,
+      phone: senderPhone,
+      type: 'step_answered',
+      label: answer.slice(0, 120),
+    });
+  }
+  if (step.nextStepId) {
+    await sendDecisionStep(transport, storage, senderJid, flow, step.nextStepId, campaignId, campaignResultId, senderPhone, humanHandoff);
+  } else if (campaignId) {
+    storage.recordCampaignEvent({
+      campaignId,
+      campaignResultId,
+      phone: senderPhone,
+      type: 'completed',
+      label: 'סיום תהליך',
+    });
+    keepHumanHandoffOpen(senderJid, campaignId, campaignResultId, senderPhone, humanHandoff);
+  }
+}
+
 async function sendDecisionFlowStart(
   transport: WhatsAppTransport,
   storage: Storage,
@@ -1076,6 +1174,53 @@ async function sendDecisionStep(
 ): Promise<void> {
   const step = flow.find((item) => item.id === stepId);
   if (!step?.text.trim()) return;
+
+  if (step.kind === 'wait_reply') {
+    await sendBotMessage(transport, senderJid, step.text.trim());
+    console.log('   Wait-for-reply message sent.');
+    if (campaignId) {
+      storage.recordCampaignEvent({
+        campaignId,
+        campaignResultId,
+        phone: senderPhone,
+        type: 'step_sent',
+        label: step.text.slice(0, 120),
+      });
+    }
+    const timeoutMinutes = step.timeoutMinutes && step.timeoutMinutes > 0
+      ? step.timeoutMinutes
+      : (humanHandoff.decisionTimeoutMinutes && humanHandoff.decisionTimeoutMinutes > 0
+        ? humanHandoff.decisionTimeoutMinutes
+        : DECISION_REPLY_TIMEOUT_MS / 60_000);
+    const timeoutHandle = setTimeout(() => {
+      void (async () => {
+        try {
+          conversationState.remove(senderJid);
+          console.log(`   Wait-reply timeout - cleared pending state for ${senderJid}.`);
+          await sendDecisionTimeoutAction(transport, storage, senderJid, step, humanHandoff.decisionTimeoutText, campaignId, campaignResultId, senderPhone);
+        } catch (err) {
+          logTimerError('wait-reply timeout', err);
+        }
+      })();
+    }, timeoutMinutes * 60 * 1000);
+    conversationState.set(senderJid, {
+      kind: 'wait-reply',
+      senderJid,
+      senderPhone,
+      campaignId,
+      campaignResultId,
+      flow,
+      stepId: step.id,
+      humanHandoffEnabled: humanHandoff.enabled,
+      humanHandoffText: humanHandoff.text,
+      humanHandoffPhone: humanHandoff.phone,
+      decisionTimeoutMinutes: humanHandoff.decisionTimeoutMinutes,
+      decisionTimeoutText: humanHandoff.decisionTimeoutText,
+      timestamp: Date.now(),
+      timeoutHandle,
+    });
+    return;
+  }
 
   if (step.kind === 'message') {
     await sendBotMessage(transport, senderJid, step.text.trim());

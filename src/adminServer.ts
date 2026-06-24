@@ -497,6 +497,9 @@ function conversationSettings(
     contactCardOrganization: typeof input?.contactCardOrganization === 'string'
       ? input.contactCardOrganization.trim().slice(0, 120)
       : (defaults.contactCardOrganization ?? ''),
+    contactCardIntroText: typeof input?.contactCardIntroText === 'string'
+      ? input.contactCardIntroText.trim().slice(0, 2000)
+      : (defaults.contactCardIntroText ?? ''),
     contactCardWaitForConfirmation: typeof input?.contactCardWaitForConfirmation === 'boolean'
       ? input.contactCardWaitForConfirmation
       : Boolean(defaults.contactCardWaitForConfirmation),
@@ -559,13 +562,16 @@ function sanitizeDecisionFlow(
       const id = typeof item.id === 'string' && item.id.trim()
         ? item.id.trim().slice(0, 80)
         : `step-${index + 1}`;
-      const kind = item.kind === 'question' || item.kind === 'score_question' ? item.kind : 'message';
+      const kind = item.kind === 'question' || item.kind === 'score_question' || item.kind === 'wait_reply' ? item.kind : 'message';
       const text = typeof item.text === 'string' ? item.text.trim().slice(0, 2000) : '';
       if (!text) return null;
 
       const step: DecisionFlowStep = { id, kind, text };
       if (typeof item.nextStepId === 'string' && item.nextStepId.trim()) {
         step.nextStepId = item.nextStepId.trim().slice(0, 80);
+      }
+      if (kind === 'wait_reply' && typeof item.timeoutMinutes === 'number' && item.timeoutMinutes > 0) {
+        step.timeoutMinutes = Math.min(Math.max(Math.round(item.timeoutMinutes), 1), 1440);
       }
       if (kind === 'question' || kind === 'score_question') {
         const rawOptions = Array.isArray(item.options) ? item.options : [];
@@ -996,6 +1002,9 @@ export function startAdminServer(storage: Storage): void {
     if (!filename || !fs.existsSync(fullPath)) {
       res.status(404).send('Not found');
       return;
+    }
+    if (filename.toLowerCase().endsWith('.vcf')) {
+      res.type('text/vcard; charset=utf-8');
     }
     res.sendFile(path.resolve(fullPath));
   });
