@@ -1243,7 +1243,7 @@
           <span>4</span><strong>אישור ולינק</strong><small>סיכום לפני שמירה</small>
         </button>
       </div>
-      <div class="wizard-step-copy" id="wizardStepCopy">מגדירים את שם הקמפיין, סוג הקמפיין ומשפט הטריגר שהמשתמש ישלח.</div>
+      <div class="wizard-step-copy" id="wizardStepCopy">קמפיין Twilio בתוך שיחה פתוחה: הלקוח שולח את ההודעה הראשונה, ולכן לא צריך טמפלייט מאושר כדי לשלוח כפתורים, רשימות, קבצים ואיש קשר לשמירה.</div>
     </div>
     <div class="campaign-editor-grid wizard-grid">
       <div>
@@ -1267,7 +1267,7 @@
               </label>
             </div>
           </div>
-          <div id="type1Fields">
+          <div class="flow-guide" style="margin-bottom:14px"><strong>Twilio בלי טמפלייט מאושר:</strong> הלקוח פותח את השיחה דרך לינק הקמפיין ושולח את משפט הטריגר. כל המשך הקמפיין נשלח בתוך חלון השיחה הפעיל.</div><div id="type1Fields">
             <div class="field">
               <label>משפט הטריגר <span class="required">*</span></label>
               <input type="text" id="fPhrase" placeholder="הטקסט המדויק שהמשתמש ישלח" oninput="clearFieldError('fPhrase'); updateCampaignConversationPreview()" />
@@ -1356,6 +1356,16 @@
             <div class="followup-list" id="fCompletionFiles"></div>
             <button type="button" class="btn-small" onclick="addCompletionFile()">+ הוסף קובץ</button>
           </div>
+          <div class="field" style="margin-bottom:0">
+            <div class="toggle-row">
+              <div><div class="toggle-label">שליחת איש קשר לשמירה</div><div class="toggle-sub">המערכת תשלח כרטיס איש קשר אחרי הודעת הסיום, כדי שהלקוח יוכל לשמור בלחיצה.</div></div>
+              <label class="switch"><input type="checkbox" id="fSendContactCard" onchange="updateContactCardVisibility(); updateCampaignConversationPreview();" /><span class="slider"></span></label>
+            </div>
+            <div id="fContactCardFields" style="display:none;margin-top:12px">
+              <div class="two-fields"><div><label>שם איש הקשר</label><input type="text" id="fContactCardName" placeholder="שם העסק / איש הקשר" oninput="updateCampaignConversationPreview()" /></div><div><label>טלפון לשמירה</label><input type="tel" id="fContactCardPhone" placeholder="9725XXXXXXXX" oninput="updateCampaignConversationPreview()" /></div></div>
+              <div class="two-fields" style="margin-top:10px"><div><label>אימייל</label><input type="email" id="fContactCardEmail" placeholder="name@example.com" oninput="updateCampaignConversationPreview()" /></div><div><label>ארגון</label><input type="text" id="fContactCardOrganization" placeholder="שם העסק" oninput="updateCampaignConversationPreview()" /></div></div>
+            </div>
+          </div>
         </div>
 
         <div class="editor-section wizard-panel" data-wizard-panel="3">
@@ -1365,12 +1375,16 @@
             <div class="hint" style="margin-bottom:10px">לא חובה. אפשר לשמור קמפיין בסיסי עכשיו ולהוסיף שאלות והודעות אחר כך.</div>
             <div class="followup-list" id="fFollowupMessages"></div>
             <div class="hint" style="margin-top:14px;font-weight:700;color:#374151">שאלות בחירה בהמשך השיחה</div>
-            <div class="flow-guide">
-              מתאים למגבלות WhatsApp: בכל שאלת בחירה אפשר להגדיר עד 3 תשובות קצרות. המשתמש עונה במספר או בטקסט התשובה, והמערכת ממשיכה לפי הנתיב שבחרת.
+            <div class="flow-guide">הלקוח כבר פתח את השיחה, לכן אפשר להשתמש בתשובות אינטראקטיביות בלי טמפלייט מאושר. בחר פעולה מוכנה וערוך את הטקסט.</div>
+            <div class="quick-actions" style="display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 12px">
+              <button type="button" class="btn-small" onclick="addTwilioQuickStep('buttons')">+ כפתורי תשובה</button>
+              <button type="button" class="btn-small" onclick="addTwilioQuickStep('score')">+ סקר 1/2/3</button>
+              <button type="button" class="btn-small" onclick="addTwilioQuickStep('list')">+ רשימת בחירה</button>
+              <button type="button" class="btn-small" onclick="addTwilioQuickStep('message')">+ הודעה רגילה</button>
+              <button type="button" class="btn-small" onclick="addCompletionFile(); goWizardStep(2)">+ קובץ בסיום</button>
+              <button type="button" class="btn-small" onclick="enableContactCardShortcut()">+ איש קשר לשמירה</button>
             </div>
             <div class="decision-flow" id="fDecisionFlow" style="margin-top:8px"></div>
-            <button type="button" class="btn-small" style="margin-top:8px" onclick="addDecisionStep()">+ הוסף הודעה / שאלה</button>
-            <button type="button" class="btn-small" style="margin-top:8px" onclick="addCampaignFollowupMessage()">+ הוסף הודעת המשך</button>
             <button type="button" class="btn-small" style="margin-top:8px" onclick="goWizardStep(4)">להמשיך בלי תוספות</button>
             <div class="human-handoff-box">
               <div class="toggle-row">
@@ -2100,7 +2114,7 @@
         errEl.textContent = 'יש שדה שצריך להשלים לפני שמירה.';
         return;
       }
-      body = { name, triggerType, triggerPhrase: phrase, startAt, endAt, conversation };
+      body = { name, triggerType, triggerPhrase: phrase, startAt, endAt, conversation, twilio: { mode: 'link', optInConfirmed: true, audienceNotes: 'הלקוח פתח את שיחת ה-WhatsApp דרך לינק הקמפיין; אין צורך בטמפלייט מאושר.' } };
     } else {
       const basePhrase   = document.getElementById('fBasePhrase').value.trim();
       const referrerName = document.getElementById('fReferrer').value.trim();
@@ -2114,7 +2128,7 @@
         errEl.textContent = 'יש שדה שצריך להשלים לפני שמירה.';
         return;
       }
-      body = { name, triggerType, basePhrase, referrerName, startAt, endAt, conversation };
+      body = { name, triggerType, basePhrase, referrerName, startAt, endAt, conversation, twilio: { mode: 'link', optInConfirmed: true, audienceNotes: 'הלקוח פתח את שיחת ה-WhatsApp דרך לינק הקמפיין; אין צורך בטמפלייט מאושר.' } };
     }
 
     const url    = editingId ? `/api/campaigns/${editingId}` : '/api/campaigns';
@@ -2176,6 +2190,12 @@
     document.getElementById('fReplyText').value = settings.replyText;
     renderCompletionLinks(settings.completionLinks || []);
     renderCompletionFiles(settings.completionFileIds || []);
+    document.getElementById('fSendContactCard').checked = Boolean(settings.sendContactCard);
+    document.getElementById('fContactCardName').value = settings.contactCardName || '';
+    document.getElementById('fContactCardPhone').value = settings.contactCardPhone || '';
+    document.getElementById('fContactCardEmail').value = settings.contactCardEmail || '';
+    document.getElementById('fContactCardOrganization').value = settings.contactCardOrganization || '';
+    updateContactCardVisibility();
     renderCampaignFollowupFields(settings.followupMessages || []);
     renderDecisionFlow(settings.decisionFlow || []);
     document.getElementById('fDecisionTimeoutMinutes').value = settings.decisionTimeoutMinutes || appSettings.decisionTimeoutMinutes || 30;
@@ -2251,6 +2271,20 @@
     if (!el) return;
     el.insertAdjacentHTML('beforeend', completionLinkHtml(value));
     el.querySelector('.followup-row:last-child input')?.focus();
+    updateCampaignConversationPreview();
+  }
+
+  function updateContactCardVisibility() {
+    const fields = document.getElementById('fContactCardFields');
+    if (fields) fields.style.display = document.getElementById('fSendContactCard')?.checked ? '' : 'none';
+  }
+
+  function enableContactCardShortcut() {
+    goWizardStep(2);
+    const toggle = document.getElementById('fSendContactCard');
+    if (toggle) toggle.checked = true;
+    updateContactCardVisibility();
+    setTimeout(() => document.getElementById('fContactCardName')?.focus(), 50);
     updateCampaignConversationPreview();
   }
 
@@ -2388,7 +2422,7 @@
   }
 
   function decisionStepHtml(step, index, steps) {
-    const kind = step.kind === 'question' ? 'question' : 'message';
+    const kind = step.kind === 'question' || step.kind === 'score_question' ? step.kind : 'message';
     const presentation = ['text', 'buttons', 'list'].includes(step.presentation) ? step.presentation : 'buttons';
     const options = Array.isArray(step.options) && step.options.length
       ? step.options.slice(0, presentation === 'buttons' ? 3 : 10)
@@ -2406,6 +2440,7 @@
           <select data-step-kind onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">
             <option value="message" ${kind === 'message' ? 'selected' : ''}>הודעה רגילה</option>
             <option value="question" ${kind === 'question' ? 'selected' : ''}>שאלת בחירה</option>
+            <option value="score_question" ${kind === 'score_question' ? 'selected' : ''}>סקר 1/2/3</option>
           </select>
           <button type="button" class="btn-small" onclick="removeDecisionStep(this)">מחק</button>
         </div>
@@ -2462,6 +2497,22 @@
         </div>
       </div>
     `;
+  }
+
+  function addTwilioQuickStep(type) {
+    if (type === 'score') {
+      addDecisionStep({ id: makeFlowId(), kind: 'score_question', text: 'עד כמה זה מתאים לך?', presentation: 'buttons', options: [1, 2, 3].map(score => ({ id: makeFlowId('score'), text: String(score), score, endText: '' })) });
+      return;
+    }
+    if (type === 'list') {
+      addDecisionStep({ id: makeFlowId(), kind: 'question', text: '', presentation: 'list', options: [{ id: makeFlowId('option'), text: '', endText: '' }] });
+      return;
+    }
+    if (type === 'message') {
+      addDecisionStep({ id: makeFlowId(), kind: 'message', text: '', nextStepId: '' });
+      return;
+    }
+    addDecisionStep();
   }
 
   function addDecisionStep(step = null) {
@@ -2540,13 +2591,15 @@
   function updateDecisionStepVisibility() {
     document.querySelectorAll('[data-decision-step]').forEach(step => {
       const kind = step.querySelector('[data-step-kind]').value;
-      const presentation = step.querySelector('[data-step-presentation]')?.value || 'buttons';
+      const isChoice = kind === 'question' || kind === 'score_question';
+      const presentation = kind === 'score_question' ? 'buttons' : (step.querySelector('[data-step-presentation]')?.value || 'buttons');
+      if (kind === 'score_question' && step.querySelector('[data-step-presentation]')) step.querySelector('[data-step-presentation]').value = 'buttons';
       step.querySelector('[data-message-next]').style.display = kind === 'message' ? '' : 'none';
       step.querySelector('[data-question-presentation]').style.display = kind === 'question' ? '' : 'none';
-      step.querySelector('[data-options]').style.display = kind === 'question' ? '' : 'none';
-      step.querySelector('.decision-step-subtitle').textContent = kind === 'question'
-        ? (presentation === 'list' ? 'שאלה עם רשימה נפתחת עד 10 תשובות' : 'שאלה עם עד 3 כפתורים')
-        : 'הודעה רגילה';
+      step.querySelector('[data-options]').style.display = isChoice ? '' : 'none';
+      step.querySelector('.decision-step-subtitle').textContent = kind === 'score_question'
+        ? 'סקר 1/2/3 בכפתורים'
+        : (kind === 'question' ? (presentation === 'list' ? 'שאלה עם רשימה נפתחת עד 10 תשובות' : 'שאלה עם עד 3 כפתורים') : 'הודעה רגילה');
       step.querySelector('[data-step-text]').placeholder = kind === 'question'
         ? 'לדוגמה: האם ברצונך לקבל חוברת פרסום?'
         : 'ההודעה שתישלח';
@@ -2625,7 +2678,8 @@
   function getDecisionFlow() {
     const steps = [...document.querySelectorAll('[data-decision-step]')]
       .map(step => {
-        const kind = step.querySelector('[data-step-kind]').value === 'question' ? 'question' : 'message';
+        const rawKind = step.querySelector('[data-step-kind]').value;
+        const kind = rawKind === 'question' || rawKind === 'score_question' ? rawKind : 'message';
         const item = {
           id: step.dataset.stepId || makeFlowId(),
           kind,
@@ -2636,7 +2690,7 @@
           const nextStepId = step.querySelector('[data-step-next]')?.value || '';
           if (nextStepId) item.nextStepId = nextStepId;
         } else {
-          item.presentation = step.querySelector('[data-step-presentation]')?.value || 'buttons';
+          item.presentation = kind === 'score_question' ? 'buttons' : (step.querySelector('[data-step-presentation]')?.value || 'buttons');
           item.options = [...step.querySelectorAll('[data-decision-option]')]
             .map(option => {
               const text = option.querySelector('[data-option-text]').value.trim();
@@ -2645,6 +2699,7 @@
                 id: option.dataset.optionId || makeFlowId('option'),
                 text,
               };
+              if (kind === 'score_question') clean.score = Number(text) || 0;
               const action = option.querySelector('[data-option-action]')?.value || 'end';
               if (action === 'next') {
                 const nextStepId = option.querySelector('[data-option-next]').value;
@@ -2698,6 +2753,11 @@
       completionFileIds: [...document.querySelectorAll('[data-completion-file]')]
         .map(el => el.value.trim())
         .filter(Boolean),
+      sendContactCard: document.getElementById('fSendContactCard')?.checked || false,
+      contactCardName: document.getElementById('fContactCardName')?.value || '',
+      contactCardPhone: document.getElementById('fContactCardPhone')?.value || '',
+      contactCardEmail: document.getElementById('fContactCardEmail')?.value || '',
+      contactCardOrganization: document.getElementById('fContactCardOrganization')?.value || '',
       followupMessages: [...document.querySelectorAll('[data-campaign-followup]')]
       .map(el => el.value.trim())
       .filter(Boolean),
@@ -2742,11 +2802,14 @@
       const linkPreview = (conversation.completionLinks || []).length
         ? `<div class="chat-row bot"><div class="chat-bubble">${esc(conversation.completionLinks.map(link => `${link.label || link.url}\n${link.url}`).join('\n\n'))}</div></div>`
         : '';
+      const contactCardPreview = conversation.sendContactCard
+        ? `<div class="chat-row bot"><div class="chat-bubble">איש קשר לשמירה: ${esc(conversation.contactCardName || 'איש קשר')}</div></div>`
+        : '';
       const filePreview = (conversation.completionFileIds || []).map(fileId => {
         const file = appFiles.find(item => item.id === fileId);
         return `<div class="chat-row bot"><div class="chat-bubble">קובץ: ${esc(file?.originalName || 'קובץ שנבחר')}</div></div>`;
       }).join('');
-      completionEl.innerHTML = linkPreview + filePreview;
+      completionEl.innerHTML = linkPreview + filePreview + contactCardPreview;
     }
     if (followupsEl) {
       followupsEl.innerHTML = conversation.followupMessages.map(message => `
@@ -2780,8 +2843,8 @@
       current = nextId ? byId.get(nextId) : null;
     }
     return ordered.map(step => {
-      if (step.kind === 'question') {
-        const mode = step.presentation === 'list' ? 'רשימה נפתחת' : (step.presentation === 'text' ? 'טקסט ממוספר' : 'כפתורים');
+      if (step.kind === 'question' || step.kind === 'score_question') {
+        const mode = step.kind === 'score_question' ? 'סקר 1/2/3 בכפתורים' : (step.presentation === 'list' ? 'רשימה נפתחת' : (step.presentation === 'text' ? 'טקסט ממוספר' : 'כפתורים'));
         const options = (step.options || []).map((option, index) => `${index + 1}. ${option.text}`).join('\n');
         const optionNotes = (step.options || [])
           .filter(option => option.endText || option.fileId)

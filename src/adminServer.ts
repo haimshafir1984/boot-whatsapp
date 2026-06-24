@@ -406,6 +406,21 @@ function conversationSettings(
     completionFileIds: Array.isArray(input?.completionFileIds)
       ? input.completionFileIds.filter((id): id is string => typeof id === 'string' && Boolean(id.trim())).map((id) => id.trim().slice(0, 80)).slice(0, 10)
       : (defaults.completionFileIds ?? []),
+    sendContactCard: typeof input?.sendContactCard === 'boolean'
+      ? input.sendContactCard
+      : Boolean(defaults.sendContactCard),
+    contactCardName: typeof input?.contactCardName === 'string'
+      ? input.contactCardName.trim().slice(0, 120)
+      : (defaults.contactCardName ?? ''),
+    contactCardPhone: typeof input?.contactCardPhone === 'string'
+      ? input.contactCardPhone.replace(/[^\d+]/g, '').slice(0, 30)
+      : (defaults.contactCardPhone ?? ''),
+    contactCardEmail: typeof input?.contactCardEmail === 'string'
+      ? input.contactCardEmail.trim().slice(0, 160)
+      : (defaults.contactCardEmail ?? ''),
+    contactCardOrganization: typeof input?.contactCardOrganization === 'string'
+      ? input.contactCardOrganization.trim().slice(0, 120)
+      : (defaults.contactCardOrganization ?? ''),
     followupMessages: Array.isArray(input?.followupMessages)
       ? input.followupMessages.filter((message): message is string => typeof message === 'string')
       : defaults.followupMessages,

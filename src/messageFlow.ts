@@ -1,4 +1,5 @@
 import { config } from './config';
+import fs from 'fs';
 import path from 'path';
 import { conversationState } from './conversationState';
 import { CampaignConversationSettings, CompletionLink, DecisionFlowOption, DecisionFlowStep, Storage } from './storage';
@@ -30,9 +31,18 @@ interface CampaignReplyBehavior {
   decisionTimeoutText?: string;
 }
 
+interface CompletionContactCard {
+  enabled?: boolean;
+  name?: string;
+  phone?: string;
+  email?: string;
+  organization?: string;
+}
+
 interface CompletionDelivery {
   links?: CompletionLink[];
   fileIds?: string[];
+  contactCard?: CompletionContactCard;
 }
 
 function logTimerError(label: string, err: unknown): void {
@@ -146,6 +156,11 @@ async function handleMessage(
             replyText: pending.replyText,
             completionLinks: pending.completionLinks,
             completionFileIds: pending.completionFileIds,
+            sendContactCard: pending.sendContactCard,
+            contactCardName: pending.contactCardName,
+            contactCardPhone: pending.contactCardPhone,
+            contactCardEmail: pending.contactCardEmail,
+            contactCardOrganization: pending.contactCardOrganization,
             followupMessages: pending.followupMessages,
             decisionFlow: pending.decisionFlow,
             humanHandoffEnabled: pending.humanHandoffEnabled,
@@ -246,6 +261,7 @@ async function handleMessage(
       {
         links: pending.completionLinks,
         fileIds: pending.completionFileIds,
+        contactCard: contactCardFromSettings(pending),
       },
     );
     return;
@@ -327,6 +343,11 @@ async function handleMessage(
         replyText: settings.replyText,
         completionLinks: settings.completionLinks,
         completionFileIds: settings.completionFileIds,
+        sendContactCard: settings.sendContactCard,
+        contactCardName: settings.contactCardName,
+        contactCardPhone: settings.contactCardPhone,
+        contactCardEmail: settings.contactCardEmail,
+        contactCardOrganization: settings.contactCardOrganization,
         followupMessages: settings.followupMessages,
         decisionFlow: settings.decisionFlow,
         humanHandoffEnabled: settings.humanHandoffEnabled,
@@ -391,6 +412,7 @@ async function handleMessage(
       {
         links: settings.completionLinks,
         fileIds: settings.completionFileIds,
+        contactCard: contactCardFromSettings(settings),
       },
     );
   }
@@ -561,6 +583,11 @@ function keepPreNamePromptRetry(
             replyText: state.replyText,
             completionLinks: state.completionLinks,
             completionFileIds: state.completionFileIds,
+            sendContactCard: state.sendContactCard,
+            contactCardName: state.contactCardName,
+            contactCardPhone: state.contactCardPhone,
+            contactCardEmail: state.contactCardEmail,
+            contactCardOrganization: state.contactCardOrganization,
             followupMessages: state.followupMessages,
             decisionFlow: state.decisionFlow,
             humanHandoffEnabled: state.humanHandoffEnabled,
@@ -622,6 +649,9 @@ async function queueAndReply(
   await runReplyStep('completion files', async () => {
     await sendCompletionFiles(transport, storage, senderJid, completion.fileIds, campaignId, campaignResultId, senderPhone);
   });
+  await runReplyStep('contact card', async () => {
+    await sendCompletionContactCard(transport, storage, senderJid, completion.contactCard, campaignId, campaignResultId, senderPhone);
+  });
 
   for (const followupText of followupMessages) {
     const text = followupText.trim();
@@ -681,6 +711,23 @@ async function sendCompletionLinks(
   }
 }
 
+function contactCardFromSettings(settings: {
+  sendContactCard?: boolean;
+  contactCardName?: string;
+  contactCardPhone?: string;
+  contactCardEmail?: string;
+  contactCardOrganization?: string;
+}): CompletionContactCard | undefined {
+  if (!settings.sendContactCard) return undefined;
+  return {
+    enabled: true,
+    name: settings.contactCardName,
+    phone: settings.contactCardPhone,
+    email: settings.contactCardEmail,
+    organization: settings.contactCardOrganization,
+  };
+}
+
 async function sendCompletionFiles(
   transport: WhatsAppTransport,
   storage: Storage,
@@ -708,6 +755,56 @@ async function sendCompletionFiles(
       console.error(`   Completion file failed hard: ${fileId}`, err);
     }
   }
+}
+
+async function sendCompletionContactCard(
+  transport: WhatsAppTransport,
+  storage: Storage,
+  senderJid: string,
+  contactCard: CompletionContactCard | undefined,
+  campaignId?: string,
+  campaignResultId?: string,
+  senderPhone?: string,
+): Promise<void> {
+  if (!contactCard?.enabled) return;
+  const name = (contactCard.name || 'Contact').trim();
+  const phone = (contactCard.phone || '').trim();
+  const email = (contactCard.email || '').trim();
+  const organization = (contactCard.organization || '').trim();
+  if (!name && !phone && !email) return;
+
+  fs.mkdirSync(config.UPLOADS_PATH, { recursive: true });
+  const filePath = path.join(config.UPLOADS_PATH, 'contact-card.vcf');
+  const lines = [
+    'BEGIN:VCARD',
+    'VERSION:3.0',
+    `FN:${escapeVCardValue(name || phone || email || 'Contact')}`,
+  ];
+  if (phone) lines.push(`TEL;TYPE=CELL:${escapeVCardValue(phone)}`);
+  if (email) lines.push(`EMAIL:${escapeVCardValue(email)}`);
+  if (organization) lines.push(`ORG:${escapeVCardValue(organization)}`);
+  lines.push('END:VCARD');
+  fs.writeFileSync(filePath, `${lines.join('\r\n')}\r\n`, 'utf8');
+
+  await sendFileWithRetry(transport, senderJid, filePath, undefined, {}, `${name}.vcf`);
+  console.log('   Contact card sent.');
+  if (campaignId) {
+    storage.recordCampaignEvent({
+      campaignId,
+      campaignResultId,
+      phone: senderPhone,
+      type: 'completion_file_sent',
+      label: `contact card: ${name}`.slice(0, 120),
+    });
+  }
+}
+
+function escapeVCardValue(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/\r?\n/g, '\\n')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;');
 }
 
 async function handleDecisionReply(

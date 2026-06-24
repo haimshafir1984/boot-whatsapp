@@ -17,6 +17,11 @@ export interface PendingNameConversation {
   replyText: string;
   completionLinks?: import('./storage').CompletionLink[];
   completionFileIds?: string[];
+  sendContactCard?: boolean;
+  contactCardName?: string;
+  contactCardPhone?: string;
+  contactCardEmail?: string;
+  contactCardOrganization?: string;
   followupMessages: string[];
   decisionFlow: import('./storage').DecisionFlowStep[];
   humanHandoffEnabled?: boolean;
@@ -44,6 +49,11 @@ export interface PendingPreNamePromptConversation {
   replyText: string;
   completionLinks?: import('./storage').CompletionLink[];
   completionFileIds?: string[];
+  sendContactCard?: boolean;
+  contactCardName?: string;
+  contactCardPhone?: string;
+  contactCardEmail?: string;
+  contactCardOrganization?: string;
   followupMessages: string[];
   decisionFlow: import('./storage').DecisionFlowStep[];
   humanHandoffEnabled?: boolean;

@@ -45,6 +45,11 @@ export interface CampaignConversationSettings {
   replyText: string;
   completionLinks?: CompletionLink[];
   completionFileIds?: string[];
+  sendContactCard?: boolean;
+  contactCardName?: string;
+  contactCardPhone?: string;
+  contactCardEmail?: string;
+  contactCardOrganization?: string;
   followupMessages: string[];
   decisionFlow: DecisionFlowStep[];
   decisionTimeoutMinutes?: number;
@@ -99,6 +104,11 @@ export interface AdminSettings {
   replyText: string;
   completionLinks: CompletionLink[];
   completionFileIds: string[];
+  sendContactCard?: boolean;
+  contactCardName?: string;
+  contactCardPhone?: string;
+  contactCardEmail?: string;
+  contactCardOrganization?: string;
   followupMessages: string[];
   decisionFlow: DecisionFlowStep[];
   decisionTimeoutMinutes?: number;
@@ -874,6 +884,11 @@ export class Storage {
       replyText: campaign.conversation?.replyText ?? defaults.replyText,
       completionLinks: campaign.conversation?.completionLinks ?? [],
       completionFileIds: campaign.conversation?.completionFileIds ?? [],
+      sendContactCard: campaign.conversation?.sendContactCard ?? defaults.sendContactCard ?? false,
+      contactCardName: campaign.conversation?.contactCardName ?? defaults.contactCardName ?? '',
+      contactCardPhone: campaign.conversation?.contactCardPhone ?? defaults.contactCardPhone ?? '',
+      contactCardEmail: campaign.conversation?.contactCardEmail ?? defaults.contactCardEmail ?? '',
+      contactCardOrganization: campaign.conversation?.contactCardOrganization ?? defaults.contactCardOrganization ?? '',
       followupMessages: campaign.conversation?.followupMessages ?? defaults.followupMessages,
       decisionFlow: campaign.conversation?.decisionFlow ?? defaults.decisionFlow,
       decisionTimeoutMinutes: campaign.conversation?.decisionTimeoutMinutes ?? defaults.decisionTimeoutMinutes,
