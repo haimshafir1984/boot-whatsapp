@@ -462,7 +462,7 @@ function sanitizeDecisionFlow(
       const id = typeof item.id === 'string' && item.id.trim()
         ? item.id.trim().slice(0, 80)
         : `step-${index + 1}`;
-      const kind = item.kind === 'question' ? 'question' : 'message';
+      const kind = item.kind === 'question' || item.kind === 'score_question' ? item.kind : 'message';
       const text = typeof item.text === 'string' ? item.text.trim().slice(0, 2000) : '';
       if (!text) return null;
 
@@ -470,7 +470,9 @@ function sanitizeDecisionFlow(
       if (typeof item.nextStepId === 'string' && item.nextStepId.trim()) {
         step.nextStepId = item.nextStepId.trim().slice(0, 80);
       }
-      if (kind === 'question' && Array.isArray(item.options)) {
+      if (kind === 'question' || kind === 'score_question') {
+        const rawOptions = Array.isArray(item.options) ? item.options : [];
+
         if (item.presentation === 'text' || item.presentation === 'buttons' || item.presentation === 'list') {
           step.presentation = item.presentation;
         }
@@ -486,7 +488,7 @@ function sanitizeDecisionFlow(
         if (typeof item.timeoutFileAsSticker === 'boolean') {
           step.timeoutFileAsSticker = item.timeoutFileAsSticker;
         }
-        step.options = item.options
+        step.options = rawOptions
           .map((option, optionIndex): DecisionFlowOption | null => {
             if (!option || typeof option !== 'object') return null;
             const rawOption = option as Partial<DecisionFlowOption>;
@@ -509,6 +511,9 @@ function sanitizeDecisionFlow(
             }
             if (typeof rawOption.fileAsSticker === 'boolean') {
               clean.fileAsSticker = rawOption.fileAsSticker;
+            }
+            if (typeof rawOption.score === 'number' && Number.isFinite(rawOption.score)) {
+              clean.score = Math.round(rawOption.score);
             }
             return clean;
           })
@@ -768,6 +773,7 @@ export function startAdminServer(storage: Storage): void {
       }, storage, {
         sendMessage: (target, message) => provider.sendMessage(target, message),
         sendFile: (target, filePath, caption, options) => provider.sendFile(target, filePath, caption, options),
+        sendContentTemplate: (target, contentSid, contentVariables) => provider.sendContentTemplate(target, contentSid, contentVariables),
         sendInteractiveButtons: (target, text, buttons) => provider.sendInteractiveButtons(target, text, buttons),
         sendInteractiveList: (target, text, buttonText, items) => provider.sendInteractiveList(target, text, buttonText, items),
         resolvePhone: async (jid) => jid.replace(/^whatsapp:/, '').replace(/^\+/, ''),

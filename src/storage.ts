@@ -70,7 +70,7 @@ export interface CampaignTwilioSettings {
 
 export interface DecisionFlowStep {
   id: string;
-  kind: 'message' | 'question';
+  kind: 'message' | 'question' | 'score_question';
   presentation?: 'text' | 'buttons' | 'list';
   text: string;
   nextStepId?: string;
@@ -88,6 +88,7 @@ export interface DecisionFlowOption {
   endText?: string;
   fileId?: string;
   fileAsSticker?: boolean;
+  score?: number;
 }
 
 export interface AdminSettings {
@@ -148,6 +149,17 @@ export interface CampaignResult {
   status: CampaignResultStatus;
   triggeredAt: string;
   updatedAt: string;
+  scoreAnswers?: CampaignScoreAnswer[];
+  scoreTotal?: number;
+}
+
+export interface CampaignScoreAnswer {
+  stepId: string;
+  question: string;
+  optionId: string;
+  answerText: string;
+  score: number;
+  answeredAt: string;
 }
 
 export type CampaignEventType =
@@ -158,6 +170,7 @@ export type CampaignEventType =
   | 'ask_name_sent'
   | 'step_sent'
   | 'step_answered'
+  | 'score_answered'
   | 'file_sent'
   | 'file_failed'
   | 'completion_sent'
@@ -633,6 +646,23 @@ export class Storage {
       .map((result) => ({ ...result }));
   }
 
+  recordScoreAnswer(resultId: string | undefined, input: Omit<CampaignScoreAnswer, 'answeredAt'>): void {
+    if (!resultId) return;
+    const result = this.data.campaignResults.find((item) => item.id === resultId);
+    if (!result) return;
+    const answeredAt = new Date().toISOString();
+    const answers = result.scoreAnswers ?? [];
+    const nextAnswer: CampaignScoreAnswer = { ...input, answeredAt };
+    const existingIndex = answers.findIndex((answer) => answer.stepId === input.stepId);
+    if (existingIndex >= 0) answers[existingIndex] = nextAnswer;
+    else answers.push(nextAnswer);
+    result.scoreAnswers = answers;
+    result.scoreTotal = answers.reduce((sum, answer) => sum + answer.score, 0);
+    result.updatedAt = answeredAt;
+    result.lastEventAt = answeredAt;
+    this.persist();
+  }
+
   recordCampaignEvent(event: Omit<CampaignEvent, 'id' | 'createdAt'>): CampaignEvent {
     const saved: CampaignEvent = {
       id: generateId(),
@@ -680,6 +710,9 @@ export class Storage {
     askNameSent: number;
     completed: number;
     humanHandoff: number;
+    scoreAnswered: number;
+    scoreTotal: number;
+    scoreAverage: number;
   } {
     const results = this.data.campaignResults.filter((result) => result.campaignId === campaignId);
     const events = this.data.campaignEvents.filter((event) => event.campaignId === campaignId);
@@ -714,6 +747,9 @@ export class Storage {
       askNameSent: 0,
       completed: 0,
       humanHandoff: 0,
+      scoreAnswered: 0,
+      scoreTotal: 0,
+      scoreAverage: 0,
     });
     stats.progressed = uniqueCount('step_answered');
     stats.sentMessages = stats.total + events.filter((event) => event.type === 'step_sent').length;
@@ -730,6 +766,9 @@ export class Storage {
     stats.askNameSent = uniqueCount('ask_name_sent');
     stats.completed = uniqueCount('completed');
     stats.humanHandoff = uniqueCount('human_handoff');
+    stats.scoreAnswered = uniqueCount('score_answered');
+    stats.scoreTotal = results.reduce((sum, result) => sum + (result.scoreTotal ?? 0), 0);
+    stats.scoreAverage = stats.scoreAnswered > 0 ? Math.round((stats.scoreTotal / stats.scoreAnswered) * 100) / 100 : 0;
     return stats;
   }
 

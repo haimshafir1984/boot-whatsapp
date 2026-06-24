@@ -723,17 +723,17 @@ async function handleDecisionReply(
   humanHandoff: CampaignReplyBehavior = {},
 ): Promise<void> {
   const step = flow.find((item) => item.id === stepId);
-  if (!step || step.kind !== 'question') {
+  if (!step || (step.kind !== 'question' && step.kind !== 'score_question')) {
     conversationState.remove(senderJid);
     return;
   }
 
-  const normalized = answer.trim().toLowerCase();
+  const normalized = normalizeDecisionAnswer(answer);
   const option = step.options?.find((item, index) => {
     const optionId = String(item.id ?? '').trim().toLowerCase();
     return normalized === String(index + 1) ||
       Boolean(optionId && normalized === optionId) ||
-      normalized === item.text.trim().toLowerCase();
+      normalized === normalizeDecisionAnswer(item.text);
   });
 
   if (!option && humanHandoff.enabled) {
@@ -748,6 +748,25 @@ async function handleDecisionReply(
   }
 
   conversationState.remove(senderJid);
+  if (step.kind === 'score_question') {
+    const score = scoreForOption(option, step);
+    storage.recordScoreAnswer(campaignResultId, {
+      stepId: step.id,
+      question: step.text,
+      optionId: option.id,
+      answerText: option.text,
+      score,
+    });
+    if (campaignId) {
+      storage.recordCampaignEvent({
+        campaignId,
+        campaignResultId,
+        phone: senderPhone,
+        type: 'score_answered',
+        label: `${option.text} (${score})`,
+      });
+    }
+  }
   if (campaignId) {
     storage.recordCampaignEvent({
       campaignId,
@@ -842,6 +861,10 @@ async function sendDecisionStep(
       keepHumanHandoffOpen(senderJid, campaignId, campaignResultId, senderPhone, humanHandoff);
     }
     return;
+  }
+
+  if (step.kind === 'score_question' && !step.options?.length) {
+    step.options = buildDefaultScoreOptions(step.id);
   }
 
   const presentation = step.presentation ?? 'buttons';
@@ -1119,6 +1142,29 @@ function formatQuestion(step: DecisionFlowStep): string {
     .map((option: DecisionFlowOption, index) => `${index + 1}. ${option.text}`)
     .join('\n');
   return options ? `${step.text.trim()}\n\n${options}` : step.text.trim();
+}
+
+function normalizeDecisionAnswer(answer: string): string {
+  return answer
+    .trim()
+    .toLowerCase()
+    .replace(/^\u05ea\u05e9\u05d5\u05d1\u05d4\s+/u, '')
+    .replace(/[.)\]\s]+$/u, '')
+    .trim();
+}
+
+function buildDefaultScoreOptions(stepId: string): DecisionFlowOption[] {
+  return [1, 2, 3].map((score) => ({
+    id: `${stepId}-${score}`,
+    text: String(score),
+    score,
+  }));
+}
+
+function scoreForOption(option: DecisionFlowOption, step: DecisionFlowStep): number {
+  if (typeof option.score === 'number' && Number.isFinite(option.score)) return option.score;
+  const index = (step.options ?? []).findIndex((item) => item.id === option.id);
+  return index >= 0 ? index + 1 : Number(option.text.match(/\d+/)?.[0] ?? 0);
 }
 
 function formatHumanHandoffText(text?: string, phone?: string): string {

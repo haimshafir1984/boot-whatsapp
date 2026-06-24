@@ -22,6 +22,16 @@ export class TwilioProvider implements WhatsAppProvider {
     }, _message);
   }
 
+  async sendContentTemplate(to: string, contentSid: string, contentVariables: Record<string, string> = {}): Promise<void> {
+    const cleanSid = contentSid.trim();
+    if (!cleanSid) throw new Error('ContentSid is required.');
+    await this.createMessage({
+      To: normalizeWhatsAppAddress(to),
+      ContentSid: cleanSid,
+      ContentVariables: Object.keys(contentVariables).length ? JSON.stringify(contentVariables) : undefined,
+    }, cleanSid);
+  }
+
   async sendFile(to: string, filePath: string, caption?: string, _options: { asSticker?: boolean } = {}): Promise<void> {
     const baseUrl = config.TWILIO_MEDIA_BASE_URL.trim().replace(/\/$/, '');
     if (!baseUrl) {
