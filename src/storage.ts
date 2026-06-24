@@ -46,6 +46,7 @@ export interface CampaignConversationSettings {
   completionLinks?: CompletionLink[];
   completionFileIds?: string[];
   sendContactCard?: boolean;
+  contactCardPlacement?: 'after_completion' | 'before_questions';
   contactCardName?: string;
   contactCardPhone?: string;
   contactCardEmail?: string;
@@ -105,6 +106,7 @@ export interface AdminSettings {
   completionLinks: CompletionLink[];
   completionFileIds: string[];
   sendContactCard?: boolean;
+  contactCardPlacement?: 'after_completion' | 'before_questions';
   contactCardName?: string;
   contactCardPhone?: string;
   contactCardEmail?: string;
@@ -278,6 +280,7 @@ const DEFAULT_SETTINGS: AdminSettings = {
   followupMessages: [],
   completionLinks: [],
   completionFileIds: [],
+  contactCardPlacement: 'after_completion',
   decisionFlow: [],
   decisionTimeoutMinutes: 30,
   decisionTimeoutText: '',
@@ -885,6 +888,7 @@ export class Storage {
       completionLinks: campaign.conversation?.completionLinks ?? [],
       completionFileIds: campaign.conversation?.completionFileIds ?? [],
       sendContactCard: campaign.conversation?.sendContactCard ?? defaults.sendContactCard ?? false,
+      contactCardPlacement: campaign.conversation?.contactCardPlacement ?? defaults.contactCardPlacement ?? 'after_completion',
       contactCardName: campaign.conversation?.contactCardName ?? defaults.contactCardName ?? '',
       contactCardPhone: campaign.conversation?.contactCardPhone ?? defaults.contactCardPhone ?? '',
       contactCardEmail: campaign.conversation?.contactCardEmail ?? defaults.contactCardEmail ?? '',

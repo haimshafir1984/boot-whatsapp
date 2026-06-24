@@ -43,6 +43,7 @@ interface CompletionDelivery {
   links?: CompletionLink[];
   fileIds?: string[];
   contactCard?: CompletionContactCard;
+  contactCardPlacement?: 'after_completion' | 'before_questions';
 }
 
 function logTimerError(label: string, err: unknown): void {
@@ -157,6 +158,7 @@ async function handleMessage(
             completionLinks: pending.completionLinks,
             completionFileIds: pending.completionFileIds,
             sendContactCard: pending.sendContactCard,
+            contactCardPlacement: pending.contactCardPlacement,
             contactCardName: pending.contactCardName,
             contactCardPhone: pending.contactCardPhone,
             contactCardEmail: pending.contactCardEmail,
@@ -262,6 +264,7 @@ async function handleMessage(
         links: pending.completionLinks,
         fileIds: pending.completionFileIds,
         contactCard: contactCardFromSettings(pending),
+        contactCardPlacement: pending.contactCardPlacement,
       },
     );
     return;
@@ -344,6 +347,7 @@ async function handleMessage(
         completionLinks: settings.completionLinks,
         completionFileIds: settings.completionFileIds,
         sendContactCard: settings.sendContactCard,
+        contactCardPlacement: settings.contactCardPlacement,
         contactCardName: settings.contactCardName,
         contactCardPhone: settings.contactCardPhone,
         contactCardEmail: settings.contactCardEmail,
@@ -476,6 +480,8 @@ async function askForContactName(
           {
             links: settings.completionLinks,
             fileIds: settings.completionFileIds,
+            contactCard: contactCardFromSettings(settings),
+            contactCardPlacement: settings.contactCardPlacement,
           },
         );
       } catch (err) {
@@ -493,6 +499,12 @@ async function askForContactName(
     replyText: settings.replyText,
     completionLinks: settings.completionLinks,
     completionFileIds: settings.completionFileIds,
+    sendContactCard: settings.sendContactCard,
+    contactCardPlacement: settings.contactCardPlacement,
+    contactCardName: settings.contactCardName,
+    contactCardPhone: settings.contactCardPhone,
+    contactCardEmail: settings.contactCardEmail,
+    contactCardOrganization: settings.contactCardOrganization,
     followupMessages: settings.followupMessages,
     decisionFlow: settings.decisionFlow,
     humanHandoffEnabled: settings.humanHandoffEnabled,
@@ -649,9 +661,12 @@ async function queueAndReply(
   await runReplyStep('completion files', async () => {
     await sendCompletionFiles(transport, storage, senderJid, completion.fileIds, campaignId, campaignResultId, senderPhone);
   });
-  await runReplyStep('contact card', async () => {
-    await sendCompletionContactCard(transport, storage, senderJid, completion.contactCard, campaignId, campaignResultId, senderPhone);
-  });
+  const contactCardPlacement = completion.contactCardPlacement ?? 'after_completion';
+  if (contactCardPlacement !== 'before_questions') {
+    await runReplyStep('contact card', async () => {
+      await sendCompletionContactCard(transport, storage, senderJid, completion.contactCard, campaignId, campaignResultId, senderPhone);
+    });
+  }
 
   for (const followupText of followupMessages) {
     const text = followupText.trim();
@@ -659,6 +674,12 @@ async function queueAndReply(
     await runReplyStep('follow-up text', async () => {
       await sendBotMessage(transport, senderJid, text);
       console.log('   Follow-up reply sent.');
+    });
+  }
+
+  if (contactCardPlacement === 'before_questions') {
+    await runReplyStep('contact card before questions', async () => {
+      await sendCompletionContactCard(transport, storage, senderJid, completion.contactCard, campaignId, campaignResultId, senderPhone);
     });
   }
 

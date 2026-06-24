@@ -295,21 +295,27 @@ function validateTwilioSignature(req: express.Request): boolean {
   if (!config.TWILIO_REQUIRE_SIGNATURE) return true;
   const signature = req.get('x-twilio-signature');
   if (!signature || !config.TWILIO_AUTH_TOKEN) return false;
-  const protocol = req.protocol;
-  const host = req.get('host');
+  const forwardedProto = String(req.get('x-forwarded-proto') || '').split(',')[0]?.trim();
+  const protocol = forwardedProto || req.protocol;
+  const host = req.get('x-forwarded-host') || req.get('host');
   if (!host) return false;
-  const url = `${protocol}://${host}${req.originalUrl}`;
   const params = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : {};
-  const data = Object.keys(params)
-    .sort()
-    .reduce((acc, key) => `${acc}${key}${String(params[key] ?? '')}`, url);
-  const expected = crypto
-    .createHmac('sha1', config.TWILIO_AUTH_TOKEN)
-    .update(data)
-    .digest('base64');
-  const left = Buffer.from(signature);
-  const right = Buffer.from(expected);
-  return left.length === right.length && crypto.timingSafeEqual(left, right);
+  const urls = Array.from(new Set([
+    `${protocol}://${host}${req.originalUrl}`,
+    `https://${host}${req.originalUrl}`,
+  ]));
+  return urls.some((url) => {
+    const data = Object.keys(params)
+      .sort()
+      .reduce((acc, key) => `${acc}${key}${String(params[key] ?? '')}`, url);
+    const expected = crypto
+      .createHmac('sha1', config.TWILIO_AUTH_TOKEN)
+      .update(data)
+      .digest('base64');
+    const left = Buffer.from(signature);
+    const right = Buffer.from(expected);
+    return left.length === right.length && crypto.timingSafeEqual(left, right);
+  });
 }
 
 function getClientCapabilities(storage: Storage) {
@@ -476,6 +482,9 @@ function conversationSettings(
     sendContactCard: typeof input?.sendContactCard === 'boolean'
       ? input.sendContactCard
       : Boolean(defaults.sendContactCard),
+    contactCardPlacement: input?.contactCardPlacement === 'before_questions'
+      ? 'before_questions'
+      : (defaults.contactCardPlacement ?? 'after_completion'),
     contactCardName: typeof input?.contactCardName === 'string'
       ? input.contactCardName.trim().slice(0, 120)
       : (defaults.contactCardName ?? ''),
@@ -657,6 +666,12 @@ function buildCampaignDryRun(campaign: Campaign, storage: Storage) {
   if (conversation.replyText.trim()) {
     messages.push({ from: 'bot', text: conversation.replyText.trim() });
   }
+  const dryRunContactCardText = conversation.sendContactCard
+    ? `איש קשר לשמירה: ${conversation.contactCardName || 'איש קשר'}`
+    : '';
+  if (dryRunContactCardText && conversation.contactCardPlacement === 'before_questions') {
+    messages.push({ from: 'bot', text: dryRunContactCardText });
+  }
   if (conversation.completionLinks?.length) {
     messages.push({
       from: 'bot',
@@ -669,6 +684,9 @@ function buildCampaignDryRun(campaign: Campaign, storage: Storage) {
   }
   for (const followup of conversation.followupMessages) {
     if (followup.trim()) messages.push({ from: 'bot', text: followup.trim() });
+  }
+  if (dryRunContactCardText && conversation.contactCardPlacement !== 'before_questions') {
+    messages.push({ from: 'bot', text: dryRunContactCardText });
   }
   const flow = conversation.decisionFlow || [];
   const visited = new Set<string>();
@@ -821,8 +839,8 @@ export function startAdminServer(storage: Storage): void {
     const fromKey = normalizeGatewayPhone(meta.from);
     if (!fromKey) return { handled: false, status: 400, reason: 'Missing From' };
     const clients = ownerStorage.getClients()
-      .filter((client) => client.whatsappProvider === 'TWILIO_API' && client.managementUrl && client.ownerAccessToken && client.provisioningStatus !== 'disabled');
-    if (!clients.length) return { handled: false, status: 409, reason: 'No Twilio clients configured for gateway routing' };
+      .filter((client) => client.managementUrl && client.ownerAccessToken && client.provisioningStatus !== 'disabled');
+    if (!clients.length) return { handled: false, status: 409, reason: 'No managed clients configured for gateway routing' };
 
     const normalizedBody = normalizeGatewayText(meta.body);
     const candidates: Array<{ client: ManagedClient; campaign: Campaign; triggerText: string }> = [];

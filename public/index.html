@@ -911,10 +911,33 @@
       color: #1f2937;
     }
     .btn-small:hover { background: #eef2f7; }
+    #modalOverlay .modal { width: min(1420px, 100%); padding: 22px; background: #f8fafc; }
+    #modalOverlay .wizard-shell { display: none; }
+    #modalOverlay .campaign-editor-grid { grid-template-columns: minmax(230px, 280px) minmax(420px, 1fr) minmax(285px, 350px); gap: 16px; align-items: start; }
+    .campaign-editor-main { min-width: 0; }
+    .conversation-map, #modalOverlay .phone-preview, #modalOverlay .editor-section { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 10px 30px rgba(15,23,42,.06); }
+    .conversation-map { position: sticky; top: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+    .conversation-map-title { font-size: .92rem; font-weight: 900; color: #0f172a; }
+    .conversation-map-help, .conversation-map-note { color: #64748b; font-size: .75rem; line-height: 1.45; }
+    .conversation-node { width: 100%; border: 1px solid #e2e8f0; background: #fff; border-radius: 10px; padding: 9px; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 8px; align-items: center; text-align: right; cursor: pointer; }
+    .conversation-node.active { border-color: #25d366; background: #f0fdf4; box-shadow: 0 0 0 3px rgba(37,211,102,.13); }
+    .conversation-node strong { display: block; color: #111827; font-size: .82rem; line-height: 1.25; }
+    .conversation-node small { display: block; color: #64748b; font-size: .7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .node-index { width: 28px; height: 28px; border-radius: 999px; display: grid; place-items: center; background: #eef2ff; color: #1d4ed8; font-size: .76rem; font-weight: 900; }
+    .conversation-node.active .node-index { background: #25d366; color: #fff; }
+    .node-status { border-radius: 999px; background: #f1f5f9; color: #64748b; padding: 3px 7px; font-size: .66rem; font-style: normal; font-weight: 900; white-space: nowrap; }
+    .node-status.ok { background: #dcfce7; color: #166534; }
+    .node-status.warn { background: #fee2e2; color: #991b1b; }
+    #modalOverlay .editor-section { padding: 16px; }
+    #modalOverlay .editor-section-title { font-size: 1rem; margin-bottom: 12px; }
+    .contact-placement-field { margin-top: 10px; margin-bottom: 0; padding: 10px; border: 1px solid #dbeafe; border-radius: 10px; background: #eff6ff; }
+    .decision-step-actions { display: flex; gap: 6px; justify-content: flex-end; }
+    .decision-step-actions .move-step { width: 34px; padding-inline: 0; }
     @media (max-width: 820px) {
       .page, #main-content { max-width: 560px; }
       .settings-preview-grid { grid-template-columns: 1fr; }
-      .campaign-editor-grid, .two-fields { grid-template-columns: 1fr; }
+      .campaign-editor-grid, #modalOverlay .campaign-editor-grid, .two-fields { grid-template-columns: 1fr; }
+      .conversation-map { position: static; }
       .twilio-onboarding-form { grid-template-columns: 1fr; }
       .result-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .result-funnel, .activity-log-simple { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1246,7 +1269,27 @@
       <div class="wizard-step-copy" id="wizardStepCopy">קמפיין Twilio בתוך שיחה פתוחה: הלקוח שולח את ההודעה הראשונה, ולכן לא צריך טמפלייט מאושר כדי לשלוח כפתורים, רשימות, קבצים ואיש קשר לשמירה.</div>
     </div>
     <div class="campaign-editor-grid wizard-grid">
-      <div>
+      <aside class="conversation-map" aria-label="מפת השיחה">
+        <div class="conversation-map-title">מפת השיחה</div>
+        <div class="conversation-map-help">לחיצה על צומת פותחת את העריכה שלו. הטריגר ושאלת השם נשארים בסיס קבוע; את ה-vCard אפשר למקם לפני שאלות או בסיום.</div>
+        <button type="button" class="conversation-node active" data-flow-step="1" onclick="goWizardStep(1)">
+          <span class="node-index">1</span><span><strong>טריגר</strong><small id="flowMapTrigger">משפט פתיחה</small></span><em class="node-status ok">חובה</em>
+        </button>
+        <button type="button" class="conversation-node" data-flow-step="2" onclick="goWizardStep(2)">
+          <span class="node-index">2</span><span><strong>שאלת שם</strong><small id="flowMapAskName">פעילה לפי ההגדרות</small></span><em class="node-status ok">בסיס</em>
+        </button>
+        <button type="button" class="conversation-node" data-flow-step="2" onclick="goWizardStep(2); focusContactCardNode()">
+          <span class="node-index">3</span><span><strong>איש קשר לשמירה</strong><small id="flowMapContactCard">כבוי</small></span><em class="node-status" id="flowMapContactStatus">אופציונלי</em>
+        </button>
+        <button type="button" class="conversation-node" data-flow-step="3" onclick="goWizardStep(3)">
+          <span class="node-index">4</span><span><strong>שאלות והודעות</strong><small id="flowMapQuestions">ללא שאלות</small></span><em class="node-status ok">ניתן להזזה</em>
+        </button>
+        <button type="button" class="conversation-node" data-flow-step="4" onclick="goWizardStep(4)">
+          <span class="node-index">5</span><span><strong>סיכום ולינק</strong><small>בדיקה לפני שמירה</small></span><em class="node-status ok">סיום</em>
+        </button>
+        <div class="conversation-map-note" id="flowMapSequenceNote">סדר נוכחי: שם -> vCard -> שאלות -> סיום.</div>
+      </aside>
+      <div class="campaign-editor-main">
         <div class="editor-section wizard-panel active" data-wizard-panel="1">
           <div class="editor-section-title">פרטי הקמפיין</div>
           <div class="field">
@@ -1364,6 +1407,14 @@
             <div id="fContactCardFields" style="display:none;margin-top:12px">
               <div class="two-fields"><div><label>שם איש הקשר</label><input type="text" id="fContactCardName" placeholder="שם העסק / איש הקשר" oninput="updateCampaignConversationPreview()" /></div><div><label>טלפון לשמירה</label><input type="tel" id="fContactCardPhone" placeholder="9725XXXXXXXX" oninput="updateCampaignConversationPreview()" /></div></div>
               <div class="two-fields" style="margin-top:10px"><div><label>אימייל</label><input type="email" id="fContactCardEmail" placeholder="name@example.com" oninput="updateCampaignConversationPreview()" /></div><div><label>ארגון</label><input type="text" id="fContactCardOrganization" placeholder="שם העסק" oninput="updateCampaignConversationPreview()" /></div></div>
+              <div class="field contact-placement-field">
+                <label>מתי לשלוח את כרטיס איש הקשר?</label>
+                <select id="fContactCardPlacement" onchange="updateCampaignConversationPreview()">
+                  <option value="before_questions">אחרי שאלת השם, לפני שאלות הקמפיין</option>
+                  <option value="after_completion">בסיום הקמפיין</option>
+                </select>
+                <div class="hint">כך אפשר לבנות סדר כמו: שאלת שם -> תשמור גם אותי + vCard -> שאלות.</div>
+              </div>
             </div>
           </div>
         </div>
@@ -1974,7 +2025,8 @@
     const flowCount = conversation.followupMessages.length
       + conversation.decisionFlow.length
       + conversation.completionLinks.length
-      + conversation.completionFileIds.length;
+      + conversation.completionFileIds.length
+      + (conversation.sendContactCard ? 1 : 0);
 
     document.getElementById('wizardSummaryName')?.replaceChildren(document.createTextNode(name));
     document.getElementById('wizardSummaryType')?.replaceChildren(document.createTextNode(triggerType === 1 ? 'קמפיין רגיל' : 'קמפיין ממליץ'));
@@ -2195,6 +2247,8 @@
     document.getElementById('fContactCardPhone').value = settings.contactCardPhone || '';
     document.getElementById('fContactCardEmail').value = settings.contactCardEmail || '';
     document.getElementById('fContactCardOrganization').value = settings.contactCardOrganization || '';
+    const contactPlacement = document.getElementById('fContactCardPlacement');
+    if (contactPlacement) contactPlacement.value = settings.contactCardPlacement || 'after_completion';
     updateContactCardVisibility();
     renderCampaignFollowupFields(settings.followupMessages || []);
     renderDecisionFlow(settings.decisionFlow || []);
@@ -2418,6 +2472,7 @@
     el.innerHTML = steps.map((step, index) => decisionStepHtml(step, index, steps)).join('');
     updateDecisionStepVisibility();
     refreshDecisionNextOptions();
+    updateDecisionStepMoveButtons();
     updateCampaignConversationPreview();
   }
 
@@ -2442,7 +2497,11 @@
             <option value="question" ${kind === 'question' ? 'selected' : ''}>שאלת בחירה</option>
             <option value="score_question" ${kind === 'score_question' ? 'selected' : ''}>סקר 1/2/3</option>
           </select>
-          <button type="button" class="btn-small" onclick="removeDecisionStep(this)">מחק</button>
+          <div class="decision-step-actions">
+            <button type="button" class="btn-small move-step" data-move="up" onclick="moveDecisionStep(this, -1)" title="העבר למעלה">↑</button>
+            <button type="button" class="btn-small move-step" data-move="down" onclick="moveDecisionStep(this, 1)" title="העבר למטה">↓</button>
+            <button type="button" class="btn-small" onclick="removeDecisionStep(this)">מחק</button>
+          </div>
         </div>
         <textarea data-step-text oninput="updateCampaignConversationPreview()" placeholder="${kind === 'question' ? 'לדוגמה: האם ברצונך לקבל חוברת פרסום?' : 'ההודעה שתישלח'}">${esc(step.text || '')}</textarea>
         <div class="decision-next-row" data-question-presentation>
@@ -2530,6 +2589,22 @@
     renderDecisionFlow(steps);
   }
 
+  function moveDecisionStep(btn, direction) {
+    const step = btn.closest('[data-decision-step]');
+    const list = step?.parentElement;
+    if (!step || !list) return;
+    if (direction < 0 && step.previousElementSibling) {
+      list.insertBefore(step, step.previousElementSibling);
+    }
+    if (direction > 0 && step.nextElementSibling) {
+      list.insertBefore(step.nextElementSibling, step);
+    }
+    refreshDecisionNextOptions();
+    updateDecisionOptionNumbers();
+    updateDecisionStepMoveButtons();
+    updateCampaignConversationPreview();
+  }
+
   function removeDecisionStep(btn) {
     const step = btn.closest('[data-decision-step]');
     const id = step?.dataset.stepId;
@@ -2539,6 +2614,7 @@
     });
     refreshDecisionNextOptions();
     updateDecisionOptionNumbers();
+    updateDecisionStepMoveButtons();
     updateCampaignConversationPreview();
   }
 
@@ -2643,6 +2719,16 @@
           }
         }
       });
+    });
+  }
+
+  function updateDecisionStepMoveButtons() {
+    const steps = [...document.querySelectorAll('[data-decision-step]')];
+    steps.forEach((step, index) => {
+      const up = step.querySelector('[data-move="up"]');
+      const down = step.querySelector('[data-move="down"]');
+      if (up) up.disabled = index === 0;
+      if (down) down.disabled = index === steps.length - 1;
     });
   }
 
@@ -2754,6 +2840,7 @@
         .map(el => el.value.trim())
         .filter(Boolean),
       sendContactCard: document.getElementById('fSendContactCard')?.checked || false,
+      contactCardPlacement: document.getElementById('fContactCardPlacement')?.value || 'after_completion',
       contactCardName: document.getElementById('fContactCardName')?.value || '',
       contactCardPhone: document.getElementById('fContactCardPhone')?.value || '',
       contactCardEmail: document.getElementById('fContactCardEmail')?.value || '',
@@ -2768,6 +2855,34 @@
       humanHandoffText: document.getElementById('fHumanHandoffText')?.value || appSettings.humanHandoffText,
       humanHandoffPhone: document.getElementById('fHumanHandoffPhone')?.value || '',
     };
+  }
+
+  function focusContactCardNode() {
+    setTimeout(() => document.getElementById('fContactCardFields')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+  }
+
+  function updateConversationMap(conversation, triggerText) {
+    document.querySelectorAll('.conversation-node').forEach(node => {
+      node.classList.toggle('active', Number(node.dataset.flowStep) === wizardStep);
+    });
+    document.getElementById('flowMapTrigger')?.replaceChildren(document.createTextNode(triggerText || 'משפט פתיחה'));
+    document.getElementById('flowMapAskName')?.replaceChildren(document.createTextNode(conversation.askNameEnabled ? 'פעילה - שואלים שם' : 'כבויה'));
+    const contactText = conversation.sendContactCard
+      ? (conversation.contactCardPlacement === 'before_questions' ? 'נשלח לפני שאלות' : 'נשלח בסיום')
+      : 'כבוי';
+    document.getElementById('flowMapContactCard')?.replaceChildren(document.createTextNode(contactText));
+    const contactStatus = document.getElementById('flowMapContactStatus');
+    if (contactStatus) {
+      contactStatus.textContent = conversation.sendContactCard ? 'פעיל' : 'כבוי';
+      contactStatus.classList.toggle('ok', Boolean(conversation.sendContactCard));
+      contactStatus.classList.toggle('warn', false);
+    }
+    const flowCount = (conversation.followupMessages || []).length + (conversation.decisionFlow || []).length;
+    document.getElementById('flowMapQuestions')?.replaceChildren(document.createTextNode(flowCount ? flowCount + ' צמתים' : 'ללא שאלות'));
+    const sequence = conversation.sendContactCard && conversation.contactCardPlacement === 'before_questions'
+      ? 'סדר נוכחי: שם -> vCard -> שאלות -> סיום.'
+      : 'סדר נוכחי: שם -> שאלות -> סיום -> vCard/קבצים.';
+    document.getElementById('flowMapSequenceNote')?.replaceChildren(document.createTextNode(sequence));
   }
 
   function updateCampaignConversationPreview() {
@@ -2809,7 +2924,7 @@
         const file = appFiles.find(item => item.id === fileId);
         return `<div class="chat-row bot"><div class="chat-bubble">קובץ: ${esc(file?.originalName || 'קובץ שנבחר')}</div></div>`;
       }).join('');
-      completionEl.innerHTML = linkPreview + filePreview + contactCardPreview;
+      completionEl.innerHTML = linkPreview + filePreview + (conversation.contactCardPlacement === 'before_questions' ? contactCardPreview : '');
     }
     if (followupsEl) {
       followupsEl.innerHTML = conversation.followupMessages.map(message => `
@@ -2821,9 +2936,13 @@
       const handoffPreview = conversation.humanHandoffEnabled
         ? `<div class="chat-row bot"><div class="chat-bubble">${esc(formatHumanHandoffPreview(conversation))}</div></div>`
         : '';
-      decisionFlowEl.innerHTML = flowPreview + handoffPreview;
+      const lateContactCardPreview = conversation.sendContactCard && conversation.contactCardPlacement !== 'before_questions'
+        ? `<div class="chat-row bot"><div class="chat-bubble">איש קשר לשמירה: ${esc(conversation.contactCardName || 'איש קשר')}</div></div>`
+        : '';
+      decisionFlowEl.innerHTML = flowPreview + lateContactCardPreview + handoffPreview;
     }
     if (askRow) askRow.style.display = conversation.askNameEnabled ? 'flex' : 'none';
+    updateConversationMap(conversation, triggerText);
     updateWizardSummary();
   }
 
