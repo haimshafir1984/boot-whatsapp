@@ -128,7 +128,14 @@ async function handleMessage(
     ? Date.now() - message.timestamp * 1000
     : 0;
   const senderPhone = message.senderPhone || await transport.resolvePhone(senderJid);
-  const pending = conversationState.get(senderJid) || conversationState.findByPhone(senderPhone);
+  let pending = conversationState.get(senderJid) || conversationState.findByPhone(senderPhone);
+  const activeCampaigns = storage.getActiveCampaigns();
+  const trigger = message.body?.trim() ? detectTrigger(message.body, activeCampaigns) : { matched: false, campaignId: '', suffix: '', campaignName: '' };
+  if (pending && trigger.matched && messageAgeMs <= MAX_TRIGGER_AGE_MS) {
+    clearTimeout(pending.timeoutHandle);
+    conversationState.remove(pending.senderJid);
+    pending = undefined;
+  }
 
   if (pending) {
     if (pending.kind === 'pre-name-prompt') {
@@ -336,8 +343,6 @@ async function handleMessage(
   if (message.isReaction) return;
   if (!message.body?.trim()) return;
 
-  const activeCampaigns = storage.getActiveCampaigns();
-  const trigger = detectTrigger(message.body, activeCampaigns);
   if (!trigger.matched) {
     console.log(`[MSG] no trigger match via=${source} age=${Math.round(messageAgeMs / 1000)}s from=${senderJid} active=${activeCampaigns.length}`);
     return;
@@ -1613,11 +1618,10 @@ function scoreForOption(option: DecisionFlowOption, step: DecisionFlowStep): num
 function formatHumanHandoffText(text?: string, phone?: string): string {
   const base = (text || 'אני מענה אוטומטי.\nלשאלות נוספות אפשר לעבור לשיחה אנושית כאן:\n[מעבר ל-WhatsApp]').trim();
   const cleanPhone = normalizeHumanHandoffPhone(phone);
-  if (!cleanPhone) return base;
+  if (!cleanPhone) return base.replace(/\n?\[[^\]]*WhatsApp[^\]]*\]/g, '').trim();
   const link = `https://wa.me/${cleanPhone}`;
-  return base.includes('[מעבר ל-WhatsApp]')
-    ? base.replace('[מעבר ל-WhatsApp]', link)
-    : `${base}\n${link}`;
+  const textWithLink = base.replace(/\[[^\]]*WhatsApp[^\]]*\]/g, link).trim();
+  return textWithLink === base ? `${base}\n${link}` : textWithLink;
 }
 
 function normalizeHumanHandoffPhone(phone?: string): string {
