@@ -34,6 +34,10 @@ export class WebJsProvider implements WhatsAppProvider {
     });
   }
 
+  async sendContactCard(to: string, vcard: string, _displayName: string): Promise<void> {
+    await this.client.sendMessage(to, vcard, { parseVCards: true, linkPreview: false } as any);
+  }
+
   async sendInteractiveButtons(
     to: string,
     text: string,

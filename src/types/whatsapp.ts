@@ -15,6 +15,7 @@ export interface IncomingWhatsAppMessage {
 export interface WhatsAppTransport {
   sendMessage(to: string, message: string): Promise<void>;
   sendFile?(to: string, filePath: string, caption?: string, options?: { asSticker?: boolean }): Promise<void>;
+  sendContactCard?(to: string, vcard: string, displayName: string): Promise<void>;
   sendContentTemplate?(to: string, contentSid: string, contentVariables?: Record<string, string>): Promise<void>;
   sendInteractiveButtons?(to: string, text: string, buttons: Array<{ id: string; text: string }>): Promise<void>;
   sendInteractiveList?(to: string, text: string, buttonText: string, items: Array<{ id: string; text: string }>): Promise<void>;
@@ -27,6 +28,7 @@ export interface WhatsAppProvider {
   logout(): Promise<void>;
   sendMessage(to: string, message: string): Promise<void>;
   sendFile?(to: string, filePath: string, caption?: string, options?: { asSticker?: boolean }): Promise<void>;
+  sendContactCard?(to: string, vcard: string, displayName: string): Promise<void>;
   sendContentTemplate?(to: string, contentSid: string, contentVariables?: Record<string, string>): Promise<void>;
   sendInteractiveButtons(
     to: string,

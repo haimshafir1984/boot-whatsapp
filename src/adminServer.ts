@@ -675,14 +675,17 @@ function buildCampaignDryRun(campaign: Campaign, storage: Storage) {
     });
     messages.push({ from: 'user', text: 'שם לדוגמה' });
   }
-  if (conversation.replyText.trim()) {
-    messages.push({ from: 'bot', text: conversation.replyText.trim() });
-  }
   const dryRunContactCardText = conversation.sendContactCard
     ? `איש קשר לשמירה: ${conversation.contactCardName || 'איש קשר'}`
     : '';
-  if (dryRunContactCardText && conversation.contactCardPlacement === 'before_questions') {
+  const contactCardIsEarly = Boolean(dryRunContactCardText && conversation.contactCardPlacement === 'before_questions');
+  if (conversation.replyText.trim() && !contactCardIsEarly) {
+    messages.push({ from: 'bot', text: conversation.replyText.trim() });
+  }
+  if (contactCardIsEarly) {
+    if (conversation.contactCardIntroText?.trim()) messages.push({ from: 'bot', text: conversation.contactCardIntroText.trim() });
     messages.push({ from: 'bot', text: dryRunContactCardText });
+    if (conversation.contactCardWaitForConfirmation) messages.push({ from: 'user', text: 'שמרתי' });
   }
   if (conversation.completionLinks?.length) {
     messages.push({
@@ -698,6 +701,7 @@ function buildCampaignDryRun(campaign: Campaign, storage: Storage) {
     if (followup.trim()) messages.push({ from: 'bot', text: followup.trim() });
   }
   if (dryRunContactCardText && conversation.contactCardPlacement !== 'before_questions') {
+    if (conversation.contactCardIntroText?.trim()) messages.push({ from: 'bot', text: conversation.contactCardIntroText.trim() });
     messages.push({ from: 'bot', text: dryRunContactCardText });
   }
   const flow = conversation.decisionFlow || [];

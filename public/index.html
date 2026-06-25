@@ -3016,22 +3016,28 @@
         `
         : '';
     }
+    const contactCardIsEarly = Boolean(conversation.sendContactCard && conversation.contactCardPlacement === 'before_questions');
     if (askEl) askEl.textContent = askNameText;
-    if (replyEl) replyEl.textContent = conversation.replyText;
+    if (replyEl) {
+      replyEl.textContent = conversation.replyText;
+      const replyRow = replyEl.closest('.chat-row');
+      if (replyRow) replyRow.style.display = conversation.replyText.trim() && !contactCardIsEarly ? 'flex' : 'none';
+    }
     if (completionEl) {
       const linkPreview = (conversation.completionLinks || []).length
         ? `<div class="chat-row bot"><div class="chat-bubble">${esc(conversation.completionLinks.map(link => `${link.label || link.url}\n${link.url}`).join('\n\n'))}</div></div>`
         : '';
       const contactIntroPreview = conversation.sendContactCard && conversation.contactCardIntroText?.trim()
         ? `<div class="chat-row bot"><div class="chat-bubble">${esc(conversation.contactCardIntroText.trim())}</div></div>`
-        : '';      const contactCardPreview = conversation.sendContactCard
+        : '';
+      const contactCardPreview = conversation.sendContactCard
         ? `<div class="chat-row bot"><div class="chat-bubble">איש קשר לשמירה: ${esc(conversation.contactCardName || 'איש קשר')}</div></div>`
         : '';
       const filePreview = (conversation.completionFileIds || []).map(fileId => {
         const file = appFiles.find(item => item.id === fileId);
         return `<div class="chat-row bot"><div class="chat-bubble">קובץ: ${esc(file?.originalName || 'קובץ שנבחר')}</div></div>`;
       }).join('');
-      completionEl.innerHTML = linkPreview + filePreview + (conversation.contactCardPlacement === 'before_questions' ? contactIntroPreview + contactCardPreview : '');
+      completionEl.innerHTML = linkPreview + filePreview + (contactCardIsEarly ? contactIntroPreview + contactCardPreview : '');
     }
     if (followupsEl) {
       followupsEl.innerHTML = conversation.followupMessages.map(message => `
@@ -3043,10 +3049,13 @@
       const handoffPreview = conversation.humanHandoffEnabled
         ? `<div class="chat-row bot"><div class="chat-bubble">${esc(formatHumanHandoffPreview(conversation))}</div></div>`
         : '';
+      const lateContactIntroPreview = conversation.sendContactCard && conversation.contactCardPlacement !== 'before_questions' && conversation.contactCardIntroText?.trim()
+        ? `<div class="chat-row bot"><div class="chat-bubble">${esc(conversation.contactCardIntroText.trim())}</div></div>`
+        : '';
       const lateContactCardPreview = conversation.sendContactCard && conversation.contactCardPlacement !== 'before_questions'
         ? `<div class="chat-row bot"><div class="chat-bubble">איש קשר לשמירה: ${esc(conversation.contactCardName || 'איש קשר')}</div></div>`
         : '';
-      decisionFlowEl.innerHTML = flowPreview + lateContactCardPreview + handoffPreview;
+      decisionFlowEl.innerHTML = flowPreview + lateContactIntroPreview + lateContactCardPreview + handoffPreview;
     }
     if (askRow) askRow.style.display = conversation.askNameEnabled ? 'flex' : 'none';
     updateConversationMap(conversation, triggerText);

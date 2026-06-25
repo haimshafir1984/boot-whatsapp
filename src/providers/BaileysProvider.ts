@@ -191,6 +191,16 @@ export class BaileysProvider implements WhatsAppProvider {
     });
   }
 
+  async sendContactCard(to: string, vcard: string, displayName: string): Promise<void> {
+    this.assertReady();
+    await this.socket!.sendMessage(normalizeJid(to), {
+      contacts: {
+        displayName,
+        contacts: [{ displayName, vcard }],
+      },
+    } as any);
+  }
+
   async sendInteractiveButtons(
     to: string,
     text: string,

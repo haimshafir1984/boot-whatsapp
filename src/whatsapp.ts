@@ -210,6 +210,9 @@ function createWebJsTransport(client: Client): WhatsAppTransport {
         ...(options.asSticker ? { sendMediaAsSticker: true } : {}),
       });
     },
+    sendContactCard: async (to: string, vcard: string) => {
+      await client.sendMessage(to, vcard, { parseVCards: true, linkPreview: false } as any);
+    },
     sendInteractiveButtons: async (to, text, buttons) => {
       const buttonText = buttons.length
         ? `${text}\n\n${buttons.map((button, index) => `${index + 1}. ${button.text}`).join('\n')}`

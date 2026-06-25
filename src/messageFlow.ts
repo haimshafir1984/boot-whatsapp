@@ -966,21 +966,25 @@ async function sendCompletionContactCard(
     campaignResultId || senderPhone || 'contact',
   ].join('-').replace(/[^a-z0-9.-]+/gi, '-').slice(0, 120) + '.vcf';
   const filePath = path.join(config.UPLOADS_PATH, safeFileName);
-  const lines = [
-    'BEGIN:VCARD',
-    'VERSION:3.0',
-    `FN:${escapeVCardValue(name || phone || email || 'Contact')}`,
-    `N:${escapeVCardValue(name || phone || email || 'Contact')};;;;`,
-  ];
-  if (phone) lines.push(`TEL;TYPE=CELL,VOICE:${escapeVCardValue(phone)}`);
-  if (email) lines.push(`EMAIL:${escapeVCardValue(email)}`);
-  if (organization) lines.push(`ORG:${escapeVCardValue(organization)}`);
-  lines.push('END:VCARD');
-  fs.writeFileSync(filePath, `${lines.join('\r\n')}\r\n`, 'utf8');
+  const vcard = buildVCard({ name, phone, email, organization });
+  fs.writeFileSync(filePath, vcard, 'utf8');
 
-  const displayFileName = `${(name || 'contact').replace(/[\/:*?"<>|]+/g, '-').slice(0, 80)}.vcf`;
-  await sendFileWithRetry(transport, senderJid, filePath, undefined, {}, displayFileName);
-  console.log('   Contact card sent.');
+  const displayName = name || phone || email || 'Contact';
+  const displayFileName = `${(displayName).replace(/[\/:*?"<>|]+/g, '-').slice(0, 80)}.vcf`;
+  if (transport.sendContactCard) {
+    try {
+      await waitBeforeBotReply();
+      await transport.sendContactCard(senderJid, vcard, displayName);
+      console.log('   Native contact card sent.');
+    } catch (err) {
+      console.warn('   Native contact card failed, falling back to vCard file:', err);
+      await sendFileWithRetry(transport, senderJid, filePath, undefined, {}, displayFileName);
+      console.log('   Contact card file sent.');
+    }
+  } else {
+    await sendFileWithRetry(transport, senderJid, filePath, undefined, {}, displayFileName);
+    console.log('   Contact card file sent.');
+  }
   if (campaignId) {
     storage.recordCampaignEvent({
       campaignId,
@@ -990,6 +994,21 @@ async function sendCompletionContactCard(
       label: `contact card: ${name}`.slice(0, 120),
     });
   }
+}
+
+function buildVCard(contact: { name: string; phone: string; email: string; organization: string }): string {
+  const displayName = contact.name || contact.phone || contact.email || 'Contact';
+  const lines = [
+    'BEGIN:VCARD',
+    'VERSION:3.0',
+    `FN:${escapeVCardValue(displayName)}`,
+    `N:${escapeVCardValue(displayName)};;;;`,
+  ];
+  if (contact.phone) lines.push(`TEL;TYPE=CELL,VOICE:${escapeVCardValue(contact.phone)}`);
+  if (contact.email) lines.push(`EMAIL:${escapeVCardValue(contact.email)}`);
+  if (contact.organization) lines.push(`ORG:${escapeVCardValue(contact.organization)}`);
+  lines.push('END:VCARD');
+  return `${lines.join('\r\n')}\r\n`;
 }
 
 function normalizeVCardPhone(value: string): string {
