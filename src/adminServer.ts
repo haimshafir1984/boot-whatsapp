@@ -936,7 +936,8 @@ export function startAdminServer(storage: Storage): void {
 
   app.post('/webhooks/twilio/whatsapp', async (req, res) => {
     const meta = twilioInboundMeta(req.body);
-    if (config.TWILIO_WEBHOOK_TOKEN && req.query.token !== config.TWILIO_WEBHOOK_TOKEN) {
+    const validTwilioSignature = validateTwilioSignature(req);
+    if (config.TWILIO_WEBHOOK_TOKEN && req.query.token !== config.TWILIO_WEBHOOK_TOKEN && !validTwilioSignature) {
       recordTwilioEvent({
         direction: 'inbound',
         status: 'ignored',
@@ -944,12 +945,12 @@ export function startAdminServer(storage: Storage): void {
         to: meta.to,
         body: meta.body,
         messageSid: meta.id,
-        details: 'Invalid webhook token',
+        details: 'Invalid webhook token or Twilio signature',
       });
-      res.status(401).send('Invalid webhook token');
+      res.status(401).send('Invalid webhook token or Twilio signature');
       return;
     }
-    if (!validateTwilioSignature(req)) {
+    if (!validTwilioSignature) {
       recordTwilioEvent({
         direction: 'inbound',
         status: 'ignored',

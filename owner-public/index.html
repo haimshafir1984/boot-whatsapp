@@ -225,13 +225,8 @@
     }
 
     function getTwilioWebhookUrl(client) {
-      if (client.whatsappProvider !== 'TWILIO_API' || !client.managementUrl) return '';
-      if (client.twilioWebhookUrl) return client.twilioWebhookUrl;
-      try {
-        return `${new URL(client.managementUrl).origin}/webhooks/twilio/whatsapp`;
-      } catch (_) {
-        return '';
-      }
+      if (client.whatsappProvider !== 'TWILIO_API') return '';
+      return client.twilioWebhookUrl || '';
     }
 
     async function loadClients() {
