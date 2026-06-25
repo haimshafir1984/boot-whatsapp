@@ -22,6 +22,7 @@ const BOT_REPLY_DELAY_MS = Math.max(
   0,
   Number.isFinite(config.BOT_REPLY_DELAY_MS) ? config.BOT_REPLY_DELAY_MS : 3000,
 );
+const CONTACT_CARD_NEXT_STEP_DELAY_MS = Math.max(BOT_REPLY_DELAY_MS, 7000);
 
 interface CampaignReplyBehavior {
   enabled?: boolean;
@@ -1264,6 +1265,7 @@ async function sendDecisionStep(
     const settings = campaign ? storage.getCampaignConversationSettings(campaign) : storage.getAdminSettings();
     await sendCompletionContactCard(transport, storage, senderJid, contactCardFromSettings(settings), campaignId, campaignResultId, senderPhone);
     if (step.nextStepId) {
+      await sleep(CONTACT_CARD_NEXT_STEP_DELAY_MS);
       await sendDecisionStep(transport, storage, senderJid, flow, step.nextStepId, campaignId, campaignResultId, senderPhone, humanHandoff);
     } else if (campaignId) {
       storage.recordCampaignEvent({
