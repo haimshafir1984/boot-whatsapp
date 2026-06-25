@@ -324,6 +324,9 @@ async function handleMessage(
         fileIds: pending.completionFileIds,
         contactCard: contactCardFromSettings(pending),
         contactCardPlacement: pending.contactCardPlacement,
+        contactCardIntroText: pending.contactCardIntroText,
+        contactCardWaitForConfirmation: pending.contactCardWaitForConfirmation,
+        contactCardConfirmationTimeoutMinutes: pending.contactCardConfirmationTimeoutMinutes,
       },
     );
     return;
@@ -411,6 +414,7 @@ async function handleMessage(
         contactCardPhone: settings.contactCardPhone,
         contactCardEmail: settings.contactCardEmail,
         contactCardOrganization: settings.contactCardOrganization,
+        contactCardIntroText: settings.contactCardIntroText,
         contactCardWaitForConfirmation: settings.contactCardWaitForConfirmation,
         contactCardConfirmationTimeoutMinutes: settings.contactCardConfirmationTimeoutMinutes,
         followupMessages: settings.followupMessages,
