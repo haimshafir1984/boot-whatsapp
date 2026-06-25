@@ -15,6 +15,10 @@ export class TwilioProvider implements WhatsAppProvider {
     // Twilio connections are managed from the owner dashboard, not by QR logout.
   }
 
+  async resolvePhone(jid: string): Promise<string> {
+    return normalizeWhatsAppAddress(jid).replace(/^whatsapp:\+?/, '');
+  }
+
   async sendMessage(_to: string, _message: string): Promise<void> {
     await this.createMessage({
       To: normalizeWhatsAppAddress(_to),

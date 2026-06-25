@@ -858,11 +858,17 @@ export function startAdminServer(storage: Storage): void {
   const routeTwilioGatewayInbound = async (payload: any): Promise<{ handled: boolean; status?: number; reason?: string }> => {
     const meta = twilioInboundMeta(payload);
     const fromKey = normalizeGatewayPhone(meta.from);
+    const toKey = normalizeGatewayPhone(meta.to);
     if (!fromKey) return { handled: false, status: 400, reason: 'Missing From' };
-    const clients = ownerStorage.getClients()
+    const allClients = ownerStorage.getClients()
       .filter((client) => client.managementUrl && client.ownerAccessToken && client.provisioningStatus !== 'disabled');
-    if (!clients.length) return { handled: false, status: 409, reason: 'No managed clients configured for gateway routing' };
+    if (!allClients.length) return { handled: false, status: 409, reason: 'No managed clients configured for gateway routing' };
+    const matchedToClients = toKey
+      ? allClients.filter((client) => normalizeGatewayPhone(client.twilioFrom ?? '') === toKey)
+      : [];
+    const clients = matchedToClients.length ? matchedToClients : allClients;
 
+    const sessionKey = toKey ? fromKey + ':' + toKey : fromKey;
     const normalizedBody = normalizeGatewayText(meta.body);
     const candidates: Array<{ client: ManagedClient; campaign: Campaign; triggerText: string }> = [];
     await Promise.all(clients.map(async (client) => {
@@ -893,13 +899,13 @@ export function startAdminServer(storage: Storage): void {
     let targetClient: ManagedClient | null = best?.client ?? null;
     if (best) {
       twilioGatewaySessions.set({
-        from: fromKey,
+        from: sessionKey,
         clientId: best.client.id,
         campaignId: best.campaign.id,
         updatedAt: new Date().toISOString(),
       });
     } else {
-      const session = twilioGatewaySessions.get(fromKey);
+      const session = twilioGatewaySessions.get(sessionKey);
       targetClient = session ? clients.find((client) => client.id === session.clientId) ?? null : null;
     }
 
