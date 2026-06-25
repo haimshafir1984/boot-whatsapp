@@ -2537,6 +2537,20 @@
     steps.forEach(step => step.classList.toggle('active', step.dataset.stepId === activeDecisionStepId));
   }
 
+  function decisionKindLabel(kind, presentation = 'buttons') {
+    if (kind === 'score_question') return '\u05e1\u05e7\u05e8 1/2/3 \u05d1\u05db\u05e4\u05ea\u05d5\u05e8\u05d9\u05dd';
+    if (kind === 'question') return presentation === 'list' ? '\u05e9\u05d0\u05dc\u05d4 \u05e2\u05dd \u05e8\u05e9\u05d9\u05de\u05d4 \u05e0\u05e4\u05ea\u05d7\u05ea \u05e2\u05d3 10 \u05ea\u05e9\u05d5\u05d1\u05d5\u05ea' : '\u05e9\u05d0\u05dc\u05d4 \u05e2\u05dd \u05e2\u05d3 3 \u05db\u05e4\u05ea\u05d5\u05e8\u05d9\u05dd';
+    if (kind === 'wait_reply') return '\u05d4\u05d5\u05d3\u05e2\u05d4 \u05e9\u05de\u05de\u05ea\u05d9\u05e0\u05d4 \u05dc\u05ea\u05e9\u05d5\u05d1\u05d4';
+    if (kind === 'contact_card') return '\u05e9\u05dc\u05d9\u05d7\u05ea \u05d0\u05d9\u05e9 \u05e7\u05e9\u05e8 \u05d1\u05e4\u05dc\u05d5\u05d0\u05d5';
+    return '\u05d4\u05d5\u05d3\u05e2\u05d4 \u05e8\u05d2\u05d9\u05dc\u05d4';
+  }
+
+  function decisionStepPlaceholder(kind) {
+    if (kind === 'question') return '\u05dc\u05d3\u05d5\u05d2\u05de\u05d4: \u05d4\u05d0\u05dd \u05d1\u05e8\u05e6\u05d5\u05e0\u05da \u05dc\u05e7\u05d1\u05dc \u05d7\u05d5\u05d1\u05e8\u05ea \u05e4\u05e8\u05e1\u05d5\u05dd?';
+    if (kind === 'contact_card') return '\u05d4\u05d5\u05d3\u05e2\u05d4 \u05de\u05e7\u05d3\u05d9\u05de\u05d4 \u05dc\u05e4\u05e0\u05d9 \u05d0\u05d9\u05e9 \u05e7\u05e9\u05e8';
+    return '\u05d4\u05d4\u05d5\u05d3\u05e2\u05d4 \u05e9\u05ea\u05d9\u05e9\u05dc\u05d7';
+  }
+
   function decisionStepHtml(step, index, steps) {
     const stepId = step.id || makeFlowId();
     const kind = step.kind === 'question' || step.kind === 'score_question' || step.kind === 'wait_reply' || step.kind === 'contact_card' ? step.kind : 'message';
@@ -2554,7 +2568,7 @@
         <div class="decision-step-head" onclick="selectDecisionStep('${esc(stepId)}')">
           <div>
             <div class="decision-step-title">שלב ${index + 1}${titlePreview ? ` · ${esc(titlePreview.slice(0, 34))}` : ''}</div>
-            <div class="decision-step-subtitle">${kind === 'question' ? 'שאלה עם עד 3 תשובות' : 'הודעה רגילה'}</div>
+            <div class="decision-step-subtitle">${decisionKindLabel(kind, presentation)}</div>
           </div>
           <select data-step-kind onclick="event.stopPropagation()" onchange="selectDecisionStep('${esc(stepId)}'); updateDecisionStepVisibility(); updateCampaignConversationPreview()">
             <option value="message" ${kind === 'message' ? 'selected' : ''}>הודעה רגילה</option>
@@ -2570,7 +2584,14 @@
           </div>
         </div>
         <div class="decision-step-body">
-          <textarea data-step-text oninput="updateDecisionStepVisibility(); updateCampaignConversationPreview()" placeholder="${kind === 'question' ? 'לדוגמה: האם ברצונך לקבל חוברת פרסום?' : 'ההודעה שתישלח'}">${esc(step.text || '')}</textarea>
+          <textarea data-step-text oninput="updateDecisionStepVisibility(); updateCampaignConversationPreview()" placeholder="${esc(decisionStepPlaceholder(kind))}">${esc(step.text || '')}</textarea>
+          <div class="contact-card-flow-fields" data-flow-contact-card-fields style="display:none;margin:8px 0 10px;padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc">
+            <div class="hint" style="margin-bottom:8px">&#1508;&#1512;&#1496;&#1497; &#1488;&#1497;&#1513; &#1492;&#1511;&#1513;&#1512; &#1513;&#1497;&#1497;&#1513;&#1500;&#1495; &#1489;&#1513;&#1500;&#1489; &#1492;&#1494;&#1492;</div>
+            <input data-flow-contact-name placeholder="&#1513;&#1501; &#1488;&#1497;&#1513; &#1511;&#1513;&#1512;" value="${esc(document.getElementById('fContactCardName')?.value || '')}" oninput="syncFlowContactCardFields(this)" style="margin-bottom:6px" />
+            <input data-flow-contact-phone placeholder="&#1496;&#1500;&#1508;&#1493;&#1503;" value="${esc(document.getElementById('fContactCardPhone')?.value || '')}" oninput="syncFlowContactCardFields(this)" style="margin-bottom:6px" />
+            <input data-flow-contact-email placeholder="Email" value="${esc(document.getElementById('fContactCardEmail')?.value || '')}" oninput="syncFlowContactCardFields(this)" style="margin-bottom:6px" />
+            <input data-flow-contact-org placeholder="&#1488;&#1512;&#1490;&#1493;&#1503; / &#1506;&#1505;&#1511;" value="${esc(document.getElementById('fContactCardOrganization')?.value || '')}" oninput="syncFlowContactCardFields(this)" />
+          </div>
           <div class="decision-next-row" data-question-presentation>
             <label>סוג הצגה</label>
             <select data-step-presentation onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">
@@ -2770,6 +2791,24 @@
     return selected?.value ? selected.textContent.trim() : '';
   }
 
+  function syncFlowContactCardFields(input) {
+    const map = [
+      ['data-flow-contact-name', 'fContactCardName'],
+      ['data-flow-contact-phone', 'fContactCardPhone'],
+      ['data-flow-contact-email', 'fContactCardEmail'],
+      ['data-flow-contact-org', 'fContactCardOrganization'],
+    ];
+    const matched = map.find(([attr]) => input.hasAttribute(attr));
+    if (matched) {
+      const target = document.getElementById(matched[1]);
+      if (target) target.value = input.value;
+    }
+    const toggle = document.getElementById('fSendContactCard');
+    if (toggle) toggle.checked = true;
+    updateContactCardVisibility();
+    updateCampaignConversationPreview();
+  }
+
   function updateDecisionStepVisibility() {
     document.querySelectorAll('[data-decision-step]').forEach(step => {
       const kind = step.querySelector('[data-step-kind]').value;
@@ -2779,16 +2818,14 @@
       step.querySelector('[data-message-next]').style.display = (kind === 'message' || kind === 'wait_reply' || kind === 'contact_card') ? '' : 'none';
       step.querySelector('[data-question-presentation]').style.display = kind === 'question' ? '' : 'none';
       step.querySelector('[data-options]').style.display = isChoice ? '' : 'none';
+      const contactFields = step.querySelector('[data-flow-contact-card-fields]');
+      if (contactFields) contactFields.style.display = kind === 'contact_card' ? '' : 'none';
       const title = step.querySelector('.decision-step-title');
       const titleText = step.querySelector('[data-step-text]')?.value.trim();
       const stepIndex = [...document.querySelectorAll('[data-decision-step]')].indexOf(step);
       if (title) title.textContent = 'שלב ' + (stepIndex + 1) + (titleText ? ' · ' + titleText.slice(0, 34) : '');
-      step.querySelector('.decision-step-subtitle').textContent = kind === 'score_question'
-        ? 'סקר 1/2/3 בכפתורים'
-        : (kind === 'question' ? (presentation === 'list' ? '???? ?? ????? ????? ?? 10 ??????' : '???? ?? ?? 3 ???????') : (kind === 'wait_reply' ? '\u05d4\u05d5\u05d3\u05e2\u05d4 \u05e9\u05de\u05de\u05ea\u05d9\u05e0\u05d4 \u05dc\u05ea\u05e9\u05d5\u05d1\u05d4' : (kind === 'contact_card' ? '\u05e9\u05dc\u05d9\u05d7\u05ea \u05d0\u05d9\u05e9 \u05e7\u05e9\u05e8 \u05d1\u05e4\u05dc\u05d5\u05d0\u05d5' : '\u05d4\u05d5\u05d3\u05e2\u05d4 \u05e8\u05d2\u05d9\u05dc\u05d4')));
-      step.querySelector('[data-step-text]').placeholder = kind === 'question'
-        ? 'לדוגמה: האם ברצונך לקבל חוברת פרסום?'
-        : (kind === 'contact_card' ? '\u05d4\u05d5\u05d3\u05e2\u05d4 \u05de\u05e7\u05d3\u05d9\u05de\u05d4 \u05dc\u05e4\u05e0\u05d9 \u05d0\u05d9\u05e9 \u05e7\u05e9\u05e8' : '\u05d4\u05d4\u05d5\u05d3\u05e2\u05d4 \u05e9\u05ea\u05d9\u05e9\u05dc\u05d7');
+      step.querySelector('.decision-step-subtitle').textContent = decisionKindLabel(kind, presentation);
+      step.querySelector('[data-step-text]').placeholder = decisionStepPlaceholder(kind);
       step.querySelectorAll('[data-decision-option]').forEach(option => {
         const action = option.querySelector('[data-option-action]')?.value || 'end';
         const nextSelect = option.querySelector('[data-option-next]');
