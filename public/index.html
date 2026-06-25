@@ -2539,6 +2539,7 @@
 
   function decisionStepHtml(step, index, steps) {
     const stepId = step.id || makeFlowId();
+    const kind = step.kind === 'question' || step.kind === 'score_question' || step.kind === 'wait_reply' || step.kind === 'contact_card' ? step.kind : 'message';
     const presentation = ['text', 'buttons', 'list'].includes(step.presentation) ? step.presentation : 'buttons';
     const isActive = activeDecisionStepId === stepId;
     const options = Array.isArray(step.options) && step.options.length
