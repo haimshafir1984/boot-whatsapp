@@ -1774,6 +1774,7 @@
             </div>
           </div>
           <div class="result-actions">
+            <a class="result-export" href="/api/campaign-results/${item.campaignId}/export.xls" download>Excel</a>
             <a class="result-export" href="/api/campaign-results/${item.campaignId}/export" download>CSV</a>
             <a class="result-export" href="/api/campaign-results/${item.campaignId}/export.vcf" download>VCF</a>
             ${Number(item.awaitingName || 0) > 0 ? `<button class="result-export" type="button" onclick="queueAwaitingName('${item.campaignId}')">שמור תקועים</button>` : ''}

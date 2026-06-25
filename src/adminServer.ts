@@ -1993,6 +1993,135 @@ export function startAdminServer(storage: Storage): void {
     res.send('\uFEFF' + rows.join('\n'));
   });
 
+  app.get('/api/campaign-results/:id/export.xls', (req, res) => {
+    const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
+    if (!campaign) {
+      res.status(404).json({ error: 'Campaign not found' });
+      return;
+    }
+
+    const results = storage.getCampaignResults(campaign.id);
+    const events = storage.getCampaignEvents(campaign.id).slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const eventsByResult = new Map<string, typeof events>();
+    for (const event of events) {
+      const key = event.campaignResultId || '';
+      if (!key) continue;
+      const group = eventsByResult.get(key) ?? [];
+      group.push(event);
+      eventsByResult.set(key, group);
+    }
+    const contactNames = new Map(storage.getAllContacts().map((contact) => [contact.phone, contact.name]));
+    const summary = storage.getCampaignResultSummary(campaign.id);
+
+    const html = (value: unknown): string => String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+    const excelText = (value: unknown): string => {
+      const textValue = String(value ?? '');
+      return /^[=+\-@\t\r]/.test(textValue) ? `'${textValue}` : textValue;
+    };
+    const cell = (value: unknown) => `<td style="mso-number-format:'\\@';">${html(excelText(value))}</td>`;
+    const numberCell = (value: unknown) => `<td style="mso-number-format:'0';">${html(value)}</td>`;
+    const row = (values: string[]) => `<tr>${values.map(cell).join('')}</tr>`;
+    const title = `${campaign.name} - detailed campaign export`;
+    const generatedAt = new Date().toISOString();
+    const summaryRows = [
+      ['Campaign', campaign.name],
+      ['Campaign ID', campaign.id],
+      ['Twilio mode', campaign.twilio?.mode ?? ''],
+      ['Twilio template ID', campaign.twilio?.templateId ?? ''],
+      ['Generated at', generatedAt],
+      ['Total people', String(summary.total)],
+      ['Saved contacts', String(summary.saved)],
+      ['Pending saves', String(summary.pending)],
+      ['Failed saves', String(summary.failed)],
+      ['Completed', String(summary.completed)],
+      ['Human handoff', String(summary.humanHandoff)],
+      ['Score average', String(summary.scoreAverage)],
+    ];
+    const headers = [
+      'Campaign',
+      'Name',
+      'Phone',
+      'WhatsApp name',
+      'Saved/fallback name',
+      'Status',
+      'Last stage',
+      'Triggered at',
+      'Last event at',
+      'Updated at',
+      'Steps passed',
+      'Event details',
+      'Events count',
+      'Score total',
+      'Score answers',
+    ];
+    const detailRows = results.map((result) => {
+      const personEvents = eventsByResult.get(result.id) ?? [];
+      const stepLabels = personEvents
+        .map((event) => event.label ? `${event.type}: ${event.label}` : event.type)
+        .join(' | ');
+      const eventDetails = personEvents
+        .map((event) => `${event.createdAt} - ${event.type}${event.label ? ` - ${event.label}` : ''}`)
+        .join(' | ');
+      const scoreAnswers = (result.scoreAnswers ?? [])
+        .map((answer) => `${answer.question}: ${answer.answerText} (${answer.score})`)
+        .join(' | ');
+      const name = contactNames.get(result.phone)
+        || result.fallbackName
+        || result.whatsappName
+        || result.phone;
+      return [
+        campaign.name,
+        name,
+        result.phone,
+        result.whatsappName ?? '',
+        result.fallbackName ?? '',
+        result.status,
+        result.lastStage ?? '',
+        result.triggeredAt,
+        result.lastEventAt ?? '',
+        result.updatedAt,
+        stepLabels,
+        eventDetails,
+        String(personEvents.length),
+        String(result.scoreTotal ?? ''),
+        scoreAnswers,
+      ];
+    });
+
+    const workbook = `<!doctype html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
+<head>
+<meta charset="utf-8">
+<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Campaign Export</x:Name><x:WorksheetOptions><x:DisplayRightToLeft/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
+<style>
+body { font-family: Arial, sans-serif; }
+table { border-collapse: collapse; }
+th { background: #d9ead3; font-weight: bold; border: 1px solid #999; padding: 6px; }
+td { border: 1px solid #bbb; padding: 5px; vertical-align: top; }
+.title { font-size: 18px; font-weight: bold; background: #274e13; color: #fff; }
+.section { font-weight: bold; background: #fce5cd; }
+</style>
+</head>
+<body dir="rtl">
+<table>
+<tr><td class="title" colspan="15">${html(title)}</td></tr>
+<tr><td class="section" colspan="15">Summary</td></tr>
+${summaryRows.map((item) => `<tr>${cell(item[0])}${cell(item[1])}<td colspan="13"></td></tr>`).join('')}
+<tr><td class="section" colspan="15">People and stages</td></tr>
+<tr>${headers.map((header) => `<th>${html(header)}</th>`).join('')}</tr>
+${detailRows.map((values) => `<tr>${values.map((value, index) => index === 12 ? numberCell(value) : cell(value)).join('')}</tr>`).join('')}
+</table>
+</body>
+</html>`;
+
+    res.setHeader('Content-Type', 'application/vnd.ms-excel; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="campaign-${campaign.id}-detailed.xls"`);
+    res.send('\uFEFF' + workbook);
+  });
   app.post('/api/campaign-results/:id/queue-awaiting-name', requireWritableClient, (req, res) => {
     const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
     if (!campaign) {
