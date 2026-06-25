@@ -718,6 +718,7 @@ async function queueAndReply(
   }
 
   const contactCardPlacement = completion.contactCardPlacement ?? 'after_completion';
+  const flowHasContactCard = decisionFlow.some((step) => step.kind === 'contact_card');
   const finalReplyText = replyText.trim();
   if (finalReplyText && contactCardPlacement !== 'before_questions') {
     await runReplyStep('completion text', async () => {
@@ -767,10 +768,12 @@ async function queueAndReply(
     return true;
   };
 
-  if (contactCardPlacement === 'before_questions') {
-    if (await sendContactCardAndMaybeWait('contact card before follow-up')) return;
-  } else {
-    if (await sendContactCardAndMaybeWait('contact card')) return;
+  if (!flowHasContactCard) {
+    if (contactCardPlacement === 'before_questions') {
+      if (await sendContactCardAndMaybeWait('contact card before follow-up')) return;
+    } else {
+      if (await sendContactCardAndMaybeWait('contact card')) return;
+    }
   }
 
   await continueAfterContactCard(
@@ -1245,6 +1248,35 @@ async function sendDecisionStep(
     return;
   }
 
+  if (step.kind === 'contact_card') {
+    await sendBotMessage(transport, senderJid, step.text.trim());
+    console.log('   Contact-card intro step sent.');
+    if (campaignId) {
+      storage.recordCampaignEvent({
+        campaignId,
+        campaignResultId,
+        phone: senderPhone,
+        type: 'step_sent',
+        label: step.text.slice(0, 120),
+      });
+    }
+    const campaign = campaignId ? storage.getCampaigns().find((item) => item.id === campaignId) : undefined;
+    const settings = campaign ? storage.getCampaignConversationSettings(campaign) : storage.getAdminSettings();
+    await sendCompletionContactCard(transport, storage, senderJid, contactCardFromSettings(settings), campaignId, campaignResultId, senderPhone);
+    if (step.nextStepId) {
+      await sendDecisionStep(transport, storage, senderJid, flow, step.nextStepId, campaignId, campaignResultId, senderPhone, humanHandoff);
+    } else if (campaignId) {
+      storage.recordCampaignEvent({
+        campaignId,
+        campaignResultId,
+        phone: senderPhone,
+        type: 'completed',
+        label: '???? ?????',
+      });
+      keepHumanHandoffOpen(senderJid, campaignId, campaignResultId, senderPhone, humanHandoff);
+    }
+    return;
+  }
   if (step.kind === 'message') {
     await sendBotMessage(transport, senderJid, step.text.trim());
     console.log('   Decision message sent.');

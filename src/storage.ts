@@ -79,7 +79,7 @@ export interface CampaignTwilioSettings {
 
 export interface DecisionFlowStep {
   id: string;
-  kind: 'message' | 'wait_reply' | 'question' | 'score_question';
+  kind: 'message' | 'wait_reply' | 'contact_card' | 'question' | 'score_question';
   presentation?: 'text' | 'buttons' | 'list';
   text: string;
   nextStepId?: string;

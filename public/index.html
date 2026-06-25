@@ -1449,7 +1449,7 @@
               <button type="button" class="btn-small" onclick="addTwilioQuickStep('message')">+ הודעה רגילה</button>
               <button type="button" class="btn-small" onclick="addTwilioQuickStep('wait_reply')">+ הודעה שממתינה לתשובה</button>
               <button type="button" class="btn-small" onclick="addCompletionFile(); goWizardStep(4)">+ קובץ בסיום</button>
-              <button type="button" class="btn-small" onclick="enableContactCardShortcut()">+ איש קשר לשמירה</button>
+              <button type="button" class="btn-small" onclick="addTwilioQuickStep('contact_card')">+ איש קשר לשמירה</button>
             </div>
             <div class="decision-flow" id="fDecisionFlow" style="margin-top:8px"></div>
             <button type="button" class="btn-small" style="margin-top:8px" onclick="goWizardStep(4)">להמשיך בלי תוספות</button>
@@ -2539,7 +2539,7 @@
 
   function decisionStepHtml(step, index, steps) {
     const stepId = step.id || makeFlowId();
-    const kind = step.kind === 'question' || step.kind === 'score_question' || step.kind === 'wait_reply' ? step.kind : 'message';
+        : (kind === 'question' ? (presentation === 'list' ? '\u05e9\u05d0\u05dc\u05d4 \u05e2\u05dd \u05e8\u05e9\u05d9\u05de\u05d4 \u05e0\u05e4\u05ea\u05d7\u05ea \u05e2\u05d3 10 \u05ea\u05e9\u05d5\u05d1\u05d5\u05ea' : '\u05e9\u05d0\u05dc\u05d4 \u05e2\u05dd \u05e2\u05d3 3 \u05db\u05e4\u05ea\u05d5\u05e8\u05d9\u05dd') : (kind === 'wait_reply' ? '\u05d4\u05d5\u05d3\u05e2\u05d4 \u05e9\u05de\u05de\u05ea\u05d9\u05e0\u05d4 \u05dc\u05ea\u05e9\u05d5\u05d1\u05d4' : (kind === 'contact_card' ? '\u05e9\u05dc\u05d9\u05d7\u05ea \u05d0\u05d9\u05e9 \u05e7\u05e9\u05e8 \u05d1\u05e4\u05dc\u05d5\u05d0\u05d5' : '\u05d4\u05d5\u05d3\u05e2\u05d4 \u05e8\u05d2\u05d9\u05dc\u05d4')));
     const presentation = ['text', 'buttons', 'list'].includes(step.presentation) ? step.presentation : 'buttons';
     const isActive = activeDecisionStepId === stepId;
     const options = Array.isArray(step.options) && step.options.length
@@ -2559,6 +2559,7 @@
           <select data-step-kind onclick="event.stopPropagation()" onchange="selectDecisionStep('${esc(stepId)}'); updateDecisionStepVisibility(); updateCampaignConversationPreview()">
             <option value="message" ${kind === 'message' ? 'selected' : ''}>הודעה רגילה</option>
             <option value="wait_reply" ${kind === 'wait_reply' ? 'selected' : ''}>הודעה שממתינה לתשובה</option>
+            <option value="contact_card" ${kind === 'contact_card' ? 'selected' : ''}>&#1513;&#1500;&#1497;&#1495;&#1514; &#1488;&#1497;&#1513; &#1511;&#1513;&#1512;</option>
             <option value="question" ${kind === 'question' ? 'selected' : ''}>שאלת בחירה</option>
             <option value="score_question" ${kind === 'score_question' ? 'selected' : ''}>סקר 1/2/3</option>
           </select>
@@ -2648,6 +2649,13 @@
     }
     if (type === 'message') {
       addDecisionStep({ id: makeFlowId(), kind: 'message', text: '', nextStepId: '' });
+      return;
+    }
+    if (type === 'contact_card') {
+      const toggle = document.getElementById('fSendContactCard');
+      if (toggle) toggle.checked = true;
+      updateContactCardVisibility();
+      addDecisionStep({ id: makeFlowId(), kind: 'contact_card', text: document.getElementById('fContactCardIntroText')?.value || '\u05d4\u05e0\u05d4 \u05d0\u05d9\u05e9 \u05d4\u05e7\u05e9\u05e8 \u05dc\u05e9\u05de\u05d9\u05e8\u05d4', nextStepId: '' });
       return;
     }
     addDecisionStep();
@@ -2768,7 +2776,7 @@
       const isChoice = kind === 'question' || kind === 'score_question';
       const presentation = kind === 'score_question' ? 'buttons' : (step.querySelector('[data-step-presentation]')?.value || 'buttons');
       if (kind === 'score_question' && step.querySelector('[data-step-presentation]')) step.querySelector('[data-step-presentation]').value = 'buttons';
-      step.querySelector('[data-message-next]').style.display = (kind === 'message' || kind === 'wait_reply') ? '' : 'none';
+      step.querySelector('[data-message-next]').style.display = (kind === 'message' || kind === 'wait_reply' || kind === 'contact_card') ? '' : 'none';
       step.querySelector('[data-question-presentation]').style.display = kind === 'question' ? '' : 'none';
       step.querySelector('[data-options]').style.display = isChoice ? '' : 'none';
       const title = step.querySelector('.decision-step-title');
@@ -2777,10 +2785,10 @@
       if (title) title.textContent = 'שלב ' + (stepIndex + 1) + (titleText ? ' · ' + titleText.slice(0, 34) : '');
       step.querySelector('.decision-step-subtitle').textContent = kind === 'score_question'
         ? 'סקר 1/2/3 בכפתורים'
-        : (kind === 'question' ? (presentation === 'list' ? 'שאלה עם רשימה נפתחת עד 10 תשובות' : 'שאלה עם עד 3 כפתורים') : (kind === 'wait_reply' ? 'הודעה שממתינה לתשובת המשתמש' : 'הודעה רגילה'));
+        : (kind === 'question' ? (presentation === 'list' ? '???? ?? ????? ????? ?? 10 ??????' : '???? ?? ?? 3 ???????') : (kind === 'wait_reply' ? '\u05d4\u05d5\u05d3\u05e2\u05d4 \u05e9\u05de\u05de\u05ea\u05d9\u05e0\u05d4 \u05dc\u05ea\u05e9\u05d5\u05d1\u05d4' : (kind === 'contact_card' ? '\u05e9\u05dc\u05d9\u05d7\u05ea \u05d0\u05d9\u05e9 \u05e7\u05e9\u05e8 \u05d1\u05e4\u05dc\u05d5\u05d0\u05d5' : '\u05d4\u05d5\u05d3\u05e2\u05d4 \u05e8\u05d2\u05d9\u05dc\u05d4')));
       step.querySelector('[data-step-text]').placeholder = kind === 'question'
         ? 'לדוגמה: האם ברצונך לקבל חוברת פרסום?'
-        : 'ההודעה שתישלח';
+        : (kind === 'contact_card' ? '\u05d4\u05d5\u05d3\u05e2\u05d4 \u05de\u05e7\u05d3\u05d9\u05de\u05d4 \u05dc\u05e4\u05e0\u05d9 \u05d0\u05d9\u05e9 \u05e7\u05e9\u05e8' : '\u05d4\u05d4\u05d5\u05d3\u05e2\u05d4 \u05e9\u05ea\u05d9\u05e9\u05dc\u05d7');
       step.querySelectorAll('[data-decision-option]').forEach(option => {
         const action = option.querySelector('[data-option-action]')?.value || 'end';
         const nextSelect = option.querySelector('[data-option-next]');
@@ -2868,14 +2876,14 @@
     const steps = [...document.querySelectorAll('[data-decision-step]')]
       .map(step => {
         const rawKind = step.querySelector('[data-step-kind]').value;
-        const kind = rawKind === 'question' || rawKind === 'score_question' || rawKind === 'wait_reply' ? rawKind : 'message';
+        const kind = rawKind === 'question' || rawKind === 'score_question' || rawKind === 'wait_reply' || rawKind === 'contact_card' ? rawKind : 'message';
         const item = {
           id: step.dataset.stepId || makeFlowId(),
           kind,
           text: step.querySelector('[data-step-text]').value.trim(),
         };
         if (!item.text) return null;
-        if (kind === 'message' || kind === 'wait_reply') {
+        if (kind === 'message' || kind === 'wait_reply' || kind === 'contact_card') {
           const nextStepId = step.querySelector('[data-step-next]')?.value || '';
           if (nextStepId) item.nextStepId = nextStepId;
         } else {
@@ -3073,7 +3081,7 @@
     while (current && !seen.has(current.id) && ordered.length < 8) {
       ordered.push(current);
       seen.add(current.id);
-      const nextId = current.kind === 'message'
+      const nextId = (current.kind === 'message' || current.kind === 'wait_reply' || current.kind === 'contact_card')
         ? current.nextStepId
         : current.options?.find(option => option.nextStepId)?.nextStepId;
       current = nextId ? byId.get(nextId) : null;
@@ -3096,6 +3104,9 @@
           .join('\n');
         const notes = [optionNotes, textNotes].filter(Boolean).join('\n');
         return `<div class="chat-row bot"><div class="chat-bubble">${esc(`${step.text}\n(${mode})${options ? '\n\n' + options : ''}${notes ? '\n\n' + notes : ''}`)}</div></div>`;
+      }
+      if (step.kind === 'contact_card') {
+        return `<div class="chat-row bot"><div class="chat-bubble">${esc(step.text || conversation.contactCardIntroText || '')}</div></div><div class="chat-row bot"><div class="chat-bubble">&#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1500;&#1513;&#1502;&#1497;&#1512;&#1492;: ${esc(conversation.contactCardName || '\u05d0\u05d9\u05e9 \u05e7\u05e9\u05e8')}</div></div>`;
       }
       return `<div class="chat-row bot"><div class="chat-bubble">${esc(step.text)}</div></div>`;
     }).join('') + (conversation.decisionFlow.some(step => step.kind === 'question') && conversation.decisionTimeoutText

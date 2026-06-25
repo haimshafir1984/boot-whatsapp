@@ -562,7 +562,7 @@ function sanitizeDecisionFlow(
       const id = typeof item.id === 'string' && item.id.trim()
         ? item.id.trim().slice(0, 80)
         : `step-${index + 1}`;
-      const kind = item.kind === 'question' || item.kind === 'score_question' || item.kind === 'wait_reply' ? item.kind : 'message';
+      const kind = item.kind === 'question' || item.kind === 'score_question' || item.kind === 'wait_reply' || item.kind === 'contact_card' ? item.kind : 'message';
       const text = typeof item.text === 'string' ? item.text.trim().slice(0, 2000) : '';
       if (!text) return null;
 
@@ -709,7 +709,12 @@ function buildCampaignDryRun(campaign: Campaign, storage: Storage) {
   let step = flow.find((item) => item.text.trim());
   while (step && !visited.has(step.id) && visited.size < 20) {
     visited.add(step.id);
-    if (step.kind === 'question') {
+    if (step.kind === 'contact_card') {
+      if (step.text.trim()) messages.push({ from: 'bot', text: step.text.trim() });
+      messages.push({ from: 'bot', text: dryRunContactCardText || `Contact card: ${conversation.contactCardName || 'Contact'}` });
+      const nextStepId = step.nextStepId;
+      step = nextStepId ? flow.find((item) => item.id === nextStepId) : undefined;
+    } else if (step.kind === 'question') {
       const options = (step.options ?? []).map((option, index) => `${index + 1}. ${option.text}`).join('\n');
       messages.push({ from: 'bot', text: options ? `${step.text.trim()}\n\n${options}` : step.text.trim() });
       const selected = step.options?.[0];
