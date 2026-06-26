@@ -22,7 +22,7 @@ const BOT_REPLY_DELAY_MS = Math.max(
   0,
   Number.isFinite(config.BOT_REPLY_DELAY_MS) ? config.BOT_REPLY_DELAY_MS : 3000,
 );
-const CONTACT_CARD_NEXT_STEP_DELAY_MS = Math.max(BOT_REPLY_DELAY_MS, 7000);
+const CONTACT_CARD_NEXT_STEP_DELAY_MS = Math.max(BOT_REPLY_DELAY_MS, 4000);
 const FLOW_STEP_FAILURE_CONTINUE_DELAY_MS = 60_000;
 
 interface CampaignReplyBehavior {
