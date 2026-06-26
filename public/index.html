@@ -1777,24 +1777,24 @@
             <a class="result-export" href="/api/campaign-results/${item.campaignId}/export.xls" download>Excel</a>
             <a class="result-export" href="/api/campaign-results/${item.campaignId}/export" download>CSV</a>
             <a class="result-export" href="/api/campaign-results/${item.campaignId}/export.vcf" download>VCF</a>
-            ${Number(item.awaitingName || 0) > 0 ? `<button class="result-export" type="button" onclick="queueAwaitingName('${item.campaignId}')">שמור תקועים</button>` : ''}
+            ${started > saved ? `<button class="result-export" type="button" onclick="queueUnsavedCampaignResults('${item.campaignId}')">&#1513;&#1502;&#1493;&#1512; &#1502;&#1497; &#1513;&#1500;&#1488; &#1504;&#1513;&#1502;&#1512;</button>` : ''}
           </div>
         </div>
       `;
     }).join('');
   }
 
-  async function queueAwaitingName(campaignId) {
-    if (!confirm('להכניס לתור שמירה את כל מי שנתקע בשאלת השם בקמפיין הזה?')) return;
+  async function queueUnsavedCampaignResults(campaignId) {
+    if (!confirm('\u05dc\u05d4\u05db\u05e0\u05d9\u05e1 \u05dc\u05ea\u05d5\u05e8 \u05e9\u05de\u05d9\u05e8\u05d4 \u05d0\u05ea \u05db\u05dc \u05de\u05d9 \u05e9\u05e0\u05db\u05e0\u05e1 \u05dc\u05e7\u05de\u05e4\u05d9\u05d9\u05df \u05d5\u05e2\u05d3\u05d9\u05d9\u05df \u05dc\u05d0 \u05e0\u05e9\u05de\u05e8?')) return;
     try {
-      const res = await fetch(`/api/campaign-results/${campaignId}/queue-awaiting-name`, { method: 'POST' });
+      const res = await fetch(`/api/campaign-results/${campaignId}/queue-unsaved`, { method: 'POST' });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'שמירת התקועים נכשלה');
-      alert(`הוכנסו לתור ${data.queued || 0} אנשי קשר. דולגו ${data.skipped || 0}.`);
+      if (!res.ok) throw new Error(data.error || '\u05e9\u05de\u05d9\u05e8\u05ea \u05de\u05d9 \u05e9\u05dc\u05d0 \u05e0\u05e9\u05de\u05e8 \u05e0\u05db\u05e9\u05dc\u05d4');
+      alert(`\u05d4\u05d5\u05db\u05e0\u05e1\u05d5 \u05dc\u05ea\u05d5\u05e8 ${data.queued || 0} \u05d0\u05e0\u05e9\u05d9 \u05e7\u05e9\u05e8. \u05d3\u05d5\u05dc\u05d2\u05d5 ${data.skipped || 0}.`);
       await loadCampaignResults();
       await loadContactQueueStats();
     } catch (err) {
-      alert(err?.message || 'שמירת התקועים נכשלה');
+      alert(err?.message || '\u05e9\u05de\u05d9\u05e8\u05ea \u05de\u05d9 \u05e9\u05dc\u05d0 \u05e0\u05e9\u05de\u05e8 \u05e0\u05db\u05e9\u05dc\u05d4');
     }
   }
 

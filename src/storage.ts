@@ -662,6 +662,31 @@ export class Storage {
     return { queued, skipped };
   }
 
+  queueUnsavedCampaignResults(campaignId: string): { queued: number; skipped: number } {
+    const campaign = this.data.campaigns.find((item) => item.id === campaignId);
+    const suffix = campaign?.suffix ?? '';
+    const campaignName = campaign?.name?.trim() || 'Campaign';
+    let queued = 0;
+    let skipped = 0;
+
+    for (const result of this.data.campaignResults) {
+      if (result.campaignId !== campaignId || result.status === 'saved') continue;
+      const baseName = result.whatsappName?.trim()
+        || result.fallbackName?.trim()
+        || `${campaignName} - ${result.phone}`;
+      const finalName = baseName.endsWith(suffix) ? baseName : `${baseName}${suffix}`;
+      const job = this.enqueueContactSave(result.phone, finalName, result.id);
+      if (job) {
+        result.lastStage = 'manually_queued_unsaved';
+        result.lastEventAt = new Date().toISOString();
+        queued += 1;
+      } else {
+        skipped += 1;
+      }
+    }
+    if (queued || skipped) this.persist();
+    return { queued, skipped };
+  }
   getCampaignResults(campaignId?: string): CampaignResult[] {
     return this.data.campaignResults
       .filter((result) => !campaignId || result.campaignId === campaignId)

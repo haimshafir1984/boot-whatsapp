@@ -23,6 +23,7 @@ const BOT_REPLY_DELAY_MS = Math.max(
   Number.isFinite(config.BOT_REPLY_DELAY_MS) ? config.BOT_REPLY_DELAY_MS : 3000,
 );
 const CONTACT_CARD_NEXT_STEP_DELAY_MS = Math.max(BOT_REPLY_DELAY_MS, 7000);
+const FLOW_STEP_FAILURE_CONTINUE_DELAY_MS = 60_000;
 
 interface CampaignReplyBehavior {
   enabled?: boolean;
@@ -1255,22 +1256,37 @@ async function sendDecisionStep(
   }
 
   if (step.kind === 'contact_card') {
-    await sendBotMessage(transport, senderJid, step.text.trim());
-    console.log('   Contact-card intro step sent.');
-    if (campaignId) {
-      storage.recordCampaignEvent({
-        campaignId,
-        campaignResultId,
-        phone: senderPhone,
-        type: 'step_sent',
-        label: step.text.slice(0, 120),
-      });
+    let failed = false;
+    try {
+      await sendBotMessage(transport, senderJid, step.text.trim());
+      console.log('   Contact-card intro step sent.');
+      if (campaignId) {
+        storage.recordCampaignEvent({
+          campaignId,
+          campaignResultId,
+          phone: senderPhone,
+          type: 'step_sent',
+          label: step.text.slice(0, 120),
+        });
+      }
+      const campaign = campaignId ? storage.getCampaigns().find((item) => item.id === campaignId) : undefined;
+      const settings = campaign ? storage.getCampaignConversationSettings(campaign) : storage.getAdminSettings();
+      await sendCompletionContactCard(transport, storage, senderJid, contactCardFromSettings(settings), campaignId, campaignResultId, senderPhone);
+    } catch (err) {
+      failed = true;
+      console.error('   Contact-card step failed, continuing to next step after delay:', err);
+      if (campaignId) {
+        storage.recordCampaignEvent({
+          campaignId,
+          campaignResultId,
+          phone: senderPhone,
+          type: 'file_failed',
+          label: step.text.slice(0, 120),
+        });
+      }
     }
-    const campaign = campaignId ? storage.getCampaigns().find((item) => item.id === campaignId) : undefined;
-    const settings = campaign ? storage.getCampaignConversationSettings(campaign) : storage.getAdminSettings();
-    await sendCompletionContactCard(transport, storage, senderJid, contactCardFromSettings(settings), campaignId, campaignResultId, senderPhone);
     if (step.nextStepId) {
-      await sleep(CONTACT_CARD_NEXT_STEP_DELAY_MS);
+      await sleep(failed ? FLOW_STEP_FAILURE_CONTINUE_DELAY_MS : CONTACT_CARD_NEXT_STEP_DELAY_MS);
       await sendDecisionStep(transport, storage, senderJid, flow, step.nextStepId, campaignId, campaignResultId, senderPhone, humanHandoff);
     } else if (campaignId) {
       storage.recordCampaignEvent({
@@ -1285,18 +1301,34 @@ async function sendDecisionStep(
     return;
   }
   if (step.kind === 'message') {
-    await sendBotMessage(transport, senderJid, step.text.trim());
-    console.log('   Decision message sent.');
-    if (campaignId) {
-      storage.recordCampaignEvent({
-        campaignId,
-        campaignResultId,
-        phone: senderPhone,
-        type: 'step_sent',
-        label: step.text.slice(0, 120),
-      });
+    let failed = false;
+    try {
+      await sendBotMessage(transport, senderJid, step.text.trim());
+      console.log('   Decision message sent.');
+      if (campaignId) {
+        storage.recordCampaignEvent({
+          campaignId,
+          campaignResultId,
+          phone: senderPhone,
+          type: 'step_sent',
+          label: step.text.slice(0, 120),
+        });
+      }
+    } catch (err) {
+      failed = true;
+      console.error('   Decision message failed, continuing to next step after delay:', err);
+      if (campaignId) {
+        storage.recordCampaignEvent({
+          campaignId,
+          campaignResultId,
+          phone: senderPhone,
+          type: 'file_failed',
+          label: step.text.slice(0, 120),
+        });
+      }
     }
     if (step.nextStepId) {
+      if (failed) await sleep(FLOW_STEP_FAILURE_CONTINUE_DELAY_MS);
       await sendDecisionStep(transport, storage, senderJid, flow, step.nextStepId, campaignId, campaignResultId, senderPhone, humanHandoff);
     } else if (campaignId) {
       storage.recordCampaignEvent({

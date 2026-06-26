@@ -883,7 +883,7 @@ export function startAdminServer(storage: Storage): void {
 
     candidates.sort((a, b) => b.triggerText.length - a.triggerText.length);
     const best = candidates[0];
-    if (best && candidates[1] && candidates[1].triggerText.length === best.triggerText.length) {
+    if (best && candidates[1] && candidates[1].triggerText.length === best.triggerText.length && candidates[1].client.id !== best.client.id) {
       recordTwilioEvent({
         direction: 'inbound',
         status: 'ignored',
@@ -2053,6 +2053,12 @@ export function startAdminServer(storage: Storage): void {
       ['Human handoff', String(summary.humanHandoff)],
       ['Score average', String(summary.scoreAverage)],
     ];
+    const maxEventsPerPerson = Math.max(0, ...results.map((result) => (eventsByResult.get(result.id) ?? []).length));
+    const eventHeaders = Array.from({ length: maxEventsPerPerson }, (_, index) => [
+      `Event ${index + 1} at`,
+      `Event ${index + 1} type`,
+      `Event ${index + 1} details`,
+    ]).flat();
     const headers = [
       'Campaign',
       'Name',
@@ -2065,8 +2071,8 @@ export function startAdminServer(storage: Storage): void {
       'Last event at',
       'Updated at',
       'Steps passed',
-      'Event details',
       'Events count',
+      ...eventHeaders,
       'Score total',
       'Score answers',
     ];
@@ -2075,9 +2081,6 @@ export function startAdminServer(storage: Storage): void {
       const stepLabels = personEvents
         .map((event) => event.label ? `${event.type}: ${event.label}` : event.type)
         .join(' | ');
-      const eventDetails = personEvents
-        .map((event) => `${event.createdAt} - ${event.type}${event.label ? ` - ${event.label}` : ''}`)
-        .join(' | ');
       const scoreAnswers = (result.scoreAnswers ?? [])
         .map((answer) => `${answer.question}: ${answer.answerText} (${answer.score})`)
         .join(' | ');
@@ -2085,6 +2088,12 @@ export function startAdminServer(storage: Storage): void {
         || result.fallbackName
         || result.whatsappName
         || result.phone;
+      const eventCells = personEvents.flatMap((event) => [
+        event.createdAt,
+        event.type,
+        event.label ?? '',
+      ]);
+      while (eventCells.length < maxEventsPerPerson * 3) eventCells.push('');
       return [
         campaign.name,
         name,
@@ -2097,8 +2106,8 @@ export function startAdminServer(storage: Storage): void {
         result.lastEventAt ?? '',
         result.updatedAt,
         stepLabels,
-        eventDetails,
         String(personEvents.length),
+        ...eventCells,
         String(result.scoreTotal ?? ''),
         scoreAnswers,
       ];
@@ -2120,12 +2129,12 @@ td { border: 1px solid #bbb; padding: 5px; vertical-align: top; }
 </head>
 <body dir="rtl">
 <table>
-<tr><td class="title" colspan="15">${html(title)}</td></tr>
-<tr><td class="section" colspan="15">Summary</td></tr>
-${summaryRows.map((item) => `<tr>${cell(item[0])}${cell(item[1])}<td colspan="13"></td></tr>`).join('')}
-<tr><td class="section" colspan="15">People and stages</td></tr>
+<tr><td class="title" colspan="${headers.length}">${html(title)}</td></tr>
+<tr><td class="section" colspan="${headers.length}">Summary</td></tr>
+${summaryRows.map((item) => `<tr>${cell(item[0])}${cell(item[1])}<td colspan="${Math.max(headers.length - 2, 1)}"></td></tr>`).join('')}
+<tr><td class="section" colspan="${headers.length}">People and stages</td></tr>
 <tr>${headers.map((header) => `<th>${html(header)}</th>`).join('')}</tr>
-${detailRows.map((values) => `<tr>${values.map((value, index) => index === 12 ? numberCell(value) : cell(value)).join('')}</tr>`).join('')}
+${detailRows.map((values) => `<tr>${values.map((value) => cell(value)).join('')}</tr>`).join('')}
 </table>
 </body>
 </html>`;
@@ -2148,7 +2157,20 @@ ${detailRows.map((values) => `<tr>${values.map((value, index) => index === 12 ? 
       summary: storage.getCampaignResultSummary(campaign.id),
     });
   });
-
+  app.post('/api/campaign-results/:id/queue-unsaved', requireWritableClient, (req, res) => {
+    const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
+    if (!campaign) {
+      res.status(404).json({ error: 'Campaign not found' });
+      return;
+    }
+    const result = storage.queueUnsavedCampaignResults(campaign.id);
+    res.json({
+      ok: true,
+      campaignId: campaign.id,
+      ...result,
+      summary: storage.getCampaignResultSummary(campaign.id),
+    });
+  });
   app.get('/api/campaign-results/:id/export.vcf', (req, res) => {
     const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
     if (!campaign) {
