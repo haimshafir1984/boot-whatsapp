@@ -570,6 +570,9 @@ function sanitizeDecisionFlow(
       if (typeof item.nextStepId === 'string' && item.nextStepId.trim()) {
         step.nextStepId = item.nextStepId.trim().slice(0, 80);
       }
+      if (typeof item.delayMs === 'number' && Number.isFinite(item.delayMs) && item.delayMs > 0) {
+        step.delayMs = Math.min(Math.max(Math.round(item.delayMs), 0), 60_000);
+      }
       if (kind === 'wait_reply' && typeof item.timeoutMinutes === 'number' && item.timeoutMinutes > 0) {
         step.timeoutMinutes = Math.min(Math.max(Math.round(item.timeoutMinutes), 1), 1440);
       }

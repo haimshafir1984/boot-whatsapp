@@ -83,6 +83,7 @@ export interface DecisionFlowStep {
   presentation?: 'text' | 'buttons' | 'list';
   text: string;
   nextStepId?: string;
+  delayMs?: number;
   timeoutMinutes?: number;
   timeoutText?: string;
   timeoutFileId?: string;

@@ -59,17 +59,17 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitBeforeBotReply(): Promise<void> {
-  if (BOT_REPLY_DELAY_MS > 0) await sleep(BOT_REPLY_DELAY_MS);
+async function waitBeforeBotReply(delayMs = BOT_REPLY_DELAY_MS): Promise<void> {
+  if (delayMs > 0) await sleep(delayMs);
 }
 
-async function sendBotMessage(transport: WhatsAppTransport, to: string, text: string): Promise<void> {
+async function sendBotMessage(transport: WhatsAppTransport, to: string, text: string, delayMs = BOT_REPLY_DELAY_MS): Promise<void> {
   const cleanText = text.trim();
   if (!cleanText) return;
 
   let lastError: unknown;
   for (let attempt = 1; attempt <= TEXT_SEND_ATTEMPTS; attempt += 1) {
-    await waitBeforeBotReply();
+    await waitBeforeBotReply(delayMs);
     try {
       await transport.sendMessage(to, cleanText);
       return;
@@ -1207,9 +1207,10 @@ async function sendDecisionStep(
 ): Promise<void> {
   const step = flow.find((item) => item.id === stepId);
   if (!step?.text.trim()) return;
+  const stepDelayMs = Number.isFinite(step.delayMs) ? Math.max(0, step.delayMs ?? BOT_REPLY_DELAY_MS) : BOT_REPLY_DELAY_MS;
 
   if (step.kind === 'wait_reply') {
-    await sendBotMessage(transport, senderJid, step.text.trim());
+    await sendBotMessage(transport, senderJid, step.text.trim(), stepDelayMs);
     console.log('   Wait-for-reply message sent.');
     if (campaignId) {
       storage.recordCampaignEvent({
@@ -1258,7 +1259,7 @@ async function sendDecisionStep(
   if (step.kind === 'contact_card') {
     let failed = false;
     try {
-      await sendBotMessage(transport, senderJid, step.text.trim());
+      await sendBotMessage(transport, senderJid, step.text.trim(), stepDelayMs);
       console.log('   Contact-card intro step sent.');
       if (campaignId) {
         storage.recordCampaignEvent({
@@ -1303,7 +1304,7 @@ async function sendDecisionStep(
   if (step.kind === 'message') {
     let failed = false;
     try {
-      await sendBotMessage(transport, senderJid, step.text.trim());
+      await sendBotMessage(transport, senderJid, step.text.trim(), stepDelayMs);
       console.log('   Decision message sent.');
       if (campaignId) {
         storage.recordCampaignEvent({
@@ -1348,10 +1349,11 @@ async function sendDecisionStep(
   }
 
   const presentation = step.presentation ?? 'buttons';
+  const hasLongOptions = (step.options ?? []).some((option) => Array.from(option.text.trim()).length > (presentation === 'list' ? 24 : 20));
   let sentInteractive = false;
-  if (presentation === 'list' && transport.sendInteractiveList && step.options?.length) {
+  if (!hasLongOptions && presentation === 'list' && transport.sendInteractiveList && step.options?.length) {
     try {
-      await waitBeforeBotReply();
+      await waitBeforeBotReply(stepDelayMs);
       await transport.sendInteractiveList(
         senderJid,
         step.text.trim(),
@@ -1363,9 +1365,9 @@ async function sendDecisionStep(
       console.warn('   Interactive decision list failed, falling back to text:', err);
     }
   }
-  if (presentation === 'buttons' && transport.sendInteractiveButtons && step.options?.length) {
+  if (!hasLongOptions && presentation === 'buttons' && transport.sendInteractiveButtons && step.options?.length) {
     try {
-      await waitBeforeBotReply();
+      await waitBeforeBotReply(stepDelayMs);
       await transport.sendInteractiveButtons(
         senderJid,
         step.text.trim(),
@@ -1377,7 +1379,7 @@ async function sendDecisionStep(
     }
   }
   if (!sentInteractive) {
-    await sendBotMessage(transport, senderJid, formatQuestion(step));
+    await sendBotMessage(transport, senderJid, formatQuestion(step), stepDelayMs);
   }
   console.log('   Decision question sent.');
   if (campaignId) {
