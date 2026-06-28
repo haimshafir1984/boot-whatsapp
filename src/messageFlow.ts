@@ -1305,21 +1305,24 @@ async function sendDecisionStep(
     let failed = false;
     try {
       if (step.fileId) {
-        await waitBeforeBotReply(stepDelayMs);
+        const stepFile = storage.getUploadedFile(step.fileId);
+        const sendTextSeparately = Boolean(step.fileAsSticker || stepFile?.mimeType.startsWith('video/'));
+        if (sendTextSeparately) {
+          await sendBotMessage(transport, senderJid, step.text.trim(), stepDelayMs);
+        } else {
+          await waitBeforeBotReply(stepDelayMs);
+        }
         await sendDecisionFile(
           transport,
           storage,
           senderJid,
           step.fileId,
-          step.fileAsSticker ? undefined : step.text.trim(),
+          sendTextSeparately ? undefined : step.text.trim(),
           step.fileAsSticker,
           campaignId,
           campaignResultId,
           senderPhone,
         );
-        if (step.fileAsSticker) {
-          await sendBotMessage(transport, senderJid, step.text.trim(), 0);
-        }
       } else {
         await sendBotMessage(transport, senderJid, step.text.trim(), stepDelayMs);
       }
