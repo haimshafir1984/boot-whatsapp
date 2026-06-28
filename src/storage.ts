@@ -84,6 +84,8 @@ export interface DecisionFlowStep {
   text: string;
   nextStepId?: string;
   delayMs?: number;
+  fileId?: string;
+  fileAsSticker?: boolean;
   timeoutMinutes?: number;
   timeoutText?: string;
   timeoutFileId?: string;

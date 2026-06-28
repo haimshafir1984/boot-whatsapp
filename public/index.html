@@ -2442,7 +2442,7 @@
       const res = await fetch('/api/files');
       appFiles = await res.json();
       renderCampaignFiles();
-      document.querySelectorAll('[data-option-file], [data-completion-file]').forEach(select => {
+      document.querySelectorAll('[data-option-file], [data-completion-file], [data-step-file]').forEach(select => {
         const selected = select.value || select.dataset.selectedFile || '';
         select.innerHTML = fileOptions(selected);
         select.value = appFiles.some(file => file.id === selected) ? selected : '';
@@ -2609,6 +2609,11 @@
             <label>אחרי ההודעה לעבור אל</label>
             <select data-step-next onchange="updateCampaignConversationPreview()" data-selected-next="${esc(step.nextStepId || '')}"></select>
           </div>
+          <div class="decision-next-row" data-message-file style="display:none">
+            <label>&#1511;&#1493;&#1489;&#1509; &#1500;&#1513;&#1500;&#1497;&#1495;&#1492; &#1489;&#1513;&#1500;&#1489; &#1492;&#1494;&#1492;</label>
+            <select data-step-file data-selected-file="${esc(step.fileId || '')}" onchange="updateCampaignConversationPreview()">${fileOptions(step.fileId || '')}</select>
+          </div>
+          <label class="decision-inline-check" data-message-sticker style="display:none"><input data-step-file-sticker type="checkbox" ${step.fileAsSticker ? 'checked' : ''} onchange="updateCampaignConversationPreview()" /> &#1513;&#1500;&#1495; &#1499;&#1502;&#1491;&#1489;&#1511;&#1492; &#1500;&#1514;&#1502;&#1493;&#1504;&#1492;</label>
           <div class="decision-options" data-options>
             <div class="decision-options-label">תשובות אפשריות (עד 3)</div>
             ${options.map((option, optionIndex) => decisionOptionHtml(option, optionIndex)).join('')}
@@ -2821,6 +2826,10 @@
       const presentation = kind === 'score_question' ? 'buttons' : (step.querySelector('[data-step-presentation]')?.value || 'buttons');
       if (kind === 'score_question' && step.querySelector('[data-step-presentation]')) step.querySelector('[data-step-presentation]').value = 'buttons';
       step.querySelector('[data-message-next]').style.display = (kind === 'message' || kind === 'wait_reply' || kind === 'contact_card') ? '' : 'none';
+      const messageFile = step.querySelector('[data-message-file]');
+      const messageSticker = step.querySelector('[data-message-sticker]');
+      if (messageFile) messageFile.style.display = kind === 'message' ? '' : 'none';
+      if (messageSticker) messageSticker.style.display = kind === 'message' ? '' : 'none';
       step.querySelector('[data-question-presentation]').style.display = kind === 'question' ? '' : 'none';
       step.querySelector('[data-options]').style.display = isChoice ? '' : 'none';
       const contactFields = step.querySelector('[data-flow-contact-card-fields]');
@@ -2930,6 +2939,11 @@
         if (kind === 'message' || kind === 'wait_reply' || kind === 'contact_card') {
           const nextStepId = step.querySelector('[data-step-next]')?.value || '';
           if (nextStepId) item.nextStepId = nextStepId;
+          if (kind === 'message') {
+            const fileId = step.querySelector('[data-step-file]')?.value || '';
+            if (fileId) item.fileId = fileId;
+            if (step.querySelector('[data-step-file-sticker]')?.checked) item.fileAsSticker = true;
+          }
         } else {
           item.presentation = kind === 'score_question' ? 'buttons' : (step.querySelector('[data-step-presentation]')?.value || 'buttons');
           item.options = [...step.querySelectorAll('[data-decision-option]')]
@@ -3151,6 +3165,11 @@
       }
       if (step.kind === 'contact_card') {
         return `<div class="chat-row bot"><div class="chat-bubble">${esc(step.text || conversation.contactCardIntroText || '')}</div></div><div class="chat-row bot"><div class="chat-bubble">&#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1500;&#1513;&#1502;&#1497;&#1512;&#1492;: ${esc(conversation.contactCardName || '\u05d0\u05d9\u05e9 \u05e7\u05e9\u05e8')}</div></div>`;
+      }
+      if (step.kind === 'message' && step.fileId) {
+        const file = appFiles.find(item => item.id === step.fileId);
+        const fileText = `${step.fileAsSticker ? '\u05de\u05d3\u05d1\u05e7\u05d4' : '\u05e7\u05d5\u05d1\u05e5'}${file ? `: ${file.originalName}` : ''}`;
+        return `<div class="chat-row bot"><div class="chat-bubble">${esc(step.text)}</div></div><div class="chat-row bot"><div class="chat-bubble">${esc(fileText)}</div></div>`;
       }
       return `<div class="chat-row bot"><div class="chat-bubble">${esc(step.text)}</div></div>`;
     }).join('') + (conversation.decisionFlow.some(step => step.kind === 'question') && conversation.decisionTimeoutText

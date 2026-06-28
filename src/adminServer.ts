@@ -573,6 +573,14 @@ function sanitizeDecisionFlow(
       if (typeof item.delayMs === 'number' && Number.isFinite(item.delayMs) && item.delayMs > 0) {
         step.delayMs = Math.min(Math.max(Math.round(item.delayMs), 0), 60_000);
       }
+      if (kind === 'message') {
+        if (typeof item.fileId === 'string' && item.fileId.trim()) {
+          step.fileId = item.fileId.trim().slice(0, 80);
+        }
+        if (typeof item.fileAsSticker === 'boolean') {
+          step.fileAsSticker = item.fileAsSticker;
+        }
+      }
       if (kind === 'wait_reply' && typeof item.timeoutMinutes === 'number' && item.timeoutMinutes > 0) {
         step.timeoutMinutes = Math.min(Math.max(Math.round(item.timeoutMinutes), 1), 1440);
       }

@@ -1305,6 +1305,19 @@ async function sendDecisionStep(
     let failed = false;
     try {
       await sendBotMessage(transport, senderJid, step.text.trim(), stepDelayMs);
+      if (step.fileId) {
+        await sendDecisionFile(
+          transport,
+          storage,
+          senderJid,
+          step.fileId,
+          undefined,
+          step.fileAsSticker,
+          campaignId,
+          campaignResultId,
+          senderPhone,
+        );
+      }
       console.log('   Decision message sent.');
       if (campaignId) {
         storage.recordCampaignEvent({
