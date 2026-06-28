@@ -1304,19 +1304,24 @@ async function sendDecisionStep(
   if (step.kind === 'message') {
     let failed = false;
     try {
-      await sendBotMessage(transport, senderJid, step.text.trim(), stepDelayMs);
       if (step.fileId) {
+        await waitBeforeBotReply(stepDelayMs);
         await sendDecisionFile(
           transport,
           storage,
           senderJid,
           step.fileId,
-          undefined,
+          step.fileAsSticker ? undefined : step.text.trim(),
           step.fileAsSticker,
           campaignId,
           campaignResultId,
           senderPhone,
         );
+        if (step.fileAsSticker) {
+          await sendBotMessage(transport, senderJid, step.text.trim(), 0);
+        }
+      } else {
+        await sendBotMessage(transport, senderJid, step.text.trim(), stepDelayMs);
       }
       console.log('   Decision message sent.');
       if (campaignId) {

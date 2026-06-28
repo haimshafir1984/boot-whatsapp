@@ -1030,8 +1030,13 @@ export function startAdminServer(storage: Storage): void {
       res.status(404).send('Not found');
       return;
     }
-    if (filename.toLowerCase().endsWith('.vcf')) {
+    const lowerFilename = filename.toLowerCase();
+    if (lowerFilename.endsWith('.vcf')) {
       res.type('text/vcard; charset=utf-8');
+    } else if (lowerFilename.endsWith('.jpg') || lowerFilename.endsWith('.jpeg') || lowerFilename.endsWith('.jfif')) {
+      res.type('image/jpeg');
+    } else if (lowerFilename.endsWith('.mp4')) {
+      res.type('video/mp4');
     }
     res.sendFile(path.resolve(fullPath));
   });
