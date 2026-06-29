@@ -79,7 +79,7 @@ export interface CampaignTwilioSettings {
 
 export interface DecisionFlowStep {
   id: string;
-  kind: 'message' | 'wait_reply' | 'contact_card' | 'question' | 'score_question';
+  kind: 'message' | 'wait_reply' | 'contact_card' | 'referral_share' | 'question' | 'score_question';
   presentation?: 'text' | 'buttons' | 'list';
   text: string;
   nextStepId?: string;
@@ -165,6 +165,11 @@ export interface CampaignResult {
   campaignId: string;
   phone: string;
   whatsappName?: string;
+  referralCode?: string;
+  referredByCode?: string;
+  referredByResultId?: string;
+  referredByName?: string;
+  referredByPhone?: string;
   fallbackName?: string;
   lastStage?: string;
   lastEventAt?: string;
@@ -201,7 +206,9 @@ export type CampaignEventType =
   | 'completion_file_failed'
   | 'contact_card_confirmed'
   | 'completed'
-  | 'human_handoff';
+  | 'human_handoff'
+  | 'referral_link_sent'
+  | 'referral_attributed';
 
 export interface CampaignEvent {
   id: string;
@@ -618,13 +625,19 @@ export class Storage {
 
   // Campaign results
 
-  recordCampaignTrigger(campaignId: string, phone: string, whatsappName = ''): CampaignResult {
+  recordCampaignTrigger(campaignId: string, phone: string, whatsappName = '', referredByCode = ''): CampaignResult {
     const now = new Date().toISOString();
+    const referrer = referredByCode ? this.findCampaignReferral(campaignId, referredByCode) : null;
     const result: CampaignResult = {
       id: generateId(),
       campaignId,
       phone,
       whatsappName,
+      referralCode: this.generateUniqueReferralCode(campaignId),
+      referredByCode: referrer?.referralCode,
+      referredByResultId: referrer?.id,
+      referredByName: referrer ? this.resultDisplayName(referrer) : undefined,
+      referredByPhone: referrer?.phone,
       fallbackName: '',
       lastStage: 'triggered',
       lastEventAt: now,
@@ -637,6 +650,43 @@ export class Storage {
     return { ...result };
   }
 
+  ensureCampaignResultReferralCode(resultId: string | undefined): string {
+    if (!resultId) return '';
+    const result = this.data.campaignResults.find((item) => item.id === resultId);
+    if (!result) return '';
+    if (!result.referralCode) {
+      result.referralCode = this.generateUniqueReferralCode(result.campaignId);
+      this.persist();
+    }
+    return result.referralCode;
+  }
+
+  findCampaignReferral(campaignId: string, code: string): CampaignResult | null {
+    const cleanCode = normalizeReferralCode(code);
+    if (!cleanCode) return null;
+    const result = this.data.campaignResults.find((item) => item.campaignId === campaignId && normalizeReferralCode(item.referralCode) === cleanCode);
+    return result ? { ...result } : null;
+  }
+
+  getCampaignReferralLeaderboard(campaignId: string): Array<{ referralCode: string; name: string; phone: string; invited: number; saved: number; lastReferralAt?: string }> {
+    const referrers = new Map<string, CampaignResult>();
+    for (const result of this.data.campaignResults) {
+      if (result.campaignId === campaignId && result.referralCode) referrers.set(normalizeReferralCode(result.referralCode), result);
+    }
+    const rows = [...referrers.values()].map((referrer) => {
+      const code = normalizeReferralCode(referrer.referralCode);
+      const invitedResults = this.data.campaignResults.filter((result) => result.campaignId === campaignId && normalizeReferralCode(result.referredByCode) === code);
+      return {
+        referralCode: referrer.referralCode || '',
+        name: this.resultDisplayName(referrer),
+        phone: referrer.phone,
+        invited: invitedResults.length,
+        saved: invitedResults.filter((result) => result.status === 'saved').length,
+        lastReferralAt: invitedResults.map((result) => result.triggeredAt).sort().at(-1),
+      };
+    });
+    return rows.sort((a, b) => b.invited - a.invited || b.saved - a.saved || a.name.localeCompare(b.name));
+  }
   markCampaignResultStage(resultId: string | undefined, stage: string, fallbackName?: string): void {
     if (!resultId) return;
     const result = this.data.campaignResults.find((item) => item.id === resultId);
@@ -831,6 +881,20 @@ export class Storage {
     stats.scoreTotal = results.reduce((sum, result) => sum + (result.scoreTotal ?? 0), 0);
     stats.scoreAverage = stats.scoreAnswered > 0 ? Math.round((stats.scoreTotal / stats.scoreAnswered) * 100) / 100 : 0;
     return stats;
+  }
+
+  private generateUniqueReferralCode(campaignId: string): string {
+    const alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      let code = '';
+      for (let i = 0; i < 6; i += 1) code += alphabet[Math.floor(Math.random() * alphabet.length)];
+      if (!this.data.campaignResults.some((result) => result.campaignId === campaignId && normalizeReferralCode(result.referralCode) === code)) return code;
+    }
+    return `${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  }
+
+  private resultDisplayName(result: CampaignResult): string {
+    return result.fallbackName?.trim() || result.whatsappName?.trim() || result.phone;
   }
 
   private updateCampaignResultStatuses(resultIds: string[] | undefined, status: ContactSaveStatus, updatedAt: string): void {
@@ -1037,4 +1101,8 @@ export class Storage {
       active: !this.data.campaigns.find((c) => c.id === id)?.active,
     });
   }
+}
+
+function normalizeReferralCode(code: string | undefined): string {
+  return String(code ?? '').replace(/[^a-z0-9]/gi, '').toUpperCase();
 }

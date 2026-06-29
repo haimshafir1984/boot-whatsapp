@@ -376,7 +376,16 @@ async function handleMessage(
     config.CONTACT_NAME_FALLBACK.replace('{phone}', senderPhone);
   const campaign = activeCampaigns.find((item) => item.id === trigger.campaignId);
   if (!campaign) return;
-  const campaignResult = storage.recordCampaignTrigger(trigger.campaignId, senderPhone, pushname);
+  const campaignResult = storage.recordCampaignTrigger(trigger.campaignId, senderPhone, pushname, trigger.referralCode);
+  if (trigger.referralCode && campaignResult.referredByCode) {
+    storage.recordCampaignEvent({
+      campaignId: campaign.id,
+      campaignResultId: campaignResult.id,
+      phone: senderPhone,
+      type: 'referral_attributed',
+      label: campaignResult.referredByName || campaignResult.referredByCode,
+    });
+  }
 
   console.log(`\n[${trigger.campaignName}] from ${senderPhone} (${pushname})`);
 
@@ -1272,6 +1281,11 @@ async function sendDecisionStep(
     return;
   }
 
+  if (step.kind === 'referral_share') {
+    await sendReferralShareStep(transport, storage, senderJid, flow, step, campaignId, campaignResultId, senderPhone, humanHandoff);
+    return;
+  }
+
   if (step.kind === 'contact_card') {
     let failed = false;
     try {
@@ -1462,6 +1476,46 @@ async function sendDecisionStep(
   });
 }
 
+async function sendReferralShareStep(
+  transport: WhatsAppTransport,
+  storage: Storage,
+  senderJid: string,
+  flow: DecisionFlowStep[],
+  step: DecisionFlowStep,
+  campaignId?: string,
+  campaignResultId?: string,
+  senderPhone?: string,
+  humanHandoff: CampaignReplyBehavior = {},
+): Promise<void> {
+  if (!campaignId || !campaignResultId) return;
+  const campaign = storage.getCampaigns().find((item) => item.id === campaignId);
+  if (!campaign) return;
+  const code = storage.ensureCampaignResultReferralCode(campaignResultId);
+  const link = buildReferralShareLink(storage, campaign.triggerPhrase, code);
+  const message = formatReferralShareMessage(step.text, link, code);
+  await sendBotMessage(transport, senderJid, message, Number.isFinite(step.delayMs) ? Math.max(0, step.delayMs ?? BOT_REPLY_DELAY_MS) : BOT_REPLY_DELAY_MS);
+  storage.recordCampaignEvent({ campaignId, campaignResultId, phone: senderPhone, type: 'referral_link_sent', label: code });
+  if (step.nextStepId) {
+    await sendDecisionStep(transport, storage, senderJid, flow, step.nextStepId, campaignId, campaignResultId, senderPhone, humanHandoff);
+  } else {
+    storage.recordCampaignEvent({ campaignId, campaignResultId, phone: senderPhone, type: 'completed', label: 'referral share' });
+    keepHumanHandoffOpen(senderJid, campaignId, campaignResultId, senderPhone, humanHandoff);
+  }
+}
+
+function buildReferralShareLink(storage: Storage, triggerPhrase: string, code: string): string {
+  const profilePhone = storage.getClientProfile().whatsappPhone;
+  const rawPhone = config.TWILIO_FROM || profilePhone;
+  const phone = rawPhone.replace(/^whatsapp:/i, '').replace(/[^\d]/g, '');
+  const text = (triggerPhrase + ' ref:' + code).trim();
+  return phone ? 'https://wa.me/' + phone + '?text=' + encodeURIComponent(text) : text;
+}
+
+function formatReferralShareMessage(template: string, link: string, code: string): string {
+  const base = template.trim();
+  const withPlaceholders = base.split('{referral_link}').join(link).split('{referral_code}').join(code);
+  return withPlaceholders.includes(link) ? withPlaceholders : withPlaceholders + '\n' + link;
+}
 async function sendHumanHandoff(
   transport: WhatsAppTransport,
   storage: Storage,

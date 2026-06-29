@@ -262,6 +262,7 @@ export class DokployProvisioner {
       `CLIENT_PLAN=${escapeEnvValue(current.plan)}`,
       `CLIENT_READONLY_DASHBOARD=${current.readonlyDashboard ? 'true' : 'false'}`,
       `CLIENT_MAX_CAMPAIGNS=${String(current.maxCampaigns)}`,
+      'CLIENT_REFERRAL_CONTEST_ENABLED=true',
       `WHATSAPP_PROVIDER=${escapeEnvValue(current.whatsappProvider)}`,
       'WHATSAPP_KEEP_CONNECTED=true',
       'BAILEYS_FALLBACK_TO_WEBJS=false',

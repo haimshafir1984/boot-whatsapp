@@ -516,7 +516,7 @@ function conversationSettings(
     followupMessages: Array.isArray(input?.followupMessages)
       ? input.followupMessages.filter((message): message is string => typeof message === 'string')
       : defaults.followupMessages,
-    decisionFlow: sanitizeDecisionFlow(input?.decisionFlow, defaults.decisionFlow),
+    decisionFlow: sanitizeDecisionFlow(input?.decisionFlow, defaults.decisionFlow, config.CLIENT_REFERRAL_CONTEST_ENABLED),
     decisionTimeoutMinutes: typeof input?.decisionTimeoutMinutes === 'number' && input.decisionTimeoutMinutes > 0
       ? Math.min(Math.max(Math.round(input.decisionTimeoutMinutes), 1), 1440)
       : (defaults.decisionTimeoutMinutes ?? 30),
@@ -559,6 +559,7 @@ function sanitizeCompletionLinks(input: unknown, defaults: CompletionLink[]): Co
 function sanitizeDecisionFlow(
   input: unknown,
   defaults: DecisionFlowStep[],
+  referralContestEnabled = false,
 ): DecisionFlowStep[] {
   if (!Array.isArray(input)) return defaults;
 
@@ -569,7 +570,7 @@ function sanitizeDecisionFlow(
       const id = typeof item.id === 'string' && item.id.trim()
         ? item.id.trim().slice(0, 80)
         : `step-${index + 1}`;
-      const kind = item.kind === 'question' || item.kind === 'score_question' || item.kind === 'wait_reply' || item.kind === 'contact_card' ? item.kind : 'message';
+      const kind = item.kind === 'question' || item.kind === 'score_question' || item.kind === 'wait_reply' || item.kind === 'contact_card' || (referralContestEnabled && item.kind === 'referral_share') ? item.kind : 'message';
       const text = typeof item.text === 'string' ? item.text.trim().slice(0, 2000) : '';
       if (!text) return null;
 
@@ -588,7 +589,7 @@ function sanitizeDecisionFlow(
           step.fileAsSticker = item.fileAsSticker;
         }
       }
-      if (kind === 'wait_reply' && typeof item.timeoutMinutes === 'number' && item.timeoutMinutes > 0) {
+      if ((kind === 'wait_reply' || kind === 'referral_share') && typeof item.timeoutMinutes === 'number' && item.timeoutMinutes > 0) {
         step.timeoutMinutes = Math.min(Math.max(Math.round(item.timeoutMinutes), 1), 1440);
       }
       if (kind === 'question' || kind === 'score_question') {
@@ -2043,6 +2044,14 @@ export function startAdminServer(storage: Storage): void {
     res.json({ summaries });
   });
 
+  app.get('/api/campaign-results/:id/referrals', (req, res) => {
+    const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
+    if (!campaign) {
+      res.status(404).json({ error: 'Campaign not found' });
+      return;
+    }
+    res.json({ campaignId: campaign.id, referrals: storage.getCampaignReferralLeaderboard(campaign.id) });
+  });
   app.get('/api/campaign-results/:id/export', (req, res) => {
     const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
     if (!campaign) {
@@ -2115,6 +2124,8 @@ export function startAdminServer(storage: Storage): void {
       ['Pending saves', String(summary.pending)],
       ['Failed saves', String(summary.failed)],
       ['Completed', String(summary.completed)],
+      ['Referral links sent', String(storage.getCampaignEvents(campaign.id).filter((event) => event.type === 'referral_link_sent').length)],
+      ['Referral attributed entries', String(results.filter((result) => result.referredByCode).length)],
       ['Human handoff', String(summary.humanHandoff)],
       ['Score average', String(summary.scoreAverage)],
     ];

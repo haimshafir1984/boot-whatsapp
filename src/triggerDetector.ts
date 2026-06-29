@@ -11,9 +11,15 @@ export interface TriggerResult {
   campaignId: string;
   suffix: string;
   campaignName: string;
+  referralCode?: string;
 }
 
 // Strip invisible Unicode direction/zero-width chars that WhatsApp sometimes injects
+export function extractReferralCode(messageBody: string): string {
+  const match = messageBody.match(/(?:^|[\s#])ref[:=\- ]*([a-z0-9]{4,16})(?:\b|$)/i);
+  return match?.[1]?.toUpperCase() ?? '';
+}
+
 function normalize(s: string): string {
   return s
     .replace(/[​-‏﻿‪-‮⁦-⁩]/g, '')
@@ -44,6 +50,7 @@ export function detectTrigger(
       campaignId: bestMatch.campaign.id,
       suffix: bestMatch.campaign.suffix,
       campaignName: bestMatch.campaign.name,
+      referralCode: extractReferralCode(messageBody),
     };
   }
 

@@ -1518,6 +1518,7 @@
                   <option value="wait_reply">&#1492;&#1493;&#1491;&#1506;&#1492; &#1513;&#1502;&#1502;&#1514;&#1497;&#1504;&#1492; &#1500;&#1514;&#1513;&#1493;&#1489;&#1492;</option>
                   <option value="media">&#1514;&#1502;&#1493;&#1504;&#1492; / &#1505;&#1512;&#1496;&#1493;&#1503; / &#1511;&#1493;&#1489;&#1509;</option>
                   <option value="contact_card">&#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1500;&#1513;&#1502;&#1497;&#1512;&#1492;</option>
+                  <option value="referral_share" data-referral-feature>&#1500;&#1497;&#1504;&#1511; &#1488;&#1497;&#1513;&#1497; &#1500;&#1514;&#1495;&#1512;&#1493;&#1514;</option>
                 </select>
                 <button type="button" class="btn-small" onclick="addDecisionStepFromSelect()">+ &#1492;&#1493;&#1505;&#1507; &#1513;&#1500;&#1489;</button>
               </div>
@@ -1666,7 +1667,7 @@
   let lastWizardLink = '';
   let activeDecisionStepId = '';
   let appFiles = [];
-  let appCapabilities = { readonlyDashboard: false, maxCampaigns: 7, serviceExpired: false, campaignCount: 0, whatsappProvider: '' };
+  let appCapabilities = { readonlyDashboard: false, maxCampaigns: 7, serviceExpired: false, campaignCount: 0, whatsappProvider: '', referralContestEnabled: false };
   let lastCampaigns = [];
 
   // ── Campaigns ───────────────────────────────────────────────────────────────
@@ -1700,6 +1701,7 @@
       addBtn.style.display = canEditCampaigns() ? '' : 'none';
       addBtn.disabled = appCapabilities.campaignCount >= appCapabilities.maxCampaigns;
     }
+    document.querySelectorAll('[data-referral-feature]').forEach(el => { el.style.display = appCapabilities.referralContestEnabled ? '' : 'none'; });
     const isPromotionalClient = appCapabilities.whatsappProvider === 'TWILIO_API';
     const promotionalSetupCard = document.getElementById('twilioSetupCard');
     if (promotionalSetupCard) promotionalSetupCard.style.display = isPromotionalClient ? '' : 'none';
@@ -1850,12 +1852,14 @@
               <div>נשלחו ${sentMessages} הודעות אוטומטיות</div>
               <div>${handoff} אנשים ביקשו נציג</div>
               <div>${failed} שמירות נכשלו</div>
+              ${Number(item.referralAttributed || 0) ? `<div>${Number(item.referralAttributed || 0)} הגיעו דרך שיתוף אישי</div>` : ''}
             </div>
           </div>
           <div class="result-actions">
             <a class="result-export" href="/api/campaign-results/${item.campaignId}/export.xls" download>Excel</a>
             <a class="result-export" href="/api/campaign-results/${item.campaignId}/export" download>CSV</a>
             <a class="result-export" href="/api/campaign-results/${item.campaignId}/export.vcf" download>VCF</a>
+            ${appCapabilities.referralContestEnabled ? `<button class="result-export" type="button" onclick="showReferralLeaderboard('${item.campaignId}')">&#1491;&#1497;&#1512;&#1493;&#1490; &#1513;&#1497;&#1514;&#1493;&#1508;&#1497;&#1501;</button>` : ''}
             ${started > saved ? `<button class="result-export" type="button" onclick="queueUnsavedCampaignResults('${item.campaignId}')">&#1513;&#1502;&#1493;&#1512; &#1502;&#1497; &#1513;&#1500;&#1488; &#1504;&#1513;&#1502;&#1512;</button>` : ''}
           </div>
         </div>
@@ -2641,18 +2645,20 @@
     if (kind === 'question') return presentation === 'list' ? '\u05e9\u05d0\u05dc\u05d4 \u05e2\u05dd \u05e8\u05e9\u05d9\u05de\u05d4 \u05e0\u05e4\u05ea\u05d7\u05ea \u05e2\u05d3 10 \u05ea\u05e9\u05d5\u05d1\u05d5\u05ea' : '\u05e9\u05d0\u05dc\u05d4 \u05e2\u05dd \u05e2\u05d3 3 \u05db\u05e4\u05ea\u05d5\u05e8\u05d9\u05dd';
     if (kind === 'wait_reply') return '\u05d4\u05d5\u05d3\u05e2\u05d4 \u05e9\u05de\u05de\u05ea\u05d9\u05e0\u05d4 \u05dc\u05ea\u05e9\u05d5\u05d1\u05d4';
     if (kind === 'contact_card') return '\u05e9\u05dc\u05d9\u05d7\u05ea \u05d0\u05d9\u05e9 \u05e7\u05e9\u05e8 \u05d1\u05e4\u05dc\u05d5\u05d0\u05d5';
+    if (kind === 'referral_share') return '\u05dc\u05d9\u05e0\u05e7 \u05d0\u05d9\u05e9\u05d9 \u05dc\u05ea\u05d7\u05e8\u05d5\u05ea \u05e9\u05d9\u05ea\u05d5\u05e4\u05d9\u05dd';
     return '\u05d4\u05d5\u05d3\u05e2\u05d4 \u05e8\u05d2\u05d9\u05dc\u05d4';
   }
 
   function decisionStepPlaceholder(kind) {
     if (kind === 'question') return '\u05dc\u05d3\u05d5\u05d2\u05de\u05d4: \u05d4\u05d0\u05dd \u05d1\u05e8\u05e6\u05d5\u05e0\u05da \u05dc\u05e7\u05d1\u05dc \u05d7\u05d5\u05d1\u05e8\u05ea \u05e4\u05e8\u05e1\u05d5\u05dd?';
     if (kind === 'contact_card') return '\u05d4\u05d5\u05d3\u05e2\u05d4 \u05de\u05e7\u05d3\u05d9\u05de\u05d4 \u05dc\u05e4\u05e0\u05d9 \u05d0\u05d9\u05e9 \u05e7\u05e9\u05e8';
+    if (kind === 'referral_share') return '\u05dc\u05d3\u05d5\u05d2\u05de\u05d4: \u05e8\u05d5\u05e6\u05d4 \u05dc\u05d4\u05e9\u05ea\u05ea\u05e3 \u05d1\u05ea\u05d7\u05e8\u05d5\u05ea? \u05e4\u05e8\u05e1\u05dd \u05d0\u05ea \u05d4\u05dc\u05d9\u05e0\u05e7 \u05d4\u05d0\u05d9\u05e9\u05d9 \u05e9\u05dc\u05da: {referral_link}';
     return '\u05d4\u05d4\u05d5\u05d3\u05e2\u05d4 \u05e9\u05ea\u05d9\u05e9\u05dc\u05d7';
   }
 
   function decisionStepHtml(step, index, steps) {
     const stepId = step.id || makeFlowId();
-    const kind = step.kind === 'question' || step.kind === 'score_question' || step.kind === 'wait_reply' || step.kind === 'contact_card' ? step.kind : 'message';
+    const kind = step.kind === 'question' || step.kind === 'score_question' || step.kind === 'wait_reply' || step.kind === 'contact_card' || step.kind === 'referral_share' ? step.kind : 'message';
     const presentation = ['text', 'buttons', 'list'].includes(step.presentation) ? step.presentation : 'buttons';
     const isActive = activeDecisionStepId === stepId;
     const options = Array.isArray(step.options) && step.options.length
@@ -2673,6 +2679,7 @@
             <option value="message" ${kind === 'message' ? 'selected' : ''}>הודעה רגילה</option>
             <option value="wait_reply" ${kind === 'wait_reply' ? 'selected' : ''}>הודעה שממתינה לתשובה</option>
             <option value="contact_card" ${kind === 'contact_card' ? 'selected' : ''}>&#1513;&#1500;&#1497;&#1495;&#1514; &#1488;&#1497;&#1513; &#1511;&#1513;&#1512;</option>
+            <option value="referral_share" data-referral-feature ${kind === 'referral_share' ? 'selected' : ''}>&#1500;&#1497;&#1504;&#1511; &#1488;&#1497;&#1513;&#1497; &#1500;&#1514;&#1495;&#1512;&#1493;&#1514;</option>
             <option value="question" ${kind === 'question' ? 'selected' : ''}>שאלת בחירה</option>
             <option value="score_question" ${kind === 'score_question' ? 'selected' : ''}>סקר 1/2/3</option>
           </select>
@@ -2792,6 +2799,10 @@
     }
     if (type === 'wait_reply') {
       addDecisionStep({ id: makeFlowId(), kind: 'wait_reply', text: '', nextStepId: '' });
+      return;
+    }
+    if (type === 'referral_share') {
+      addDecisionStep({ id: makeFlowId(), kind: 'referral_share', text: '\u05e8\u05d5\u05e6\u05d4 \u05dc\u05d4\u05e9\u05ea\u05ea\u05e3 \u05d1\u05ea\u05d7\u05e8\u05d5\u05ea? \u05e4\u05e8\u05e1\u05dd/\u05d9 \u05d1\u05e1\u05d8\u05d8\u05d5\u05e1 \u05d0\u05ea \u05d4\u05dc\u05d9\u05e0\u05e7 \u05d4\u05d0\u05d9\u05e9\u05d9 \u05e9\u05dc\u05da:\n{referral_link}', nextStepId: '' });
       return;
     }
     if (type === 'contact_card') {
@@ -2937,7 +2948,7 @@
       const isChoice = kind === 'question' || kind === 'score_question';
       const presentation = kind === 'score_question' ? 'buttons' : (step.querySelector('[data-step-presentation]')?.value || 'buttons');
       if (kind === 'score_question' && step.querySelector('[data-step-presentation]')) step.querySelector('[data-step-presentation]').value = 'buttons';
-      step.querySelector('[data-message-next]').style.display = (kind === 'message' || kind === 'wait_reply' || kind === 'contact_card') ? '' : 'none';
+      step.querySelector('[data-message-next]').style.display = (kind === 'message' || kind === 'wait_reply' || kind === 'contact_card' || kind === 'referral_share') ? '' : 'none';
       const messageFile = step.querySelector('[data-message-file]');
       const messageSticker = step.querySelector('[data-message-sticker]');
       if (messageFile) messageFile.style.display = kind === 'message' ? '' : 'none';
@@ -3037,7 +3048,7 @@
     const steps = [...document.querySelectorAll('[data-decision-step]')]
       .map(step => {
         const rawKind = step.querySelector('[data-step-kind]').value;
-        const kind = rawKind === 'question' || rawKind === 'score_question' || rawKind === 'wait_reply' || rawKind === 'contact_card' ? rawKind : 'message';
+        const kind = rawKind === 'question' || rawKind === 'score_question' || rawKind === 'wait_reply' || rawKind === 'contact_card' || (appCapabilities.referralContestEnabled && rawKind === 'referral_share') ? rawKind : 'message';
         const item = {
           id: step.dataset.stepId || makeFlowId(),
           kind,
@@ -3046,7 +3057,7 @@
         const delaySeconds = Number(step.querySelector('[data-step-delay]')?.value || 0);
         if (Number.isFinite(delaySeconds) && delaySeconds > 0) item.delayMs = Math.min(Math.round(delaySeconds * 1000), 60000);
         if (!item.text) return null;
-        if (kind === 'message' || kind === 'wait_reply' || kind === 'contact_card') {
+        if (kind === 'message' || kind === 'wait_reply' || kind === 'contact_card' || kind === 'referral_share') {
           const nextStepId = step.querySelector('[data-step-next]')?.value || '';
           item.nextStepId = nextStepId || '__NEXT__';
           if (kind === 'message') {
@@ -3276,6 +3287,9 @@
           .join('\n');
         const notes = [optionNotes, textNotes].filter(Boolean).join('\n');
         return `<div class="chat-row bot"><div class="chat-bubble">${esc(`${step.text}\n(${mode})${options ? '\n\n' + options : ''}${notes ? '\n\n' + notes : ''}`)}</div></div>`;
+      }
+      if (step.kind === 'referral_share') {
+        return `<div class="chat-row bot"><div class="chat-bubble">${esc((step.text || '').split('{referral_link}').join('https://wa.me/...').split('{referral_code}').join('ABC123'))}</div></div>`;
       }
       if (step.kind === 'contact_card') {
         return `<div class="chat-row bot"><div class="chat-bubble">${esc(step.text || conversation.contactCardIntroText || '')}</div></div><div class="chat-row bot"><div class="chat-bubble">&#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1500;&#1513;&#1502;&#1497;&#1512;&#1492;: ${esc(conversation.contactCardName || '\u05d0\u05d9\u05e9 \u05e7\u05e9\u05e8')}</div></div>`;
