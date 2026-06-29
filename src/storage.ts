@@ -634,7 +634,7 @@ export class Storage {
       campaignId,
       phone,
       whatsappName,
-      referralCode: this.generateUniqueReferralCode(campaignId),
+      referralCode: phone,
       referredByCode: referrer?.referralCode,
       referredByResultId: referrer?.id,
       referredByName: referrer ? this.resultDisplayName(referrer) : undefined,
