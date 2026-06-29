@@ -1,7 +1,7 @@
 import { config } from './config';
 import fs from 'fs';
 import path from 'path';
-import { conversationState } from './conversationState';
+import { conversationState, PersistablePendingConversation } from './conversationState';
 import { CampaignConversationSettings, CompletionLink, DecisionFlowOption, DecisionFlowStep, Storage } from './storage';
 import { detectTrigger } from './triggerDetector';
 import {
@@ -51,10 +51,84 @@ interface CompletionDelivery {
   contactCardConfirmationTimeoutMinutes?: number;
 }
 
+type RestoredTimeoutTransportResolver = () => WhatsAppTransport | null | undefined;
+
+const RESTORED_TIMEOUT_RETRY_MS = 60_000;
+
 function logTimerError(label: string, err: unknown): void {
   console.error(`[TIMER] ${label} failed:`, err);
 }
 
+function restoredConversationTtlMs(state: PersistablePendingConversation): number {
+  if (state.kind === 'name') {
+    return Math.max(1, state.nameTimeoutMinutes ?? 5) * 60 * 1000;
+  }
+  if (state.kind === 'pre-name-prompt') {
+    return Math.max(1, state.preNamePromptTimeoutMinutes ?? 1) * 60 * 1000;
+  }
+  if (state.kind === 'contact-card-confirmation') {
+    const minutes = state.contactCardConfirmationTimeoutMinutes || 30;
+    return Math.max(1, minutes) * 60 * 1000;
+  }
+  if (state.kind === 'decision' || state.kind === 'wait-reply') {
+    const step = state.flow.find((item) => item.id === state.stepId);
+    const minutes = step?.timeoutMinutes || state.decisionTimeoutMinutes || 30;
+    return Math.max(1, minutes) * 60 * 1000;
+  }
+  return 24 * 60 * 60 * 1000;
+}
+
+export function scheduleRestoredConversationTimeout(
+  storage: Storage,
+  getTransport: RestoredTimeoutTransportResolver,
+  jid: string,
+  state: PersistablePendingConversation,
+): NodeJS.Timeout | undefined {
+  const ageMs = Date.now() - Number(state.timestamp || 0);
+  const remainingMs = Math.max(0, restoredConversationTtlMs(state) - ageMs);
+
+  const schedule = (delayMs: number): NodeJS.Timeout => setTimeout(() => {
+    void (async () => {
+      try {
+        if (state.kind === 'decision' || state.kind === 'wait-reply') {
+          const transport = getTransport();
+          if (!transport) {
+            throw new Error('WhatsApp transport is not ready for restored timeout.');
+          }
+          const step = state.flow.find((item) => item.id === state.stepId);
+          if (!step) {
+            conversationState.remove(jid);
+            return;
+          }
+          await handleDecisionTimeout(
+            transport,
+            storage,
+            jid,
+            step,
+            state.decisionTimeoutText,
+            state.campaignId,
+            state.campaignResultId,
+            state.senderPhone,
+            state.kind,
+          );
+          conversationState.remove(jid);
+          return;
+        }
+
+        conversationState.remove(jid);
+        console.log(`Restored conversation expired: ${jid}`);
+      } catch (err) {
+        logTimerError('restored conversation timeout', err);
+        const current = conversationState.get(jid);
+        if (!current) return;
+        current.timeoutHandle = schedule(RESTORED_TIMEOUT_RETRY_MS);
+        conversationState.set(jid, current);
+      }
+    })();
+  }, delayMs);
+
+  return schedule(remainingMs);
+}
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1564,6 +1638,29 @@ function keepHumanHandoffOpen(
   });
 }
 
+async function handleDecisionTimeout(
+  transport: WhatsAppTransport,
+  storage: Storage,
+  senderJid: string,
+  step: DecisionFlowStep,
+  defaultTimeoutText?: string,
+  campaignId?: string,
+  campaignResultId?: string,
+  senderPhone?: string,
+  source: 'decision' | 'wait-reply' = 'decision',
+): Promise<void> {
+  await sendDecisionTimeoutAction(transport, storage, senderJid, step, defaultTimeoutText, campaignId, campaignResultId, senderPhone);
+  if (campaignId) {
+    storage.recordCampaignEvent({
+      campaignId,
+      campaignResultId,
+      phone: senderPhone,
+      type: 'decision_timeout_sent',
+      label: (step.timeoutText?.trim() || defaultTimeoutText?.trim() || step.timeoutFileId || source).slice(0, 120),
+    });
+  }
+  console.log(`   ${source} timeout handled for ${senderJid}.`);
+}
 async function sendDecisionTimeoutAction(
   transport: WhatsAppTransport,
   storage: Storage,

@@ -10,7 +10,11 @@ import { startAdminServer } from './adminServer';
 import { config } from './config';
 import { startContactSaveQueue } from './contactQueue';
 import { startWhatsAppScheduler } from './whatsappLifecycle';
-import { conversationState, PersistablePendingConversation } from './conversationState';
+import { conversationState } from './conversationState';
+import { scheduleRestoredConversationTimeout } from './messageFlow';
+import { botState } from './botState';
+import { TwilioProvider } from './providers/TwilioProvider';
+import { WhatsAppTransport } from './types/whatsapp';
 
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection:', reason);
@@ -31,41 +35,25 @@ function removeSingletonLocks(dir: string): void {
   } catch { /* ignore */ }
 }
 
-function restoredConversationTtlMs(state: PersistablePendingConversation): number {
-  if (state.kind === 'name') {
-    return Math.max(1, state.nameTimeoutMinutes ?? 5) * 60 * 1000;
-  }
-  if (state.kind === 'pre-name-prompt') {
-    return Math.max(1, state.preNamePromptTimeoutMinutes ?? 1) * 60 * 1000;
-  }
-  if (state.kind === 'contact-card-confirmation') {
-    const minutes = state.contactCardConfirmationTimeoutMinutes || 30;
-    return Math.max(1, minutes) * 60 * 1000;
-  }
-  if (state.kind === 'decision' || state.kind === 'wait-reply') {
-    const step = state.flow.find((item) => item.id === state.stepId);
-    const minutes = step?.timeoutMinutes || state.decisionTimeoutMinutes || 30;
-    return Math.max(1, minutes) * 60 * 1000;
-  }
-  return 24 * 60 * 60 * 1000;
+function currentWhatsAppTransport(): WhatsAppTransport | null {
+  const candidate = botState.client as unknown as Partial<WhatsAppTransport> | null;
+  if (!candidate?.sendMessage || !candidate.resolvePhone) return null;
+  return candidate as WhatsAppTransport;
 }
 
-function restoreConversationState(): void {
+function restoreConversationState(storage: Storage): void {
   conversationState.configurePersistence(config.CONVERSATION_STATE_PATH);
-  const restored = conversationState.restore((jid, state) => {
-    const ageMs = Date.now() - Number(state.timestamp || 0);
-    const remainingMs = restoredConversationTtlMs(state) - ageMs;
-    if (remainingMs <= 0) return undefined;
-    return setTimeout(() => {
-      conversationState.remove(jid);
-      console.log(`Restored conversation expired: ${jid}`);
-    }, remainingMs);
-  });
+  const twilioTransport = config.WHATSAPP_PROVIDER === 'TWILIO_API' ? new TwilioProvider() : null;
+  const restored = conversationState.restore((jid, state) => scheduleRestoredConversationTimeout(
+    storage,
+    () => twilioTransport ?? currentWhatsAppTransport(),
+    jid,
+    state,
+  ));
   if (restored) {
     console.log(`  Restored pending conversations: ${restored}`);
   }
 }
-
 async function main(): Promise<void> {
   console.log('─'.repeat(50));
   console.log('  WhatsApp Status Bot – starting up…');
@@ -77,7 +65,7 @@ async function main(): Promise<void> {
   removeSingletonLocks(config.SESSION_PATH);
 
   const storage = new Storage(config.STORAGE_PATH);
-  restoreConversationState();
+  restoreConversationState(storage);
 
   startContactSaveQueue(storage);
 

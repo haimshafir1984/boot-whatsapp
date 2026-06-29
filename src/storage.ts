@@ -198,6 +198,7 @@ export type CampaignEventType =
   | 'step_sent'
   | 'step_answered'
   | 'score_answered'
+  | 'decision_timeout_sent'
   | 'file_sent'
   | 'file_failed'
   | 'completion_sent'
