@@ -324,6 +324,10 @@ export class BaileysProvider implements WhatsAppProvider {
       sendContactCard: (to, vcard, displayName) => this.sendContactCard(to, vcard, displayName),
       sendInteractiveButtons: (to, text, buttons) => this.sendInteractiveButtons(to, text, buttons),
       sendInteractiveList: (to, text, buttonText, items) => this.sendInteractiveList(to, text, buttonText, items),
+      markRead: async (message) => {
+        this.assertReady();
+        await this.socket!.readMessages([{ remoteJid: normalizeJid(message.from), id: message.id, fromMe: false } as any]);
+      },
       resolvePhone: async (jid) => jidToPhone(jid),
     };
   }

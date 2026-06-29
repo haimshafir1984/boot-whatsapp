@@ -1924,6 +1924,8 @@ export function startAdminServer(storage: Storage): void {
       patch.nameTimeoutMinutes = body.nameTimeoutMinutes;
     if (body.contactsProvider === 'google' || body.contactsProvider === 'manual')
       patch.contactsProvider = body.contactsProvider;
+    if (typeof body.readReceiptsEnabled === 'boolean')
+      patch.readReceiptsEnabled = body.readReceiptsEnabled;
     if (typeof body.askNameText === 'string')    patch.askNameText    = body.askNameText;
     if (typeof body.replyText === 'string')      patch.replyText      = body.replyText;
     if (Array.isArray(body.followupMessages))

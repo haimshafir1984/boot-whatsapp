@@ -107,6 +107,7 @@ export interface AdminSettings {
   askNameEnabled: boolean;
   nameTimeoutMinutes: number;
   contactsProvider: 'google' | 'manual';
+  readReceiptsEnabled?: boolean;
   askNameText: string;
   replyText: string;
   completionLinks: CompletionLink[];
@@ -285,6 +286,7 @@ const DEFAULT_SETTINGS: AdminSettings = {
   askNameEnabled: false,
   nameTimeoutMinutes: 5,
   contactsProvider: config.WHATSAPP_PROVIDER === 'TWILIO_API' ? 'manual' : 'google',
+  readReceiptsEnabled: false,
   askNameText: config.ASK_NAME_TEXT,
   replyText: config.REPLY_TEXT,
   followupMessages: [],

@@ -1226,6 +1226,14 @@
         <div class="provider-tab" id="ptab-manual" onclick="selectProvider('manual')">📋 ידני</div>
       </div>
 
+      <div class="toggle-row" style="margin:12px 0">
+        <div>
+          <div class="toggle-label">&#1488;&#1497;&#1513;&#1493;&#1512;&#1497; &#1511;&#1512;&#1497;&#1488;&#1492; / &#1493;&#1497; &#1499;&#1495;&#1493;&#1500;</div>
+          <div class="toggle-sub">&#1502;&#1505;&#1502;&#1503; &#1492;&#1493;&#1491;&#1506;&#1493;&#1514; &#1504;&#1499;&#1504;&#1505;&#1493;&#1514; &#1499;&#1504;&#1511;&#1512;&#1488;&#1493;, &#1489;&#1492;&#1514;&#1488;&#1501; &#1500;&#1514;&#1502;&#1497;&#1499;&#1514; WhatsApp &#1493;&#1500;&#1492;&#1490;&#1491;&#1512;&#1493;&#1514; &#1492;&#1508;&#1512;&#1496;&#1497;&#1493;&#1514; &#1513;&#1500; &#1492;&#1502;&#1513;&#1514;&#1502;&#1513;.</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="readReceiptsEnabled" onchange="saveReadReceiptsSetting()" /><span class="slider"></span></label>
+      </div>
+
       <!-- Google panel -->
       <div class="provider-panel" id="ppanel-google">
         <div class="toggle-row">
@@ -1581,6 +1589,7 @@
     humanHandoffText: 'אני מענה אוטומטי.\nלשאלות נוספות אפשר לעבור לשיחה אנושית כאן:\n[מעבר ל-WhatsApp]',
     humanHandoffPhone: '',
     contactsProvider: 'google',
+    readReceiptsEnabled: false,
     referralPrefix: 'הגעתי דרך ',
     botSuffix: '',
   };
@@ -2263,6 +2272,8 @@
     // Load provider
     const provider = ['google', 'manual'].includes(s.contactsProvider) ? s.contactsProvider : 'manual';
     selectProvider(provider);
+    const readReceiptsToggle = document.getElementById('readReceiptsEnabled');
+    if (readReceiptsToggle) readReceiptsToggle.checked = Boolean(s.readReceiptsEnabled);
     if (provider === 'google') loadGoogleStatus();
   }
 
@@ -3279,6 +3290,20 @@
 
   // ── Contacts provider ────────────────────────────────────────────────────────
 
+  async function saveReadReceiptsSetting() {
+    const enabled = Boolean(document.getElementById('readReceiptsEnabled')?.checked);
+    const response = await fetch('/api/settings', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ readReceiptsEnabled: enabled }),
+    });
+    if (!response.ok) {
+      alert('\u05e9\u05de\u05d9\u05e8\u05ea \u05d0\u05d9\u05e9\u05d5\u05e8\u05d9 \u05d4\u05e7\u05e8\u05d9\u05d0\u05d4 \u05e0\u05db\u05e9\u05dc\u05d4.');
+      const toggle = document.getElementById('readReceiptsEnabled');
+      if (toggle) toggle.checked = !enabled;
+      return;
+    }
+    appSettings.readReceiptsEnabled = enabled;
+  }
   async function selectProvider(p) {
     if (!['google', 'manual'].includes(p)) p = 'manual';
     ['google','manual'].forEach(x => {

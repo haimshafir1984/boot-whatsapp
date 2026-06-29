@@ -94,10 +94,26 @@ export async function handleIncomingWhatsAppMessage(
   if (!message.body?.trim() && !message.hasUserSignal && !message.isReaction) return;
   if (!rememberMessage(message)) return;
 
+  await markIncomingMessageReadIfEnabled(message, storage, transport, source);
+
   try {
     await handleMessage(message, storage, transport, source);
   } catch (err) {
     console.error(`[MSG] handler failed via ${source}:`, err);
+  }
+}
+
+async function markIncomingMessageReadIfEnabled(
+  message: IncomingWhatsAppMessage,
+  storage: Storage,
+  transport: WhatsAppTransport,
+  source: WhatsAppMessageSource,
+): Promise<void> {
+  if (!storage.getAdminSettings().readReceiptsEnabled || !transport.markRead) return;
+  try {
+    await transport.markRead(message);
+  } catch (err) {
+    console.warn(`[READ_RECEIPT] markRead failed via ${source}:`, err);
   }
 }
 

@@ -225,6 +225,10 @@ function createWebJsTransport(client: Client): WhatsAppTransport {
         : text;
       await client.sendMessage(to, listText);
     },
+    markRead: async (message) => {
+      const chat = await client.getChatById(message.from);
+      await chat.sendSeen();
+    },
     resolvePhone: async (jid) => {
       try {
         const resolved = await (client as any).getContactLidAndPhone([jid]);

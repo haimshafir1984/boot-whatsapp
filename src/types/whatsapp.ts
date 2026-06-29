@@ -20,6 +20,7 @@ export interface WhatsAppTransport {
   sendInteractiveButtons?(to: string, text: string, buttons: Array<{ id: string; text: string }>): Promise<void>;
   sendInteractiveList?(to: string, text: string, buttonText: string, items: Array<{ id: string; text: string }>): Promise<void>;
   resolvePhone(jid: string): Promise<string>;
+  markRead?(message: IncomingWhatsAppMessage): Promise<void>;
 }
 
 export interface WhatsAppProvider {
@@ -41,4 +42,5 @@ export interface WhatsAppProvider {
     buttonText: string,
     items: Array<{ id: string; text: string }>,
   ): Promise<void>;
+  markRead?(message: IncomingWhatsAppMessage): Promise<void>;
 }
