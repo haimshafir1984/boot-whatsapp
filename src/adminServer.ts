@@ -338,6 +338,7 @@ function getClientCapabilities(storage: Storage) {
     whatsappProvider: config.WHATSAPP_PROVIDER,
     twilioConfigured: twilioConfigured(),
     campaignCount: storage.getCampaigns().length,
+    referralContestEnabled: config.CLIENT_REFERRAL_CONTEST_ENABLED,
   };
 }
 
