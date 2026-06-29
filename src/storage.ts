@@ -606,6 +606,14 @@ export class Storage {
     return file ? { ...file } : null;
   }
 
+  deleteUploadedFile(id: string): UploadedFile | null {
+    const index = this.data.uploadedFiles.findIndex((item) => item.id === id);
+    if (index < 0) return null;
+    const [removed] = this.data.uploadedFiles.splice(index, 1);
+    this.persist();
+    return { ...removed };
+  }
+
   // Campaign results
 
   recordCampaignTrigger(campaignId: string, phone: string, whatsappName = ''): CampaignResult {

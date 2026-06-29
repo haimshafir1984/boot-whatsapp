@@ -765,6 +765,7 @@
     .file-list { display: flex; flex-direction: column; gap: 6px; }
     .file-item {
       display: flex;
+      align-items: center;
       justify-content: space-between;
       gap: 8px;
       padding: 7px 8px;
@@ -2431,8 +2432,9 @@
     }
     el.innerHTML = appFiles.map(file => `
       <div class="file-item">
-        <span>${esc(file.originalName)}</span>
+        <span style="min-width:0;overflow-wrap:anywhere">${esc(file.originalName)}</span>
         <span class="file-size">${formatFileSize(file.size)}</span>
+        <button type="button" class="btn-small" onclick="deleteCampaignFile('${esc(file.id)}')">&#1502;&#1495;&#1511;</button>
       </div>
     `).join('');
   }
@@ -2449,6 +2451,23 @@
         select.dataset.selectedFile = select.value;
       });
     } catch (_) {}
+  }
+
+  async function deleteCampaignFile(fileId) {
+    if (!fileId || !confirm('\u05dc\u05de\u05d7\u05d5\u05e7 \u05d0\u05ea \u05d4\u05e7\u05d5\u05d1\u05e5? \u05d0\u05dd \u05d4\u05d5\u05d0 \u05de\u05e9\u05d5\u05d9\u05da \u05dc\u05e9\u05dc\u05d1 \u05d1\u05e7\u05de\u05e4\u05d9\u05d9\u05df, \u05d9\u05d4\u05d9\u05d4 \u05e6\u05e8\u05d9\u05da \u05dc\u05d1\u05d7\u05d5\u05e8 \u05e7\u05d5\u05d1\u05e5 \u05d7\u05d3\u05e9.')) return;
+    try {
+      const res = await fetch(`/api/files/${encodeURIComponent(fileId)}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast('filesToast', 'error', data.error || '\u05de\u05d7\u05d9\u05e7\u05ea \u05d4\u05e7\u05d5\u05d1\u05e5 \u05e0\u05db\u05e9\u05dc\u05d4');
+        return;
+      }
+      await loadCampaignFiles();
+      updateCampaignConversationPreview();
+      showToast('filesToast', 'success', '\u05d4\u05e7\u05d5\u05d1\u05e5 \u05e0\u05de\u05d7\u05e7.');
+    } catch (_) {
+      showToast('filesToast', 'error', '\u05de\u05d7\u05d9\u05e7\u05ea \u05d4\u05e7\u05d5\u05d1\u05e5 \u05e0\u05db\u05e9\u05dc\u05d4');
+    }
   }
 
   function readFileAsDataUrl(file) {

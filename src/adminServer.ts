@@ -171,6 +171,13 @@ function safeUploadName(name: string): string {
   return `${base}${ext}`;
 }
 
+function deleteUploadedFileFromDisk(filename: string): void {
+  const safeName = path.basename(filename);
+  if (!safeName || safeName !== filename) return;
+  const fullPath = path.join(config.UPLOADS_PATH, safeName);
+  if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+}
+
 function escapeVCardValue(value: string): string {
   return value
     .replace(/\\/g, '\\\\')
@@ -1368,6 +1375,22 @@ export function startAdminServer(storage: Storage): void {
     }
   });
 
+  app.get('/owner/api/clients/:id/files', async (req, res) => {
+    const client = ownerStorage.getClient(req.params.id);
+    if (!client) { res.status(404).json({ error: 'Client not found' }); return; }
+    const result = await fetchClientAsOwner(client, '/owner-api/files');
+    res.status(result.status).json(result.body);
+  });
+
+  app.delete('/owner/api/clients/:id/files/:fileId', async (req, res) => {
+    const client = ownerStorage.getClient(req.params.id);
+    if (!client) { res.status(404).json({ error: 'Client not found' }); return; }
+    const result = await fetchClientAsOwner(client, `/owner-api/files/${encodeURIComponent(String(req.params.fileId))}`, {
+      method: 'DELETE',
+    });
+    res.status(result.status).json(result.body);
+  });
+
   app.get('/owner/api/clients/:id/campaigns', async (req, res) => {
     const client = ownerStorage.getClient(req.params.id);
     if (!client) { res.status(404).json({ error: 'Client not found' }); return; }
@@ -1466,6 +1489,20 @@ export function startAdminServer(storage: Storage): void {
   });
 
   app.use('/owner-api', requireOwnerApiToken);
+
+  app.get('/owner-api/files', (_req, res) => {
+    res.json(storage.getUploadedFiles());
+  });
+
+  app.delete('/owner-api/files/:id', (req, res) => {
+    const file = storage.deleteUploadedFile(String(req.params.id));
+    if (!file) {
+      res.status(404).json({ error: 'File not found' });
+      return;
+    }
+    deleteUploadedFileFromDisk(file.filename);
+    res.json({ ok: true, file });
+  });
 
   app.get('/owner-api/campaigns', (_req, res) => {
     res.json(storage.getCampaigns().map((campaign) => ({
@@ -1932,6 +1969,16 @@ export function startAdminServer(storage: Storage): void {
 
   app.get('/api/files', (_req, res) => {
     res.json(storage.getUploadedFiles());
+  });
+
+  app.delete('/api/files/:id', requireWritableClient, (req, res) => {
+    const file = storage.deleteUploadedFile(String(req.params.id));
+    if (!file) {
+      res.status(404).json({ error: 'File not found' });
+      return;
+    }
+    deleteUploadedFileFromDisk(file.filename);
+    res.json({ ok: true, file });
   });
 
   app.post('/api/files', requireWritableClient, (req, res) => {

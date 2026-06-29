@@ -54,6 +54,9 @@
     .small-badge.ended { background: #fee2e2; color: #991b1b; }
     .campaign-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(95px, 1fr)); gap: 6px; color: #6b7280; font-size: .75rem; }
     .campaign-metrics strong { display: block; color: #111827; font-size: .86rem; }
+    .file-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; border: 1px solid #e5e7eb; border-radius: 8px; padding: 9px 10px; margin-top: 8px; background: #fff; font-size: .82rem; }
+    .file-row-name { min-width: 0; overflow-wrap: anywhere; font-weight: 700; }
+    .file-row-size { direction: ltr; color: #6b7280; white-space: nowrap; font-size: .76rem; }
     .owner-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
     .owner-form label { display: block; color: #6b7280; font-size: .74rem; margin-bottom: 5px; }
     .owner-form input, .owner-form select, .owner-form textarea {
@@ -250,6 +253,11 @@
           <div class="check"><span class="dot" id="whatsappDot"></span><span id="whatsappState">WhatsApp טרם חובר</span></div>
           <div class="check"><span class="dot" id="googleDot"></span><span id="googleState">Google Contacts טרם חובר</span></div>
           <div class="check"><span class="dot" id="campaignDot"></span><span id="campaignState">אין קמפיין פעיל</span></div>
+        </section>
+        <section>
+          <h2>&#1511;&#1489;&#1510;&#1497; &#1500;&#1511;&#1493;&#1495;&#1492;</h2>
+          <div class="muted">&#1511;&#1489;&#1510;&#1497;&#1501; &#1513;&#1492;&#1493;&#1506;&#1500;&#1493; &#1489;&#1506;&#1502;&#1493;&#1491; &#1492;&#1500;&#1511;&#1493;&#1495;&#1492; &#1493;&#1494;&#1502;&#1497;&#1504;&#1497;&#1501; &#1500;&#1513;&#1500;&#1497;&#1495;&#1492; &#1489;&#1511;&#1502;&#1508;&#1497;&#1497;&#1504;&#1497;&#1501;.</div>
+          <div id="ownerFilesList" class="empty" style="margin-top:12px">&#1496;&#1493;&#1506;&#1503; &#1511;&#1489;&#1510;&#1497;&#1501;...</div>
         </section>
         <section id="twilioSettingsSection" style="display:none">
           <h2>חיבור Twilio ללקוח</h2>
@@ -577,6 +585,7 @@
       document.getElementById('ocAskName').checked = false;
       toggleOwnerAskName();
       loadClientSummary(currentClient.id);
+      loadOwnerFiles(currentClient.id);
     }
 
     async function toggleOwnerCampaign(campaignId) {
@@ -652,6 +661,61 @@
           </div>
         </div>
       `).join('');
+    }
+
+    function formatFileSize(bytes) {
+      if (!bytes) return '0 KB';
+      if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+      return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    }
+
+    function renderOwnerFiles(files) {
+      const el = document.getElementById('ownerFilesList');
+      if (!el) return;
+      if (!files?.length) {
+        el.className = 'empty';
+        el.textContent = '\u05d0\u05d9\u05df \u05e7\u05d1\u05e6\u05d9\u05dd \u05e9\u05d4\u05d5\u05e2\u05dc\u05d5 \u05dc\u05dc\u05e7\u05d5\u05d7\u05d4.';
+        return;
+      }
+      el.className = '';
+      el.innerHTML = files.map((file) => `
+        <div class="file-row">
+          <span class="file-row-name">${esc(file.originalName || '\u05e7\u05d5\u05d1\u05e5')}</span>
+          <span class="file-row-size">${formatFileSize(file.size)}</span>
+          <button class="danger" onclick="deleteOwnerFile('${esc(file.id)}')">&#1502;&#1495;&#1511;</button>
+        </div>
+      `).join('');
+    }
+
+    async function loadOwnerFiles(id) {
+      const el = document.getElementById('ownerFilesList');
+      if (el) {
+        el.className = 'empty';
+        el.textContent = '\u05d8\u05d5\u05e2\u05df \u05e7\u05d1\u05e6\u05d9\u05dd...';
+      }
+      try {
+        const response = await fetch(`/owner/api/clients/${encodeURIComponent(id)}/files`);
+        if (!response.ok) {
+          renderOwnerFiles([]);
+          return;
+        }
+        renderOwnerFiles(await response.json());
+      } catch (_) {
+        if (el) el.textContent = '\u05dc\u05d0 \u05e0\u05d9\u05ea\u05df \u05dc\u05de\u05e9\u05d5\u05da \u05db\u05e8\u05d2\u05e2 \u05e7\u05d1\u05e6\u05d9\u05dd \u05de\u05d4\u05d9\u05d7\u05d9\u05d3\u05d4 \u05e9\u05dc \u05d4\u05dc\u05e7\u05d5\u05d7\u05d4.';
+      }
+    }
+
+    async function deleteOwnerFile(fileId) {
+      if (!currentClient || !fileId || !confirm('\u05dc\u05de\u05d7\u05d5\u05e7 \u05d0\u05ea \u05d4\u05e7\u05d5\u05d1\u05e5 \u05de\u05d4\u05dc\u05e7\u05d5\u05d7\u05d4? \u05d0\u05dd \u05d4\u05d5\u05d0 \u05de\u05e9\u05d5\u05d9\u05da \u05dc\u05e9\u05dc\u05d1 \u05d1\u05e7\u05de\u05e4\u05d9\u05d9\u05df, \u05d9\u05d4\u05d9\u05d4 \u05e6\u05e8\u05d9\u05da \u05dc\u05d1\u05d7\u05d5\u05e8 \u05e7\u05d5\u05d1\u05e5 \u05d7\u05d3\u05e9.')) return;
+      const error = document.getElementById('error');
+      error.textContent = '';
+      const response = await fetch(`/owner/api/clients/${encodeURIComponent(currentClient.id)}/files/${encodeURIComponent(fileId)}`, { method: 'DELETE' });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        error.textContent = body.error || '\u05de\u05d7\u05d9\u05e7\u05ea \u05d4\u05e7\u05d5\u05d1\u05e5 \u05e0\u05db\u05e9\u05dc\u05d4';
+        return;
+      }
+      loadOwnerFiles(currentClient.id);
     }
 
     async function loadClientSummary(id) {
@@ -736,6 +800,8 @@
         }
       }
       loadClientSummary(currentClient.id);
+
+      loadOwnerFiles(currentClient.id);
     }
 
     function copyAccessCode() {
