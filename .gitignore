@@ -10,3 +10,4 @@ data/google-token.json
 .env.*
 !.env.twilio.local.example
 *.vcf
+.wwebjs_cache/

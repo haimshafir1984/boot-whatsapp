@@ -634,7 +634,7 @@ export class Storage {
       campaignId,
       phone,
       whatsappName,
-      referralCode: phone,
+      referralCode: normalizeReferralPhone(phone),
       referredByCode: referrer?.referralCode,
       referredByResultId: referrer?.id,
       referredByName: referrer ? this.resultDisplayName(referrer) : undefined,
@@ -1105,5 +1105,13 @@ export class Storage {
 }
 
 function normalizeReferralCode(code: string | undefined): string {
-  return String(code ?? '').replace(/[^a-z0-9]/gi, '').toUpperCase();
+  return normalizeReferralPhone(code);
+}
+
+function normalizeReferralPhone(phone: string | undefined): string {
+  const digits = String(phone ?? '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('972') && digits.length === 12) return '0' + digits.slice(3);
+  if (digits.startsWith('00972') && digits.length === 14) return '0' + digits.slice(5);
+  return digits;
 }

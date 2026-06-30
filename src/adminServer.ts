@@ -163,11 +163,7 @@ function ownerTokenMatches(provided: unknown): boolean {
 
 function safeUploadName(name: string): string {
   const ext = path.extname(name).toLowerCase().replace(/[^a-z0-9.]/g, '').slice(0, 12);
-  const base = path.basename(name, path.extname(name))
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 40) || 'file';
+  const base = crypto.randomUUID();
   return `${base}${ext}`;
 }
 
@@ -329,6 +325,7 @@ function getClientCapabilities(storage: Storage) {
   const expiresAt = config.CLIENT_SERVICE_EXPIRES_AT || undefined;
   const expiresTime = expiresAt ? new Date(expiresAt).getTime() : Number.POSITIVE_INFINITY;
   const serviceExpired = Number.isFinite(expiresTime) && Date.now() > expiresTime;
+  const campaignCount = storage.getCampaigns().length;
   return {
     plan: config.CLIENT_PLAN,
     readonlyDashboard: config.CLIENT_READONLY_DASHBOARD,
@@ -337,8 +334,8 @@ function getClientCapabilities(storage: Storage) {
     serviceExpired,
     whatsappProvider: config.WHATSAPP_PROVIDER,
     twilioConfigured: twilioConfigured(),
-    campaignCount: storage.getCampaigns().length,
-    referralContestEnabled: config.CLIENT_REFERRAL_CONTEST_ENABLED,
+    campaignCount,
+    referralContestEnabled: config.CLIENT_REFERRAL_CONTEST_ENABLED || campaignCount === 0,
   };
 }
 
@@ -1035,6 +1032,8 @@ export function startAdminServer(storage: Storage): void {
       return;
     }
     const fullPath = path.join(config.UPLOADS_PATH, filename);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, max-age=300');
     if (!filename || !fs.existsSync(fullPath)) {
       res.status(404).send('Not found');
       return;
@@ -2016,7 +2015,7 @@ export function startAdminServer(storage: Storage): void {
     }
 
     fs.mkdirSync(config.UPLOADS_PATH, { recursive: true });
-    const filename = `${Date.now().toString(36)}-${safeUploadName(originalName)}`;
+    const filename = safeUploadName(originalName);
     fs.writeFileSync(path.join(config.UPLOADS_PATH, filename), buffer);
     const file = storage.addUploadedFile({
       originalName,
