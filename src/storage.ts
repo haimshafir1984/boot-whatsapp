@@ -31,6 +31,8 @@ export interface Campaign {
   conversation?: CampaignConversationSettings;
   twilio?: CampaignTwilioSettings;
   runtimeStatus?: CampaignRuntimeStatus;
+  currentResultBatchId?: string;
+  currentResultBatchStartedAt?: string;
 }
 
 export type CampaignRuntimeStatus = 'draft' | 'scheduled' | 'active' | 'ended' | 'disabled';
@@ -163,6 +165,7 @@ export type CampaignResultStatus = 'awaiting_name' | ContactSaveStatus;
 export interface CampaignResult {
   id: string;
   campaignId: string;
+  resultBatchId?: string;
   phone: string;
   whatsappName?: string;
   referralCode?: string;
@@ -214,11 +217,20 @@ export type CampaignEventType =
 export interface CampaignEvent {
   id: string;
   campaignId: string;
+  resultBatchId?: string;
   campaignResultId?: string;
   phone?: string;
   type: CampaignEventType;
   label?: string;
   createdAt: string;
+}
+
+export interface CampaignResultBatch {
+  id: string;
+  label: string;
+  startedAt?: string;
+  total: number;
+  isCurrent: boolean;
 }
 
 export interface UploadedFile {
@@ -624,14 +636,76 @@ export class Storage {
     return { ...removed };
   }
 
-  // Campaign results
+  private matchesResultBatch(itemBatchId: string | undefined, requestedBatchId?: string): boolean {
+    if (!requestedBatchId) return true;
+    return (itemBatchId || 'legacy') === requestedBatchId;
+  }
 
+  getCurrentCampaignResultBatchId(campaignId: string): string {
+    const campaign = this.data.campaigns.find((item) => item.id === campaignId);
+    if (!campaign) return 'legacy';
+    if (!campaign.currentResultBatchId) {
+      campaign.currentResultBatchId = 'legacy';
+      campaign.currentResultBatchStartedAt = campaign.currentResultBatchStartedAt || campaign.startAt || undefined;
+    }
+    return campaign.currentResultBatchId;
+  }
+
+  startNewCampaignResultBatch(campaignId: string): CampaignResultBatch | null {
+    const campaign = this.data.campaigns.find((item) => item.id === campaignId);
+    if (!campaign) return null;
+    const now = new Date().toISOString();
+    const batchId = generateId();
+    campaign.currentResultBatchId = batchId;
+    campaign.currentResultBatchStartedAt = now;
+    this.persist();
+    return { id: batchId, label: this.getCampaignResultBatchLabel(campaign, batchId), startedAt: now, total: 0, isCurrent: true };
+  }
+
+  getCampaignResultBatches(campaignId: string): CampaignResultBatch[] {
+    const campaign = this.data.campaigns.find((item) => item.id === campaignId);
+    const currentBatchId = campaign?.currentResultBatchId || 'legacy';
+    const startedById = new Map<string, string | undefined>();
+    if (campaign?.currentResultBatchStartedAt) startedById.set(currentBatchId, campaign.currentResultBatchStartedAt);
+    const totals = new Map<string, number>();
+    for (const result of this.data.campaignResults) {
+      if (result.campaignId !== campaignId) continue;
+      const batchId = result.resultBatchId || 'legacy';
+      totals.set(batchId, (totals.get(batchId) || 0) + 1);
+      const existing = startedById.get(batchId);
+      if (!existing || result.triggeredAt < existing) startedById.set(batchId, result.triggeredAt);
+    }
+    if (campaign && !totals.has(currentBatchId)) totals.set(currentBatchId, 0);
+    return [...totals.entries()]
+      .map(([id, total]) => ({
+        id,
+        label: campaign ? this.getCampaignResultBatchLabel(campaign, id) : id,
+        startedAt: startedById.get(id),
+        total,
+        isCurrent: id === currentBatchId,
+      }))
+      .sort((a, b) => (b.startedAt || '').localeCompare(a.startedAt || ''));
+  }
+
+  private getCampaignResultBatchLabel(campaign: Campaign, batchId: string): string {
+    if (batchId === 'legacy') return 'First file';
+    const batches = new Set(this.data.campaignResults
+      .filter((result) => result.campaignId === campaign.id)
+      .map((result) => result.resultBatchId || 'legacy'));
+    if (campaign.currentResultBatchId) batches.add(campaign.currentResultBatchId);
+    const sortedIds = [...batches].sort();
+    const index = sortedIds.includes(batchId) ? sortedIds.indexOf(batchId) + 1 : sortedIds.length + 1;
+    return `File ${index}`;
+  }
+  // Campaign results
   recordCampaignTrigger(campaignId: string, phone: string, whatsappName = '', referredByCode = ''): CampaignResult {
     const now = new Date().toISOString();
+    const resultBatchId = this.getCurrentCampaignResultBatchId(campaignId);
     const referrer = referredByCode ? this.findCampaignReferral(campaignId, referredByCode) : null;
     const result: CampaignResult = {
       id: generateId(),
       campaignId,
+      resultBatchId,
       phone,
       whatsappName,
       referralCode: normalizeReferralPhone(phone),
@@ -700,7 +774,7 @@ export class Storage {
     this.persist();
   }
 
-  queueAwaitingNameCampaignResults(campaignId: string): { queued: number; skipped: number } {
+  queueAwaitingNameCampaignResults(campaignId: string, resultBatchId?: string): { queued: number; skipped: number } {
     const campaign = this.data.campaigns.find((item) => item.id === campaignId);
     const suffix = campaign?.suffix ?? '';
     const campaignName = campaign?.name?.trim() || 'קמפיין';
@@ -708,7 +782,7 @@ export class Storage {
     let skipped = 0;
 
     for (const result of this.data.campaignResults) {
-      if (result.campaignId !== campaignId || result.status !== 'awaiting_name') continue;
+      if (result.campaignId !== campaignId || result.status !== 'awaiting_name' || !this.matchesResultBatch(result.resultBatchId, resultBatchId)) continue;
       const baseName = result.whatsappName?.trim()
         || result.fallbackName?.trim()
         || `${campaignName} - ${result.phone}`;
@@ -726,7 +800,7 @@ export class Storage {
     return { queued, skipped };
   }
 
-  queueUnsavedCampaignResults(campaignId: string): { queued: number; skipped: number } {
+  queueUnsavedCampaignResults(campaignId: string, resultBatchId?: string): { queued: number; skipped: number } {
     const campaign = this.data.campaigns.find((item) => item.id === campaignId);
     const suffix = campaign?.suffix ?? '';
     const campaignName = campaign?.name?.trim() || 'Campaign';
@@ -734,7 +808,7 @@ export class Storage {
     let skipped = 0;
 
     for (const result of this.data.campaignResults) {
-      if (result.campaignId !== campaignId || result.status === 'saved') continue;
+      if (result.campaignId !== campaignId || result.status === 'saved' || !this.matchesResultBatch(result.resultBatchId, resultBatchId)) continue;
       const baseName = result.whatsappName?.trim()
         || result.fallbackName?.trim()
         || `${campaignName} - ${result.phone}`;
@@ -751,9 +825,9 @@ export class Storage {
     if (queued || skipped) this.persist();
     return { queued, skipped };
   }
-  getCampaignResults(campaignId?: string): CampaignResult[] {
+  getCampaignResults(campaignId?: string, resultBatchId?: string): CampaignResult[] {
     return this.data.campaignResults
-      .filter((result) => !campaignId || result.campaignId === campaignId)
+      .filter((result) => (!campaignId || result.campaignId === campaignId) && this.matchesResultBatch(result.resultBatchId, resultBatchId))
       .sort((a, b) => b.triggeredAt.localeCompare(a.triggeredAt))
       .map((result) => ({ ...result }));
   }
@@ -776,10 +850,12 @@ export class Storage {
   }
 
   recordCampaignEvent(event: Omit<CampaignEvent, 'id' | 'createdAt'>): CampaignEvent {
+    const resultBatchId = event.resultBatchId ?? (event.campaignResultId ? this.data.campaignResults.find((item) => item.id === event.campaignResultId)?.resultBatchId : undefined) ?? this.getCurrentCampaignResultBatchId(event.campaignId);
     const saved: CampaignEvent = {
       id: generateId(),
       createdAt: new Date().toISOString(),
       ...event,
+      resultBatchId,
     };
     this.data.campaignEvents.push(saved);
     if (event.campaignResultId) {
@@ -794,14 +870,14 @@ export class Storage {
     return { ...saved };
   }
 
-  getCampaignEvents(campaignId?: string): CampaignEvent[] {
+  getCampaignEvents(campaignId?: string, resultBatchId?: string): CampaignEvent[] {
     return this.data.campaignEvents
-      .filter((event) => !campaignId || event.campaignId === campaignId)
+      .filter((event) => (!campaignId || event.campaignId === campaignId) && this.matchesResultBatch(event.resultBatchId, resultBatchId))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .map((event) => ({ ...event }));
   }
 
-  getCampaignResultSummary(campaignId: string): {
+  getCampaignResultSummary(campaignId: string, resultBatchId?: string): {
     total: number;
     awaitingName: number;
     pending: number;
@@ -826,8 +902,8 @@ export class Storage {
     scoreTotal: number;
     scoreAverage: number;
   } {
-    const results = this.data.campaignResults.filter((result) => result.campaignId === campaignId);
-    const events = this.data.campaignEvents.filter((event) => event.campaignId === campaignId);
+    const results = this.data.campaignResults.filter((result) => result.campaignId === campaignId && this.matchesResultBatch(result.resultBatchId, resultBatchId));
+    const events = this.data.campaignEvents.filter((event) => event.campaignId === campaignId && this.matchesResultBatch(event.resultBatchId, resultBatchId));
     const uniqueCount = (type: CampaignEventType) => new Set(
       events
         .filter((event) => event.type === type)

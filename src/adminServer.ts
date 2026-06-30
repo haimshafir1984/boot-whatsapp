@@ -2039,7 +2039,9 @@ export function startAdminServer(storage: Storage): void {
       campaignName: campaign.name,
       referrerName: campaign.referrerName,
       runtimeStatus: campaign.runtimeStatus,
-      ...storage.getCampaignResultSummary(campaign.id),
+      currentResultBatchId: storage.getCurrentCampaignResultBatchId(campaign.id),
+      resultBatches: storage.getCampaignResultBatches(campaign.id),
+      ...storage.getCampaignResultSummary(campaign.id, storage.getCurrentCampaignResultBatchId(campaign.id)),
     }));
     res.json({ summaries });
   });
@@ -2077,10 +2079,11 @@ export function startAdminServer(storage: Storage): void {
       return;
     }
 
+    const resultBatchId = typeof req.query.batch === 'string' ? req.query.batch : storage.getCurrentCampaignResultBatchId(campaign.id);
     const csvValue = (value: string) => `"${value.replace(/"/g, '""')}"`;
     const rows = [
       'campaign,phone,whatsappName,fallbackName,lastStage,lastEventAt,status,triggeredAt,updatedAt',
-      ...storage.getCampaignResults(campaign.id).map((result) => [
+      ...storage.getCampaignResults(campaign.id, resultBatchId).map((result) => [
         csvValue(campaign.name),
         csvValue(result.phone),
         csvValue(result.whatsappName ?? ''),
@@ -2104,8 +2107,9 @@ export function startAdminServer(storage: Storage): void {
       return;
     }
 
-    const results = storage.getCampaignResults(campaign.id);
-    const events = storage.getCampaignEvents(campaign.id).slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const resultBatchId = typeof req.query.batch === 'string' ? req.query.batch : storage.getCurrentCampaignResultBatchId(campaign.id);
+    const results = storage.getCampaignResults(campaign.id, resultBatchId);
+    const events = storage.getCampaignEvents(campaign.id, resultBatchId).slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     const eventsByResult = new Map<string, typeof events>();
     for (const event of events) {
       const key = event.campaignResultId || '';
@@ -2115,7 +2119,7 @@ export function startAdminServer(storage: Storage): void {
       eventsByResult.set(key, group);
     }
     const contactNames = new Map(storage.getAllContacts().map((contact) => [contact.phone, contact.name]));
-    const summary = storage.getCampaignResultSummary(campaign.id);
+    const summary = storage.getCampaignResultSummary(campaign.id, resultBatchId);
 
     const html = (value: unknown): string => String(value ?? '')
       .replace(/&/g, '&amp;')
@@ -2137,6 +2141,7 @@ export function startAdminServer(storage: Storage): void {
       ['Twilio mode', campaign.twilio?.mode ?? ''],
       ['Twilio template ID', campaign.twilio?.templateId ?? ''],
       ['Generated at', generatedAt],
+      ['Results file', resultBatchId],
       ['Total people', String(summary.total)],
       ['Saved contacts', String(summary.saved)],
       ['Pending saves', String(summary.pending)],
@@ -2237,18 +2242,34 @@ ${detailRows.map((values) => `<tr>${values.map((value) => cell(value)).join('')}
     res.setHeader('Content-Disposition', `attachment; filename="campaign-${campaign.id}-detailed.xls"`);
     res.send('\uFEFF' + workbook);
   });
+  app.post('/api/campaign-results/:id/new-batch', requireWritableClient, (req, res) => {
+    const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
+    if (!campaign) {
+      res.status(404).json({ error: 'Campaign not found' });
+      return;
+    }
+    const batch = storage.startNewCampaignResultBatch(campaign.id);
+    res.json({
+      ok: true,
+      campaignId: campaign.id,
+      currentResultBatchId: batch?.id,
+      resultBatches: storage.getCampaignResultBatches(campaign.id),
+      summary: storage.getCampaignResultSummary(campaign.id, batch?.id),
+    });
+  });
   app.post('/api/campaign-results/:id/queue-awaiting-name', requireWritableClient, (req, res) => {
     const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
     if (!campaign) {
       res.status(404).json({ error: 'קמפיין לא נמצא' });
       return;
     }
-    const result = storage.queueAwaitingNameCampaignResults(campaign.id);
+    const resultBatchId = storage.getCurrentCampaignResultBatchId(campaign.id);
+    const result = storage.queueAwaitingNameCampaignResults(campaign.id, resultBatchId);
     res.json({
       ok: true,
       campaignId: campaign.id,
       ...result,
-      summary: storage.getCampaignResultSummary(campaign.id),
+      summary: storage.getCampaignResultSummary(campaign.id, resultBatchId),
     });
   });
   app.post('/api/campaign-results/:id/queue-unsaved', requireWritableClient, (req, res) => {
@@ -2257,12 +2278,13 @@ ${detailRows.map((values) => `<tr>${values.map((value) => cell(value)).join('')}
       res.status(404).json({ error: 'Campaign not found' });
       return;
     }
-    const result = storage.queueUnsavedCampaignResults(campaign.id);
+    const resultBatchId = storage.getCurrentCampaignResultBatchId(campaign.id);
+    const result = storage.queueUnsavedCampaignResults(campaign.id, resultBatchId);
     res.json({
       ok: true,
       campaignId: campaign.id,
       ...result,
-      summary: storage.getCampaignResultSummary(campaign.id),
+      summary: storage.getCampaignResultSummary(campaign.id, resultBatchId),
     });
   });
   app.get('/api/campaign-results/:id/export.vcf', (req, res) => {
@@ -2274,7 +2296,8 @@ ${detailRows.map((values) => `<tr>${values.map((value) => cell(value)).join('')}
 
     const contactNames = new Map(storage.getAllContacts().map((contact) => [contact.phone, contact.name]));
     const seen = new Set<string>();
-    const contacts = storage.getCampaignResults(campaign.id)
+    const resultBatchId = typeof req.query.batch === 'string' ? req.query.batch : storage.getCurrentCampaignResultBatchId(campaign.id);
+    const contacts = storage.getCampaignResults(campaign.id, resultBatchId)
       .filter((result) => {
         if (seen.has(result.phone)) return false;
         seen.add(result.phone);

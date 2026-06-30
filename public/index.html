@@ -1816,7 +1816,7 @@
   function renderCampaignResults(summaries) {
     const el = document.getElementById('campaign-results');
     const withResults = summaries
-      .filter(item => item.total > 0)
+      .filter(item => item.total > 0 || (item.resultBatches || []).some(batch => Number(batch.total || 0) > 0 || batch.isCurrent))
       .sort((a, b) => b.total - a.total);
     if (!withResults.length) {
       el.innerHTML = '<p style="color:#9ca3af;font-size:.85rem;text-align:center;padding:8px 0">אין תוצאות עדיין</p>';
@@ -1831,6 +1831,11 @@
       const saved = Number(item.saved || 0);
       const sentMessages = Number(item.sentMessages || started);
       const failed = Number(item.failed || 0);
+      const batches = item.resultBatches || [];
+      const currentBatchId = item.currentResultBatchId || (batches.find(batch => batch.isCurrent) || {}).id || '';
+      const batchQuery = currentBatchId ? '?batch=' + encodeURIComponent(currentBatchId) : '';
+      const otherBatches = batches.filter(batch => batch.id && batch.id !== currentBatchId && Number(batch.total || 0) > 0);
+      const batchArchive = otherBatches.length ? `<div class="activity-log-simple" style="margin-top:8px"><div style="font-weight:700;color:#374151">&#1511;&#1489;&#1510;&#1497;&#1501; &#1511;&#1493;&#1491;&#1502;&#1497;&#1501;</div>${otherBatches.map(batch => `<div>${esc(batch.label || batch.id)} &middot; ${Number(batch.total || 0)} &#1488;&#1504;&#1513;&#1497;&#1501; <a href="/api/campaign-results/${item.campaignId}/export.xls?batch=${encodeURIComponent(batch.id)}" download>Excel</a> &middot; <a href="/api/campaign-results/${item.campaignId}/export?batch=${encodeURIComponent(batch.id)}" download>CSV</a> &middot; <a href="/api/campaign-results/${item.campaignId}/export.vcf?batch=${encodeURIComponent(batch.id)}" download>VCF</a></div>`).join('')}</div>` : '';
       const activeText = item.runtimeStatus === 'ended' ? 'הקמפיין הסתיים' : item.runtimeStatus === 'scheduled' ? 'הקמפיין מתוזמן' : 'הקמפיין הופעל';
       return `
         <div class="result-row">
@@ -1854,11 +1859,13 @@
               <div>${failed} שמירות נכשלו</div>
               ${Number(item.referralAttributed || 0) ? `<div>${Number(item.referralAttributed || 0)} הגיעו דרך שיתוף אישי</div>` : ''}
             </div>
+            ${batchArchive}
           </div>
           <div class="result-actions">
-            <a class="result-export" href="/api/campaign-results/${item.campaignId}/export.xls" download>Excel</a>
-            <a class="result-export" href="/api/campaign-results/${item.campaignId}/export" download>CSV</a>
-            <a class="result-export" href="/api/campaign-results/${item.campaignId}/export.vcf" download>VCF</a>
+            <a class="result-export" href="/api/campaign-results/${item.campaignId}/export.xls${batchQuery}" download>Excel</a>
+            <a class="result-export" href="/api/campaign-results/${item.campaignId}/export${batchQuery}" download>CSV</a>
+            <a class="result-export" href="/api/campaign-results/${item.campaignId}/export.vcf${batchQuery}" download>VCF</a>
+            <button class="result-export" type="button" onclick="startNewCampaignResultsFile('${item.campaignId}')">&#1511;&#1493;&#1489;&#1509; &#1495;&#1491;&#1513;</button>
             ${appCapabilities.referralContestEnabled ? `<button class="result-export" type="button" onclick="showReferralLeaderboard('${item.campaignId}')">&#1491;&#1497;&#1512;&#1493;&#1490; &#1513;&#1497;&#1514;&#1493;&#1508;&#1497;&#1501;</button>` : ''}
             ${started > saved ? `<button class="result-export" type="button" onclick="queueUnsavedCampaignResults('${item.campaignId}')">&#1513;&#1502;&#1493;&#1512; &#1502;&#1497; &#1513;&#1500;&#1488; &#1504;&#1513;&#1502;&#1512;</button>` : ''}
           </div>
@@ -1884,6 +1891,19 @@
     const overlay = document.getElementById('referralLeaderboardOverlay');
     document.getElementById('referralExportLink').href = '/api/campaign-results/' + campaignId + '/referrals/export.xls';
     overlay.style.display = 'flex';
+  }
+
+  async function startNewCampaignResultsFile(campaignId) {
+    if (!confirm('\u05dc\u05e4\u05ea\u05d5\u05d7 \u05e7\u05d5\u05d1\u05e5 \u05ea\u05d5\u05e6\u05d0\u05d5\u05ea \u05d7\u05d3\u05e9 \u05dc\u05e7\u05de\u05e4\u05d9\u05d9\u05df? \u05de\u05e9\u05ea\u05ea\u05e4\u05d9\u05dd \u05d7\u05d3\u05e9\u05d9\u05dd \u05d9\u05d9\u05db\u05e0\u05e1\u05d5 \u05de\u05e2\u05db\u05e9\u05d9\u05d5 \u05dc\u05e7\u05d5\u05d1\u05e5 \u05d4\u05d7\u05d3\u05e9.')) return;
+    try {
+      const res = await fetch(`/api/campaign-results/${campaignId}/new-batch`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || '\u05e4\u05ea\u05d9\u05d7\u05ea \u05e7\u05d5\u05d1\u05e5 \u05d7\u05d3\u05e9 \u05e0\u05db\u05e9\u05dc\u05d4');
+      alert('\u05e0\u05e4\u05ea\u05d7 \u05e7\u05d5\u05d1\u05e5 \u05d7\u05d3\u05e9. \u05de\u05e2\u05db\u05e9\u05d9\u05d5 \u05db\u05e0\u05d9\u05e1\u05d5\u05ea \u05d7\u05d3\u05e9\u05d5\u05ea \u05d9\u05d5\u05e4\u05d9\u05e2\u05d5 \u05d1\u05d5.');
+      await loadCampaignResults();
+    } catch (err) {
+      alert(err?.message || '\u05e4\u05ea\u05d9\u05d7\u05ea \u05e7\u05d5\u05d1\u05e5 \u05d7\u05d3\u05e9 \u05e0\u05db\u05e9\u05dc\u05d4');
+    }
   }
 
   async function queueUnsavedCampaignResults(campaignId) {
