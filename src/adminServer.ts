@@ -2053,6 +2053,23 @@ export function startAdminServer(storage: Storage): void {
     }
     res.json({ campaignId: campaign.id, referrals: storage.getCampaignReferralLeaderboard(campaign.id) });
   });
+
+  app.get('/api/campaign-results/:id/referrals/export.xls', (req, res) => {
+    const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
+    if (!campaign) { res.status(404).json({ error: 'Campaign not found' }); return; }
+    const rows = storage.getCampaignReferralLeaderboard(campaign.id);
+    const html = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const cell = (v: unknown) => `<td style="mso-number-format:'\@';">${html(v)}</td>`;
+    const numCell = (v: unknown) => `<td style="mso-number-format:'0';">${html(v)}</td>`;
+    const headerRow = ['#', 'שם', 'טלפון', 'כניסות מהשיתוף', 'נשמרו'].map((h) => `<th>${html(h)}</th>`).join('');
+    const dataRows = rows.map((r, i) =>
+      `<tr>${[numCell(i + 1), cell(r.name), cell(r.phone), numCell(r.invited), numCell(r.saved)].join('')}</tr>`
+    ).join('');
+    const body = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"/></head><body><table><thead><tr>${headerRow}</tr></thead><tbody>${dataRows}</tbody></table></body></html>`;
+    res.setHeader('Content-Type', 'application/vnd.ms-excel; charset=UTF-8');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`referrals-${campaign.name}.xls`)}`);
+    res.send(Buffer.from('﻿' + body, 'utf8'));
+  });
   app.get('/api/campaign-results/:id/export', (req, res) => {
     const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
     if (!campaign) {
