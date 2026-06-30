@@ -1867,6 +1867,24 @@
     }).join('');
   }
 
+    async function showReferralLeaderboard(campaignId) {
+    const res = await fetch('/api/campaign-results/' + campaignId + '/referrals');
+    const data = await res.json();
+    const rows = data.referrals || [];
+    const tbody = document.getElementById('referralLeaderboardBody');
+    const empty = document.getElementById('referralLeaderboardEmpty');
+    tbody.innerHTML = rows.map((r, i) => `
+      <tr style="border-bottom:1px solid #f3f4f6;">
+        <td style="padding:7px 8px;color:#6b7280;">${i + 1}</td>
+        <td style="padding:7px 8px;">${r.name || '—'}</td>
+        <td style="padding:7px 8px;direction:ltr;">${r.phone}</td>
+        <td style="padding:7px 8px;font-weight:700;">${r.invited}</td>
+      </tr>`).join('');
+    empty.style.display = rows.length ? 'none' : 'block';
+    const overlay = document.getElementById('referralLeaderboardOverlay');
+    overlay.style.display = 'flex';
+  }
+
   async function queueUnsavedCampaignResults(campaignId) {
     if (!confirm('\u05dc\u05d4\u05db\u05e0\u05d9\u05e1 \u05dc\u05ea\u05d5\u05e8 \u05e9\u05de\u05d9\u05e8\u05d4 \u05d0\u05ea \u05db\u05dc \u05de\u05d9 \u05e9\u05e0\u05db\u05e0\u05e1 \u05dc\u05e7\u05de\u05e4\u05d9\u05d9\u05df \u05d5\u05e2\u05d3\u05d9\u05d9\u05df \u05dc\u05d0 \u05e0\u05e9\u05de\u05e8?')) return;
     try {
@@ -3662,5 +3680,22 @@
   qrInterval = setInterval(checkQR, 2000);
   checkQR();
 </script>
+
+  <div id="referralLeaderboardOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;align-items:center;justify-content:center;padding:16px;">
+    <div style="background:#fff;border-radius:16px;width:min(480px,100%);max-height:80vh;overflow-y:auto;padding:24px;position:relative;">
+      <button onclick="document.getElementById('referralLeaderboardOverlay').style.display='none'" style="position:absolute;top:12px;left:12px;background:none;border:none;font-size:1.2rem;cursor:pointer;">✕</button>
+      <h3 style="margin:0 0 16px;font-size:1.1rem;">דירוג שיתופים</h3>
+      <table id="referralLeaderboardTable" style="width:100%;border-collapse:collapse;font-size:.9rem;">
+        <thead><tr style="border-bottom:2px solid #e5e7eb;">
+          <th style="text-align:right;padding:6px 8px;">#</th>
+          <th style="text-align:right;padding:6px 8px;">שם</th>
+          <th style="text-align:right;padding:6px 8px;">טלפון</th>
+          <th style="text-align:right;padding:6px 8px;">כניסות</th>
+        </tr></thead>
+        <tbody id="referralLeaderboardBody"></tbody>
+      </table>
+      <p id="referralLeaderboardEmpty" style="display:none;color:#6b7280;text-align:center;margin-top:16px;">אין נתוני שיתופים עדיין</p>
+    </div>
+  </div>
 </body>
 </html>
