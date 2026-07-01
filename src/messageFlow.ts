@@ -1416,7 +1416,7 @@ async function sendDecisionStep(
         } else {
           await waitBeforeBotReply(stepDelayMs);
         }
-        await sendDecisionFile(
+        const fileSent = await sendDecisionFile(
           transport,
           storage,
           senderJid,
@@ -1427,6 +1427,7 @@ async function sendDecisionStep(
           campaignResultId,
           senderPhone,
         );
+        if (!fileSent) return;
       } else {
         await sendBotMessage(transport, senderJid, step.text.trim(), stepDelayMs);
       }
@@ -1703,7 +1704,7 @@ async function sendDecisionFile(
   campaignResultId?: string,
   senderPhone?: string,
   eventTypes: { sent: 'file_sent' | 'completion_file_sent'; failed: 'file_failed' | 'completion_file_failed' } = { sent: 'file_sent', failed: 'file_failed' },
-): Promise<void> {
+): Promise<boolean> {
   const file = storage.getUploadedFile(fileId);
   if (file && transport.sendFile) {
     const canSendAsSticker = Boolean(asSticker && file.mimeType.startsWith('image/'));
@@ -1727,6 +1728,7 @@ async function sendDecisionFile(
           label: file.originalName,
         });
       }
+      return true;
     } catch (err) {
       console.error(`   Decision file failed: ${file.originalName}`, err);
       if (campaignId) {
@@ -1738,7 +1740,7 @@ async function sendDecisionFile(
           label: file.originalName,
         });
       }
-      await sendFileFallback(transport, senderJid, caption);
+      return await sendFileFallback(transport, senderJid, caption);
     }
   } else {
     if (campaignId) {
@@ -1750,8 +1752,9 @@ async function sendDecisionFile(
         label: file?.originalName || fileId,
       });
     }
-    await sendFileFallback(transport, senderJid, caption);
+    const fallbackSent = await sendFileFallback(transport, senderJid, caption);
     console.warn(`   Decision file unavailable: ${fileId}`);
+    return fallbackSent;
   }
 }
 
@@ -1759,22 +1762,24 @@ async function sendFileFallback(
   transport: WhatsAppTransport,
   senderJid: string,
   caption?: string,
-): Promise<void> {
+): Promise<boolean> {
   try {
     await sendBotMessage(
       transport,
       senderJid,
       formatFileFailureFallback(caption),
     );
+    return true;
   } catch (err) {
     console.error('   Failed to send file fallback text:', err);
+    return false;
   }
 }
 
 function formatFileFailureFallback(caption?: string): string {
-  const failureText = 'הקובץ לא נשלח כרגע. אפשר לבקש אותו שוב בהודעה חוזרת.';
+  const failureText = '\u05d4\u05e7\u05d5\u05d1\u05e5 \u05dc\u05d0 \u05e0\u05e9\u05dc\u05d7 \u05db\u05e8\u05d2\u05e2, \u05d0\u05d6 \u05d0\u05e0\u05d9 \u05de\u05de\u05e9\u05d9\u05da \u05e2\u05dd \u05d4\u05d8\u05e7\u05e1\u05d8 \u05d1\u05dc\u05d1\u05d3.';
   const cleanCaption = caption?.trim();
-  return cleanCaption ? `${cleanCaption}\n\n${failureText}` : failureText;
+  return cleanCaption || failureText;
 }
 
 async function sendFileWithRetry(
