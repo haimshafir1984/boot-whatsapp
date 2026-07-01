@@ -2752,7 +2752,7 @@
           </div>
           <div class="decision-next-row" data-message-next>
             <label>אחרי ההודעה לעבור אל</label>
-            <select data-step-next onchange="updateCampaignConversationPreview()" data-selected-next="${esc(step.nextStepId || '')}"></select>
+            <select data-step-next onchange="updateCampaignConversationPreview()" data-selected-next="${esc(step.nextStepId || '__END__')}"></select>
           </div>
           <div class="decision-next-row" data-message-file style="display:none">
             <label>&#1511;&#1493;&#1489;&#1509; &#1500;&#1513;&#1500;&#1497;&#1495;&#1492; &#1489;&#1513;&#1500;&#1489; &#1492;&#1494;&#1492;</label>
@@ -2829,26 +2829,26 @@
       return;
     }
     if (type === 'message') {
-      addDecisionStep({ id: makeFlowId(), kind: 'message', text: '', nextStepId: '' });
+      addDecisionStep({ id: makeFlowId(), kind: 'message', text: '', nextStepId: '__NEXT__' });
       return;
     }
     if (type === 'media') {
-      addDecisionStep({ id: makeFlowId(), kind: 'message', text: '', fileId: '', nextStepId: '' });
+      addDecisionStep({ id: makeFlowId(), kind: 'message', text: '', fileId: '', nextStepId: '__NEXT__' });
       return;
     }
     if (type === 'wait_reply') {
-      addDecisionStep({ id: makeFlowId(), kind: 'wait_reply', text: '', nextStepId: '' });
+      addDecisionStep({ id: makeFlowId(), kind: 'wait_reply', text: '', nextStepId: '__NEXT__' });
       return;
     }
     if (type === 'referral_share') {
-      addDecisionStep({ id: makeFlowId(), kind: 'referral_share', text: '\u05e8\u05d5\u05e6\u05d4 \u05dc\u05d4\u05e9\u05ea\u05ea\u05e3 \u05d1\u05ea\u05d7\u05e8\u05d5\u05ea? \u05e4\u05e8\u05e1\u05dd/\u05d9 \u05d1\u05e1\u05d8\u05d8\u05d5\u05e1 \u05d0\u05ea \u05d4\u05dc\u05d9\u05e0\u05e7 \u05d4\u05d0\u05d9\u05e9\u05d9 \u05e9\u05dc\u05da:\n{referral_link}', nextStepId: '' });
+      addDecisionStep({ id: makeFlowId(), kind: 'referral_share', text: '\u05e8\u05d5\u05e6\u05d4 \u05dc\u05d4\u05e9\u05ea\u05ea\u05e3 \u05d1\u05ea\u05d7\u05e8\u05d5\u05ea? \u05e4\u05e8\u05e1\u05dd/\u05d9 \u05d1\u05e1\u05d8\u05d8\u05d5\u05e1 \u05d0\u05ea \u05d4\u05dc\u05d9\u05e0\u05e7 \u05d4\u05d0\u05d9\u05e9\u05d9 \u05e9\u05dc\u05da:\n{referral_link}', nextStepId: '__NEXT__' });
       return;
     }
     if (type === 'contact_card') {
       const toggle = document.getElementById('fSendContactCard');
       if (toggle) toggle.checked = true;
       updateContactCardVisibility();
-      addDecisionStep({ id: makeFlowId(), kind: 'contact_card', text: document.getElementById('fContactCardIntroText')?.value || '\u05d4\u05e0\u05d4 \u05d0\u05d9\u05e9 \u05d4\u05e7\u05e9\u05e8 \u05dc\u05e9\u05de\u05d9\u05e8\u05d4', nextStepId: '' });
+      addDecisionStep({ id: makeFlowId(), kind: 'contact_card', text: document.getElementById('fContactCardIntroText')?.value || '\u05d4\u05e0\u05d4 \u05d0\u05d9\u05e9 \u05d4\u05e7\u05e9\u05e8 \u05dc\u05e9\u05de\u05d9\u05e8\u05d4', nextStepId: '__NEXT__' });
       return;
     }
     addDecisionStep();
@@ -3073,12 +3073,14 @@
     }));
     document.querySelectorAll('[data-step-next], [data-option-next]').forEach(select => {
       const selected = select.value || select.dataset.selectedNext || '';
-      const emptyLabel = '\u05d4\u05e9\u05dc\u05d1 \u05d4\u05d1\u05d0 \u05d1\u05e8\u05e9\u05d9\u05de\u05d4 / \u05e1\u05d9\u05d5\u05dd \u05d0\u05dd \u05d0\u05d9\u05df';
-      select.innerHTML = `<option value="">${emptyLabel}</option>` + steps
+      const isStepNextSelect = select.hasAttribute('data-step-next');
+      const emptyLabel = isStepNextSelect ? '\u05e9\u05dc\u05d7 \u05d5\u05e1\u05d9\u05d9\u05dd' : '\u05d4\u05e9\u05dc\u05d1 \u05d4\u05d1\u05d0 \u05d1\u05e8\u05e9\u05d9\u05de\u05d4 / \u05e1\u05d9\u05d5\u05dd \u05d0\u05dd \u05d0\u05d9\u05df';
+      const autoNextOption = isStepNextSelect ? '<option value="__NEXT__">\u05dc\u05e2\u05d1\u05d5\u05e8 \u05dc\u05e9\u05dc\u05d1 \u05d4\u05d1\u05d0 \u05d1\u05e8\u05e9\u05d9\u05de\u05d4</option>' : '<option value="">' + emptyLabel + '</option>';
+      select.innerHTML = (isStepNextSelect ? `<option value="__END__">${emptyLabel}</option>${autoNextOption}` : autoNextOption) + steps
         .filter(step => step.id !== select.closest('[data-decision-step]')?.dataset.stepId)
         .map(step => `<option value="${esc(step.id)}">${esc(step.label)}${step.text ? ` - ${esc(step.text.slice(0, 24))}` : ''}</option>`)
         .join('');
-      select.value = steps.some(step => step.id === selected) ? selected : '';
+      select.value = steps.some(step => step.id === selected) || selected === '__NEXT__' || selected === '__END__' ? selected : (isStepNextSelect ? '__END__' : '');
       select.dataset.selectedNext = select.value;
     });
   }
@@ -3098,7 +3100,7 @@
         if (!item.text) return null;
         if (kind === 'message' || kind === 'wait_reply' || kind === 'contact_card' || kind === 'referral_share') {
           const nextStepId = step.querySelector('[data-step-next]')?.value || '';
-          item.nextStepId = nextStepId || '__NEXT__';
+          if (nextStepId && nextStepId !== '__END__') item.nextStepId = nextStepId;
           if (kind === 'message') {
             const fileId = step.querySelector('[data-step-file]')?.value || '';
             if (fileId) item.fileId = fileId;
