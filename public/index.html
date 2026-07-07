@@ -2863,7 +2863,44 @@
     addTwilioQuickStep(select?.value || 'message');
   }
 
+  function normalizeFlowStepType(type) {
+    const normalized = {
+      question: 'buttons',
+      button: 'buttons',
+      buttons: 'buttons',
+      list: 'list',
+      score: 'score',
+      score_question: 'score',
+      score_result: 'score_result',
+      wait: 'wait_reply',
+      wait_reply: 'wait_reply',
+      media: 'media',
+      file: 'media',
+      message: 'message',
+      contact: 'contact_card',
+      contactCard: 'contact_card',
+      contact_card: 'contact_card',
+      referral: 'referral_share',
+      referral_share: 'referral_share',
+    };
+    return normalized[type] || 'message';
+  }
+
+  function enableFlowContactCard() {
+    const toggle = document.getElementById('fSendContactCard');
+    if (toggle) toggle.checked = true;
+    updateContactCardVisibility();
+  }
+
   function addTwilioQuickStep(type) {
+    type = normalizeFlowStepType(type);
+    if (type === 'buttons') {
+      addDecisionStep({ id: makeFlowId(), kind: 'question', text: '', presentation: 'buttons', options: [
+        { id: makeFlowId('option'), text: '', endText: '', nextStepId: '' },
+        { id: makeFlowId('option'), text: '', endText: '', nextStepId: '' },
+      ] });
+      return;
+    }
     if (type === 'score') {
       addDecisionStep({ id: makeFlowId(), kind: 'score_question', text: '\u05de\u05d4 \u05d4\u05db\u05d9 \u05de\u05ea\u05d0\u05d9\u05dd \u05dc\u05da?', presentation: 'text', options: [1, 2, 3, 4].map(score => ({ id: makeFlowId('score'), text: String(score), score, nextStepId: '__NEXT__' })) });
       return;
@@ -2893,13 +2930,10 @@
       return;
     }
     if (type === 'contact_card') {
-      const toggle = document.getElementById('fSendContactCard');
-      if (toggle) toggle.checked = true;
-      updateContactCardVisibility();
+      enableFlowContactCard();
       addDecisionStep({ id: makeFlowId(), kind: 'contact_card', text: document.getElementById('fContactCardIntroText')?.value || '\u05d4\u05e0\u05d4 \u05d0\u05d9\u05e9 \u05d4\u05e7\u05e9\u05e8 \u05dc\u05e9\u05de\u05d9\u05e8\u05d4', nextStepId: '__NEXT__' });
       return;
     }
-    addDecisionStep();
   }
 
   function addDecisionStep(step = null) {
@@ -3043,6 +3077,7 @@
       step.querySelector('[data-question-presentation]').style.display = isChoice ? '' : 'none';
       step.querySelector('[data-options]').style.display = isChoice ? '' : 'none';
       const contactFields = step.querySelector('[data-flow-contact-card-fields]');
+      if (kind === 'contact_card') enableFlowContactCard();
       if (contactFields) contactFields.style.display = kind === 'contact_card' ? '' : 'none';
       const title = step.querySelector('.decision-step-title');
       const titleText = step.querySelector('[data-step-text]')?.value.trim();
