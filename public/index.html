@@ -2206,7 +2206,7 @@
     document.getElementById('wizardSummaryFlow')?.replaceChildren(document.createTextNode(flowCount ? `${flowCount} פריטים` : 'ללא המשך'));
     const link = buildCampaignShareLink(trigger);
     lastWizardLink = link;
-    document.getElementById('wizardShareLink')?.replaceChildren(document.createTextNode(link ? decodeURIComponent(link) : 'מספר WhatsApp עדיין לא נטען'));
+    document.getElementById('wizardShareLink')?.replaceChildren(document.createTextNode(link || 'מספר WhatsApp עדיין לא נטען'));
   }
 
   function copyWizardLink(btn) {
@@ -3601,7 +3601,7 @@
 
     el.innerHTML = active.map(c => {
       const link        = buildCampaignShareLink(c.triggerPhrase);
-      const displayLink = link ? decodeURIComponent(link) : 'מספר WhatsApp לא זמין';
+      const displayLink = link || 'מספר WhatsApp לא זמין';
       return `
         <div class="link-row">
           <div class="link-label">${esc(c.name)}</div>
