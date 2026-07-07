@@ -2710,6 +2710,9 @@
           { id: makeFlowId('option'), text: '', endText: '', nextStepId: '' },
           { id: makeFlowId('option'), text: '', endText: '', nextStepId: '' },
         ];
+    const resultRules = Array.isArray(step.resultRules) && step.resultRules.length
+      ? step.resultRules
+      : [{ id: makeFlowId('rule'), type: 'majority', value: '' }];
     const titlePreview = (step.text || '').trim();
     return `
       <div class="decision-step ${isActive ? 'active' : ''}" data-decision-step data-step-id="${esc(stepId)}" data-step-number="${index + 1}">
@@ -2764,6 +2767,21 @@
             <select data-step-file data-selected-file="${esc(step.fileId || '')}" onchange="updateCampaignConversationPreview()">${fileOptions(step.fileId || '')}</select>
           </div>
           <label class="decision-inline-check" data-message-sticker style="display:none"><input data-step-file-sticker type="checkbox" ${step.fileAsSticker ? 'checked' : ''} onchange="updateCampaignConversationPreview()" /> &#1513;&#1500;&#1495; &#1499;&#1502;&#1491;&#1489;&#1511;&#1492; &#1500;&#1514;&#1502;&#1493;&#1504;&#1492;</label>
+          <div class="decision-options" data-score-result style="display:none">
+            <div class="decision-options-label">&#1499;&#1500;&#1500;&#1497; &#1495;&#1497;&#1513;&#1493;&#1489;</div>
+            <div data-score-rules>
+              ${resultRules.map((rule, ruleIndex) => scoreResultRuleHtml(rule, ruleIndex)).join('')}
+            </div>
+            <button type="button" class="btn-small" onclick="addScoreResultRule(this)">+ &#1492;&#1493;&#1505;&#1507; &#1499;&#1500;&#1500;</button>
+            <div class="decision-next-row" style="margin-top:10px">
+              <label>&#1489;&#1512;&#1497;&#1512;&#1514; &#1502;&#1495;&#1491;&#1500; / &#1514;&#1497;&#1511;&#1493;</label>
+              <textarea data-score-fallback-text rows="2" oninput="updateCampaignConversationPreview()" placeholder="&#1492;&#1493;&#1491;&#1506;&#1492; &#1513;&#1514;&#1497;&#1513;&#1500;&#1495; &#1488;&#1501; &#1488;&#1497;&#1503; &#1492;&#1514;&#1488;&#1502;&#1492; &#1488;&#1493; &#1497;&#1513; &#1514;&#1497;&#1511;&#1493;">${esc(step.fallbackText || '')}</textarea>
+            </div>
+            <div class="decision-next-row">
+              <label>&#1488;&#1493; &#1500;&#1506;&#1489;&#1493;&#1512; &#1488;&#1500;</label>
+              <select data-score-fallback-next data-selected-next="${esc(step.fallbackNextStepId || '')}" onchange="updateCampaignConversationPreview()"></select>
+            </div>
+          </div>
           <div class="decision-options" data-options>
             <div class="decision-options-label">תשובות אפשריות (עד 3)</div>
             ${options.map((option, optionIndex) => decisionOptionHtml(option, optionIndex)).join('')}
@@ -3068,14 +3086,18 @@
       const kind = step.querySelector('[data-step-kind]').value;
       const isChoice = kind === 'question' || kind === 'score_question';
       const presentation = step.querySelector('[data-step-presentation]')?.value || 'buttons';
-      step.querySelector('[data-message-next]').style.display = (kind === 'message' || kind === 'wait_reply' || kind === 'contact_card' || kind === 'referral_share') ? '' : 'none';
-      step.querySelector('[data-score-result]').style.display = kind === 'score_result' ? '' : 'none';
+      const messageNext = step.querySelector('[data-message-next]');
+      const scoreResult = step.querySelector('[data-score-result]');
+      const questionPresentation = step.querySelector('[data-question-presentation]');
+      const optionsPanel = step.querySelector('[data-options]');
+      if (messageNext) messageNext.style.display = (kind === 'message' || kind === 'wait_reply' || kind === 'contact_card' || kind === 'referral_share') ? '' : 'none';
+      if (scoreResult) scoreResult.style.display = kind === 'score_result' ? '' : 'none';
       const messageFile = step.querySelector('[data-message-file]');
       const messageSticker = step.querySelector('[data-message-sticker]');
       if (messageFile) messageFile.style.display = kind === 'message' ? '' : 'none';
       if (messageSticker) messageSticker.style.display = kind === 'message' ? '' : 'none';
-      step.querySelector('[data-question-presentation]').style.display = isChoice ? '' : 'none';
-      step.querySelector('[data-options]').style.display = isChoice ? '' : 'none';
+      if (questionPresentation) questionPresentation.style.display = isChoice ? '' : 'none';
+      if (optionsPanel) optionsPanel.style.display = isChoice ? '' : 'none';
       const contactFields = step.querySelector('[data-flow-contact-card-fields]');
       if (kind === 'contact_card') enableFlowContactCard();
       if (contactFields) contactFields.style.display = kind === 'contact_card' ? '' : 'none';
@@ -3158,7 +3180,7 @@
       label: `שלב ${index + 1}`,
       text: step.querySelector('[data-step-text]')?.value.trim() || '',
     }));
-    document.querySelectorAll('[data-step-next], [data-option-next]').forEach(select => {
+    document.querySelectorAll('[data-step-next], [data-option-next], [data-rule-next], [data-score-fallback-next]').forEach(select => {
       const selected = select.value || select.dataset.selectedNext || '';
       const isStepNextSelect = select.hasAttribute('data-step-next');
       const emptyLabel = isStepNextSelect ? '\u05e9\u05dc\u05d7 \u05d5\u05e1\u05d9\u05d9\u05dd' : '\u05d4\u05e9\u05dc\u05d1 \u05d4\u05d1\u05d0 \u05d1\u05e8\u05e9\u05d9\u05de\u05d4 / \u05e1\u05d9\u05d5\u05dd \u05d0\u05dd \u05d0\u05d9\u05df';
