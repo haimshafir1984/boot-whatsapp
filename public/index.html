@@ -1469,8 +1469,18 @@
               <label class="switch"><input type="checkbox" id="fSendContactCard" onchange="updateContactCardVisibility(); updateCampaignConversationPreview();" /><span class="slider"></span></label>
             </div>
             <div id="fContactCardFields" style="display:none;margin-top:12px">
-              <div class="two-fields"><div><label>שם איש הקשר</label><input type="text" id="fContactCardName" placeholder="שם העסק / איש הקשר" oninput="updateCampaignConversationPreview()" /></div><div><label>טלפון לשמירה</label><input type="tel" id="fContactCardPhone" placeholder="9725XXXXXXXX" oninput="updateCampaignConversationPreview()" /></div></div>
-              <div class="two-fields" style="margin-top:10px"><div><label>אימייל</label><input type="email" id="fContactCardEmail" placeholder="name@example.com" oninput="updateCampaignConversationPreview()" /></div><div><label>ארגון</label><input type="text" id="fContactCardOrganization" placeholder="שם העסק" oninput="updateCampaignConversationPreview()" /></div></div>
+              <div class="contact-card-stack" style="display:grid;gap:12px">
+                <div class="contact-card-editor" style="border:1px solid #e5e7eb;border-radius:8px;padding:10px;background:#fff">
+                  <div class="hint" style="margin-bottom:8px">&#1488;&#1497;&#1513; &#1511;&#1513;&#1512; 1</div>
+                  <div class="two-fields"><div><label>&#1513;&#1501; &#1488;&#1497;&#1513; &#1492;&#1511;&#1513;&#1512;</label><input type="text" id="fContactCardName" placeholder="&#1513;&#1501; &#1492;&#1506;&#1505;&#1511; / &#1488;&#1497;&#1513; &#1492;&#1511;&#1513;&#1512;" oninput="updateCampaignConversationPreview()" /></div><div><label>&#1496;&#1500;&#1508;&#1493;&#1503; &#1500;&#1513;&#1502;&#1497;&#1512;&#1492;</label><input type="tel" id="fContactCardPhone" placeholder="9725XXXXXXXX" oninput="updateCampaignConversationPreview()" /></div></div>
+                  <div class="two-fields" style="margin-top:10px"><div><label>&#1488;&#1497;&#1502;&#1497;&#1497;&#1500;</label><input type="email" id="fContactCardEmail" placeholder="name@example.com" oninput="updateCampaignConversationPreview()" /></div><div><label>&#1488;&#1512;&#1490;&#1493;&#1503;</label><input type="text" id="fContactCardOrganization" placeholder="&#1513;&#1501; &#1492;&#1506;&#1505;&#1511;" oninput="updateCampaignConversationPreview()" /></div></div>
+                </div>
+                <div class="contact-card-editor" style="border:1px solid #e5e7eb;border-radius:8px;padding:10px;background:#fff">
+                  <div class="hint" style="margin-bottom:8px">&#1488;&#1497;&#1513; &#1511;&#1513;&#1512; 2 &#1488;&#1493;&#1508;&#1510;&#1497;&#1493;&#1504;&#1500;&#1497;</div>
+                  <div class="two-fields"><div><label>&#1513;&#1501; &#1488;&#1497;&#1513; &#1492;&#1511;&#1513;&#1512;</label><input type="text" id="fContactCardName2" placeholder="&#1513;&#1501; &#1492;&#1506;&#1505;&#1511; / &#1488;&#1497;&#1513; &#1492;&#1511;&#1513;&#1512;" oninput="updateCampaignConversationPreview()" /></div><div><label>&#1496;&#1500;&#1508;&#1493;&#1503; &#1500;&#1513;&#1502;&#1497;&#1512;&#1492;</label><input type="tel" id="fContactCardPhone2" placeholder="9725XXXXXXXX" oninput="updateCampaignConversationPreview()" /></div></div>
+                  <div class="two-fields" style="margin-top:10px"><div><label>&#1488;&#1497;&#1502;&#1497;&#1497;&#1500;</label><input type="email" id="fContactCardEmail2" placeholder="name@example.com" oninput="updateCampaignConversationPreview()" /></div><div><label>&#1488;&#1512;&#1490;&#1493;&#1503;</label><input type="text" id="fContactCardOrganization2" placeholder="&#1513;&#1501; &#1492;&#1506;&#1505;&#1511;" oninput="updateCampaignConversationPreview()" /></div></div>
+                </div>
+              </div>
               <div class="field contact-placement-field">
                 <label>הודעה לפני שליחת איש קשר</label>
                 <textarea id="fContactCardIntroText" placeholder="לדוגמה: שימרי אותי באנשי הקשר כדי לראות את הסטטוסים שלי" oninput="updateCampaignConversationPreview()"></textarea>
@@ -2401,10 +2411,7 @@
     renderCompletionLinks(settings.completionLinks || []);
     renderCompletionFiles(settings.completionFileIds || []);
     document.getElementById('fSendContactCard').checked = Boolean(settings.sendContactCard);
-    document.getElementById('fContactCardName').value = settings.contactCardName || '';
-    document.getElementById('fContactCardPhone').value = settings.contactCardPhone || '';
-    document.getElementById('fContactCardEmail').value = settings.contactCardEmail || '';
-    document.getElementById('fContactCardOrganization').value = settings.contactCardOrganization || '';
+    setContactCardFields(settings);
     document.getElementById('fContactCardIntroText').value = settings.contactCardIntroText || '';
     const contactPlacement = document.getElementById('fContactCardPlacement');
     if (contactPlacement) contactPlacement.value = settings.contactCardPlacement || 'after_completion';
@@ -2492,6 +2499,50 @@
   function updateContactCardVisibility() {
     const fields = document.getElementById('fContactCardFields');
     if (fields) fields.style.display = document.getElementById('fSendContactCard')?.checked ? '' : 'none';
+  }
+
+  function readContactCard(index = 1) {
+    const suffix = index === 1 ? '' : String(index);
+    return {
+      name: document.getElementById('fContactCardName' + suffix)?.value.trim() || '',
+      phone: document.getElementById('fContactCardPhone' + suffix)?.value.trim() || '',
+      email: document.getElementById('fContactCardEmail' + suffix)?.value.trim() || '',
+      organization: document.getElementById('fContactCardOrganization' + suffix)?.value.trim() || '',
+    };
+  }
+
+  function getContactCards() {
+    return [readContactCard(1), readContactCard(2)]
+      .filter(card => card.name || card.phone || card.email || card.organization)
+      .slice(0, 2);
+  }
+
+  function setContactCardFields(settings = {}) {
+    const cards = Array.isArray(settings.contactCards) && settings.contactCards.length
+      ? settings.contactCards
+      : [{ name: settings.contactCardName || '', phone: settings.contactCardPhone || '', email: settings.contactCardEmail || '', organization: settings.contactCardOrganization || '' }];
+    [1, 2].forEach(index => {
+      const suffix = index === 1 ? '' : String(index);
+      const card = cards[index - 1] || {};
+      const name = document.getElementById('fContactCardName' + suffix);
+      const phone = document.getElementById('fContactCardPhone' + suffix);
+      const email = document.getElementById('fContactCardEmail' + suffix);
+      const org = document.getElementById('fContactCardOrganization' + suffix);
+      if (name) name.value = card.name || '';
+      if (phone) phone.value = card.phone || '';
+      if (email) email.value = card.email || '';
+      if (org) org.value = card.organization || '';
+    });
+  }
+
+  function contactCardPreviewText(conversation) {
+    const cards = Array.isArray(conversation.contactCards) && conversation.contactCards.length
+      ? conversation.contactCards
+      : [{ name: conversation.contactCardName || '' }];
+    return cards
+      .filter(card => card.name || card.phone || card.email || card.organization)
+      .map((card, index) => '&#1488;&#1497;&#1513; &#1511;&#1513;&#1512; ' + (index + 1) + ': ' + esc(card.name || card.phone || card.email || '\u05d0\u05d9\u05e9 \u05e7\u05e9\u05e8'))
+      .join('<br>');
   }
 
   function enableContactCardShortcut() {
@@ -2745,10 +2796,16 @@
           </div>
           <div class="contact-card-flow-fields" data-flow-contact-card-fields style="display:none;margin:8px 0 10px;padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc">
             <div class="hint" style="margin-bottom:8px">&#1508;&#1512;&#1496;&#1497; &#1488;&#1497;&#1513; &#1492;&#1511;&#1513;&#1512; &#1513;&#1497;&#1497;&#1513;&#1500;&#1495; &#1489;&#1513;&#1500;&#1489; &#1492;&#1494;&#1492;</div>
+            <div class="hint" style="margin:0 0 6px">&#1488;&#1497;&#1513; &#1511;&#1513;&#1512; 1</div>
             <input data-flow-contact-name placeholder="&#1513;&#1501; &#1488;&#1497;&#1513; &#1511;&#1513;&#1512;" value="${esc(document.getElementById('fContactCardName')?.value || '')}" oninput="syncFlowContactCardFields(this)" style="margin-bottom:6px" />
             <input data-flow-contact-phone placeholder="&#1496;&#1500;&#1508;&#1493;&#1503;" value="${esc(document.getElementById('fContactCardPhone')?.value || '')}" oninput="syncFlowContactCardFields(this)" style="margin-bottom:6px" />
             <input data-flow-contact-email placeholder="Email" value="${esc(document.getElementById('fContactCardEmail')?.value || '')}" oninput="syncFlowContactCardFields(this)" style="margin-bottom:6px" />
-            <input data-flow-contact-org placeholder="&#1488;&#1512;&#1490;&#1493;&#1503; / &#1506;&#1505;&#1511;" value="${esc(document.getElementById('fContactCardOrganization')?.value || '')}" oninput="syncFlowContactCardFields(this)" />
+            <input data-flow-contact-org placeholder="&#1488;&#1512;&#1490;&#1493;&#1503; / &#1506;&#1505;&#1511;" value="${esc(document.getElementById('fContactCardOrganization')?.value || '')}" oninput="syncFlowContactCardFields(this)" style="margin-bottom:10px" />
+            <div class="hint" style="margin:0 0 6px">&#1488;&#1497;&#1513; &#1511;&#1513;&#1512; 2 &#1488;&#1493;&#1508;&#1510;&#1497;&#1493;&#1504;&#1500;&#1497;</div>
+            <input data-flow-contact-name-2 placeholder="&#1513;&#1501; &#1488;&#1497;&#1513; &#1511;&#1513;&#1512;" value="${esc(document.getElementById('fContactCardName2')?.value || '')}" oninput="syncFlowContactCardFields(this)" style="margin-bottom:6px" />
+            <input data-flow-contact-phone-2 placeholder="&#1496;&#1500;&#1508;&#1493;&#1503;" value="${esc(document.getElementById('fContactCardPhone2')?.value || '')}" oninput="syncFlowContactCardFields(this)" style="margin-bottom:6px" />
+            <input data-flow-contact-email-2 placeholder="Email" value="${esc(document.getElementById('fContactCardEmail2')?.value || '')}" oninput="syncFlowContactCardFields(this)" style="margin-bottom:6px" />
+            <input data-flow-contact-org-2 placeholder="&#1488;&#1512;&#1490;&#1493;&#1503; / &#1506;&#1505;&#1511;" value="${esc(document.getElementById('fContactCardOrganization2')?.value || '')}" oninput="syncFlowContactCardFields(this)" />
           </div>
           <div class="decision-next-row" data-question-presentation>
             <label>סוג הצגה</label>
@@ -3069,6 +3126,10 @@
       ['data-flow-contact-phone', 'fContactCardPhone'],
       ['data-flow-contact-email', 'fContactCardEmail'],
       ['data-flow-contact-org', 'fContactCardOrganization'],
+      ['data-flow-contact-name-2', 'fContactCardName2'],
+      ['data-flow-contact-phone-2', 'fContactCardPhone2'],
+      ['data-flow-contact-email-2', 'fContactCardEmail2'],
+      ['data-flow-contact-org-2', 'fContactCardOrganization2'],
     ];
     const matched = map.find(([attr]) => input.hasAttribute(attr));
     if (matched) {
@@ -3291,6 +3352,8 @@
   }
 
   function getCampaignConversation() {
+    const contactCards = getContactCards();
+    const primaryContactCard = contactCards[0] || {};
     return {
       askNameEnabled: document.getElementById('fAskName').checked,
       nameTimeoutMinutes: Number(document.getElementById('fTimeout').value) || appSettings.nameTimeoutMinutes,
@@ -3310,10 +3373,11 @@
         .filter(Boolean),
       sendContactCard: document.getElementById('fSendContactCard')?.checked || false,
       contactCardPlacement: document.getElementById('fContactCardPlacement')?.value || 'after_completion',
-      contactCardName: document.getElementById('fContactCardName')?.value || '',
-      contactCardPhone: document.getElementById('fContactCardPhone')?.value || '',
-      contactCardEmail: document.getElementById('fContactCardEmail')?.value || '',
-      contactCardOrganization: document.getElementById('fContactCardOrganization')?.value || '',
+      contactCards,
+      contactCardName: primaryContactCard.name || '',
+      contactCardPhone: primaryContactCard.phone || '',
+      contactCardEmail: primaryContactCard.email || '',
+      contactCardOrganization: primaryContactCard.organization || '',
       contactCardIntroText: document.getElementById('fContactCardIntroText')?.value || '',
       contactCardWaitForConfirmation: document.getElementById('fContactCardWaitForConfirmation')?.checked || false,
       contactCardConfirmationTimeoutMinutes: Number(document.getElementById('fContactCardConfirmationTimeout')?.value) || 30,
@@ -3398,7 +3462,7 @@
         ? `<div class="chat-row bot"><div class="chat-bubble">${esc(conversation.contactCardIntroText.trim())}</div></div>`
         : '';
       const contactCardPreview = conversation.sendContactCard
-        ? `<div class="chat-row bot"><div class="chat-bubble">איש קשר לשמירה: ${esc(conversation.contactCardName || 'איש קשר')}</div></div>`
+        ? `<div class="chat-row bot"><div class="chat-bubble">${contactCardPreviewText(conversation) || '&#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1500;&#1513;&#1502;&#1497;&#1512;&#1492;: &#1488;&#1497;&#1513; &#1511;&#1513;&#1512;'}</div></div>`
         : '';
       const filePreview = (conversation.completionFileIds || []).map(fileId => {
         const file = appFiles.find(item => item.id === fileId);
@@ -3420,7 +3484,7 @@
         ? `<div class="chat-row bot"><div class="chat-bubble">${esc(conversation.contactCardIntroText.trim())}</div></div>`
         : '';
       const lateContactCardPreview = conversation.sendContactCard && conversation.contactCardPlacement !== 'before_questions'
-        ? `<div class="chat-row bot"><div class="chat-bubble">איש קשר לשמירה: ${esc(conversation.contactCardName || 'איש קשר')}</div></div>`
+        ? `<div class="chat-row bot"><div class="chat-bubble">${contactCardPreviewText(conversation) || '&#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1500;&#1513;&#1502;&#1497;&#1512;&#1492;: &#1488;&#1497;&#1513; &#1511;&#1513;&#1512;'}</div></div>`
         : '';
       decisionFlowEl.innerHTML = flowPreview + lateContactIntroPreview + lateContactCardPreview + handoffPreview;
     }
@@ -3474,7 +3538,7 @@
         return `<div class="chat-row bot"><div class="chat-bubble">${esc((step.text || '').split('{referral_link}').join('https://wa.me/...').split('{referral_code}').join('ABC123'))}</div></div>`;
       }
       if (step.kind === 'contact_card') {
-        return `<div class="chat-row bot"><div class="chat-bubble">${esc(step.text || conversation.contactCardIntroText || '')}</div></div><div class="chat-row bot"><div class="chat-bubble">&#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1500;&#1513;&#1502;&#1497;&#1512;&#1492;: ${esc(conversation.contactCardName || '\u05d0\u05d9\u05e9 \u05e7\u05e9\u05e8')}</div></div>`;
+        return `<div class="chat-row bot"><div class="chat-bubble">${contactCardPreviewText(conversation) || '&#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1500;&#1513;&#1502;&#1497;&#1512;&#1492;: &#1488;&#1497;&#1513; &#1511;&#1513;&#1512;'}</div></div>`;
       }
       if (step.kind === 'message' && step.fileId) {
         const file = appFiles.find(item => item.id === step.fileId);

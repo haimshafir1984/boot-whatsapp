@@ -37,6 +37,13 @@ export interface Campaign {
 
 export type CampaignRuntimeStatus = 'draft' | 'scheduled' | 'active' | 'ended' | 'disabled';
 
+export interface ContactCard {
+  name?: string;
+  phone?: string;
+  email?: string;
+  organization?: string;
+}
+
 export interface CampaignConversationSettings {
   askNameEnabled: boolean;
   nameTimeoutMinutes: number;
@@ -49,6 +56,7 @@ export interface CampaignConversationSettings {
   completionFileIds?: string[];
   sendContactCard?: boolean;
   contactCardPlacement?: 'after_completion' | 'before_questions';
+  contactCards?: ContactCard[];
   contactCardName?: string;
   contactCardPhone?: string;
   contactCardEmail?: string;
@@ -132,6 +140,7 @@ export interface AdminSettings {
   completionFileIds: string[];
   sendContactCard?: boolean;
   contactCardPlacement?: 'after_completion' | 'before_questions';
+  contactCards?: ContactCard[];
   contactCardName?: string;
   contactCardPhone?: string;
   contactCardEmail?: string;
@@ -1100,6 +1109,7 @@ export class Storage {
       completionFileIds: campaign.conversation?.completionFileIds ?? [],
       sendContactCard: campaign.conversation?.sendContactCard ?? defaults.sendContactCard ?? false,
       contactCardPlacement: campaign.conversation?.contactCardPlacement ?? defaults.contactCardPlacement ?? 'after_completion',
+      contactCards: campaign.conversation?.contactCards ?? defaults.contactCards ?? [],
       contactCardName: campaign.conversation?.contactCardName ?? defaults.contactCardName ?? '',
       contactCardPhone: campaign.conversation?.contactCardPhone ?? defaults.contactCardPhone ?? '',
       contactCardEmail: campaign.conversation?.contactCardEmail ?? defaults.contactCardEmail ?? '',

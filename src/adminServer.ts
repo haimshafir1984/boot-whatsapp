@@ -498,6 +498,8 @@ function conversationSettings(
   input: Partial<CampaignConversationSettings> | undefined,
   defaults: CampaignConversationSettings,
 ): CampaignConversationSettings {
+  const contactCards = sanitizeContactCards(input, defaults);
+  const primaryContactCard = contactCards[0] ?? {};
   return {
     askNameEnabled: typeof input?.askNameEnabled === 'boolean' ? input.askNameEnabled : defaults.askNameEnabled,
     nameTimeoutMinutes: typeof input?.nameTimeoutMinutes === 'number' && input.nameTimeoutMinutes > 0
@@ -524,18 +526,11 @@ function conversationSettings(
     contactCardPlacement: input?.contactCardPlacement === 'before_questions'
       ? 'before_questions'
       : (defaults.contactCardPlacement ?? 'after_completion'),
-    contactCardName: typeof input?.contactCardName === 'string'
-      ? input.contactCardName.trim().slice(0, 120)
-      : (defaults.contactCardName ?? ''),
-    contactCardPhone: typeof input?.contactCardPhone === 'string'
-      ? input.contactCardPhone.replace(/[^\d+]/g, '').slice(0, 30)
-      : (defaults.contactCardPhone ?? ''),
-    contactCardEmail: typeof input?.contactCardEmail === 'string'
-      ? input.contactCardEmail.trim().slice(0, 160)
-      : (defaults.contactCardEmail ?? ''),
-    contactCardOrganization: typeof input?.contactCardOrganization === 'string'
-      ? input.contactCardOrganization.trim().slice(0, 120)
-      : (defaults.contactCardOrganization ?? ''),
+    contactCards,
+    contactCardName: primaryContactCard.name ?? '',
+    contactCardPhone: primaryContactCard.phone ?? '',
+    contactCardEmail: primaryContactCard.email ?? '',
+    contactCardOrganization: primaryContactCard.organization ?? '',
     contactCardIntroText: typeof input?.contactCardIntroText === 'string'
       ? input.contactCardIntroText.trim().slice(0, 2000)
       : (defaults.contactCardIntroText ?? ''),
@@ -565,6 +560,30 @@ function conversationSettings(
       ? input.humanHandoffPhone.replace(/[^\d+]/g, '').slice(0, 30)
       : (defaults.humanHandoffPhone ?? ''),
   };
+}
+
+function sanitizeContactCards(
+  input: Partial<CampaignConversationSettings> | undefined,
+  defaults: CampaignConversationSettings,
+): NonNullable<CampaignConversationSettings['contactCards']> {
+  const fallbackCard = {
+    name: input?.contactCardName ?? defaults.contactCardName,
+    phone: input?.contactCardPhone ?? defaults.contactCardPhone,
+    email: input?.contactCardEmail ?? defaults.contactCardEmail,
+    organization: input?.contactCardOrganization ?? defaults.contactCardOrganization,
+  };
+  const source = Array.isArray(input?.contactCards)
+    ? input.contactCards
+    : (Array.isArray(defaults.contactCards) && defaults.contactCards.length ? defaults.contactCards : [fallbackCard]);
+  return source
+    .map((item) => ({
+      name: typeof item?.name === 'string' ? item.name.trim().slice(0, 120) : '',
+      phone: typeof item?.phone === 'string' ? item.phone.replace(/[^\d+]/g, '').slice(0, 30) : '',
+      email: typeof item?.email === 'string' ? item.email.trim().slice(0, 160) : '',
+      organization: typeof item?.organization === 'string' ? item.organization.trim().slice(0, 120) : '',
+    }))
+    .filter((item) => item.name || item.phone || item.email || item.organization)
+    .slice(0, 2);
 }
 
 function sanitizeCompletionLinks(input: unknown, defaults: CompletionLink[]): CompletionLink[] {

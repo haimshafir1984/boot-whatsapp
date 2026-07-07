@@ -18,6 +18,7 @@ export interface PendingNameConversation {
   completionLinks?: import('./storage').CompletionLink[];
   completionFileIds?: string[];
   sendContactCard?: boolean;
+  contactCards?: import('./storage').ContactCard[];
   contactCardPlacement?: import('./storage').CampaignConversationSettings['contactCardPlacement'];
   contactCardName?: string;
   contactCardPhone?: string;
@@ -54,6 +55,7 @@ export interface PendingPreNamePromptConversation {
   completionLinks?: import('./storage').CompletionLink[];
   completionFileIds?: string[];
   sendContactCard?: boolean;
+  contactCards?: import('./storage').ContactCard[];
   contactCardPlacement?: import('./storage').CampaignConversationSettings['contactCardPlacement'];
   contactCardName?: string;
   contactCardPhone?: string;

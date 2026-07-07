@@ -44,6 +44,7 @@ interface CompletionContactCard {
 interface CompletionDelivery {
   links?: CompletionLink[];
   fileIds?: string[];
+  contactCards?: CompletionContactCard[];
   contactCard?: CompletionContactCard;
   contactCardPlacement?: 'after_completion' | 'before_questions';
   contactCardIntroText?: string;
@@ -260,6 +261,7 @@ async function handleMessage(
             completionLinks: pending.completionLinks,
             completionFileIds: pending.completionFileIds,
             sendContactCard: pending.sendContactCard,
+            contactCards: pending.contactCards,
             contactCardPlacement: pending.contactCardPlacement,
             contactCardName: pending.contactCardName,
             contactCardPhone: pending.contactCardPhone,
@@ -421,6 +423,7 @@ async function handleMessage(
       {
         links: pending.completionLinks,
         fileIds: pending.completionFileIds,
+        contactCards: contactCardsFromSettings(pending),
         contactCard: contactCardFromSettings(pending),
         contactCardPlacement: pending.contactCardPlacement,
         contactCardIntroText: pending.contactCardIntroText,
@@ -515,6 +518,7 @@ async function handleMessage(
         completionLinks: settings.completionLinks,
         completionFileIds: settings.completionFileIds,
         sendContactCard: settings.sendContactCard,
+        contactCards: settings.contactCards,
         contactCardPlacement: settings.contactCardPlacement,
         contactCardName: settings.contactCardName,
         contactCardPhone: settings.contactCardPhone,
@@ -587,6 +591,7 @@ async function handleMessage(
       {
         links: settings.completionLinks,
         fileIds: settings.completionFileIds,
+        contactCards: contactCardsFromSettings(settings),
         contactCard: contactCardFromSettings(settings),
         contactCardPlacement: settings.contactCardPlacement,
         contactCardIntroText: settings.contactCardIntroText,
@@ -655,6 +660,7 @@ async function askForContactName(
           {
             links: settings.completionLinks,
             fileIds: settings.completionFileIds,
+        contactCards: contactCardsFromSettings(settings),
             contactCard: contactCardFromSettings(settings),
             contactCardPlacement: settings.contactCardPlacement,
             contactCardIntroText: settings.contactCardIntroText,
@@ -678,6 +684,7 @@ async function askForContactName(
     completionLinks: settings.completionLinks,
     completionFileIds: settings.completionFileIds,
     sendContactCard: settings.sendContactCard,
+    contactCards: settings.contactCards,
     contactCardPlacement: settings.contactCardPlacement,
     contactCardName: settings.contactCardName,
     contactCardPhone: settings.contactCardPhone,
@@ -777,6 +784,7 @@ function keepPreNamePromptRetry(
             completionLinks: state.completionLinks,
             completionFileIds: state.completionFileIds,
             sendContactCard: state.sendContactCard,
+            contactCards: state.contactCards,
             contactCardPlacement: state.contactCardPlacement,
             contactCardName: state.contactCardName,
             contactCardPhone: state.contactCardPhone,
@@ -855,10 +863,11 @@ async function queueAndReply(
         await sendBotMessage(transport, senderJid, introText);
       });
     }
+    const contactCards = contactCardsFromCompletion(completion);
     await runReplyStep(label, async () => {
-      await sendCompletionContactCard(transport, storage, senderJid, completion.contactCard, campaignId, campaignResultId, senderPhone);
+      await sendCompletionContactCards(transport, storage, senderJid, contactCards, campaignId, campaignResultId, senderPhone);
     });
-    if (!completion.contactCard?.enabled || !completion.contactCardWaitForConfirmation) return false;
+    if (!contactCards.length || !completion.contactCardWaitForConfirmation) return false;
     waitForContactCardConfirmation(
       transport,
       storage,
@@ -1009,22 +1018,45 @@ async function sendCompletionLinks(
   }
 }
 
-function contactCardFromSettings(settings: {
+function contactCardsFromSettings(settings: {
   sendContactCard?: boolean;
+  contactCards?: CompletionContactCard[];
   contactCardName?: string;
   contactCardPhone?: string;
   contactCardEmail?: string;
   contactCardOrganization?: string;
   contactCardIntroText?: string;
-}): CompletionContactCard | undefined {
-  if (!settings.sendContactCard) return undefined;
-  return {
-    enabled: true,
-    name: settings.contactCardName,
-    phone: settings.contactCardPhone,
-    email: settings.contactCardEmail,
-    organization: settings.contactCardOrganization,
-  };
+}): CompletionContactCard[] {
+  if (!settings.sendContactCard) return [];
+  const source = Array.isArray(settings.contactCards) && settings.contactCards.length
+    ? settings.contactCards
+    : [{
+        name: settings.contactCardName,
+        phone: settings.contactCardPhone,
+        email: settings.contactCardEmail,
+        organization: settings.contactCardOrganization,
+      }];
+  return source
+    .map((card) => ({
+      enabled: true,
+      name: card.name,
+      phone: card.phone,
+      email: card.email,
+      organization: card.organization,
+    }))
+    .filter((card) => card.name || card.phone || card.email || card.organization)
+    .slice(0, 2);
+}
+
+function contactCardFromSettings(settings: Parameters<typeof contactCardsFromSettings>[0]): CompletionContactCard | undefined {
+  return contactCardsFromSettings(settings)[0];
+}
+
+function contactCardsFromCompletion(completion: CompletionDelivery): CompletionContactCard[] {
+  const cards = Array.isArray(completion.contactCards) && completion.contactCards.length
+    ? completion.contactCards
+    : (completion.contactCard ? [completion.contactCard] : []);
+  return cards.filter((card) => card?.enabled && (card.name || card.phone || card.email || card.organization)).slice(0, 2);
 }
 
 async function sendCompletionFiles(
@@ -1053,6 +1085,20 @@ async function sendCompletionFiles(
     } catch (err) {
       console.error(`   Completion file failed hard: ${fileId}`, err);
     }
+  }
+}
+
+async function sendCompletionContactCards(
+  transport: WhatsAppTransport,
+  storage: Storage,
+  senderJid: string,
+  contactCards: CompletionContactCard[] | undefined,
+  campaignId?: string,
+  campaignResultId?: string,
+  senderPhone?: string,
+): Promise<void> {
+  for (const contactCard of contactCards ?? []) {
+    await sendCompletionContactCard(transport, storage, senderJid, contactCard, campaignId, campaignResultId, senderPhone);
   }
 }
 
@@ -1381,7 +1427,7 @@ async function sendDecisionStep(
       }
       const campaign = campaignId ? storage.getCampaigns().find((item) => item.id === campaignId) : undefined;
       const settings = campaign ? storage.getCampaignConversationSettings(campaign) : storage.getAdminSettings();
-      await sendCompletionContactCard(transport, storage, senderJid, contactCardFromSettings(settings), campaignId, campaignResultId, senderPhone);
+      await sendCompletionContactCards(transport, storage, senderJid, contactCardsFromSettings(settings), campaignId, campaignResultId, senderPhone);
     } catch (err) {
       failed = true;
       console.error('   Contact-card step failed, continuing to next step after delay:', err);
