@@ -2795,17 +2795,8 @@
             <span>&#1513;&#1504;&#1497;&#1493;&#1514;</span>
           </div>
           <div class="contact-card-flow-fields" data-flow-contact-card-fields style="display:none;margin:8px 0 10px;padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc">
-            <div class="hint" style="margin-bottom:8px">&#1508;&#1512;&#1496;&#1497; &#1488;&#1497;&#1513; &#1492;&#1511;&#1513;&#1512; &#1513;&#1497;&#1497;&#1513;&#1500;&#1495; &#1489;&#1513;&#1500;&#1489; &#1492;&#1494;&#1492;</div>
-            <div class="hint" style="margin:0 0 6px">&#1488;&#1497;&#1513; &#1511;&#1513;&#1512; 1</div>
-            <input data-flow-contact-name placeholder="&#1513;&#1501; &#1488;&#1497;&#1513; &#1511;&#1513;&#1512;" value="${esc(document.getElementById('fContactCardName')?.value || '')}" oninput="syncFlowContactCardFields(this)" style="margin-bottom:6px" />
-            <input data-flow-contact-phone placeholder="&#1496;&#1500;&#1508;&#1493;&#1503;" value="${esc(document.getElementById('fContactCardPhone')?.value || '')}" oninput="syncFlowContactCardFields(this)" style="margin-bottom:6px" />
-            <input data-flow-contact-email placeholder="Email" value="${esc(document.getElementById('fContactCardEmail')?.value || '')}" oninput="syncFlowContactCardFields(this)" style="margin-bottom:6px" />
-            <input data-flow-contact-org placeholder="&#1488;&#1512;&#1490;&#1493;&#1503; / &#1506;&#1505;&#1511;" value="${esc(document.getElementById('fContactCardOrganization')?.value || '')}" oninput="syncFlowContactCardFields(this)" style="margin-bottom:10px" />
-            <div class="hint" style="margin:0 0 6px">&#1488;&#1497;&#1513; &#1511;&#1513;&#1512; 2 &#1488;&#1493;&#1508;&#1510;&#1497;&#1493;&#1504;&#1500;&#1497;</div>
-            <input data-flow-contact-name-2 placeholder="&#1513;&#1501; &#1488;&#1497;&#1513; &#1511;&#1513;&#1512;" value="${esc(document.getElementById('fContactCardName2')?.value || '')}" oninput="syncFlowContactCardFields(this)" style="margin-bottom:6px" />
-            <input data-flow-contact-phone-2 placeholder="&#1496;&#1500;&#1508;&#1493;&#1503;" value="${esc(document.getElementById('fContactCardPhone2')?.value || '')}" oninput="syncFlowContactCardFields(this)" style="margin-bottom:6px" />
-            <input data-flow-contact-email-2 placeholder="Email" value="${esc(document.getElementById('fContactCardEmail2')?.value || '')}" oninput="syncFlowContactCardFields(this)" style="margin-bottom:6px" />
-            <input data-flow-contact-org-2 placeholder="&#1488;&#1512;&#1490;&#1493;&#1503; / &#1506;&#1505;&#1511;" value="${esc(document.getElementById('fContactCardOrganization2')?.value || '')}" oninput="syncFlowContactCardFields(this)" />
+            <div class="hint" style="margin-bottom:8px">&#1488;&#1504;&#1513;&#1497; &#1492;&#1511;&#1513;&#1512; &#1513;&#1497;&#1497;&#1513;&#1500;&#1495;&#1493; &#1489;&#1513;&#1500;&#1489; &#1492;&#1494;&#1492;</div>
+            <div data-flow-contact-card-summary></div>
           </div>
           <div class="decision-next-row" data-question-presentation>
             <label>סוג הצגה</label>
@@ -3006,6 +2997,14 @@
     }
     if (type === 'contact_card') {
       enableFlowContactCard();
+      const existing = [...document.querySelectorAll('[data-decision-step]')]
+        .find(step => step.querySelector('[data-step-kind]')?.value === 'contact_card');
+      if (existing) {
+        activeDecisionStepId = existing.dataset.stepId || activeDecisionStepId;
+        updateActiveDecisionStep();
+        existing.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
       addDecisionStep({ id: makeFlowId(), kind: 'contact_card', text: document.getElementById('fContactCardIntroText')?.value || '\u05d4\u05e0\u05d4 \u05d0\u05d9\u05e9 \u05d4\u05e7\u05e9\u05e8 \u05dc\u05e9\u05de\u05d9\u05e8\u05d4', nextStepId: '__NEXT__' });
       return;
     }
@@ -3120,25 +3119,7 @@
     return selected?.value ? selected.textContent.trim() : '';
   }
 
-  function syncFlowContactCardFields(input) {
-    const map = [
-      ['data-flow-contact-name', 'fContactCardName'],
-      ['data-flow-contact-phone', 'fContactCardPhone'],
-      ['data-flow-contact-email', 'fContactCardEmail'],
-      ['data-flow-contact-org', 'fContactCardOrganization'],
-      ['data-flow-contact-name-2', 'fContactCardName2'],
-      ['data-flow-contact-phone-2', 'fContactCardPhone2'],
-      ['data-flow-contact-email-2', 'fContactCardEmail2'],
-      ['data-flow-contact-org-2', 'fContactCardOrganization2'],
-    ];
-    const matched = map.find(([attr]) => input.hasAttribute(attr));
-    if (matched) {
-      const target = document.getElementById(matched[1]);
-      if (target) target.value = input.value;
-    }
-    const toggle = document.getElementById('fSendContactCard');
-    if (toggle) toggle.checked = true;
-    updateContactCardVisibility();
+  function syncFlowContactCardFields(_input) {
     updateCampaignConversationPreview();
   }
 
@@ -3161,7 +3142,11 @@
       if (optionsPanel) optionsPanel.style.display = isChoice ? '' : 'none';
       const contactFields = step.querySelector('[data-flow-contact-card-fields]');
       if (kind === 'contact_card') enableFlowContactCard();
-      if (contactFields) contactFields.style.display = kind === 'contact_card' ? '' : 'none';
+      if (contactFields) {
+        contactFields.style.display = kind === 'contact_card' ? '' : 'none';
+        const summary = contactFields.querySelector('[data-flow-contact-card-summary]');
+        if (summary) summary.innerHTML = contactCardPreviewText(getCampaignConversation()) || '&#1500;&#1488; &#1492;&#1493;&#1490;&#1491;&#1512;&#1493; &#1488;&#1504;&#1513;&#1497; &#1511;&#1513;&#1512;.';
+      }
       const title = step.querySelector('.decision-step-title');
       const titleText = step.querySelector('[data-step-text]')?.value.trim();
       const stepIndex = [...document.querySelectorAll('[data-decision-step]')].indexOf(step);
@@ -3265,6 +3250,7 @@
           kind,
           text: step.querySelector('[data-step-text]').value.trim(),
         };
+        if (!item.text && kind === 'score_result') item.text = '\u05d7\u05d9\u05e9\u05d5\u05d1 \u05ea\u05d5\u05e6\u05d0\u05d4';
         const delaySeconds = Number(step.querySelector('[data-step-delay]')?.value || 0);
         if (Number.isFinite(delaySeconds) && delaySeconds > 0) item.delayMs = Math.min(Math.round(delaySeconds * 1000), 60000);
         if (!item.text) return null;
@@ -3330,12 +3316,14 @@
               }
               return clean;
             })
-            .filter(Boolean);
+            .filter(Boolean)
+            .slice(0, item.presentation === 'buttons' || !item.presentation ? 3 : 10);
           if (!item.options.length) return null;
         }
         return item;
       })
-      .filter(Boolean);
+      .filter(Boolean)
+      .filter((step, index, list) => step.kind !== 'contact_card' || list.findIndex(item => item.kind === 'contact_card') === index);
     steps.forEach((step, index) => {
       if (step.nextStepId === '__NEXT__') {
         step.nextStepId = steps[index + 1]?.id || '';

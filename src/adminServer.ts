@@ -622,7 +622,8 @@ function sanitizeDecisionFlow(
         ? item.id.trim().slice(0, 80)
         : `step-${index + 1}`;
       const kind = item.kind === 'question' || item.kind === 'score_question' || item.kind === 'score_result' || item.kind === 'wait_reply' || item.kind === 'contact_card' || (referralContestEnabled && item.kind === 'referral_share') ? item.kind : 'message';
-      const text = typeof item.text === 'string' ? item.text.trim().slice(0, 2000) : '';
+      let text = typeof item.text === 'string' ? item.text.trim().slice(0, 2000) : '';
+      if (!text && kind === 'score_result') text = '\u05d7\u05d9\u05e9\u05d5\u05d1 \u05ea\u05d5\u05e6\u05d0\u05d4';
       if (!text) return null;
 
       const step: DecisionFlowStep = { id, kind, text };
@@ -727,6 +728,7 @@ function sanitizeDecisionFlow(
       return step;
     })
     .filter((step): step is DecisionFlowStep => Boolean(step))
+    .filter((step, index, list) => step.kind !== 'contact_card' || list.findIndex((item) => item.kind === 'contact_card') === index)
     .slice(0, 20);
 
   const ids = new Set(steps.map((step) => step.id));
