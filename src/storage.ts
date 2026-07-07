@@ -81,7 +81,7 @@ export interface CampaignTwilioSettings {
 
 export interface DecisionFlowStep {
   id: string;
-  kind: 'message' | 'wait_reply' | 'contact_card' | 'referral_share' | 'question' | 'score_question';
+  kind: 'message' | 'wait_reply' | 'contact_card' | 'referral_share' | 'question' | 'score_question' | 'score_result';
   presentation?: 'text' | 'buttons' | 'list';
   text: string;
   nextStepId?: string;
@@ -93,6 +93,22 @@ export interface DecisionFlowStep {
   timeoutFileId?: string;
   timeoutFileAsSticker?: boolean;
   options?: DecisionFlowOption[];
+  resultRules?: ScoreResultRule[];
+  fallbackText?: string;
+  fallbackNextStepId?: string;
+}
+
+export interface ScoreResultRule {
+  id: string;
+  type: 'majority' | 'sum_range';
+  label?: string;
+  value?: number;
+  min?: number;
+  max?: number;
+  nextStepId?: string;
+  endText?: string;
+  fileId?: string;
+  fileAsSticker?: boolean;
 }
 
 export interface DecisionFlowOption {
@@ -847,6 +863,12 @@ export class Storage {
     result.updatedAt = answeredAt;
     result.lastEventAt = answeredAt;
     this.persist();
+  }
+
+  getCampaignScoreAnswers(resultId: string | undefined): CampaignScoreAnswer[] {
+    if (!resultId) return [];
+    const result = this.data.campaignResults.find((item) => item.id === resultId);
+    return result?.scoreAnswers ? result.scoreAnswers.map((answer) => ({ ...answer })) : [];
   }
 
   recordCampaignEvent(event: Omit<CampaignEvent, 'id' | 'createdAt'>): CampaignEvent {

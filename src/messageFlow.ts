@@ -2,7 +2,7 @@ import { config } from './config';
 import fs from 'fs';
 import path from 'path';
 import { conversationState, PersistablePendingConversation } from './conversationState';
-import { CampaignConversationSettings, CompletionLink, DecisionFlowOption, DecisionFlowStep, Storage } from './storage';
+import { CampaignConversationSettings, CampaignScoreAnswer, CompletionLink, DecisionFlowOption, DecisionFlowStep, ScoreResultRule, Storage } from './storage';
 import { detectTrigger } from './triggerDetector';
 import {
   IncomingWhatsAppMessage,
@@ -1308,6 +1308,11 @@ async function sendDecisionStep(
   if (!step?.text.trim()) return;
   const stepDelayMs = Number.isFinite(step.delayMs) ? Math.max(0, step.delayMs ?? BOT_REPLY_DELAY_MS) : BOT_REPLY_DELAY_MS;
 
+  if (step.kind === 'score_result') {
+    await handleScoreResultStep(transport, storage, senderJid, flow, step, campaignId, campaignResultId, senderPhone, humanHandoff);
+    return;
+  }
+
   if (step.kind === 'wait_reply') {
     await sendBotMessage(transport, senderJid, step.text.trim(), stepDelayMs);
     console.log('   Wait-for-reply message sent.');
@@ -1399,7 +1404,7 @@ async function sendDecisionStep(
         campaignResultId,
         phone: senderPhone,
         type: 'completed',
-        label: '???? ?????',
+        label: '\u05e1\u05d9\u05d5\u05dd \u05ea\u05d4\u05dc\u05d9\u05da',
       });
       keepHumanHandoffOpen(senderJid, campaignId, campaignResultId, senderPhone, humanHandoff);
     }
@@ -1549,6 +1554,112 @@ async function sendDecisionStep(
     timestamp: Date.now(),
     timeoutHandle,
   });
+}
+
+async function handleScoreResultStep(
+  transport: WhatsAppTransport,
+  storage: Storage,
+  senderJid: string,
+  flow: DecisionFlowStep[],
+  step: DecisionFlowStep,
+  campaignId?: string,
+  campaignResultId?: string,
+  senderPhone?: string,
+  humanHandoff: CampaignReplyBehavior = {},
+): Promise<void> {
+  const answers = storage.getCampaignScoreAnswers(campaignResultId);
+  const matchedRule = evaluateScoreResultRule(step.resultRules ?? [], answers);
+  if (campaignId) {
+    storage.recordCampaignEvent({
+      campaignId,
+      campaignResultId,
+      phone: senderPhone,
+      type: 'step_sent',
+      label: matchedRule?.label || matchedRule?.type || step.text.slice(0, 120),
+    });
+  }
+  await runScoreResultAction(
+    matchedRule,
+    step,
+    transport,
+    storage,
+    senderJid,
+    flow,
+    campaignId,
+    campaignResultId,
+    senderPhone,
+    humanHandoff,
+  );
+}
+
+function evaluateScoreResultRule(rules: ScoreResultRule[], answers: CampaignScoreAnswer[]): ScoreResultRule | null {
+  const scores = answers
+    .map((answer) => answer.score)
+    .filter((score) => Number.isFinite(score));
+  const total = scores.reduce((sum, score) => sum + score, 0);
+  const counts = new Map<number, number>();
+  for (const score of scores) counts.set(score, (counts.get(score) ?? 0) + 1);
+  const maxCount = Math.max(0, ...counts.values());
+  const majorityValues = [...counts.entries()]
+    .filter(([, count]) => count === maxCount && count > 0)
+    .map(([score]) => score);
+
+  for (const rule of rules) {
+    if (rule.type === 'majority') {
+      if (majorityValues.length === 1 && majorityValues[0] === rule.value) return rule;
+      continue;
+    }
+    if (rule.type === 'sum_range') {
+      const min = typeof rule.min === 'number' ? rule.min : Number.NEGATIVE_INFINITY;
+      const max = typeof rule.max === 'number' ? rule.max : Number.POSITIVE_INFINITY;
+      if (total >= min && total <= max) return rule;
+    }
+  }
+  return null;
+}
+
+async function runScoreResultAction(
+  rule: ScoreResultRule | null,
+  step: DecisionFlowStep,
+  transport: WhatsAppTransport,
+  storage: Storage,
+  senderJid: string,
+  flow: DecisionFlowStep[],
+  campaignId?: string,
+  campaignResultId?: string,
+  senderPhone?: string,
+  humanHandoff: CampaignReplyBehavior = {},
+): Promise<void> {
+  const endText = rule?.endText?.trim() || step.fallbackText?.trim();
+  const nextStepId = rule?.nextStepId || step.fallbackNextStepId;
+  if (rule?.fileId) {
+    await sendDecisionFile(
+      transport,
+      storage,
+      senderJid,
+      rule.fileId,
+      endText,
+      rule.fileAsSticker,
+      campaignId,
+      campaignResultId,
+      senderPhone,
+    );
+  } else if (endText) {
+    await sendBotMessage(transport, senderJid, endText);
+  }
+
+  if (nextStepId) {
+    await sendDecisionStep(transport, storage, senderJid, flow, nextStepId, campaignId, campaignResultId, senderPhone, humanHandoff);
+  } else if (campaignId) {
+    storage.recordCampaignEvent({
+      campaignId,
+      campaignResultId,
+      phone: senderPhone,
+      type: 'completed',
+      label: '\u05e1\u05d9\u05d5\u05dd \u05ea\u05d4\u05dc\u05d9\u05da',
+    });
+    keepHumanHandoffOpen(senderJid, campaignId, campaignResultId, senderPhone, humanHandoff);
+  }
 }
 
 async function sendReferralShareStep(

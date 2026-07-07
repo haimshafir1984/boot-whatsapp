@@ -1514,7 +1514,8 @@
                   <option value="message">&#1492;&#1493;&#1491;&#1506;&#1514; &#1496;&#1511;&#1505;&#1496;</option>
                   <option value="buttons">&#1513;&#1488;&#1500;&#1492; &#1506;&#1501; &#1499;&#1508;&#1514;&#1493;&#1512;&#1497;&#1501;</option>
                   <option value="list">&#1512;&#1513;&#1497;&#1502;&#1514; &#1489;&#1495;&#1497;&#1512;&#1492;</option>
-                  <option value="score">&#1505;&#1511;&#1512; / &#1504;&#1497;&#1511;&#1493;&#1491;</option>
+                  <option value="score">&#1513;&#1488;&#1500;&#1514; &#1495;&#1497;&#1513;&#1493;&#1489;</option>
+                  <option value="score_result">&#1514;&#1493;&#1510;&#1488;&#1514; &#1495;&#1497;&#1513;&#1493;&#1489;</option>
                   <option value="wait_reply">&#1492;&#1493;&#1491;&#1506;&#1492; &#1513;&#1502;&#1502;&#1514;&#1497;&#1504;&#1492; &#1500;&#1514;&#1513;&#1493;&#1489;&#1492;</option>
                   <option value="media">&#1514;&#1502;&#1493;&#1504;&#1492; / &#1505;&#1512;&#1496;&#1493;&#1503; / &#1511;&#1493;&#1489;&#1509;</option>
                   <option value="contact_card">&#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1500;&#1513;&#1502;&#1497;&#1512;&#1492;</option>
@@ -2680,7 +2681,8 @@
   }
 
   function decisionKindLabel(kind, presentation = 'buttons') {
-    if (kind === 'score_question') return '\u05e1\u05e7\u05e8 1/2/3 \u05d1\u05db\u05e4\u05ea\u05d5\u05e8\u05d9\u05dd';
+    if (kind === 'score_question') return '\u05e9\u05d0\u05dc\u05ea \u05d7\u05d9\u05e9\u05d5\u05d1';
+    if (kind === 'score_result') return '\u05ea\u05d5\u05e6\u05d0\u05ea \u05d7\u05d9\u05e9\u05d5\u05d1 \u05dc\u05e4\u05d9 \u05db\u05dc\u05dc\u05d9\u05dd';
     if (kind === 'question') return presentation === 'list' ? '\u05e9\u05d0\u05dc\u05d4 \u05e2\u05dd \u05e8\u05e9\u05d9\u05de\u05d4 \u05e0\u05e4\u05ea\u05d7\u05ea \u05e2\u05d3 10 \u05ea\u05e9\u05d5\u05d1\u05d5\u05ea' : '\u05e9\u05d0\u05dc\u05d4 \u05e2\u05dd \u05e2\u05d3 3 \u05db\u05e4\u05ea\u05d5\u05e8\u05d9\u05dd';
     if (kind === 'wait_reply') return '\u05d4\u05d5\u05d3\u05e2\u05d4 \u05e9\u05de\u05de\u05ea\u05d9\u05e0\u05d4 \u05dc\u05ea\u05e9\u05d5\u05d1\u05d4';
     if (kind === 'contact_card') return '\u05e9\u05dc\u05d9\u05d7\u05ea \u05d0\u05d9\u05e9 \u05e7\u05e9\u05e8 \u05d1\u05e4\u05dc\u05d5\u05d0\u05d5';
@@ -2690,6 +2692,8 @@
 
   function decisionStepPlaceholder(kind) {
     if (kind === 'question') return '\u05dc\u05d3\u05d5\u05d2\u05de\u05d4: \u05d4\u05d0\u05dd \u05d1\u05e8\u05e6\u05d5\u05e0\u05da \u05dc\u05e7\u05d1\u05dc \u05d7\u05d5\u05d1\u05e8\u05ea \u05e4\u05e8\u05e1\u05d5\u05dd?';
+    if (kind === 'score_question') return '\u05dc\u05d3\u05d5\u05d2\u05de\u05d4: \u05de\u05d4 \u05d4\u05e1\u05d2\u05e0\u05d5\u05df \u05e9\u05d4\u05db\u05d9 \u05de\u05d0\u05e4\u05d9\u05d9\u05df \u05d0\u05d5\u05ea\u05da?';
+    if (kind === 'score_result') return '\u05dc\u05d3\u05d5\u05d2\u05de\u05d4: \u05d7\u05d9\u05e9\u05d5\u05d1 \u05d4\u05ea\u05d5\u05e6\u05d0\u05d4';
     if (kind === 'contact_card') return '\u05d4\u05d5\u05d3\u05e2\u05d4 \u05de\u05e7\u05d3\u05d9\u05de\u05d4 \u05dc\u05e4\u05e0\u05d9 \u05d0\u05d9\u05e9 \u05e7\u05e9\u05e8';
     if (kind === 'referral_share') return '\u05dc\u05d3\u05d5\u05d2\u05de\u05d4: \u05e8\u05d5\u05e6\u05d4 \u05dc\u05d4\u05e9\u05ea\u05ea\u05e3 \u05d1\u05ea\u05d7\u05e8\u05d5\u05ea? \u05e4\u05e8\u05e1\u05dd \u05d0\u05ea \u05d4\u05dc\u05d9\u05e0\u05e7 \u05d4\u05d0\u05d9\u05e9\u05d9 \u05e9\u05dc\u05da: {referral_link}';
     return '\u05d4\u05d4\u05d5\u05d3\u05e2\u05d4 \u05e9\u05ea\u05d9\u05e9\u05dc\u05d7';
@@ -2697,7 +2701,7 @@
 
   function decisionStepHtml(step, index, steps) {
     const stepId = step.id || makeFlowId();
-    const kind = step.kind === 'question' || step.kind === 'score_question' || step.kind === 'wait_reply' || step.kind === 'contact_card' || step.kind === 'referral_share' ? step.kind : 'message';
+    const kind = step.kind === 'question' || step.kind === 'score_question' || step.kind === 'score_result' || step.kind === 'wait_reply' || step.kind === 'contact_card' || step.kind === 'referral_share' ? step.kind : 'message';
     const presentation = ['text', 'buttons', 'list'].includes(step.presentation) ? step.presentation : 'buttons';
     const isActive = activeDecisionStepId === stepId;
     const options = Array.isArray(step.options) && step.options.length
@@ -2720,7 +2724,8 @@
             <option value="contact_card" ${kind === 'contact_card' ? 'selected' : ''}>&#1513;&#1500;&#1497;&#1495;&#1514; &#1488;&#1497;&#1513; &#1511;&#1513;&#1512;</option>
             <option value="referral_share" data-referral-feature ${kind === 'referral_share' ? 'selected' : ''}>&#1500;&#1497;&#1504;&#1511; &#1488;&#1497;&#1513;&#1497; &#1500;&#1514;&#1495;&#1512;&#1493;&#1514;</option>
             <option value="question" ${kind === 'question' ? 'selected' : ''}>שאלת בחירה</option>
-            <option value="score_question" ${kind === 'score_question' ? 'selected' : ''}>סקר 1/2/3</option>
+            <option value="score_question" ${kind === 'score_question' ? 'selected' : ''}>&#1513;&#1488;&#1500;&#1514; &#1495;&#1497;&#1513;&#1493;&#1489;</option>
+            <option value="score_result" ${kind === 'score_result' ? 'selected' : ''}>&#1514;&#1493;&#1510;&#1488;&#1514; &#1495;&#1497;&#1513;&#1493;&#1489;</option>
           </select>
           <div class="decision-step-actions" onclick="event.stopPropagation()">
             <button type="button" class="btn-small move-step" data-move="up" onclick="moveDecisionStep(this, -1)" title="העבר למעלה">↑</button>
@@ -2788,6 +2793,7 @@
                 <option value="💬">💬</option>
               </select>
               <textarea data-option-text maxlength="500" rows="2" oninput="updateDecisionStepVisibility(); updateCampaignConversationPreview()" placeholder="&#1504;&#1493;&#1505;&#1495; &#1492;&#1514;&#1513;&#1493;&#1489;&#1492;">${esc(option.text || '')}</textarea>
+              <input data-option-score type="number" min="-99" max="99" step="1" value="${Number.isFinite(Number(option.score)) ? Number(option.score) : index + 1}" oninput="updateCampaignConversationPreview()" title="\u05e2\u05e8\u05da \u05dc\u05d7\u05d9\u05e9\u05d5\u05d1" style="width:82px" />
               <button type="button" class="btn-small" onclick="removeDecisionOption(this)">מחק</button>
             </div>
             <select class="decision-option-action-select" data-option-action onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">
@@ -2814,6 +2820,44 @@
     `;
   }
 
+  function scoreResultRuleHtml(rule = {}, index = 0) {
+    const type = rule.type === 'sum_range' ? 'sum_range' : 'majority';
+    return `
+      <div class="decision-option" data-score-result-rule data-rule-id="${esc(rule.id || makeFlowId('rule'))}">
+        <div class="decision-option-number">${index + 1}</div>
+        <div>
+          <div class="decision-option-grid">
+            <select data-rule-type onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">
+              <option value="majority" ${type === 'majority' ? 'selected' : ''}>&#1512;&#1493;&#1489; &#1514;&#1513;&#1493;&#1489;&#1493;&#1514; &#1513;&#1493;&#1493;&#1492;</option>
+              <option value="sum_range" ${type === 'sum_range' ? 'selected' : ''}>&#1505;&#1499;&#1493;&#1501; &#1489;&#1496;&#1493;&#1493;&#1495;</option>
+            </select>
+            <input data-rule-value type="number" step="1" value="${Number.isFinite(Number(rule.value)) ? Number(rule.value) : ''}" placeholder="&#1506;&#1512;&#1498;" oninput="updateCampaignConversationPreview()" />
+            <input data-rule-min type="number" step="1" value="${Number.isFinite(Number(rule.min)) ? Number(rule.min) : ''}" placeholder="&#1502;&#1470;" oninput="updateCampaignConversationPreview()" />
+            <input data-rule-max type="number" step="1" value="${Number.isFinite(Number(rule.max)) ? Number(rule.max) : ''}" placeholder="&#1506;&#1491;" oninput="updateCampaignConversationPreview()" />
+            <textarea data-rule-end-text rows="2" oninput="updateCampaignConversationPreview()" placeholder="&#1492;&#1493;&#1491;&#1506;&#1492; &#1513;&#1514;&#1497;&#1513;&#1500;&#1495; &#1488;&#1501; &#1492;&#1499;&#1500;&#1500; &#1502;&#1514;&#1511;&#1497;&#1497;&#1501;">${esc(rule.endText || '')}</textarea>
+            <select data-rule-next data-selected-next="${esc(rule.nextStepId || '')}" onchange="updateCampaignConversationPreview()"></select>
+            <button type="button" class="btn-small" onclick="removeScoreResultRule(this)">&#1502;&#1495;&#1511; &#1499;&#1500;&#1500;</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function addScoreResultRule(btn) {
+    const list = btn.closest('[data-score-result]')?.querySelector('[data-score-rules]');
+    if (!list) return;
+    list.insertAdjacentHTML('beforeend', scoreResultRuleHtml({ id: makeFlowId('rule'), type: 'majority' }, list.querySelectorAll('[data-score-result-rule]').length));
+    refreshDecisionNextOptions();
+    updateDecisionStepVisibility();
+    updateCampaignConversationPreview();
+  }
+
+  function removeScoreResultRule(btn) {
+    btn.closest('[data-score-result-rule]')?.remove();
+    updateDecisionStepVisibility();
+    updateCampaignConversationPreview();
+  }
+
   function addDecisionStepFromSelect() {
     const select = document.getElementById('flowAddStepType');
     addTwilioQuickStep(select?.value || 'message');
@@ -2821,7 +2865,11 @@
 
   function addTwilioQuickStep(type) {
     if (type === 'score') {
-      addDecisionStep({ id: makeFlowId(), kind: 'score_question', text: 'עד כמה זה מתאים לך?', presentation: 'buttons', options: [1, 2, 3].map(score => ({ id: makeFlowId('score'), text: String(score), score, endText: '' })) });
+      addDecisionStep({ id: makeFlowId(), kind: 'score_question', text: '\u05de\u05d4 \u05d4\u05db\u05d9 \u05de\u05ea\u05d0\u05d9\u05dd \u05dc\u05da?', presentation: 'text', options: [1, 2, 3, 4].map(score => ({ id: makeFlowId('score'), text: String(score), score, nextStepId: '__NEXT__' })) });
+      return;
+    }
+    if (type === 'score_result') {
+      addDecisionStep({ id: makeFlowId(), kind: 'score_result', text: '\u05d7\u05d9\u05e9\u05d5\u05d1 \u05ea\u05d5\u05e6\u05d0\u05d4', resultRules: [{ id: makeFlowId('rule'), type: 'majority', value: 2, endText: '' }], fallbackText: '' });
       return;
     }
     if (type === 'list') {
@@ -2891,7 +2939,7 @@
     const id = step?.dataset.stepId;
     step?.remove();
     if (activeDecisionStepId === id) activeDecisionStepId = document.querySelector('[data-decision-step]')?.dataset.stepId || '';
-    document.querySelectorAll('[data-step-next], [data-option-next]').forEach(select => {
+    document.querySelectorAll('[data-step-next], [data-option-next], [data-rule-next], [data-score-fallback-next]').forEach(select => {
       if (select.dataset.selectedNext === id || select.value === id) select.dataset.selectedNext = '';
     });
     refreshDecisionNextOptions();
@@ -2985,14 +3033,14 @@
     document.querySelectorAll('[data-decision-step]').forEach(step => {
       const kind = step.querySelector('[data-step-kind]').value;
       const isChoice = kind === 'question' || kind === 'score_question';
-      const presentation = kind === 'score_question' ? 'buttons' : (step.querySelector('[data-step-presentation]')?.value || 'buttons');
-      if (kind === 'score_question' && step.querySelector('[data-step-presentation]')) step.querySelector('[data-step-presentation]').value = 'buttons';
+      const presentation = step.querySelector('[data-step-presentation]')?.value || 'buttons';
       step.querySelector('[data-message-next]').style.display = (kind === 'message' || kind === 'wait_reply' || kind === 'contact_card' || kind === 'referral_share') ? '' : 'none';
+      step.querySelector('[data-score-result]').style.display = kind === 'score_result' ? '' : 'none';
       const messageFile = step.querySelector('[data-message-file]');
       const messageSticker = step.querySelector('[data-message-sticker]');
       if (messageFile) messageFile.style.display = kind === 'message' ? '' : 'none';
       if (messageSticker) messageSticker.style.display = kind === 'message' ? '' : 'none';
-      step.querySelector('[data-question-presentation]').style.display = kind === 'question' ? '' : 'none';
+      step.querySelector('[data-question-presentation]').style.display = isChoice ? '' : 'none';
       step.querySelector('[data-options]').style.display = isChoice ? '' : 'none';
       const contactFields = step.querySelector('[data-flow-contact-card-fields]');
       if (contactFields) contactFields.style.display = kind === 'contact_card' ? '' : 'none';
@@ -3003,6 +3051,8 @@
       step.querySelector('.decision-step-subtitle').textContent = decisionKindLabel(kind, presentation);
       step.querySelector('[data-step-text]').placeholder = decisionStepPlaceholder(kind);
       step.querySelectorAll('[data-decision-option]').forEach(option => {
+        const optionScore = option.querySelector('[data-option-score]');
+        if (optionScore) optionScore.style.display = kind === 'score_question' ? '' : 'none';
         const action = option.querySelector('[data-option-action]')?.value || 'end';
         const nextSelect = option.querySelector('[data-option-next]');
         const fileSelect = option.querySelector('[data-option-file]');
@@ -3026,6 +3076,7 @@
         option.querySelector('[data-option-end-label]').textContent = action === 'file'
           ? 'כיתוב לקובץ'
           : (action === 'next' ? 'טקסט מלווה לפני השאלה הבאה' : 'הודעת פרידה קבועה');
+        const scoreText = kind === 'score_question' ? ` \u05e2\u05e8\u05da \u05dc\u05d7\u05d9\u05e9\u05d5\u05d1: ${option.querySelector('[data-option-score]')?.value || ''}.` : '';
         if (summary) {
           if (action === 'next') {
             const target = selectedStepLabel(nextSelect);
@@ -3040,6 +3091,7 @@
           } else {
             summary.textContent = `אחרי שהמשתמש בוחר "${optionText}", תישלח הודעת פרידה והשיחה תסתיים.`;
           }
+          if (scoreText) summary.textContent += scoreText;
         }
       });
     });
@@ -3089,7 +3141,7 @@
     const steps = [...document.querySelectorAll('[data-decision-step]')]
       .map(step => {
         const rawKind = step.querySelector('[data-step-kind]').value;
-        const kind = rawKind === 'question' || rawKind === 'score_question' || rawKind === 'wait_reply' || rawKind === 'contact_card' || (appCapabilities.referralContestEnabled && rawKind === 'referral_share') ? rawKind : 'message';
+        const kind = rawKind === 'question' || rawKind === 'score_question' || rawKind === 'score_result' || rawKind === 'wait_reply' || rawKind === 'contact_card' || (appCapabilities.referralContestEnabled && rawKind === 'referral_share') ? rawKind : 'message';
         const item = {
           id: step.dataset.stepId || makeFlowId(),
           kind,
@@ -3098,7 +3150,32 @@
         const delaySeconds = Number(step.querySelector('[data-step-delay]')?.value || 0);
         if (Number.isFinite(delaySeconds) && delaySeconds > 0) item.delayMs = Math.min(Math.round(delaySeconds * 1000), 60000);
         if (!item.text) return null;
-        if (kind === 'message' || kind === 'wait_reply' || kind === 'contact_card' || kind === 'referral_share') {
+        if (kind === 'score_result') {
+          item.resultRules = [...step.querySelectorAll('[data-score-result-rule]')]
+            .map(rule => {
+              const type = rule.querySelector('[data-rule-type]')?.value || 'majority';
+              const clean = { id: rule.dataset.ruleId || makeFlowId('rule'), type };
+              const rawValue = rule.querySelector('[data-rule-value]')?.value.trim() || '';
+              const rawMin = rule.querySelector('[data-rule-min]')?.value.trim() || '';
+              const rawMax = rule.querySelector('[data-rule-max]')?.value.trim() || '';
+              const value = rawValue === '' ? NaN : Number(rawValue);
+              const min = rawMin === '' ? NaN : Number(rawMin);
+              const max = rawMax === '' ? NaN : Number(rawMax);
+              const endText = rule.querySelector('[data-rule-end-text]')?.value.trim() || '';
+              const nextStepId = rule.querySelector('[data-rule-next]')?.value || '';
+              if (Number.isFinite(value)) clean.value = value;
+              if (Number.isFinite(min)) clean.min = min;
+              if (Number.isFinite(max)) clean.max = max;
+              if (endText) clean.endText = endText;
+              if (nextStepId) clean.nextStepId = nextStepId;
+              return clean;
+            })
+            .filter(rule => rule.type === 'majority' ? Number.isFinite(rule.value) : (Number.isFinite(rule.min) || Number.isFinite(rule.max)));
+          const fallbackText = step.querySelector('[data-score-fallback-text]')?.value.trim() || '';
+          const fallbackNextStepId = step.querySelector('[data-score-fallback-next]')?.value || '';
+          if (fallbackText) item.fallbackText = fallbackText;
+          if (fallbackNextStepId) item.fallbackNextStepId = fallbackNextStepId;
+        } else if (kind === 'message' || kind === 'wait_reply' || kind === 'contact_card' || kind === 'referral_share') {
           const nextStepId = step.querySelector('[data-step-next]')?.value || '';
           if (nextStepId && nextStepId !== '__END__') item.nextStepId = nextStepId;
           if (kind === 'message') {
@@ -3107,7 +3184,7 @@
             if (step.querySelector('[data-step-file-sticker]')?.checked) item.fileAsSticker = true;
           }
         } else {
-          item.presentation = kind === 'score_question' ? 'buttons' : (step.querySelector('[data-step-presentation]')?.value || 'buttons');
+          item.presentation = step.querySelector('[data-step-presentation]')?.value || 'buttons';
           item.options = [...step.querySelectorAll('[data-decision-option]')]
             .map(option => {
               const text = option.querySelector('[data-option-text]').value.trim();
@@ -3116,7 +3193,7 @@
                 id: option.dataset.optionId || makeFlowId('option'),
                 text,
               };
-              if (kind === 'score_question') clean.score = Number(text) || 0;
+              if (kind === 'score_question') clean.score = Number(option.querySelector('[data-option-score]')?.value) || index + 1;
               const action = option.querySelector('[data-option-action]')?.value || 'end';
               if (action === 'next') {
                 const nextStepId = option.querySelector('[data-option-next]').value;
@@ -3328,6 +3405,13 @@
           .join('\n');
         const notes = [optionNotes, textNotes].filter(Boolean).join('\n');
         return `<div class="chat-row bot"><div class="chat-bubble">${esc(`${step.text}\n(${mode})${options ? '\n\n' + options : ''}${notes ? '\n\n' + notes : ''}`)}</div></div>`;
+      }
+      if (step.kind === 'score_result') {
+        const rules = (step.resultRules || []).map(rule => rule.type === 'majority'
+          ? `\u05d0\u05dd \u05e8\u05d5\u05d1 \u05d4\u05ea\u05e9\u05d5\u05d1\u05d5\u05ea \u05d4\u05df ${rule.value} -> ${rule.endText || '\u05de\u05e2\u05d1\u05e8/\u05e1\u05d9\u05d5\u05dd'}`
+          : `\u05d0\u05dd \u05d4\u05e1\u05db\u05d5\u05dd \u05d1\u05d9\u05df ${rule.min ?? '-'} \u05dc-${rule.max ?? '-'} -> ${rule.endText || '\u05de\u05e2\u05d1\u05e8/\u05e1\u05d9\u05d5\u05dd'}`
+        ).join('\n');
+        return `<div class="chat-row bot"><div class="chat-bubble">${esc(`${step.text}\n${rules}${step.fallbackText ? '\n\u05d1\u05e8\u05d9\u05e8\u05ea \u05de\u05d7\u05d3\u05dc: ' + step.fallbackText : ''}`)}</div></div>`;
       }
       if (step.kind === 'referral_share') {
         return `<div class="chat-row bot"><div class="chat-bubble">${esc((step.text || '').split('{referral_link}').join('https://wa.me/...').split('{referral_code}').join('ABC123'))}</div></div>`;

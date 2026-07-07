@@ -49,6 +49,22 @@ interface TwilioGatewaySessionStore {
 }
 
 const TWILIO_GATEWAY_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const RECENT_TWILIO_MESSAGE_LIMIT = 500;
+const recentTwilioMessageIds = new Map<string, number>();
+
+function rememberTwilioMessage(id: string): boolean {
+  const cleanId = id.trim();
+  if (!cleanId) return false;
+  if (recentTwilioMessageIds.has(cleanId)) return true;
+  recentTwilioMessageIds.set(cleanId, Date.now());
+  if (recentTwilioMessageIds.size > RECENT_TWILIO_MESSAGE_LIMIT) {
+    const oldest = [...recentTwilioMessageIds.entries()]
+      .sort((a, b) => a[1] - b[1])
+      .slice(0, recentTwilioMessageIds.size - RECENT_TWILIO_MESSAGE_LIMIT);
+    for (const [oldId] of oldest) recentTwilioMessageIds.delete(oldId);
+  }
+  return false;
+}
 
 function normalizeGatewayPhone(value: string): string {
   return value.replace(/^whatsapp:/i, '').replace(/[^\d+]/g, '').replace(/^\+/, '');
@@ -60,6 +76,24 @@ function normalizeGatewayText(value: string): string {
     .replace(/\s+/g, ' ')
     .toLocaleLowerCase()
     .trim();
+}
+
+function twilioMediaSecret(): string {
+  return config.TWILIO_WEBHOOK_TOKEN || config.TWILIO_AUTH_TOKEN;
+}
+
+function signTwilioMediaFilename(filename: string): string {
+  return crypto.createHmac('sha256', twilioMediaSecret()).update(filename).digest('hex');
+}
+
+function twilioMediaTokenMatches(filename: string, provided: unknown): boolean {
+  const token = typeof provided === 'string' ? provided.trim() : '';
+  const secret = twilioMediaSecret();
+  if (!secret || !token) return false;
+  const expected = signTwilioMediaFilename(filename);
+  const left = Buffer.from(token);
+  const right = Buffer.from(expected);
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
 function createTwilioGatewaySessionStore(filePath: string): TwilioGatewaySessionStore {
@@ -568,7 +602,7 @@ function sanitizeDecisionFlow(
       const id = typeof item.id === 'string' && item.id.trim()
         ? item.id.trim().slice(0, 80)
         : `step-${index + 1}`;
-      const kind = item.kind === 'question' || item.kind === 'score_question' || item.kind === 'wait_reply' || item.kind === 'contact_card' || (referralContestEnabled && item.kind === 'referral_share') ? item.kind : 'message';
+      const kind = item.kind === 'question' || item.kind === 'score_question' || item.kind === 'score_result' || item.kind === 'wait_reply' || item.kind === 'contact_card' || (referralContestEnabled && item.kind === 'referral_share') ? item.kind : 'message';
       const text = typeof item.text === 'string' ? item.text.trim().slice(0, 2000) : '';
       if (!text) return null;
 
@@ -589,6 +623,37 @@ function sanitizeDecisionFlow(
       }
       if ((kind === 'wait_reply' || kind === 'referral_share') && typeof item.timeoutMinutes === 'number' && item.timeoutMinutes > 0) {
         step.timeoutMinutes = Math.min(Math.max(Math.round(item.timeoutMinutes), 1), 1440);
+      }
+      if (kind === 'score_result') {
+        const rawRules = Array.isArray(item.resultRules) ? item.resultRules : [];
+        step.resultRules = rawRules
+          .map((rule, ruleIndex) => {
+            if (!rule || typeof rule !== 'object') return null;
+            const rawRule = rule as any;
+            const type = rawRule.type === 'majority' || rawRule.type === 'sum_range' ? rawRule.type : null;
+            if (!type) return null;
+            const clean: NonNullable<DecisionFlowStep['resultRules']>[number] = {
+              id: typeof rawRule.id === 'string' && rawRule.id.trim() ? rawRule.id.trim().slice(0, 80) : `${id}-rule-${ruleIndex + 1}`,
+              type,
+            };
+            if (typeof rawRule.label === 'string' && rawRule.label.trim()) clean.label = rawRule.label.trim().slice(0, 160);
+            if (typeof rawRule.value === 'number' && Number.isFinite(rawRule.value)) clean.value = Math.round(rawRule.value);
+            if (typeof rawRule.min === 'number' && Number.isFinite(rawRule.min)) clean.min = Math.round(rawRule.min);
+            if (typeof rawRule.max === 'number' && Number.isFinite(rawRule.max)) clean.max = Math.round(rawRule.max);
+            if (typeof rawRule.nextStepId === 'string' && rawRule.nextStepId.trim()) clean.nextStepId = rawRule.nextStepId.trim().slice(0, 80);
+            if (typeof rawRule.endText === 'string' && rawRule.endText.trim()) clean.endText = rawRule.endText.trim().slice(0, 2000);
+            if (typeof rawRule.fileId === 'string' && rawRule.fileId.trim()) clean.fileId = rawRule.fileId.trim().slice(0, 80);
+            if (typeof rawRule.fileAsSticker === 'boolean') clean.fileAsSticker = rawRule.fileAsSticker;
+            return clean;
+          })
+          .filter((rule): rule is NonNullable<DecisionFlowStep['resultRules']>[number] => Boolean(rule))
+          .slice(0, 10);
+        if (typeof item.fallbackText === 'string' && item.fallbackText.trim()) {
+          step.fallbackText = item.fallbackText.trim().slice(0, 2000);
+        }
+        if (typeof item.fallbackNextStepId === 'string' && item.fallbackNextStepId.trim()) {
+          step.fallbackNextStepId = item.fallbackNextStepId.trim().slice(0, 80);
+        }
       }
       if (kind === 'question' || kind === 'score_question') {
         const rawOptions = Array.isArray(item.options) ? item.options : [];
@@ -652,6 +717,11 @@ function sanitizeDecisionFlow(
     return {
       ...step,
       nextStepId: stepNextStepId && ids.has(stepNextStepId) ? stepNextStepId : undefined,
+      fallbackNextStepId: step.fallbackNextStepId && ids.has(step.fallbackNextStepId) ? step.fallbackNextStepId : undefined,
+      resultRules: step.resultRules?.map((rule) => ({
+        ...rule,
+        nextStepId: rule.nextStepId && ids.has(rule.nextStepId) ? rule.nextStepId : undefined,
+      })),
       options: step.options?.map((option) => {
         const optionNextStepId = option.nextStepId === '__NEXT__' ? nextSequentialStepId : option.nextStepId;
         return {
@@ -959,8 +1029,7 @@ export function startAdminServer(storage: Storage): void {
 
   app.post('/webhooks/twilio/whatsapp', async (req, res) => {
     const meta = twilioInboundMeta(req.body);
-    const validTwilioSignature = validateTwilioSignature(req);
-    if (config.TWILIO_WEBHOOK_TOKEN && req.query.token !== config.TWILIO_WEBHOOK_TOKEN && !validTwilioSignature) {
+    if (config.TWILIO_WEBHOOK_TOKEN && req.query.token !== config.TWILIO_WEBHOOK_TOKEN) {
       recordTwilioEvent({
         direction: 'inbound',
         status: 'ignored',
@@ -968,11 +1037,12 @@ export function startAdminServer(storage: Storage): void {
         to: meta.to,
         body: meta.body,
         messageSid: meta.id,
-        details: 'Invalid webhook token or Twilio signature',
+        details: 'Invalid webhook token',
       });
-      res.status(401).send('Invalid webhook token or Twilio signature');
+      res.status(401).send('Invalid webhook token');
       return;
     }
+    const validTwilioSignature = validateTwilioSignature(req);
     if (!validTwilioSignature) {
       recordTwilioEvent({
         direction: 'inbound',
@@ -986,49 +1056,63 @@ export function startAdminServer(storage: Storage): void {
       res.status(403).send('Invalid Twilio signature');
       return;
     }
-
-    try {
-      const gateway = await routeTwilioGatewayInbound(req.body);
-      if (gateway.handled) {
-        res.type('text/xml').send('<Response></Response>');
-        return;
-      }
-
-      if (config.WHATSAPP_PROVIDER !== 'TWILIO_API') {
-        recordTwilioEvent({
-          direction: 'inbound',
-          status: 'ignored',
-          from: meta.from,
-          to: meta.to,
-          body: meta.body,
-          messageSid: meta.id,
-          details: gateway.reason || 'Twilio provider is not enabled for this client',
-        });
-        res.status(gateway.status || 409).send(gateway.reason || 'Twilio provider is not enabled for this client');
-        return;
-      }
-
-      await handleTwilioInboundForStorage(req.body);
-      res.type('text/xml').send('<Response></Response>');
-    } catch (err) {
-      console.error('Twilio webhook failed:', err);
+    if (rememberTwilioMessage(meta.id)) {
       recordTwilioEvent({
         direction: 'inbound',
-        status: 'failed',
+        status: 'ignored',
         from: meta.from,
         to: meta.to,
         body: meta.body,
         messageSid: meta.id,
-        details: err instanceof Error ? err.message : String(err),
+        details: 'Duplicate Twilio webhook message ignored',
       });
-      res.status(500).type('text/xml').send('<Response></Response>');
+      res.type('text/xml').send('<Response></Response>');
+      return;
     }
+
+    res.type('text/xml').send('<Response></Response>');
+    void (async () => {
+      try {
+        const gateway = await routeTwilioGatewayInbound(req.body);
+        if (gateway.handled) return;
+
+        if (config.WHATSAPP_PROVIDER !== 'TWILIO_API') {
+          recordTwilioEvent({
+            direction: 'inbound',
+            status: 'ignored',
+            from: meta.from,
+            to: meta.to,
+            body: meta.body,
+            messageSid: meta.id,
+            details: gateway.reason || 'Twilio provider is not enabled for this client',
+          });
+          return;
+        }
+
+        await handleTwilioInboundForStorage(req.body);
+      } catch (err) {
+        console.error('Twilio webhook failed:', err);
+        recordTwilioEvent({
+          direction: 'inbound',
+          status: 'failed',
+          from: meta.from,
+          to: meta.to,
+          body: meta.body,
+          messageSid: meta.id,
+          details: err instanceof Error ? err.message : String(err),
+        });
+      }
+    })();
   });
 
   app.get('/twilio-media/:filename', (req, res) => {
     const filename = path.basename(String(req.params.filename ?? ''));
     if (!/^[a-z0-9.-]+$/i.test(filename)) {
       res.status(400).send('Invalid filename');
+      return;
+    }
+    if (!twilioMediaTokenMatches(filename, req.query.token)) {
+      res.status(403).send('Forbidden');
       return;
     }
     const fullPath = path.join(config.UPLOADS_PATH, filename);
@@ -1480,13 +1564,33 @@ export function startAdminServer(storage: Storage): void {
       res.status(409).json({ error: 'Twilio provider is not enabled for this client' });
       return;
     }
-    try {
-      await handleTwilioInboundForStorage(req.body);
-      res.json({ ok: true });
-    } catch (err) {
-      console.error('Internal Twilio dispatch failed:', err);
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    const meta = twilioInboundMeta(req.body);
+    if (rememberTwilioMessage(meta.id)) {
+      recordTwilioEvent({
+        direction: 'inbound',
+        status: 'ignored',
+        from: meta.from,
+        to: meta.to,
+        body: meta.body,
+        messageSid: meta.id,
+        details: 'Duplicate internal Twilio message ignored',
+      });
+      res.json({ ok: true, duplicate: true });
+      return;
     }
+    res.json({ ok: true });
+    void handleTwilioInboundForStorage(req.body).catch((err) => {
+      console.error('Internal Twilio dispatch failed:', err);
+      recordTwilioEvent({
+        direction: 'inbound',
+        status: 'failed',
+        from: meta.from,
+        to: meta.to,
+        body: meta.body,
+        messageSid: meta.id,
+        details: err instanceof Error ? err.message : String(err),
+      });
+    });
   });
 
   app.use('/owner-api', requireOwnerApiToken);

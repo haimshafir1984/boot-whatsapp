@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { WhatsAppProvider } from '../types/whatsapp';
 import { config } from '../config';
 import { recordTwilioEvent } from '../twilioEvents';
@@ -39,18 +40,26 @@ export class TwilioProvider implements WhatsAppProvider {
   async sendFile(to: string, filePath: string, caption?: string, _options: { asSticker?: boolean } = {}): Promise<void> {
     const baseUrl = config.TWILIO_MEDIA_BASE_URL.trim().replace(/\/$/, '');
     if (!baseUrl) {
-      await this.sendMessage(to, caption?.trim() || 'קובץ מוכן לשליחה, אבל כתובת מדיה ציבורית לא מוגדרת במסלול Twilio.');
+      recordTwilioEvent({
+        direction: 'outbound',
+        status: 'failed',
+        to: normalizeWhatsAppAddress(to),
+        body: caption,
+        details: 'TWILIO_MEDIA_BASE_URL is not configured.',
+      });
+      await this.sendMessage(to, caption?.trim() || '\u05d4\u05e7\u05d5\u05d1\u05e5 \u05dc\u05d0 \u05e0\u05e9\u05dc\u05d7 \u05db\u05e8\u05d2\u05e2, \u05d0\u05d6 \u05d0\u05e0\u05d9 \u05de\u05de\u05e9\u05d9\u05da \u05e2\u05dd \u05d4\u05d8\u05e7\u05e1\u05d8 \u05d1\u05dc\u05d1\u05d3.');
       return;
     }
     const fileName = filePath.split(/[\\/]/).pop();
     if (!fileName) {
-      await this.sendMessage(to, caption?.trim() || 'הקובץ לא זמין כרגע.');
+      await this.sendMessage(to, caption?.trim() || '\u05d4\u05e7\u05d5\u05d1\u05e5 \u05dc\u05d0 \u05d6\u05de\u05d9\u05df \u05db\u05e8\u05d2\u05e2.');
       return;
     }
+    const token = signTwilioMediaFilename(fileName);
     await this.createMessage({
       To: normalizeWhatsAppAddress(to),
       Body: caption?.trim() || undefined,
-      MediaUrl: `${baseUrl}/${encodeURIComponent(fileName)}`,
+      MediaUrl: `${baseUrl}/${encodeURIComponent(fileName)}?token=${token}`,
     }, caption);
   }
 
@@ -224,4 +233,9 @@ function formatNumberedOptions(text: string, options: Array<{ text: string }>): 
   return options.length
     ? `${text}\n\n${options.map((option, index) => `${index + 1}. ${option.text}`).join('\n')}`
     : text;
+}
+
+function signTwilioMediaFilename(filename: string): string {
+  const secret = config.TWILIO_WEBHOOK_TOKEN || config.TWILIO_AUTH_TOKEN;
+  return crypto.createHmac('sha256', secret).update(filename).digest('hex');
 }
