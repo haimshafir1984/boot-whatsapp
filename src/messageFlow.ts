@@ -999,6 +999,7 @@ async function sendCompletionLinks(
   campaignId?: string,
   campaignResultId?: string,
   senderPhone?: string,
+  contactIndex = 1,
 ): Promise<void> {
   const cleanLinks = (links ?? []).filter((link) => link.url?.trim());
   if (!cleanLinks.length) return;
@@ -1036,7 +1037,7 @@ function contactCardsFromSettings(settings: {
         email: settings.contactCardEmail,
         organization: settings.contactCardOrganization,
       }];
-  return source
+  return uniqueContactCards(source
     .map((card) => ({
       enabled: true,
       name: card.name,
@@ -1044,7 +1045,7 @@ function contactCardsFromSettings(settings: {
       email: card.email,
       organization: card.organization,
     }))
-    .filter((card) => card.name || card.phone || card.email || card.organization)
+    .filter((card) => card.name || card.phone || card.email || card.organization))
     .slice(0, 2);
 }
 
@@ -1056,7 +1057,20 @@ function contactCardsFromCompletion(completion: CompletionDelivery): CompletionC
   const cards = Array.isArray(completion.contactCards) && completion.contactCards.length
     ? completion.contactCards
     : (completion.contactCard ? [completion.contactCard] : []);
-  return cards.filter((card) => card?.enabled && (card.name || card.phone || card.email || card.organization)).slice(0, 2);
+  return uniqueContactCards(cards.filter((card) => card?.enabled && (card.name || card.phone || card.email || card.organization))).slice(0, 2);
+}
+
+function uniqueContactCards(cards: CompletionContactCard[]): CompletionContactCard[] {
+  const seen = new Set<string>();
+  return cards.filter((card) => {
+    const key = [card.name || '', card.phone || '', card.email || '', card.organization || '']
+      .map((part) => part.trim().toLowerCase())
+      .join('|');
+    if (!key.replace(/\|/g, '')) return false;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 async function sendCompletionFiles(
@@ -1097,8 +1111,8 @@ async function sendCompletionContactCards(
   campaignResultId?: string,
   senderPhone?: string,
 ): Promise<void> {
-  for (const contactCard of contactCards ?? []) {
-    await sendCompletionContactCard(transport, storage, senderJid, contactCard, campaignId, campaignResultId, senderPhone);
+  for (const [index, contactCard] of (contactCards ?? []).entries()) {
+    await sendCompletionContactCard(transport, storage, senderJid, contactCard, campaignId, campaignResultId, senderPhone, index + 1);
   }
 }
 
@@ -1110,6 +1124,7 @@ async function sendCompletionContactCard(
   campaignId?: string,
   campaignResultId?: string,
   senderPhone?: string,
+  contactIndex = 1,
 ): Promise<void> {
   if (!contactCard?.enabled) return;
   const name = (contactCard.name || 'Contact').trim();
@@ -1123,6 +1138,8 @@ async function sendCompletionContactCard(
     'contact-card',
     campaignId || 'default',
     campaignResultId || senderPhone || 'contact',
+    String(contactIndex),
+    name || phone || email || 'contact',
   ].join('-').replace(/[^a-z0-9.-]+/gi, '-').slice(0, 120) + '.vcf';
   const filePath = path.join(config.UPLOADS_PATH, safeFileName);
   const vcard = buildVCard({ name, phone, email, organization });
