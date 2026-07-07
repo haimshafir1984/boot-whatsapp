@@ -1482,6 +1482,14 @@
                 </div>
               </div>
               <div class="field contact-placement-field">
+                <label>&#1488;&#1497;&#1498; &#1500;&#1513;&#1500;&#1493;&#1495; &#1502;&#1505;&#1508;&#1512; &#1488;&#1504;&#1513;&#1497; &#1511;&#1513;&#1512;?</label>
+                <select id="fContactCardSendMode" onchange="updateCampaignConversationPreview()">
+                  <option value="separate">&#1499;&#1500; &#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1489;&#1504;&#1508;&#1512;&#1491;</option>
+                  <option value="combined">&#1499;&#1493;&#1500;&#1501; &#1489;&#1499;&#1512;&#1496;&#1497;&#1505; / &#1511;&#1493;&#1489;&#1509; &#1488;&#1495;&#1491;</option>
+                </select>
+                <div class="hint">&#1489;-WhatsApp &#1495;&#1497;&#1489;&#1493;&#1512; &#1497;&#1497;&#1513;&#1500;&#1495; &#1499;&#1499;&#1512;&#1496;&#1497;&#1505; &#1488;&#1495;&#1491; &#1499;&#1513;&#1494;&#1492; &#1504;&#1514;&#1502;&#1498;. &#1489;-Twilio &#1497;&#1497;&#1513;&#1500;&#1495; &#1511;&#1493;&#1489;&#1509; VCF &#1488;&#1495;&#1491;.</div>
+              </div>
+              <div class="field contact-placement-field">
                 <label>הודעה לפני שליחת איש קשר</label>
                 <textarea id="fContactCardIntroText" placeholder="לדוגמה: שימרי אותי באנשי הקשר כדי לראות את הסטטוסים שלי" oninput="updateCampaignConversationPreview()"></textarea>
                 <div class="hint">אופציונלי. אם השדה ריק, יישלח רק כרטיס איש הקשר.</div>
@@ -2413,6 +2421,8 @@
     document.getElementById('fSendContactCard').checked = Boolean(settings.sendContactCard);
     setContactCardFields(settings);
     document.getElementById('fContactCardIntroText').value = settings.contactCardIntroText || '';
+    const contactSendMode = document.getElementById('fContactCardSendMode');
+    if (contactSendMode) contactSendMode.value = settings.contactCardSendMode || 'separate';
     const contactPlacement = document.getElementById('fContactCardPlacement');
     if (contactPlacement) contactPlacement.value = settings.contactCardPlacement || 'after_completion';
     document.getElementById('fContactCardWaitForConfirmation').checked = Boolean(settings.contactCardWaitForConfirmation);
@@ -3361,6 +3371,7 @@
         .filter(Boolean),
       sendContactCard: document.getElementById('fSendContactCard')?.checked || false,
       contactCardPlacement: document.getElementById('fContactCardPlacement')?.value || 'after_completion',
+      contactCardSendMode: document.getElementById('fContactCardSendMode')?.value === 'combined' ? 'combined' : 'separate',
       contactCards,
       contactCardName: primaryContactCard.name || '',
       contactCardPhone: primaryContactCard.phone || '',

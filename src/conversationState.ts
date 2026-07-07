@@ -20,6 +20,7 @@ export interface PendingNameConversation {
   sendContactCard?: boolean;
   contactCards?: import('./storage').ContactCard[];
   contactCardPlacement?: import('./storage').CampaignConversationSettings['contactCardPlacement'];
+  contactCardSendMode?: import('./storage').CampaignConversationSettings['contactCardSendMode'];
   contactCardName?: string;
   contactCardPhone?: string;
   contactCardEmail?: string;
@@ -57,6 +58,7 @@ export interface PendingPreNamePromptConversation {
   sendContactCard?: boolean;
   contactCards?: import('./storage').ContactCard[];
   contactCardPlacement?: import('./storage').CampaignConversationSettings['contactCardPlacement'];
+  contactCardSendMode?: import('./storage').CampaignConversationSettings['contactCardSendMode'];
   contactCardName?: string;
   contactCardPhone?: string;
   contactCardEmail?: string;

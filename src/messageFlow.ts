@@ -46,6 +46,7 @@ interface CompletionDelivery {
   fileIds?: string[];
   contactCards?: CompletionContactCard[];
   contactCard?: CompletionContactCard;
+  contactCardSendMode?: 'separate' | 'combined';
   contactCardPlacement?: 'after_completion' | 'before_questions';
   contactCardIntroText?: string;
   contactCardWaitForConfirmation?: boolean;
@@ -262,6 +263,7 @@ async function handleMessage(
             completionFileIds: pending.completionFileIds,
             sendContactCard: pending.sendContactCard,
             contactCards: pending.contactCards,
+            contactCardSendMode: pending.contactCardSendMode,
             contactCardPlacement: pending.contactCardPlacement,
             contactCardName: pending.contactCardName,
             contactCardPhone: pending.contactCardPhone,
@@ -425,6 +427,7 @@ async function handleMessage(
         fileIds: pending.completionFileIds,
         contactCards: contactCardsFromSettings(pending),
         contactCard: contactCardFromSettings(pending),
+        contactCardSendMode: pending.contactCardSendMode,
         contactCardPlacement: pending.contactCardPlacement,
         contactCardIntroText: pending.contactCardIntroText,
         contactCardWaitForConfirmation: pending.contactCardWaitForConfirmation,
@@ -519,6 +522,7 @@ async function handleMessage(
         completionFileIds: settings.completionFileIds,
         sendContactCard: settings.sendContactCard,
         contactCards: settings.contactCards,
+        contactCardSendMode: settings.contactCardSendMode,
         contactCardPlacement: settings.contactCardPlacement,
         contactCardName: settings.contactCardName,
         contactCardPhone: settings.contactCardPhone,
@@ -593,7 +597,8 @@ async function handleMessage(
         fileIds: settings.completionFileIds,
         contactCards: contactCardsFromSettings(settings),
         contactCard: contactCardFromSettings(settings),
-        contactCardPlacement: settings.contactCardPlacement,
+        contactCardSendMode: settings.contactCardSendMode,
+            contactCardPlacement: settings.contactCardPlacement,
         contactCardIntroText: settings.contactCardIntroText,
         contactCardWaitForConfirmation: settings.contactCardWaitForConfirmation,
         contactCardConfirmationTimeoutMinutes: settings.contactCardConfirmationTimeoutMinutes,
@@ -662,6 +667,7 @@ async function askForContactName(
             fileIds: settings.completionFileIds,
         contactCards: contactCardsFromSettings(settings),
             contactCard: contactCardFromSettings(settings),
+            contactCardSendMode: settings.contactCardSendMode,
             contactCardPlacement: settings.contactCardPlacement,
             contactCardIntroText: settings.contactCardIntroText,
             contactCardWaitForConfirmation: settings.contactCardWaitForConfirmation,
@@ -685,7 +691,8 @@ async function askForContactName(
     completionFileIds: settings.completionFileIds,
     sendContactCard: settings.sendContactCard,
     contactCards: settings.contactCards,
-    contactCardPlacement: settings.contactCardPlacement,
+    contactCardSendMode: settings.contactCardSendMode,
+        contactCardPlacement: settings.contactCardPlacement,
     contactCardName: settings.contactCardName,
     contactCardPhone: settings.contactCardPhone,
     contactCardEmail: settings.contactCardEmail,
@@ -785,6 +792,7 @@ function keepPreNamePromptRetry(
             completionFileIds: state.completionFileIds,
             sendContactCard: state.sendContactCard,
             contactCards: state.contactCards,
+            contactCardSendMode: state.contactCardSendMode,
             contactCardPlacement: state.contactCardPlacement,
             contactCardName: state.contactCardName,
             contactCardPhone: state.contactCardPhone,
@@ -865,7 +873,7 @@ async function queueAndReply(
     }
     const contactCards = contactCardsFromCompletion(completion);
     await runReplyStep(label, async () => {
-      await sendCompletionContactCards(transport, storage, senderJid, contactCards, campaignId, campaignResultId, senderPhone);
+      await sendCompletionContactCards(transport, storage, senderJid, contactCards, campaignId, campaignResultId, senderPhone, completion.contactCardSendMode);
     });
     if (!contactCards.length || !completion.contactCardWaitForConfirmation) return false;
     waitForContactCardConfirmation(
@@ -1022,6 +1030,7 @@ async function sendCompletionLinks(
 function contactCardsFromSettings(settings: {
   sendContactCard?: boolean;
   contactCards?: CompletionContactCard[];
+  contactCardSendMode?: 'separate' | 'combined';
   contactCardName?: string;
   contactCardPhone?: string;
   contactCardEmail?: string;
@@ -1110,11 +1119,70 @@ async function sendCompletionContactCards(
   campaignId?: string,
   campaignResultId?: string,
   senderPhone?: string,
+  sendMode: 'separate' | 'combined' = 'separate',
 ): Promise<void> {
-  for (const [index, contactCard] of (contactCards ?? []).entries()) {
+  const cards = uniqueContactCards(contactCards ?? []).slice(0, 2);
+  if (!cards.length) return;
+  if (sendMode === 'combined' && cards.length > 1) {
+    await sendCombinedContactCards(transport, storage, senderJid, cards, campaignId, campaignResultId, senderPhone);
+    return;
+  }
+  for (const [index, contactCard] of cards.entries()) {
     await sendCompletionContactCard(transport, storage, senderJid, contactCard, campaignId, campaignResultId, senderPhone, index + 1);
   }
 }
+
+async function sendCombinedContactCards(
+  transport: WhatsAppTransport,
+  storage: Storage,
+  senderJid: string,
+  contactCards: CompletionContactCard[],
+  campaignId?: string,
+  campaignResultId?: string,
+  senderPhone?: string,
+): Promise<void> {
+  const normalized = contactCards
+    .map((card) => ({
+      name: (card.name || 'Contact').trim(),
+      phone: normalizeVCardPhone((card.phone || '').trim()),
+      email: (card.email || '').trim(),
+      organization: (card.organization || '').trim(),
+    }))
+    .filter((card) => card.name || card.phone || card.email);
+  if (!normalized.length) return;
+
+  const contacts = normalized.map((card) => {
+    const displayName = card.name || card.phone || card.email || 'Contact';
+    return { displayName, vcard: buildVCard(card) };
+  });
+  const displayName = contacts.length === 1 ? contacts[0].displayName : contacts[0].displayName + ' \u05d5\u05e2\u05d5\u05d3 ' + (contacts.length - 1) + ' \u05d0\u05d9\u05e9 \u05e7\u05e9\u05e8 \u05e0\u05d5\u05e1\u05e3';
+
+  if (transport.sendContactCards) {
+    try {
+      await waitBeforeBotReply();
+      await transport.sendContactCards(senderJid, contacts, displayName);
+      console.log('   Combined native contact card sent.');
+      recordContactCardEvent(storage, campaignId, campaignResultId, senderPhone, 'combined contact cards: ' + contacts.length);
+      return;
+    } catch (err) {
+      console.warn('   Combined native contact card failed, falling back to combined vCard file:', err);
+    }
+  }
+
+  fs.mkdirSync(config.UPLOADS_PATH, { recursive: true });
+  const safeFileName = [
+    'contact-cards',
+    campaignId || 'default',
+    campaignResultId || senderPhone || 'contact',
+    String(contacts.length),
+  ].join('-').replace(/[^a-z0-9.-]+/gi, '-').slice(0, 120) + '.vcf';
+  const filePath = path.join(config.UPLOADS_PATH, safeFileName);
+  fs.writeFileSync(filePath, contacts.map((contact) => contact.vcard).join('\n'), 'utf8');
+  await sendFileWithRetry(transport, senderJid, filePath, undefined, {}, 'contacts.vcf');
+  console.log('   Combined contact card file sent.');
+  recordContactCardEvent(storage, campaignId, campaignResultId, senderPhone, 'combined contact cards file: ' + contacts.length);
+}
+
 
 async function sendCompletionContactCard(
   transport: WhatsAppTransport,
@@ -1161,15 +1229,24 @@ async function sendCompletionContactCard(
     await sendFileWithRetry(transport, senderJid, filePath, undefined, {}, displayFileName);
     console.log('   Contact card file sent.');
   }
-  if (campaignId) {
-    storage.recordCampaignEvent({
-      campaignId,
-      campaignResultId,
-      phone: senderPhone,
-      type: 'completion_file_sent',
-      label: `contact card: ${name}`.slice(0, 120),
-    });
-  }
+  recordContactCardEvent(storage, campaignId, campaignResultId, senderPhone, `contact card: ${name}`);
+}
+
+function recordContactCardEvent(
+  storage: Storage,
+  campaignId: string | undefined,
+  campaignResultId: string | undefined,
+  senderPhone: string | undefined,
+  label: string,
+): void {
+  if (!campaignId) return;
+  storage.recordCampaignEvent({
+    campaignId,
+    campaignResultId,
+    phone: senderPhone,
+    type: 'completion_file_sent',
+    label: label.slice(0, 120),
+  });
 }
 
 function buildVCard(contact: { name: string; phone: string; email: string; organization: string }): string {
@@ -1444,7 +1521,7 @@ async function sendDecisionStep(
       }
       const campaign = campaignId ? storage.getCampaigns().find((item) => item.id === campaignId) : undefined;
       const settings = campaign ? storage.getCampaignConversationSettings(campaign) : storage.getAdminSettings();
-      await sendCompletionContactCards(transport, storage, senderJid, contactCardsFromSettings(settings), campaignId, campaignResultId, senderPhone);
+      await sendCompletionContactCards(transport, storage, senderJid, contactCardsFromSettings(settings), campaignId, campaignResultId, senderPhone, settings.contactCardSendMode);
     } catch (err) {
       failed = true;
       console.error('   Contact-card step failed, continuing to next step after delay:', err);

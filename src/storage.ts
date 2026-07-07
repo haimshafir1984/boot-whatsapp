@@ -56,6 +56,7 @@ export interface CampaignConversationSettings {
   completionFileIds?: string[];
   sendContactCard?: boolean;
   contactCardPlacement?: 'after_completion' | 'before_questions';
+  contactCardSendMode?: 'separate' | 'combined';
   contactCards?: ContactCard[];
   contactCardName?: string;
   contactCardPhone?: string;
@@ -140,6 +141,7 @@ export interface AdminSettings {
   completionFileIds: string[];
   sendContactCard?: boolean;
   contactCardPlacement?: 'after_completion' | 'before_questions';
+  contactCardSendMode?: 'separate' | 'combined';
   contactCards?: ContactCard[];
   contactCardName?: string;
   contactCardPhone?: string;
@@ -338,6 +340,7 @@ const DEFAULT_SETTINGS: AdminSettings = {
   completionLinks: [],
   completionFileIds: [],
   contactCardPlacement: 'after_completion',
+  contactCardSendMode: 'separate',
   contactCardIntroText: '',
   contactCardWaitForConfirmation: false,
   contactCardConfirmationTimeoutMinutes: 30,
@@ -1109,6 +1112,7 @@ export class Storage {
       completionFileIds: campaign.conversation?.completionFileIds ?? [],
       sendContactCard: campaign.conversation?.sendContactCard ?? defaults.sendContactCard ?? false,
       contactCardPlacement: campaign.conversation?.contactCardPlacement ?? defaults.contactCardPlacement ?? 'after_completion',
+      contactCardSendMode: campaign.conversation?.contactCardSendMode ?? defaults.contactCardSendMode ?? 'separate',
       contactCards: campaign.conversation?.contactCards ?? defaults.contactCards ?? [],
       contactCardName: campaign.conversation?.contactCardName ?? defaults.contactCardName ?? '',
       contactCardPhone: campaign.conversation?.contactCardPhone ?? defaults.contactCardPhone ?? '',
