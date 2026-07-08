@@ -326,6 +326,7 @@ export class BaileysProvider implements WhatsAppProvider {
       sendMessage: (to, message) => this.sendMessage(to, message),
       sendFile: (to, filePath, caption, options) => this.sendFile(to, filePath, caption, options),
       sendContactCard: (to, vcard, displayName) => this.sendContactCard(to, vcard, displayName),
+      sendContactCards: (to, contacts, displayName) => this.sendContactCards(to, contacts, displayName),
       sendInteractiveButtons: (to, text, buttons) => this.sendInteractiveButtons(to, text, buttons),
       sendInteractiveList: (to, text, buttonText, items) => this.sendInteractiveList(to, text, buttonText, items),
       markRead: async (message) => {

@@ -39,7 +39,7 @@ export class WebJsProvider implements WhatsAppProvider {
   }
 
   async sendContactCards(to: string, contacts: Array<{ vcard: string; displayName: string }>, _displayName: string): Promise<void> {
-    await this.client.sendMessage(to, contacts.map((contact) => contact.vcard).join('\n'), { parseVCards: true, linkPreview: false } as any);
+    throw new Error('WebJS multi-contact native send is not reliable; use combined VCF fallback.');
   }
 
   async sendInteractiveButtons(
