@@ -1543,6 +1543,20 @@
               </div>
             </div>
             <div class="decision-flow timeline-flow" id="fDecisionFlow"></div>
+            <div class="flow-add-wrap" style="justify-content:flex-end;margin-top:12px">
+              <select id="flowAddStepTypeBottom" aria-label="&#1505;&#1493;&#1490; &#1513;&#1500;&#1489; &#1500;&#1492;&#1493;&#1505;&#1508;&#1492; &#1489;&#1514;&#1495;&#1514;&#1497;&#1514;">
+                  <option value="message">&#1492;&#1493;&#1491;&#1506;&#1514; &#1496;&#1511;&#1505;&#1496;</option>
+                  <option value="buttons">&#1513;&#1488;&#1500;&#1492; &#1506;&#1501; &#1499;&#1508;&#1514;&#1493;&#1512;&#1497;&#1501;</option>
+                  <option value="list">&#1512;&#1513;&#1497;&#1502;&#1514; &#1489;&#1495;&#1497;&#1512;&#1492;</option>
+                  <option value="score">&#1513;&#1488;&#1500;&#1514; &#1495;&#1497;&#1513;&#1493;&#1489;</option>
+                  <option value="score_result">&#1514;&#1493;&#1510;&#1488;&#1514; &#1495;&#1497;&#1513;&#1493;&#1489;</option>
+                  <option value="wait_reply">&#1492;&#1493;&#1491;&#1506;&#1492; &#1513;&#1502;&#1502;&#1514;&#1497;&#1504;&#1492; &#1500;&#1514;&#1513;&#1493;&#1489;&#1492;</option>
+                  <option value="media">&#1514;&#1502;&#1493;&#1504;&#1492; / &#1505;&#1512;&#1496;&#1493;&#1503; / &#1511;&#1493;&#1489;&#1509;</option>
+                  <option value="contact_card">&#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1500;&#1513;&#1502;&#1497;&#1512;&#1492;</option>
+                  <option value="referral_share" data-referral-feature>&#1500;&#1497;&#1504;&#1511; &#1488;&#1497;&#1513;&#1497; &#1500;&#1514;&#1495;&#1512;&#1493;&#1514;</option>
+                </select>
+              <button type="button" class="btn-small" onclick="addDecisionStepFromBottomSelect()">+ &#1492;&#1493;&#1505;&#1507; &#1513;&#1500;&#1489;</button>
+            </div>
             <div class="flow-legacy-followups" style="display:none">
               <div class="followup-list" id="fFollowupMessages"></div>
             </div>
@@ -2807,6 +2821,13 @@
           <div class="contact-card-flow-fields" data-flow-contact-card-fields style="display:none;margin:8px 0 10px;padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc">
             <div class="hint" style="margin-bottom:8px">&#1488;&#1504;&#1513;&#1497; &#1492;&#1511;&#1513;&#1512; &#1513;&#1497;&#1497;&#1513;&#1500;&#1495;&#1493; &#1489;&#1513;&#1500;&#1489; &#1492;&#1494;&#1492;</div>
             <div data-flow-contact-card-summary></div>
+            <div class="decision-next-row" style="margin-top:10px">
+              <label>&#1488;&#1497;&#1498; &#1500;&#1513;&#1500;&#1493;&#1495;?</label>
+              <select data-flow-contact-send-mode onchange="syncFlowContactSendMode(this)">
+                <option value="separate">&#1499;&#1500; &#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1489;&#1504;&#1508;&#1512;&#1491;</option>
+                <option value="combined">&#1499;&#1493;&#1500;&#1501; &#1489;&#1499;&#1512;&#1496;&#1497;&#1505; / &#1511;&#1493;&#1489;&#1509; &#1488;&#1495;&#1491;</option>
+              </select>
+            </div>
           </div>
           <div class="decision-next-row" data-question-presentation>
             <label>סוג הצגה</label>
@@ -2936,6 +2957,11 @@
 
   function addDecisionStepFromSelect() {
     const select = document.getElementById('flowAddStepType');
+    addTwilioQuickStep(select?.value || 'message');
+  }
+
+  function addDecisionStepFromBottomSelect() {
+    const select = document.getElementById('flowAddStepTypeBottom');
     addTwilioQuickStep(select?.value || 'message');
   }
 
@@ -3133,6 +3159,12 @@
     updateCampaignConversationPreview();
   }
 
+  function syncFlowContactSendMode(select) {
+    const globalSelect = document.getElementById('fContactCardSendMode');
+    if (globalSelect) globalSelect.value = select?.value === 'combined' ? 'combined' : 'separate';
+    updateCampaignConversationPreview();
+  }
+
   function updateDecisionStepVisibility() {
     document.querySelectorAll('[data-decision-step]').forEach(step => {
       const kind = step.querySelector('[data-step-kind]').value;
@@ -3156,6 +3188,8 @@
         contactFields.style.display = kind === 'contact_card' ? '' : 'none';
         const summary = contactFields.querySelector('[data-flow-contact-card-summary]');
         if (summary) summary.innerHTML = contactCardPreviewText(getCampaignConversation()) || '&#1500;&#1488; &#1492;&#1493;&#1490;&#1491;&#1512;&#1493; &#1488;&#1504;&#1513;&#1497; &#1511;&#1513;&#1512;.';
+        const sendMode = contactFields.querySelector('[data-flow-contact-send-mode]');
+        if (sendMode) sendMode.value = document.getElementById('fContactCardSendMode')?.value || 'separate';
       }
       const title = step.querySelector('.decision-step-title');
       const titleText = step.querySelector('[data-step-text]')?.value.trim();
