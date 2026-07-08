@@ -957,6 +957,7 @@ export function startAdminServer(storage: Storage): void {
     }, storage, {
       sendMessage: (target, message) => provider.sendMessage(target, message),
       sendFile: (target, filePath, caption, options) => provider.sendFile(target, filePath, caption, options),
+      sendContactCards: (target, contacts, displayName) => provider.sendContactCards(target, contacts, displayName),
       sendContentTemplate: (target, contentSid, contentVariables) => provider.sendContentTemplate(target, contentSid, contentVariables),
       sendInteractiveButtons: (target, text, buttons) => provider.sendInteractiveButtons(target, text, buttons),
       sendInteractiveList: (target, text, buttonText, items) => provider.sendInteractiveList(target, text, buttonText, items),
