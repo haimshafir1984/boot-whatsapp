@@ -1112,7 +1112,7 @@ export class Storage {
       completionFileIds: campaign.conversation?.completionFileIds ?? [],
       sendContactCard: campaign.conversation?.sendContactCard ?? defaults.sendContactCard ?? false,
       contactCardPlacement: campaign.conversation?.contactCardPlacement ?? defaults.contactCardPlacement ?? 'after_completion',
-      contactCardSendMode: campaign.conversation?.contactCardSendMode ?? defaults.contactCardSendMode ?? 'separate',
+      contactCardSendMode: 'separate',
       contactCards: campaign.conversation?.contactCards ?? defaults.contactCards ?? [],
       contactCardName: campaign.conversation?.contactCardName ?? defaults.contactCardName ?? '',
       contactCardPhone: campaign.conversation?.contactCardPhone ?? defaults.contactCardPhone ?? '',

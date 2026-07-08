@@ -1119,70 +1119,14 @@ async function sendCompletionContactCards(
   campaignId?: string,
   campaignResultId?: string,
   senderPhone?: string,
-  sendMode: 'separate' | 'combined' = 'separate',
+  _sendMode: 'separate' | 'combined' = 'separate',
 ): Promise<void> {
   const cards = uniqueContactCards(contactCards ?? []).slice(0, 2);
   if (!cards.length) return;
-  if (sendMode === 'combined' && cards.length > 1) {
-    await sendCombinedContactCards(transport, storage, senderJid, cards, campaignId, campaignResultId, senderPhone);
-    return;
-  }
   for (const [index, contactCard] of cards.entries()) {
     await sendCompletionContactCard(transport, storage, senderJid, contactCard, campaignId, campaignResultId, senderPhone, index + 1);
   }
 }
-
-async function sendCombinedContactCards(
-  transport: WhatsAppTransport,
-  storage: Storage,
-  senderJid: string,
-  contactCards: CompletionContactCard[],
-  campaignId?: string,
-  campaignResultId?: string,
-  senderPhone?: string,
-): Promise<void> {
-  const normalized = contactCards
-    .map((card) => ({
-      name: (card.name || 'Contact').trim(),
-      phone: normalizeVCardPhone((card.phone || '').trim()),
-      email: (card.email || '').trim(),
-      organization: (card.organization || '').trim(),
-    }))
-    .filter((card) => card.name || card.phone || card.email);
-  if (!normalized.length) return;
-
-  const contacts = normalized.map((card) => {
-    const displayName = card.name || card.phone || card.email || 'Contact';
-    return { displayName, vcard: buildVCard(card) };
-  });
-  const displayName = contacts.length === 1 ? contacts[0].displayName : contacts[0].displayName + ' \u05d5\u05e2\u05d5\u05d3 ' + (contacts.length - 1) + ' \u05d0\u05d9\u05e9 \u05e7\u05e9\u05e8 \u05e0\u05d5\u05e1\u05e3';
-
-  if (transport.sendContactCards) {
-    try {
-      await waitBeforeBotReply();
-      await transport.sendContactCards(senderJid, contacts, displayName);
-      console.log('   Combined native contact card sent.');
-      recordContactCardEvent(storage, campaignId, campaignResultId, senderPhone, 'combined contact cards: ' + contacts.length);
-      return;
-    } catch (err) {
-      console.warn('   Combined native contact card failed, falling back to combined vCard file:', err);
-    }
-  }
-
-  fs.mkdirSync(config.UPLOADS_PATH, { recursive: true });
-  const safeFileName = [
-    'contact-cards',
-    campaignId || 'default',
-    campaignResultId || senderPhone || 'contact',
-    String(contacts.length),
-  ].join('-').replace(/[^a-z0-9.-]+/gi, '-').slice(0, 120) + '.vcf';
-  const filePath = path.join(config.UPLOADS_PATH, safeFileName);
-  fs.writeFileSync(filePath, contacts.map((contact) => contact.vcard).join('\n'), 'utf8');
-  await sendFileWithRetry(transport, senderJid, filePath, undefined, {}, 'contacts.vcf');
-  console.log('   Combined contact card file sent.');
-  recordContactCardEvent(storage, campaignId, campaignResultId, senderPhone, 'combined contact cards file: ' + contacts.length);
-}
-
 
 async function sendCompletionContactCard(
   transport: WhatsAppTransport,

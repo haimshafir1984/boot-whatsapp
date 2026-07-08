@@ -1485,9 +1485,8 @@
                 <label>&#1488;&#1497;&#1498; &#1500;&#1513;&#1500;&#1493;&#1495; &#1502;&#1505;&#1508;&#1512; &#1488;&#1504;&#1513;&#1497; &#1511;&#1513;&#1512;?</label>
                 <select id="fContactCardSendMode" onchange="updateCampaignConversationPreview()">
                   <option value="separate">&#1499;&#1500; &#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1489;&#1504;&#1508;&#1512;&#1491;</option>
-                  <option value="combined">&#1499;&#1493;&#1500;&#1501; &#1489;&#1499;&#1512;&#1496;&#1497;&#1505; / &#1511;&#1493;&#1489;&#1509; &#1488;&#1495;&#1491;</option>
                 </select>
-                <div class="hint">&#1489;-WhatsApp &#1495;&#1497;&#1489;&#1493;&#1512; &#1497;&#1497;&#1513;&#1500;&#1495; &#1499;&#1499;&#1512;&#1496;&#1497;&#1505; &#1488;&#1495;&#1491; &#1499;&#1513;&#1494;&#1492; &#1504;&#1514;&#1502;&#1498;. &#1489;-Twilio &#1497;&#1497;&#1513;&#1500;&#1495; &#1511;&#1493;&#1489;&#1509; VCF &#1488;&#1495;&#1491;.</div>
+                <div class="hint">&#1504;&#1497;&#1514;&#1503; &#1500;&#1513;&#1500;&#1493;&#1495; &#1506;&#1491; &#1513;&#1504;&#1497; &#1488;&#1504;&#1513;&#1497; &#1511;&#1513;&#1512;. &#1492;&#1501; &#1497;&#1497;&#1513;&#1500;&#1495;&#1493; &#1488;&#1495;&#1491; &#1488;&#1495;&#1512;&#1497; &#1492;&#1513;&#1504;&#1497;.</div>
               </div>
               <div class="field contact-placement-field">
                 <label>הודעה לפני שליחת איש קשר</label>
@@ -2436,7 +2435,7 @@
     setContactCardFields(settings);
     document.getElementById('fContactCardIntroText').value = settings.contactCardIntroText || '';
     const contactSendMode = document.getElementById('fContactCardSendMode');
-    if (contactSendMode) contactSendMode.value = settings.contactCardSendMode || 'separate';
+    if (contactSendMode) contactSendMode.value = 'separate';
     const contactPlacement = document.getElementById('fContactCardPlacement');
     if (contactPlacement) contactPlacement.value = settings.contactCardPlacement || 'after_completion';
     document.getElementById('fContactCardWaitForConfirmation').checked = Boolean(settings.contactCardWaitForConfirmation);
@@ -2825,7 +2824,6 @@
               <label>&#1488;&#1497;&#1498; &#1500;&#1513;&#1500;&#1493;&#1495;?</label>
               <select data-flow-contact-send-mode onchange="syncFlowContactSendMode(this)">
                 <option value="separate">&#1499;&#1500; &#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1489;&#1504;&#1508;&#1512;&#1491;</option>
-                <option value="combined">&#1499;&#1493;&#1500;&#1501; &#1489;&#1499;&#1512;&#1496;&#1497;&#1505; / &#1511;&#1493;&#1489;&#1509; &#1488;&#1495;&#1491;</option>
               </select>
             </div>
           </div>
@@ -3161,7 +3159,8 @@
 
   function syncFlowContactSendMode(select) {
     const globalSelect = document.getElementById('fContactCardSendMode');
-    if (globalSelect) globalSelect.value = select?.value === 'combined' ? 'combined' : 'separate';
+    if (globalSelect) globalSelect.value = 'separate';
+    if (select) select.value = 'separate';
     updateCampaignConversationPreview();
   }
 
@@ -3189,7 +3188,7 @@
         const summary = contactFields.querySelector('[data-flow-contact-card-summary]');
         if (summary) summary.innerHTML = contactCardPreviewText(getCampaignConversation()) || '&#1500;&#1488; &#1492;&#1493;&#1490;&#1491;&#1512;&#1493; &#1488;&#1504;&#1513;&#1497; &#1511;&#1513;&#1512;.';
         const sendMode = contactFields.querySelector('[data-flow-contact-send-mode]');
-        if (sendMode) sendMode.value = document.getElementById('fContactCardSendMode')?.value || 'separate';
+        if (sendMode) sendMode.value = 'separate';
       }
       const title = step.querySelector('.decision-step-title');
       const titleText = step.querySelector('[data-step-text]')?.value.trim();
@@ -3405,7 +3404,7 @@
         .filter(Boolean),
       sendContactCard: document.getElementById('fSendContactCard')?.checked || false,
       contactCardPlacement: document.getElementById('fContactCardPlacement')?.value || 'after_completion',
-      contactCardSendMode: document.getElementById('fContactCardSendMode')?.value === 'combined' ? 'combined' : 'separate',
+      contactCardSendMode: 'separate',
       contactCards,
       contactCardName: primaryContactCard.name || '',
       contactCardPhone: primaryContactCard.phone || '',
