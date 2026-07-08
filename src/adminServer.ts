@@ -1147,7 +1147,7 @@ export function startAdminServer(storage: Storage): void {
     }
     const lowerFilename = filename.toLowerCase();
     if (lowerFilename.endsWith('.vcf')) {
-      res.type('text/vcard; charset=utf-8');
+      res.type('text/x-vcard');
     } else if (lowerFilename.endsWith('.jpg') || lowerFilename.endsWith('.jpeg') || lowerFilename.endsWith('.jfif')) {
       res.type('image/jpeg');
     } else if (lowerFilename.endsWith('.mp4')) {
