@@ -79,24 +79,23 @@ export class TwilioProvider implements WhatsAppProvider {
       return;
     }
 
-    const normalizedTo = normalizeWhatsAppAddress(to);
     const cards = contacts.slice(0, 10);
-    for (const [index, contact] of cards.entries()) {
-      const filename = [
-        'twilio-contact-card',
-        Date.now(),
-        String(index + 1),
-        sanitizeFilenamePart(contact.displayName || 'contact'),
-      ].join('-') + '.vcf';
-      const filePath = path.join(config.UPLOADS_PATH, filename);
-      fs.mkdirSync(config.UPLOADS_PATH, { recursive: true });
-      fs.writeFileSync(filePath, contact.vcard, 'utf8');
-      const token = signTwilioMediaFilename(filename);
-      await this.createMessage({
-        To: normalizedTo,
-        MediaUrl: `${baseUrl}/${encodeURIComponent(filename)}?token=${token}`,
-      }, contact.displayName || displayName);
-    }
+    if (!cards.length) return;
+
+    const filename = [
+      'twilio-contact-cards',
+      Date.now(),
+      String(cards.length),
+      sanitizeFilenamePart(displayName || 'contacts'),
+    ].join('-') + '.vcf';
+    const filePath = path.join(config.UPLOADS_PATH, filename);
+    fs.mkdirSync(config.UPLOADS_PATH, { recursive: true });
+    fs.writeFileSync(filePath, cards.map((contact) => contact.vcard).join(''), 'utf8');
+    const token = signTwilioMediaFilename(filename);
+    await this.createMessage({
+      To: normalizeWhatsAppAddress(to),
+      MediaUrl: `${baseUrl}/${encodeURIComponent(filename)}?token=${token}`,
+    }, displayName);
   }
 
   async sendInteractiveButtons(
