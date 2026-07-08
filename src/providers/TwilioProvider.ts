@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { WhatsAppProvider } from '../types/whatsapp';
 import { config } from '../config';
 import { recordTwilioEvent } from '../twilioEvents';
@@ -61,6 +63,42 @@ export class TwilioProvider implements WhatsAppProvider {
       Body: caption?.trim() || undefined,
       MediaUrl: `${baseUrl}/${encodeURIComponent(fileName)}?token=${token}`,
     }, caption);
+  }
+
+  async sendContactCards(to: string, contacts: Array<{ vcard: string; displayName: string }>, displayName: string): Promise<void> {
+    const baseUrl = config.TWILIO_MEDIA_BASE_URL.trim().replace(/\/$/, '');
+    if (!baseUrl) {
+      recordTwilioEvent({
+        direction: 'outbound',
+        status: 'failed',
+        to: normalizeWhatsAppAddress(to),
+        body: displayName,
+        details: 'TWILIO_MEDIA_BASE_URL is not configured.',
+      });
+      await this.sendMessage(to, contacts.map((contact) => contact.displayName).join('\n'));
+      return;
+    }
+
+    const mediaUrls = contacts.slice(0, 10).map((contact, index) => {
+      const filename = [
+        'twilio-contact-card',
+        Date.now(),
+        String(index + 1),
+        sanitizeFilenamePart(contact.displayName || 'contact'),
+      ].join('-') + '.vcf';
+      const filePath = path.join(config.UPLOADS_PATH, filename);
+      fs.mkdirSync(config.UPLOADS_PATH, { recursive: true });
+      fs.writeFileSync(filePath, contact.vcard, 'utf8');
+      const token = signTwilioMediaFilename(filename);
+      return `${baseUrl}/${encodeURIComponent(filename)}?token=${token}`;
+    });
+
+    if (!mediaUrls.length) return;
+    await this.createMessage({
+      To: normalizeWhatsAppAddress(to),
+      Body: displayName?.trim() || undefined,
+      MediaUrl: mediaUrls,
+    }, displayName);
   }
 
   async sendInteractiveButtons(
@@ -142,12 +180,19 @@ export class TwilioProvider implements WhatsAppProvider {
     }
   }
 
-  private async createMessage(fields: Record<string, string | undefined>, logBody?: string): Promise<void> {
+  private async createMessage(fields: Record<string, string | string[] | undefined>, logBody?: string): Promise<void> {
     this.assertConfigured();
     const body = new URLSearchParams();
     for (const [key, value] of Object.entries(fields)) {
-      if (value) body.set(key, value);
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          if (item) body.append(key, item);
+        }
+      } else if (value) {
+        body.set(key, value);
+      }
     }
+    const to = typeof fields.To === 'string' ? fields.To : undefined;
     if (config.TWILIO_MESSAGING_SERVICE_SID) {
       body.set('MessagingServiceSid', config.TWILIO_MESSAGING_SERVICE_SID);
     } else {
@@ -170,7 +215,7 @@ export class TwilioProvider implements WhatsAppProvider {
         recordTwilioEvent({
           direction: 'outbound',
           status: 'failed',
-          to: fields.To,
+          to,
           body: logBody,
           details: `Twilio message failed (${response.status}): ${errorText}`,
         });
@@ -180,7 +225,7 @@ export class TwilioProvider implements WhatsAppProvider {
         direction: 'outbound',
         status: 'sent',
         from: body.get('From') || body.get('MessagingServiceSid') || undefined,
-        to: fields.To,
+        to,
         body: logBody,
         messageSid: responseBody.sid,
       });
@@ -189,7 +234,7 @@ export class TwilioProvider implements WhatsAppProvider {
         recordTwilioEvent({
           direction: 'outbound',
           status: 'failed',
-          to: fields.To,
+          to,
           body: logBody,
           details: err?.message ?? String(err),
         });
@@ -216,6 +261,10 @@ export class TwilioProvider implements WhatsAppProvider {
     }
     return responseBody.sid;
   }
+}
+
+function sanitizeFilenamePart(value: string): string {
+  return value.replace(/[^a-z0-9.-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'contact';
 }
 
 function truncateButtonTitle(value: string): string {
