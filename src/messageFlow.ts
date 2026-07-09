@@ -185,7 +185,11 @@ async function markIncomingMessageReadIfEnabled(
   transport: WhatsAppTransport,
   source: WhatsAppMessageSource,
 ): Promise<void> {
-  if (!storage.getAdminSettings().readReceiptsEnabled || !transport.markRead) return;
+  if (!storage.getAdminSettings().readReceiptsEnabled) return;
+  if (!transport.markRead) {
+    console.warn(`[READ_RECEIPT] markRead is not supported via ${source}.`);
+    return;
+  }
   try {
     await transport.markRead(message);
   } catch (err) {

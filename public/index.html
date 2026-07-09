@@ -1286,7 +1286,7 @@
       <div class="toggle-row" style="margin:12px 0">
         <div>
           <div class="toggle-label">&#1488;&#1497;&#1513;&#1493;&#1512;&#1497; &#1511;&#1512;&#1497;&#1488;&#1492; / &#1493;&#1497; &#1499;&#1495;&#1493;&#1500;</div>
-          <div class="toggle-sub">&#1502;&#1505;&#1502;&#1503; &#1492;&#1493;&#1491;&#1506;&#1493;&#1514; &#1504;&#1499;&#1504;&#1505;&#1493;&#1514; &#1499;&#1504;&#1511;&#1512;&#1488;&#1493;, &#1489;&#1492;&#1514;&#1488;&#1501; &#1500;&#1514;&#1502;&#1497;&#1499;&#1514; WhatsApp &#1493;&#1500;&#1492;&#1490;&#1491;&#1512;&#1493;&#1514; &#1492;&#1508;&#1512;&#1496;&#1497;&#1493;&#1514; &#1513;&#1500; &#1492;&#1502;&#1513;&#1514;&#1502;&#1513;.</div>
+          <div class="toggle-sub" id="readReceiptsSupportNote">&#1502;&#1505;&#1502;&#1503; &#1492;&#1493;&#1491;&#1506;&#1493;&#1514; &#1504;&#1499;&#1504;&#1505;&#1493;&#1514; &#1499;&#1504;&#1511;&#1512;&#1488;&#1493;, &#1489;&#1492;&#1514;&#1488;&#1501; &#1500;&#1514;&#1502;&#1497;&#1499;&#1514; WhatsApp &#1493;&#1500;&#1492;&#1490;&#1491;&#1512;&#1493;&#1514; &#1492;&#1508;&#1512;&#1496;&#1497;&#1493;&#1514; &#1513;&#1500; &#1492;&#1502;&#1513;&#1514;&#1502;&#1513;.</div>
         </div>
         <label class="switch"><input type="checkbox" id="readReceiptsEnabled" onchange="saveReadReceiptsSetting()" /><span class="slider"></span></label>
       </div>
@@ -1735,6 +1735,17 @@
     }
     document.querySelectorAll('[data-referral-feature]').forEach(el => { el.style.display = appCapabilities.referralContestEnabled ? '' : 'none'; });
     const isPromotionalClient = appCapabilities.whatsappProvider === 'TWILIO_API';
+    const readReceiptsToggle = document.getElementById('readReceiptsEnabled');
+    const readReceiptsNote = document.getElementById('readReceiptsSupportNote');
+    if (readReceiptsToggle) {
+      readReceiptsToggle.disabled = isPromotionalClient;
+      if (isPromotionalClient) readReceiptsToggle.checked = false;
+    }
+    if (readReceiptsNote) {
+      readReceiptsNote.innerHTML = isPromotionalClient
+        ? '&#1489;&#1500;&#1511;&#1493;&#1495;&#1493;&#1514; Twilio &#1488;&#1497;&#1503; &#1514;&#1502;&#1497;&#1499;&#1492; &#1489;&#1493;&#1497; &#1499;&#1495;&#1493;&#1500; &#1500;&#1492;&#1493;&#1491;&#1506;&#1493;&#1514; &#1504;&#1499;&#1504;&#1505;&#1493;&#1514;, &#1500;&#1499;&#1503; &#1492;&#1492;&#1490;&#1491;&#1512;&#1492; &#1502;&#1504;&#1493;&#1496;&#1512;&#1500;&#1514;.'
+        : '&#1502;&#1505;&#1502;&#1503; &#1492;&#1493;&#1491;&#1506;&#1493;&#1514; &#1504;&#1499;&#1504;&#1505;&#1493;&#1514; &#1499;&#1504;&#1511;&#1512;&#1488;&#1493;, &#1489;&#1492;&#1514;&#1488;&#1501; &#1500;&#1514;&#1502;&#1497;&#1499;&#1514; WhatsApp &#1493;&#1500;&#1492;&#1490;&#1491;&#1512;&#1493;&#1514; &#1492;&#1508;&#1512;&#1496;&#1497;&#1493;&#1514; &#1513;&#1500; &#1492;&#1502;&#1513;&#1514;&#1502;&#1513;.';
+    }
     const promotionalSetupCard = document.getElementById('twilioSetupCard');
     if (promotionalSetupCard) promotionalSetupCard.style.display = isPromotionalClient ? '' : 'none';
     const technicalMessagesCard = document.getElementById('twilioMessagesCard');
@@ -2176,9 +2187,16 @@
     return normalizeSharePhone(myPhone);
   }
 
-  function buildCampaignShareLink(trigger) {
+  function buildCampaignShortLink(campaignId) {
+    const id = String(campaignId || '').trim();
+    return id ? `${window.location.origin}/c/${encodeURIComponent(id)}` : '';
+  }
+
+  function buildCampaignShareLink(trigger, campaignId) {
+    const shortLink = buildCampaignShortLink(campaignId);
+    if (shortLink) return shortLink;
     const phone = normalizeSharePhone(myPhone);
-    const phrase = trigger && trigger !== '-' ? trigger : 'משפט הטריגר';
+    const phrase = trigger && trigger !== '-' ? trigger : '???? ??????';
     if (!phone) return '';
     return `https://wa.me/${phone}?text=${encodeURIComponent(phrase)}`;
   }
@@ -2392,7 +2410,7 @@
     editingId = data.id || editingId;
     const savedTrigger = data.triggerPhrase || currentTriggerText();
     await ensureSharePhone();
-    const link = buildCampaignShareLink(savedTrigger);
+    const link = buildCampaignShareLink(savedTrigger, data.id || editingId);
     lastWizardLink = link;
     document.getElementById('wizardShareLink')?.replaceChildren(document.createTextNode(link || (myPhoneStatus.reason || 'מספר WhatsApp לא זמין כרגע')));
     setWizardSavedState(true, link);
@@ -2417,7 +2435,7 @@
     const provider = ['google', 'manual'].includes(s.contactsProvider) ? s.contactsProvider : 'manual';
     selectProvider(provider);
     const readReceiptsToggle = document.getElementById('readReceiptsEnabled');
-    if (readReceiptsToggle) readReceiptsToggle.checked = Boolean(s.readReceiptsEnabled);
+    if (readReceiptsToggle) readReceiptsToggle.checked = appCapabilities.whatsappProvider === 'TWILIO_API' ? false : Boolean(s.readReceiptsEnabled);
     if (provider === 'google') loadGoogleStatus();
   }
 
@@ -3644,7 +3662,7 @@
     }
 
     el.innerHTML = active.map(c => {
-      const link        = buildCampaignShareLink(c.triggerPhrase);
+      const link        = buildCampaignShareLink(c.triggerPhrase, c.id);
       const displayLink = link || 'מספר WhatsApp לא זמין';
       return `
         <div class="link-row">
@@ -3667,6 +3685,12 @@
   // ── Contacts provider ────────────────────────────────────────────────────────
 
   async function saveReadReceiptsSetting() {
+    if (appCapabilities.whatsappProvider === 'TWILIO_API') {
+      const toggle = document.getElementById('readReceiptsEnabled');
+      if (toggle) toggle.checked = false;
+      alert('\u05d0\u05d9\u05e9\u05d5\u05e8\u05d9 \u05e7\u05e8\u05d9\u05d0\u05d4 / \u05d5\u05d9 \u05db\u05d7\u05d5\u05dc \u05d0\u05d9\u05e0\u05dd \u05e0\u05ea\u05de\u05db\u05d9\u05dd \u05d1\u05d7\u05d9\u05d1\u05d5\u05e8 Twilio.');
+      return;
+    }
     const enabled = Boolean(document.getElementById('readReceiptsEnabled')?.checked);
     const response = await fetch('/api/settings', {
       method: 'POST', headers: {'Content-Type':'application/json'},

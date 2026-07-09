@@ -239,6 +239,14 @@ function normalizeSharePhone(value: unknown): string {
   return withoutJid.replace(/[^\d]/g, '');
 }
 
+function getCampaignSharePhone(storage: Storage): string {
+  const profile = storage.getClientProfile();
+  if (config.WHATSAPP_PROVIDER === 'TWILIO_API') {
+    return normalizeSharePhone(config.TWILIO_FROM) || normalizeSharePhone(profile.whatsappPhone || config.MY_CONTACT.phone);
+  }
+  return normalizeSharePhone(botState.connectedPhone) || normalizeSharePhone(profile.whatsappPhone) || normalizeSharePhone(config.MY_CONTACT.phone);
+}
+
 function normalizeBotReplyDelayMs(value: unknown): number | null | undefined {
   const raw = String(value ?? '').trim();
   if (!raw) return undefined;
@@ -1876,12 +1884,28 @@ export function startAdminServer(storage: Storage): void {
 
   // ── Public config (phone number for wa.me links) ─────────────────────────
 
+  // Public short campaign links. Opens WhatsApp with the campaign trigger phrase.
+  app.get('/c/:campaignId', (req, res) => {
+    const campaignId = String(req.params.campaignId ?? '').trim();
+    const campaign = storage.getCampaigns().find((item) => item.id === campaignId);
+    if (!campaign) {
+      res.status(404).send('Campaign not found');
+      return;
+    }
+    const phone = getCampaignSharePhone(storage);
+    if (!phone) {
+      res.status(409).send('WhatsApp phone is not configured');
+      return;
+    }
+    res.redirect(302, 'https://wa.me/' + phone + '?text=' + encodeURIComponent(campaign.triggerPhrase));
+  });
+
   app.get('/api/config', (_req, res) => {
     const profile = storage.getClientProfile();
     if (config.WHATSAPP_PROVIDER === 'TWILIO_API') {
       const twilioPhone = normalizeSharePhone(config.TWILIO_FROM);
       const fallbackPhone = normalizeSharePhone(profile.whatsappPhone || config.MY_CONTACT.phone);
-      const phone = twilioPhone || fallbackPhone;
+      const phone = getCampaignSharePhone(storage);
       res.json({
         phone,
         phoneSource: twilioPhone ? 'twilio' : (fallbackPhone ? 'profile' : 'missing'),
@@ -1892,7 +1916,7 @@ export function startAdminServer(storage: Storage): void {
     const connectedPhone = normalizeSharePhone(botState.connectedPhone);
     const savedPhone = normalizeSharePhone(profile.whatsappPhone);
     const fallbackPhone = normalizeSharePhone(config.MY_CONTACT.phone);
-    const phone = connectedPhone || savedPhone || fallbackPhone;
+    const phone = getCampaignSharePhone(storage);
     res.json({
       phone,
       phoneSource: connectedPhone ? 'connected' : (savedPhone ? 'profile' : (fallbackPhone ? 'environment' : 'missing')),
@@ -2053,7 +2077,7 @@ export function startAdminServer(storage: Storage): void {
     if (body.contactsProvider === 'google' || body.contactsProvider === 'manual')
       patch.contactsProvider = body.contactsProvider;
     if (typeof body.readReceiptsEnabled === 'boolean')
-      patch.readReceiptsEnabled = body.readReceiptsEnabled;
+      patch.readReceiptsEnabled = config.WHATSAPP_PROVIDER === 'TWILIO_API' ? false : body.readReceiptsEnabled;
     if (typeof body.askNameText === 'string')    patch.askNameText    = body.askNameText;
     if (typeof body.replyText === 'string')      patch.replyText      = body.replyText;
     if (Array.isArray(body.followupMessages))
