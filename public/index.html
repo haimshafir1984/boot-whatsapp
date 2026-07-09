@@ -1358,16 +1358,13 @@
         <button type="button" class="conversation-node" data-flow-step="2" onclick="goWizardStep(2)">
           <span class="node-index">2</span><span><strong>שאלת שם</strong><small id="flowMapAskName">פעילה לפי ההגדרות</small></span><em class="node-status ok">בסיס</em>
         </button>
-        <button type="button" class="conversation-node" data-flow-step="2" onclick="goWizardStep(2); focusContactCardNode()">
-          <span class="node-index">3</span><span><strong>איש קשר לשמירה</strong><small id="flowMapContactCard">כבוי</small></span><em class="node-status" id="flowMapContactStatus">אופציונלי</em>
-        </button>
         <button type="button" class="conversation-node" data-flow-step="3" onclick="goWizardStep(3)">
-          <span class="node-index">4</span><span><strong>שאלות והודעות</strong><small id="flowMapQuestions">ללא שאלות</small></span><em class="node-status ok">ניתן להזזה</em>
+          <span class="node-index">3</span><span><strong>שאלות והודעות</strong><small id="flowMapQuestions">ללא שאלות</small></span><em class="node-status ok">ניתן להזזה</em>
         </button>
         <button type="button" class="conversation-node" data-flow-step="4" onclick="goWizardStep(4)">
-          <span class="node-index">5</span><span><strong>סיכום ולינק</strong><small>בדיקה לפני שמירה</small></span><em class="node-status ok">סיום</em>
+          <span class="node-index">4</span><span><strong>סיכום ולינק</strong><small>בדיקה לפני שמירה</small></span><em class="node-status ok">סיום</em>
         </button>
-        <div class="conversation-map-note" id="flowMapSequenceNote">סדר נוכחי: שם -> vCard -> שאלות -> סיום.</div>
+        <div class="conversation-map-note" id="flowMapSequenceNote">סדר נוכחי: שם -> שאלות והודעות לפי סדר הבלוקים -> סיום.</div>
       </aside>
       <div class="campaign-editor-main">
         <div class="editor-section wizard-panel active" data-wizard-panel="1">
@@ -1463,7 +1460,7 @@
             <textarea id="fAskNameText" oninput="updateCampaignConversationPreview()"></textarea>
             <div class="hint">ניתן להשתמש ב-{timeout} כדי להציג את זמן ההמתנה.</div>
           </div>
-          <div class="field" style="margin-bottom:0">
+          <div class="field" id="contactCardLegacyPanel" style="display:none;margin-bottom:0">
             <div class="toggle-row">
               <div><div class="toggle-label">שליחת איש קשר לשמירה</div><div class="toggle-sub">המערכת תשלח כרטיס איש קשר אחרי הודעת הסיום, כדי שהלקוח יוכל לשמור בלחיצה.</div></div>
               <label class="switch"><input type="checkbox" id="fSendContactCard" onchange="updateContactCardVisibility(); updateCampaignConversationPreview();" /><span class="slider"></span></label>
@@ -2459,6 +2456,17 @@
     document.getElementById('fSendContactCard').checked = Boolean(settings.sendContactCard);
     setContactCardFields(settings);
     document.getElementById('fContactCardIntroText').value = settings.contactCardIntroText || '';
+    let decisionFlow = Array.isArray(settings.decisionFlow) ? [...settings.decisionFlow] : [];
+    if (settings.sendContactCard && !decisionFlow.some(step => step.kind === 'contact_card')) {
+      const contactStep = {
+        id: makeFlowId('contact'),
+        kind: 'contact_card',
+        text: settings.contactCardIntroText || 'הנה איש הקשר לשמירה',
+        nextStepId: '__NEXT__',
+      };
+      if ((settings.contactCardPlacement || 'after_completion') === 'before_questions') decisionFlow.unshift(contactStep);
+      else decisionFlow.push(contactStep);
+    }
     const contactSendMode = document.getElementById('fContactCardSendMode');
     if (contactSendMode) contactSendMode.value = 'separate';
     const contactPlacement = document.getElementById('fContactCardPlacement');
@@ -2467,7 +2475,7 @@
     document.getElementById('fContactCardConfirmationTimeout').value = settings.contactCardConfirmationTimeoutMinutes || 30;
     updateContactCardVisibility();
     renderCampaignFollowupFields(settings.followupMessages || []);
-    renderDecisionFlow(settings.decisionFlow || []);
+    renderDecisionFlow(decisionFlow);
     document.getElementById('fDecisionTimeoutMinutes').value = settings.decisionTimeoutMinutes || appSettings.decisionTimeoutMinutes || 30;
     document.getElementById('fDecisionTimeoutText').value = settings.decisionTimeoutText || '';
     document.getElementById('fHumanHandoffEnabled').checked = settings.humanHandoffEnabled !== false;
@@ -2739,6 +2747,7 @@
   }
 
   function renderDecisionFlow(steps = []) {
+    parkContactCardEditor();
     const el = document.getElementById('fDecisionFlow');
     if (!el) return;
     if (!steps.length) {
@@ -2845,6 +2854,7 @@
           <div class="contact-card-flow-fields" data-flow-contact-card-fields style="display:none;margin:8px 0 10px;padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc">
             <div class="hint" style="margin-bottom:8px">&#1488;&#1504;&#1513;&#1497; &#1492;&#1511;&#1513;&#1512; &#1513;&#1497;&#1497;&#1513;&#1500;&#1495;&#1493; &#1489;&#1513;&#1500;&#1489; &#1492;&#1494;&#1492;</div>
             <div data-flow-contact-card-summary></div>
+            <div data-flow-contact-card-editor></div>
             <div class="decision-next-row" style="margin-top:10px">
               <label>&#1488;&#1497;&#1498; &#1500;&#1513;&#1500;&#1493;&#1495;?</label>
               <select data-flow-contact-send-mode onchange="syncFlowContactSendMode(this)">
@@ -3017,6 +3027,24 @@
     updateContactCardVisibility();
   }
 
+  function parkContactCardEditor() {
+    const editor = document.getElementById('fContactCardFields');
+    const legacyPanel = document.getElementById('contactCardLegacyPanel');
+    if (editor && legacyPanel && !legacyPanel.contains(editor)) legacyPanel.appendChild(editor);
+  }
+
+  function moveContactCardEditorIntoStep(step) {
+    const editor = document.getElementById('fContactCardFields');
+    const mount = step?.querySelector('[data-flow-contact-card-editor]');
+    if (!editor || !mount || mount.contains(editor)) return;
+    editor.style.display = '';
+    ['fContactCardIntroText', 'fContactCardPlacement', 'fContactCardWaitForConfirmation'].forEach(id => {
+      const row = document.getElementById(id)?.closest('.contact-placement-field');
+      if (row) row.style.display = 'none';
+    });
+    mount.appendChild(editor);
+  }
+
   function addTwilioQuickStep(type) {
     type = normalizeFlowStepType(type);
     if (type === 'buttons') {
@@ -3104,6 +3132,7 @@
   function removeDecisionStep(btn) {
     const step = btn.closest('[data-decision-step]');
     const id = step?.dataset.stepId;
+    if (step?.contains(document.getElementById('fContactCardFields'))) parkContactCardEditor();
     step?.remove();
     if (activeDecisionStepId === id) activeDecisionStepId = document.querySelector('[data-decision-step]')?.dataset.stepId || '';
     document.querySelectorAll('[data-step-next], [data-option-next], [data-rule-next], [data-score-fallback-next]').forEach(select => {
@@ -3207,7 +3236,10 @@
       if (questionPresentation) questionPresentation.style.display = isChoice ? '' : 'none';
       if (optionsPanel) optionsPanel.style.display = isChoice ? '' : 'none';
       const contactFields = step.querySelector('[data-flow-contact-card-fields]');
-      if (kind === 'contact_card') enableFlowContactCard();
+      if (kind === 'contact_card') {
+        enableFlowContactCard();
+        moveContactCardEditorIntoStep(step);
+      }
       if (contactFields) {
         contactFields.style.display = kind === 'contact_card' ? '' : 'none';
         const summary = contactFields.querySelector('[data-flow-contact-card-summary]');
@@ -3319,6 +3351,7 @@
           text: step.querySelector('[data-step-text]').value.trim(),
         };
         if (!item.text && kind === 'score_result') item.text = '\u05d7\u05d9\u05e9\u05d5\u05d1 \u05ea\u05d5\u05e6\u05d0\u05d4';
+        if (!item.text && kind === 'contact_card') item.text = '\u05d4\u05e0\u05d4 \u05d0\u05d9\u05e9 \u05d4\u05e7\u05e9\u05e8 \u05dc\u05e9\u05de\u05d9\u05e8\u05d4';
         const delaySeconds = Number(step.querySelector('[data-step-delay]')?.value || 0);
         if (Number.isFinite(delaySeconds) && delaySeconds > 0) item.delayMs = Math.min(Math.round(delaySeconds * 1000), 60000);
         if (!item.text) return null;
@@ -3410,6 +3443,9 @@
   function getCampaignConversation() {
     const contactCards = getContactCards();
     const primaryContactCard = contactCards[0] || {};
+    const decisionFlow = getDecisionFlow();
+    const flowContactCardStep = decisionFlow.find(step => step.kind === 'contact_card');
+    const flowHasContactCard = Boolean(flowContactCardStep);
     return {
       askNameEnabled: document.getElementById('fAskName').checked,
       nameTimeoutMinutes: Number(document.getElementById('fTimeout').value) || appSettings.nameTimeoutMinutes,
@@ -3427,21 +3463,21 @@
       completionFileIds: [...document.querySelectorAll('[data-completion-file]')]
         .map(el => el.value.trim())
         .filter(Boolean),
-      sendContactCard: document.getElementById('fSendContactCard')?.checked || false,
-      contactCardPlacement: document.getElementById('fContactCardPlacement')?.value || 'after_completion',
+      sendContactCard: flowHasContactCard,
+      contactCardPlacement: flowHasContactCard ? 'before_questions' : 'after_completion',
       contactCardSendMode: 'separate',
       contactCards,
       contactCardName: primaryContactCard.name || '',
       contactCardPhone: primaryContactCard.phone || '',
       contactCardEmail: primaryContactCard.email || '',
       contactCardOrganization: primaryContactCard.organization || '',
-      contactCardIntroText: document.getElementById('fContactCardIntroText')?.value || '',
+      contactCardIntroText: flowContactCardStep?.text || document.getElementById('fContactCardIntroText')?.value || '',
       contactCardWaitForConfirmation: document.getElementById('fContactCardWaitForConfirmation')?.checked || false,
       contactCardConfirmationTimeoutMinutes: Number(document.getElementById('fContactCardConfirmationTimeout')?.value) || 30,
       followupMessages: [...document.querySelectorAll('[data-campaign-followup]')]
       .map(el => el.value.trim())
       .filter(Boolean),
-      decisionFlow: getDecisionFlow(),
+      decisionFlow,
       decisionTimeoutMinutes: Number(document.getElementById('fDecisionTimeoutMinutes')?.value) || appSettings.decisionTimeoutMinutes || 30,
       decisionTimeoutText: document.getElementById('fDecisionTimeoutText')?.value || '',
       humanHandoffEnabled: document.getElementById('fHumanHandoffEnabled')?.checked !== false,
@@ -3460,21 +3496,9 @@
     });
     document.getElementById('flowMapTrigger')?.replaceChildren(document.createTextNode(triggerText || 'משפט פתיחה'));
     document.getElementById('flowMapAskName')?.replaceChildren(document.createTextNode(conversation.askNameEnabled ? 'פעילה - שואלים שם' : 'כבויה'));
-    const contactText = conversation.sendContactCard
-      ? (conversation.contactCardPlacement === 'before_questions' ? 'נשלח לפני שאלות' : 'נשלח בסיום')
-      : 'כבוי';
-    document.getElementById('flowMapContactCard')?.replaceChildren(document.createTextNode(contactText));
-    const contactStatus = document.getElementById('flowMapContactStatus');
-    if (contactStatus) {
-      contactStatus.textContent = conversation.sendContactCard ? 'פעיל' : 'כבוי';
-      contactStatus.classList.toggle('ok', Boolean(conversation.sendContactCard));
-      contactStatus.classList.toggle('warn', false);
-    }
     const flowCount = (conversation.followupMessages || []).length + (conversation.decisionFlow || []).length;
     document.getElementById('flowMapQuestions')?.replaceChildren(document.createTextNode(flowCount ? flowCount + ' צמתים' : 'ללא שאלות'));
-    const sequence = conversation.sendContactCard && conversation.contactCardPlacement === 'before_questions'
-      ? 'סדר נוכחי: שם -> vCard -> שאלות -> סיום.'
-      : 'סדר נוכחי: שם -> שאלות -> סיום -> vCard/קבצים.';
+    const sequence = 'סדר נוכחי: שם -> שאלות והודעות לפי סדר הבלוקים -> סיום.';
     document.getElementById('flowMapSequenceNote')?.replaceChildren(document.createTextNode(sequence));
   }
 
