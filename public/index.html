@@ -1633,8 +1633,8 @@
           </div>
           <div class="wizard-link-box">
             <strong style="display:block;color:#14532d;margin-bottom:4px">הלינק מוכן לשיתוף</strong>
-            <div class="hint" id="wizardLinkHint">הלינק יווצר לפי מספר ה-WhatsApp המחובר ומשפט הטריגר.</div>
-            <div id="wizardShareLink" class="wizard-share-link">https://wa.me/...</div>
+            <div class="hint" id="wizardLinkHint">&#1492;&#1500;&#1497;&#1504;&#1511; &#1492;&#1511;&#1510;&#1512; &#1497;&#1493;&#1510;&#1512; &#1488;&#1495;&#1512;&#1497; &#1513;&#1502;&#1497;&#1512;&#1514; &#1492;&#1511;&#1502;&#1508;&#1497;&#1497;&#1503;.</div>
+            <div id="wizardShareLink" class="wizard-share-link">/c/...</div>
           </div>
           <div class="wizard-success" id="wizardSuccess">
             <strong>הקמפיין נשמר ומוכן לשיתוף.</strong>
@@ -2192,13 +2192,8 @@
     return id ? `${window.location.origin}/c/${encodeURIComponent(id)}` : '';
   }
 
-  function buildCampaignShareLink(trigger, campaignId) {
-    const shortLink = buildCampaignShortLink(campaignId);
-    if (shortLink) return shortLink;
-    const phone = normalizeSharePhone(myPhone);
-    const phrase = trigger && trigger !== '-' ? trigger : '???? ??????';
-    if (!phone) return '';
-    return `https://wa.me/${phone}?text=${encodeURIComponent(phrase)}`;
+  function buildCampaignShareLink(_trigger, campaignId) {
+    return buildCampaignShortLink(campaignId);
   }
 
   function setWizardSavedState(saved, link = '') {
@@ -2216,10 +2211,8 @@
       nextBtn.disabled = Boolean(saved);
       nextBtn.textContent = saved ? 'נשמר' : (wizardStep === 4 ? 'שמירת הקמפיין והפעלתו' : 'להמשיך לשלב הבא');
     }
-    if (hint && saved) hint.textContent = 'זה הלינק המוכן לשיתוף לפי מספר ה-WhatsApp ומשפט הטריגר.';
-    if (hint && !saved) hint.textContent = myPhone
-      ? 'הלינק יווצר לפי מספר ה-WhatsApp המחובר ומשפט הטריגר.'
-      : 'הלינק יוצג אחרי טעינת מספר ה-WhatsApp של החשבון.';
+    if (hint && saved) hint.textContent = 'זה הלינק הקצר המוכן לשיתוף. הוא פותח WhatsApp עם משפט הטריגר.';
+    if (hint && !saved) hint.textContent = 'הלינק הקצר יוצר אחרי שמירת הקמפיין.';
   }
 
   function updateWizardSummary() {
@@ -2243,9 +2236,9 @@
       : 'כבויה - איש הקשר יישמר בלי שאלת שם';
     document.getElementById('wizardSummaryAskName')?.replaceChildren(document.createTextNode(askNameSummary));
     document.getElementById('wizardSummaryFlow')?.replaceChildren(document.createTextNode(flowCount ? `${flowCount} פריטים` : 'ללא המשך'));
-    const link = buildCampaignShareLink(trigger);
+    const link = buildCampaignShareLink(trigger, editingId);
     lastWizardLink = link;
-    document.getElementById('wizardShareLink')?.replaceChildren(document.createTextNode(link || 'מספר WhatsApp עדיין לא נטען'));
+    document.getElementById('wizardShareLink')?.replaceChildren(document.createTextNode(link || 'הלינק הקצר יוצר אחרי שמירת הקמפיין'));
   }
 
   function copyWizardLink(btn) {
