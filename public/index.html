@@ -2461,7 +2461,7 @@
       const contactStep = {
         id: makeFlowId('contact'),
         kind: 'contact_card',
-        text: settings.contactCardIntroText || 'הנה איש הקשר לשמירה',
+        text: settings.contactCardIntroText || '',
         nextStepId: '__NEXT__',
       };
       if ((settings.contactCardPlacement || 'after_completion') === 'before_questions') decisionFlow.unshift(contactStep);
@@ -3092,7 +3092,7 @@
         existing.scrollIntoView({ behavior: 'smooth', block: 'center' });
         return;
       }
-      addDecisionStep({ id: makeFlowId(), kind: 'contact_card', text: document.getElementById('fContactCardIntroText')?.value || '\u05d4\u05e0\u05d4 \u05d0\u05d9\u05e9 \u05d4\u05e7\u05e9\u05e8 \u05dc\u05e9\u05de\u05d9\u05e8\u05d4', nextStepId: '__NEXT__' });
+      addDecisionStep({ id: makeFlowId(), kind: 'contact_card', text: document.getElementById('fContactCardIntroText')?.value || '', nextStepId: '__NEXT__' });
       return;
     }
   }
@@ -3351,10 +3351,8 @@
           text: step.querySelector('[data-step-text]').value.trim(),
         };
         if (!item.text && kind === 'score_result') item.text = '\u05d7\u05d9\u05e9\u05d5\u05d1 \u05ea\u05d5\u05e6\u05d0\u05d4';
-        if (!item.text && kind === 'contact_card') item.text = '\u05d4\u05e0\u05d4 \u05d0\u05d9\u05e9 \u05d4\u05e7\u05e9\u05e8 \u05dc\u05e9\u05de\u05d9\u05e8\u05d4';
         const delaySeconds = Number(step.querySelector('[data-step-delay]')?.value || 0);
         if (Number.isFinite(delaySeconds) && delaySeconds > 0) item.delayMs = Math.min(Math.round(delaySeconds * 1000), 60000);
-        if (!item.text) return null;
         if (kind === 'score_result') {
           item.resultRules = [...step.querySelectorAll('[data-score-result-rule]')]
             .map(rule => {
@@ -3388,6 +3386,8 @@
             if (fileId) item.fileId = fileId;
             if (step.querySelector('[data-step-file-sticker]')?.checked) item.fileAsSticker = true;
           }
+          if (!item.text && kind === 'message' && !item.fileId) return null;
+          if (!item.text && (kind === 'wait_reply' || kind === 'referral_share')) return null;
         } else {
           item.presentation = step.querySelector('[data-step-presentation]')?.value || 'buttons';
           item.options = [...step.querySelectorAll('[data-decision-option]')]
@@ -3471,7 +3471,7 @@
       contactCardPhone: primaryContactCard.phone || '',
       contactCardEmail: primaryContactCard.email || '',
       contactCardOrganization: primaryContactCard.organization || '',
-      contactCardIntroText: flowContactCardStep?.text || document.getElementById('fContactCardIntroText')?.value || '',
+      contactCardIntroText: flowContactCardStep ? flowContactCardStep.text : (document.getElementById('fContactCardIntroText')?.value || ''),
       contactCardWaitForConfirmation: document.getElementById('fContactCardWaitForConfirmation')?.checked || false,
       contactCardConfirmationTimeoutMinutes: Number(document.getElementById('fContactCardConfirmationTimeout')?.value) || 30,
       followupMessages: [...document.querySelectorAll('[data-campaign-followup]')]

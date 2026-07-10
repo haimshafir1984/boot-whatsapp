@@ -1376,9 +1376,17 @@ async function sendDecisionFlowStart(
   senderPhone?: string,
   humanHandoff: CampaignReplyBehavior = {},
 ): Promise<void> {
-  const first = flow.find((step) => step.text.trim());
+  const first = flow.find(isSendableDecisionStep);
   if (!first) return;
   await sendDecisionStep(transport, storage, senderJid, flow, first.id, campaignId, campaignResultId, senderPhone, humanHandoff);
+}
+
+function isSendableDecisionStep(step: DecisionFlowStep | undefined): step is DecisionFlowStep {
+  if (!step) return false;
+  if (step.text.trim()) return true;
+  if (step.kind === 'contact_card') return true;
+  if (step.kind === 'message' && step.fileId) return true;
+  return false;
 }
 
 async function sendDecisionStep(
@@ -1393,7 +1401,7 @@ async function sendDecisionStep(
   humanHandoff: CampaignReplyBehavior = {},
 ): Promise<void> {
   const step = flow.find((item) => item.id === stepId);
-  if (!step?.text.trim()) return;
+  if (!step || !isSendableDecisionStep(step)) return;
   const stepDelayMs = Number.isFinite(step.delayMs) ? Math.max(0, step.delayMs ?? BOT_REPLY_DELAY_MS) : BOT_REPLY_DELAY_MS;
 
   if (step.kind === 'score_result') {
@@ -1456,16 +1464,21 @@ async function sendDecisionStep(
   if (step.kind === 'contact_card') {
     let failed = false;
     try {
-      await sendBotMessage(transport, senderJid, step.text.trim(), stepDelayMs);
-      console.log('   Contact-card intro step sent.');
-      if (campaignId) {
-        storage.recordCampaignEvent({
-          campaignId,
-          campaignResultId,
-          phone: senderPhone,
-          type: 'step_sent',
-          label: step.text.slice(0, 120),
-        });
+      const introText = step.text.trim();
+      if (introText) {
+        await sendBotMessage(transport, senderJid, introText, stepDelayMs);
+        console.log('   Contact-card intro step sent.');
+        if (campaignId) {
+          storage.recordCampaignEvent({
+            campaignId,
+            campaignResultId,
+            phone: senderPhone,
+            type: 'step_sent',
+            label: step.text.slice(0, 120),
+          });
+        }
+      } else {
+        await waitBeforeBotReply(stepDelayMs);
       }
       const campaign = campaignId ? storage.getCampaigns().find((item) => item.id === campaignId) : undefined;
       const settings = campaign ? storage.getCampaignConversationSettings(campaign) : storage.getAdminSettings();
@@ -1504,7 +1517,7 @@ async function sendDecisionStep(
       if (step.fileId) {
         const stepFile = storage.getUploadedFile(step.fileId);
         const sendTextSeparately = Boolean(step.fileAsSticker || stepFile?.mimeType.startsWith('video/'));
-        if (sendTextSeparately) {
+        if (sendTextSeparately && step.text.trim()) {
           await sendBotMessage(transport, senderJid, step.text.trim(), stepDelayMs);
         } else {
           await waitBeforeBotReply(stepDelayMs);
