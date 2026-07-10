@@ -1533,19 +1533,21 @@ async function sendDecisionStep(
           campaignResultId,
           senderPhone,
         );
-        if (!fileSent) return;
+        if (!fileSent) failed = true;
       } else {
         await sendBotMessage(transport, senderJid, step.text.trim(), stepDelayMs);
       }
-      console.log('   Decision message sent.');
-      if (campaignId) {
-        storage.recordCampaignEvent({
-          campaignId,
-          campaignResultId,
-          phone: senderPhone,
-          type: 'step_sent',
-          label: step.text.slice(0, 120),
-        });
+      if (!failed) {
+        console.log('   Decision message sent.');
+        if (campaignId) {
+          storage.recordCampaignEvent({
+            campaignId,
+            campaignResultId,
+            phone: senderPhone,
+            type: 'step_sent',
+            label: step.text.slice(0, 120),
+          });
+        }
       }
     } catch (err) {
       failed = true;

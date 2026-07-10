@@ -3382,7 +3382,8 @@
           const nextStepId = step.querySelector('[data-step-next]')?.value || '';
           if (nextStepId && nextStepId !== '__END__') item.nextStepId = nextStepId;
           if (kind === 'message') {
-            const fileId = step.querySelector('[data-step-file]')?.value || '';
+            const fileSelect = step.querySelector('[data-step-file]');
+            const fileId = fileSelect?.value || fileSelect?.dataset.selectedFile || '';
             if (fileId) item.fileId = fileId;
             if (step.querySelector('[data-step-file-sticker]')?.checked) item.fileAsSticker = true;
           }
@@ -3406,7 +3407,8 @@
                 clean.nextStepId = nextStepId || '__NEXT__';
                 if (nextText) clean.endText = nextText;
               } else if (action === 'file') {
-                const fileId = option.querySelector('[data-option-file]').value;
+                const fileSelect = option.querySelector('[data-option-file]');
+                const fileId = fileSelect?.value || fileSelect?.dataset.selectedFile || '';
                 const caption = option.querySelector('[data-option-end-text]').value.trim();
                 if (fileId) clean.fileId = fileId;
                 if (option.querySelector('[data-option-file-sticker]')?.checked) clean.fileAsSticker = true;
