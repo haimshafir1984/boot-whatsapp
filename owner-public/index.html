@@ -137,6 +137,7 @@
           <option value="self_service" selected>עצמאי</option>
           <option value="advanced">Twilio מתקדם</option>
         </select>
+        <select id="clientProvider"><option value="BAILEYS">Baileys</option><option value="TWILIO_API">Twilio API</option><option value="META_CLOUD_API">Meta Cloud API</option></select>
         <input id="clientTwilioFrom" type="hidden" value="" />
         <input id="clientBotReplyDelay" type="number" min="0" max="60000" step="100" dir="ltr" placeholder="דיליי הודעות במילישניות, למשל 1000" style="display:none" />
         <input id="clientMaxCampaigns" type="number" min="1" max="50" value="7" placeholder="מקס׳ קמפיינים" />
@@ -225,6 +226,7 @@
     }
 
     function getTwilioWebhookUrl(client) {
+      if (client.whatsappProvider === 'META_CLOUD_API') return client.metaWebhookUrl || '';
       if (client.whatsappProvider !== 'TWILIO_API') return '';
       return client.twilioWebhookUrl || '';
     }
@@ -306,6 +308,7 @@
           name: document.getElementById('clientName').value,
           accessCode: document.getElementById('clientAccessCode').value,
           plan: document.getElementById('clientPlan').value,
+          whatsappProvider: document.getElementById('clientProvider').value,
           twilioFrom: '',
           botReplyDelayMs: document.getElementById('clientBotReplyDelay').value,
           maxCampaigns: Number(document.getElementById('clientMaxCampaigns').value),
@@ -324,6 +327,7 @@
       }
       document.getElementById('clientName').value = '';
       document.getElementById('clientAccessCode').value = '';
+      document.getElementById('clientProvider').value = 'BAILEYS';
       document.getElementById('clientTwilioFrom').value = '';
       document.getElementById('clientBotReplyDelay').value = '';
       document.getElementById('clientPlan').value = 'self_service';

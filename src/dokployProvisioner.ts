@@ -34,6 +34,11 @@ interface DokployProvisioningConfig {
   twilioQuickReplyContentSid?: string;
   twilioListPickerContentSid?: string;
   twilioMediaBaseUrl?: string;
+  metaAccessToken?: string;
+  metaPhoneNumberId?: string;
+  metaDisplayPhoneNumber?: string;
+  metaVerifyToken?: string;
+  metaAppSecret?: string;
   botReplyDelayMs?: number;
 }
 
@@ -98,6 +103,11 @@ export class DokployProvisioner {
     const twilioQuickReplyContentSid = env.DOKPLOY_TWILIO_QUICK_REPLY_CONTENT_SID?.trim();
     const twilioListPickerContentSid = env.DOKPLOY_TWILIO_LIST_PICKER_CONTENT_SID?.trim();
     const twilioMediaBaseUrl = env.DOKPLOY_TWILIO_MEDIA_BASE_URL?.trim();
+    const metaAccessToken = env.DOKPLOY_META_ACCESS_TOKEN?.trim();
+    const metaPhoneNumberId = env.DOKPLOY_META_PHONE_NUMBER_ID?.trim();
+    const metaDisplayPhoneNumber = env.DOKPLOY_META_DISPLAY_PHONE_NUMBER?.trim();
+    const metaVerifyToken = env.DOKPLOY_META_VERIFY_TOKEN?.trim();
+    const metaAppSecret = env.DOKPLOY_META_APP_SECRET?.trim();
     const botReplyDelayMs = Number(env.DOKPLOY_BOT_REPLY_DELAY_MS);
     const missing = [
       !token && 'DOKPLOY_API_TOKEN',
@@ -143,6 +153,11 @@ export class DokployProvisioner {
       twilioQuickReplyContentSid,
       twilioListPickerContentSid,
       twilioMediaBaseUrl,
+      metaAccessToken,
+      metaPhoneNumberId,
+      metaDisplayPhoneNumber,
+      metaVerifyToken,
+      metaAppSecret,
       botReplyDelayMs: Number.isFinite(botReplyDelayMs) && botReplyDelayMs >= 0 ? Math.round(botReplyDelayMs) : undefined,
     };
   }
@@ -183,6 +198,11 @@ export class DokployProvisioner {
     }
 
     return { deleted, warnings };
+  }
+
+  getMetaWebhookUrl(client: ManagedClient): string {
+    if (client.whatsappProvider !== 'META_CLOUD_API' || !client.managementUrl) return '';
+    return new URL('/webhooks/meta/whatsapp', client.managementUrl).toString();
   }
 
   getTwilioWebhookUrl(client: ManagedClient): string {
@@ -300,6 +320,14 @@ export class DokployProvisioner {
       envLines.push(`DOKPLOY_TWILIO_MEDIA_BASE_URL=${escapeEnvValue(clientTwilioMediaBaseUrl(this.config, name, current))}`);
       envLines.push('TWILIO_REQUIRE_SIGNATURE=true');
     }
+    if (current.whatsappProvider === 'META_CLOUD_API') {
+      envLines.push('META_ACCESS_TOKEN=' + escapeEnvValue(this.config.metaAccessToken!));
+      envLines.push('META_PHONE_NUMBER_ID=' + escapeEnvValue(this.config.metaPhoneNumberId!));
+      envLines.push('META_DISPLAY_PHONE_NUMBER=' + escapeEnvValue(this.config.metaDisplayPhoneNumber!));
+      envLines.push('META_VERIFY_TOKEN=' + escapeEnvValue(this.config.metaVerifyToken!));
+      if (this.config.metaAppSecret) envLines.push('META_APP_SECRET=' + escapeEnvValue(this.config.metaAppSecret));
+      envLines.push('META_GRAPH_API_VERSION="v23.0"');
+    }
 
     await this.post('application.saveEnvironment', {
       applicationId,
@@ -344,6 +372,16 @@ export class DokployProvisioner {
   }
 
   private assertClientProvisioningConfig(client: ManagedClient): void {
+    if (client.whatsappProvider === 'META_CLOUD_API') {
+      const missing = [
+        !this.config?.metaAccessToken && 'DOKPLOY_META_ACCESS_TOKEN',
+        !this.config?.metaPhoneNumberId && 'DOKPLOY_META_PHONE_NUMBER_ID',
+        !this.config?.metaDisplayPhoneNumber && 'DOKPLOY_META_DISPLAY_PHONE_NUMBER',
+        !this.config?.metaVerifyToken && 'DOKPLOY_META_VERIFY_TOKEN',
+      ].filter(Boolean);
+      if (missing.length) throw new Error('Meta client configuration is missing: ' + missing.join(', '));
+      return;
+    }
     if (client.whatsappProvider !== 'TWILIO_API') return;
     const missing = [
       !this.config?.twilioAccountSid && 'DOKPLOY_TWILIO_ACCOUNT_SID',

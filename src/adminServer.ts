@@ -34,6 +34,7 @@ import { DokployProvisioner } from './dokployProvisioner';
 import { conversationState } from './conversationState';
 import { handleIncomingWhatsAppMessage } from './messageFlow';
 import { TwilioProvider } from './providers/TwilioProvider';
+import { MetaCloudProvider } from './providers/MetaCloudProvider';
 import { getTwilioEvents, recordTwilioEvent } from './twilioEvents';
 
 interface TwilioGatewaySession {
@@ -244,6 +245,9 @@ function getCampaignSharePhone(storage: Storage): string {
   if (config.WHATSAPP_PROVIDER === 'TWILIO_API') {
     return normalizeSharePhone(config.TWILIO_FROM) || normalizeSharePhone(profile.whatsappPhone || config.MY_CONTACT.phone);
   }
+  if (config.WHATSAPP_PROVIDER === 'META_CLOUD_API') {
+    return normalizeSharePhone(config.META_DISPLAY_PHONE_NUMBER) || normalizeSharePhone(profile.whatsappPhone || config.MY_CONTACT.phone);
+  }
   return normalizeSharePhone(botState.connectedPhone) || normalizeSharePhone(profile.whatsappPhone) || normalizeSharePhone(config.MY_CONTACT.phone);
 }
 
@@ -274,6 +278,10 @@ function buildContactsVCard(contacts: Array<{ name?: string; phone: string }>): 
 
 function twilioConfigured(): boolean {
   return Boolean(config.TWILIO_ACCOUNT_SID && config.TWILIO_AUTH_TOKEN && (config.TWILIO_FROM || config.TWILIO_MESSAGING_SERVICE_SID));
+}
+
+function metaConfigured(): boolean {
+  return Boolean(config.META_ACCESS_TOKEN && config.META_PHONE_NUMBER_ID && config.META_VERIFY_TOKEN);
 }
 
 function twilioAuthHeader(): string {
@@ -633,7 +641,9 @@ function sanitizeDecisionFlow(
       const kind = item.kind === 'question' || item.kind === 'score_question' || item.kind === 'score_result' || item.kind === 'wait_reply' || item.kind === 'contact_card' || (referralContestEnabled && item.kind === 'referral_share') ? item.kind : 'message';
       let text = typeof item.text === 'string' ? item.text.trim().slice(0, 2000) : '';
       if (!text && kind === 'score_result') text = '\u05d7\u05d9\u05e9\u05d5\u05d1 \u05ea\u05d5\u05e6\u05d0\u05d4';
-      if (!text) return null;
+      const fileId = typeof item.fileId === 'string' ? item.fileId.trim().slice(0, 80) : '';
+      const canSendWithoutText = kind === 'contact_card' || (kind === 'message' && Boolean(fileId));
+      if (!text && !canSendWithoutText) return null;
 
       const step: DecisionFlowStep = { id, kind, text };
       if (typeof item.nextStepId === 'string' && item.nextStepId.trim()) {
@@ -643,9 +653,7 @@ function sanitizeDecisionFlow(
         step.delayMs = Math.min(Math.max(Math.round(item.delayMs), 0), 60_000);
       }
       if (kind === 'message') {
-        if (typeof item.fileId === 'string' && item.fileId.trim()) {
-          step.fileId = item.fileId.trim().slice(0, 80);
-        }
+        if (fileId) step.fileId = fileId;
         if (typeof item.fileAsSticker === 'boolean') {
           step.fileAsSticker = item.fileAsSticker;
         }
@@ -973,6 +981,36 @@ export function startAdminServer(storage: Storage): void {
     }, 'webhook');
   };
 
+  const handleMetaInboundForStorage = async (payload: any): Promise<void> => {
+    const value = payload?.entry?.[0]?.changes?.[0]?.value;
+    const message = value?.messages?.[0];
+    if (!message?.from || !message?.id) throw new Error('Invalid Meta webhook message');
+    const contact = value?.contacts?.[0];
+    const body = String(message?.text?.body || message?.interactive?.button_reply?.title || message?.interactive?.list_reply?.title || message?.interactive?.button_reply?.id || message?.interactive?.list_reply?.id || '').trim();
+    const provider = new MetaCloudProvider();
+    console.log('[META_INBOUND]', message.id, message.from, body.slice(0, 120));
+    await handleIncomingWhatsAppMessage({
+      id: String(message.id),
+      from: 'whatsapp:' + String(message.from),
+      to: 'whatsapp:' + normalizeSharePhone(config.META_DISPLAY_PHONE_NUMBER),
+      body,
+      timestamp: Number(message.timestamp) || Math.floor(Date.now() / 1000),
+      async getDisplayName() { return String(contact?.profile?.name || '').trim(); },
+    }, storage, provider, 'webhook');
+  };
+
+  app.get('/webhooks/meta/whatsapp', (req, res) => {
+    const mode = String(req.query['hub.mode'] || '');
+    const token = String(req.query['hub.verify_token'] || '');
+    const challenge = String(req.query['hub.challenge'] || '');
+    if (mode === 'subscribe' && config.META_VERIFY_TOKEN && token === config.META_VERIFY_TOKEN) { res.status(200).send(challenge); return; }
+    res.status(403).send('Meta webhook verification failed');
+  });
+
+  app.post('/webhooks/meta/whatsapp', (req, res) => {
+    res.sendStatus(200);
+    void handleMetaInboundForStorage(req.body).catch((err) => { console.error('Meta webhook failed:', err); });
+  });
   const routeTwilioGatewayInbound = async (payload: any): Promise<{ handled: boolean; status?: number; reason?: string }> => {
     const meta = twilioInboundMeta(payload);
     const fromKey = normalizeGatewayPhone(meta.from);
@@ -1300,12 +1338,17 @@ export function startAdminServer(storage: Storage): void {
 
   const exposeOwnerClient = (client: ManagedClient) => ({
     ...client,
+    metaAccessToken: undefined,
+    metaVerifyToken: undefined,
     twilioWebhookUrl: dokployProvisioner.getTwilioWebhookUrl(client),
   });
 
   app.post('/owner/api/clients', async (req, res) => {
     const name = String(req.body?.name ?? '').trim();
     const accessCode = String(req.body?.accessCode ?? '').trim();
+    const requestedProvider = ['BAILEYS', 'WEB_JS', 'TWILIO_API', 'META_CLOUD_API'].includes(String(req.body?.whatsappProvider))
+      ? String(req.body.whatsappProvider) as ManagedClient['whatsappProvider']
+      : (String(req.body?.plan) === 'advanced' ? 'TWILIO_API' : 'BAILEYS');
     const plan = ['basic', 'self_service', 'advanced'].includes(String(req.body?.plan))
       ? String(req.body.plan) as ManagedClient['plan']
       : 'self_service';
@@ -1340,7 +1383,7 @@ export function startAdminServer(storage: Storage): void {
       readonlyDashboard: plan === 'basic',
       maxCampaigns,
       serviceExpiresAt,
-      whatsappProvider: plan === 'advanced' ? 'TWILIO_API' : 'BAILEYS',
+      whatsappProvider: requestedProvider,
       twilioFrom: plan === 'advanced' ? twilioFrom : undefined,
       botReplyDelayMs,
     });
@@ -1721,6 +1764,15 @@ export function startAdminServer(storage: Storage): void {
 
   app.get('/api/qr', (_req, res) => {
     const profile = storage.getClientProfile();
+    if (config.WHATSAPP_PROVIDER === 'META_CLOUD_API') {
+      res.json({ qr: null, authenticated: metaConfigured(), ready: metaConfigured(), pairingCode: null,
+        connectedPhone: config.META_DISPLAY_PHONE_NUMBER || profile.whatsappPhone,
+        lifecycle: metaConfigured() ? 'running' : 'stopped',
+        listeningReason: metaConfigured() ? 'meta webhook mode' : 'meta env missing',
+        requestedProvider: config.WHATSAPP_PROVIDER, actualProvider: 'META_CLOUD_API', providerFallbackReason: null,
+        shouldRun: storage.hasCampaignsNeedingBot(), });
+      return;
+    }
     if (config.WHATSAPP_PROVIDER === 'TWILIO_API') {
       res.json({
         qr: null,

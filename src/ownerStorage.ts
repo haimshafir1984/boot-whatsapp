@@ -13,7 +13,11 @@ export interface ManagedClient {
   readonlyDashboard: boolean;
   maxCampaigns: number;
   serviceExpiresAt?: string;
-  whatsappProvider: 'WEB_JS' | 'BAILEYS' | 'TWILIO_API';
+  whatsappProvider: 'WEB_JS' | 'BAILEYS' | 'TWILIO_API' | 'META_CLOUD_API';
+  metaPhoneNumberId?: string;
+  metaDisplayPhoneNumber?: string;
+  metaAccessToken?: string;
+  metaVerifyToken?: string;
   twilioFrom?: string;
   botReplyDelayMs?: number;
   managementUrl: string;
@@ -80,7 +84,7 @@ export class OwnerStorage {
   addClient(
     name: string,
     accessCode: string,
-    options: Partial<Pick<ManagedClient, 'plan' | 'readonlyDashboard' | 'maxCampaigns' | 'serviceExpiresAt' | 'whatsappProvider' | 'twilioFrom' | 'botReplyDelayMs'>> = {},
+    options: Partial<Pick<ManagedClient, 'plan' | 'readonlyDashboard' | 'maxCampaigns' | 'serviceExpiresAt' | 'whatsappProvider' | 'twilioFrom' | 'metaPhoneNumberId' | 'metaDisplayPhoneNumber' | 'metaAccessToken' | 'metaVerifyToken' | 'botReplyDelayMs'>> = {},
   ): ManagedClient {
     const plan = options.plan ?? 'self_service';
     const client: ManagedClient = {
@@ -94,6 +98,10 @@ export class OwnerStorage {
       serviceExpiresAt: options.serviceExpiresAt,
       whatsappProvider: options.whatsappProvider ?? (plan === 'advanced' ? 'TWILIO_API' : DEFAULT_WHATSAPP_PROVIDER),
       twilioFrom: options.twilioFrom,
+      metaPhoneNumberId: options.metaPhoneNumberId,
+      metaDisplayPhoneNumber: options.metaDisplayPhoneNumber,
+      metaAccessToken: options.metaAccessToken,
+      metaVerifyToken: options.metaVerifyToken,
       botReplyDelayMs: options.botReplyDelayMs,
       managementUrl: '',
       provisioningStatus: 'pending_setup',

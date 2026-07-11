@@ -14,6 +14,7 @@ import { conversationState } from './conversationState';
 import { scheduleRestoredConversationTimeout } from './messageFlow';
 import { botState } from './botState';
 import { TwilioProvider } from './providers/TwilioProvider';
+import { MetaCloudProvider } from './providers/MetaCloudProvider';
 import { WhatsAppTransport } from './types/whatsapp';
 
 process.on('unhandledRejection', (reason) => {
@@ -44,9 +45,10 @@ function currentWhatsAppTransport(): WhatsAppTransport | null {
 function restoreConversationState(storage: Storage): void {
   conversationState.configurePersistence(config.CONVERSATION_STATE_PATH);
   const twilioTransport = config.WHATSAPP_PROVIDER === 'TWILIO_API' ? new TwilioProvider() : null;
+  const metaTransport = config.WHATSAPP_PROVIDER === 'META_CLOUD_API' ? new MetaCloudProvider() : null;
   const restored = conversationState.restore((jid, state) => scheduleRestoredConversationTimeout(
     storage,
-    () => twilioTransport ?? currentWhatsAppTransport(),
+    () => twilioTransport ?? metaTransport ?? currentWhatsAppTransport(),
     jid,
     state,
   ));
@@ -73,6 +75,8 @@ async function main(): Promise<void> {
 
   if (config.WHATSAPP_PROVIDER === 'TWILIO_API') {
     console.log('  WhatsApp provider: Twilio API (webhook mode, no Chromium scheduler)');
+  } else if (config.WHATSAPP_PROVIDER === 'META_CLOUD_API') {
+    console.log('  WhatsApp provider: Meta Cloud API (webhook mode, no Chromium scheduler)');
   } else {
     startWhatsAppScheduler(storage);
   }

@@ -1794,7 +1794,7 @@ async function sendReferralShareStep(
 
 function buildReferralShareLink(storage: Storage, triggerPhrase: string, code: string): string {
   const profilePhone = storage.getClientProfile().whatsappPhone;
-  const rawPhone = config.TWILIO_FROM || profilePhone;
+  const rawPhone = config.META_DISPLAY_PHONE_NUMBER || config.TWILIO_FROM || profilePhone;
   const phone = rawPhone.replace(/^whatsapp:/i, '').replace(/[^\d]/g, '');
   const text = (triggerPhrase + ' הגעתי דרך ' + code).trim();
   return phone ? 'https://wa.me/' + phone + '?text=' + encodeURIComponent(text) : text;
