@@ -7,6 +7,8 @@ export interface ClientProvisioningPatch {
   dokployDomainId?: string;
   dokployDeploymentRequested?: boolean;
   managementUrl?: string;
+  metaPhoneNumberId?: string;
+  metaDisplayPhoneNumber?: string;
 }
 
 export interface ClientDeletionResult {
@@ -39,6 +41,7 @@ interface DokployProvisioningConfig {
   metaDisplayPhoneNumber?: string;
   metaVerifyToken?: string;
   metaAppSecret?: string;
+  metaWebhookUrl?: string;
   botReplyDelayMs?: number;
 }
 
@@ -108,6 +111,7 @@ export class DokployProvisioner {
     const metaDisplayPhoneNumber = env.DOKPLOY_META_DISPLAY_PHONE_NUMBER?.trim();
     const metaVerifyToken = env.DOKPLOY_META_VERIFY_TOKEN?.trim();
     const metaAppSecret = env.DOKPLOY_META_APP_SECRET?.trim();
+    const metaWebhookUrl = env.DOKPLOY_META_WEBHOOK_URL?.trim() || 'https://admin.flowsbiz.com/webhooks/meta/whatsapp';
     const botReplyDelayMs = Number(env.DOKPLOY_BOT_REPLY_DELAY_MS);
     const missing = [
       !token && 'DOKPLOY_API_TOKEN',
@@ -158,6 +162,7 @@ export class DokployProvisioner {
       metaDisplayPhoneNumber,
       metaVerifyToken,
       metaAppSecret,
+      metaWebhookUrl,
       botReplyDelayMs: Number.isFinite(botReplyDelayMs) && botReplyDelayMs >= 0 ? Math.round(botReplyDelayMs) : undefined,
     };
   }
@@ -201,8 +206,8 @@ export class DokployProvisioner {
   }
 
   getMetaWebhookUrl(client: ManagedClient): string {
-    if (client.whatsappProvider !== 'META_CLOUD_API' || !client.managementUrl) return '';
-    return new URL('/webhooks/meta/whatsapp', client.managementUrl).toString();
+    if (client.whatsappProvider !== 'META_CLOUD_API') return '';
+    return this.config?.metaWebhookUrl || '';
   }
 
   getTwilioWebhookUrl(client: ManagedClient): string {
@@ -321,6 +326,10 @@ export class DokployProvisioner {
       envLines.push('TWILIO_REQUIRE_SIGNATURE=true');
     }
     if (current.whatsappProvider === 'META_CLOUD_API') {
+      current = saveProgress({
+        metaPhoneNumberId: this.config.metaPhoneNumberId,
+        metaDisplayPhoneNumber: this.config.metaDisplayPhoneNumber,
+      });
       envLines.push('META_ACCESS_TOKEN=' + escapeEnvValue(this.config.metaAccessToken!));
       envLines.push('META_PHONE_NUMBER_ID=' + escapeEnvValue(this.config.metaPhoneNumberId!));
       envLines.push('META_DISPLAY_PHONE_NUMBER=' + escapeEnvValue(this.config.metaDisplayPhoneNumber!));

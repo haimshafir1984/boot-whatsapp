@@ -880,6 +880,9 @@ export function startAdminServer(storage: Storage): void {
   const twilioGatewaySessions = createTwilioGatewaySessionStore(
     path.join(path.dirname(config.OWNER_STORAGE_PATH), 'twilio-gateway-sessions.json'),
   );
+  const metaGatewaySessions = createTwilioGatewaySessionStore(
+    path.join(path.dirname(config.OWNER_STORAGE_PATH), 'meta-gateway-sessions.json'),
+  );
 
   app.set('trust proxy', 1);
   app.use(express.json({ limit: '24mb' }));
@@ -1010,9 +1013,115 @@ export function startAdminServer(storage: Storage): void {
     res.status(403).send('Meta webhook verification failed');
   });
 
+  const routeMetaGatewayInbound = async (payload: any): Promise<{ handled: boolean; reason?: string }> => {
+    const value = payload?.entry?.[0]?.changes?.[0]?.value;
+    const message = value?.messages?.[0];
+    if (!message?.from || !message?.id) {
+      console.log('[META_WEBHOOK_IGNORED] reason=no_messages');
+      return { handled: true };
+    }
+
+    const phoneNumberId = String(value?.metadata?.phone_number_id || '').trim();
+    const displayPhoneNumber = normalizeGatewayPhone(String(value?.metadata?.display_phone_number || ''));
+    const allMetaClients = ownerStorage.getClients()
+      .filter((client) => client.whatsappProvider === 'META_CLOUD_API'
+        && client.managementUrl
+        && client.ownerAccessToken
+        && client.provisioningStatus !== 'disabled');
+    if (!allMetaClients.length) {
+      return { handled: false, reason: 'No managed Meta clients configured for gateway routing' };
+    }
+
+    const exactPhoneIdClients = phoneNumberId
+      ? allMetaClients.filter((client) => String(client.metaPhoneNumberId || '').trim() === phoneNumberId)
+      : [];
+    const exactDisplayClients = displayPhoneNumber
+      ? allMetaClients.filter((client) => normalizeGatewayPhone(client.metaDisplayPhoneNumber || '') === displayPhoneNumber)
+      : [];
+    const sharedAdminNumber = (phoneNumberId && phoneNumberId === String(config.META_PHONE_NUMBER_ID || '').trim())
+      || (displayPhoneNumber && displayPhoneNumber === normalizeGatewayPhone(config.META_DISPLAY_PHONE_NUMBER || ''));
+    const clients = exactPhoneIdClients.length
+      ? exactPhoneIdClients
+      : exactDisplayClients.length
+        ? exactDisplayClients
+        : sharedAdminNumber
+          ? allMetaClients
+          : [];
+
+    if (!clients.length) {
+      console.log('[META_GATEWAY_IGNORED] reason=no_matching_phone_number', phoneNumberId || displayPhoneNumber);
+      return { handled: true };
+    }
+
+    const fromKey = normalizeGatewayPhone(String(message.from));
+    const body = String(message?.text?.body
+      || message?.interactive?.button_reply?.title
+      || message?.interactive?.list_reply?.title
+      || message?.interactive?.button_reply?.id
+      || message?.interactive?.list_reply?.id
+      || '').trim();
+    const normalizedBody = normalizeGatewayText(body);
+    const candidates: Array<{ client: ManagedClient; campaign: Campaign; triggerText: string }> = [];
+    await Promise.all(clients.map(async (client) => {
+      const result = await fetchClientAsOwner<Campaign[]>(client, '/owner-api/campaigns');
+      if (!result.ok || !Array.isArray(result.body)) return;
+      for (const campaign of result.body) {
+        if (!campaign.active || (campaign.runtimeStatus && campaign.runtimeStatus !== 'active')) continue;
+        const triggerText = normalizeGatewayText(campaign.triggerPhrase ?? '');
+        if (triggerText && normalizedBody.includes(triggerText)) candidates.push({ client, campaign, triggerText });
+      }
+    }));
+
+    candidates.sort((a, b) => b.triggerText.length - a.triggerText.length);
+    const best = candidates[0];
+    if (best && candidates[1] && candidates[1].triggerText.length === best.triggerText.length && candidates[1].client.id !== best.client.id) {
+      console.log('[META_GATEWAY_IGNORED] reason=ambiguous_trigger', message.id, message.from);
+      return { handled: true };
+    }
+
+    const destinationKey = phoneNumberId || displayPhoneNumber;
+    const sessionKey = destinationKey ? fromKey + ':' + destinationKey : fromKey;
+    let targetClient: ManagedClient | null = best?.client ?? null;
+    if (best) {
+      metaGatewaySessions.set({
+        from: sessionKey,
+        clientId: best.client.id,
+        campaignId: best.campaign.id,
+        updatedAt: new Date().toISOString(),
+      });
+    } else {
+      const session = metaGatewaySessions.get(sessionKey);
+      targetClient = session ? clients.find((client) => client.id === session.clientId) ?? null : null;
+    }
+
+    if (!targetClient) {
+      console.log('[META_GATEWAY_IGNORED] reason=no_trigger_or_session', message.id, message.from);
+      return { handled: true };
+    }
+
+    const forwarded = await fetchClientAsOwner(targetClient, '/internal/meta/whatsapp', {
+      method: 'POST',
+      body: JSON.stringify(payload ?? {}),
+    });
+    if (!forwarded.ok) {
+      console.error('[META_GATEWAY_FAILED]', targetClient.id, forwarded.status, JSON.stringify(forwarded.body).slice(0, 300));
+    } else {
+      console.log('[META_GATEWAY_ROUTED]', message.id, targetClient.id);
+    }
+    return { handled: true };
+  };
+
   app.post('/webhooks/meta/whatsapp', (req, res) => {
     res.sendStatus(200);
-    void handleMetaInboundForStorage(req.body).catch((err) => { console.error('Meta webhook failed:', err); });
+    void (async () => {
+      try {
+        const gateway = await routeMetaGatewayInbound(req.body);
+        if (gateway.handled) return;
+        await handleMetaInboundForStorage(req.body);
+      } catch (err) {
+        console.error('Meta webhook failed:', err);
+      }
+    })();
   });
   const routeTwilioGatewayInbound = async (payload: any): Promise<{ handled: boolean; status?: number; reason?: string }> => {
     const meta = twilioInboundMeta(payload);
@@ -1343,6 +1452,7 @@ export function startAdminServer(storage: Storage): void {
     ...client,
     metaAccessToken: undefined,
     metaVerifyToken: undefined,
+    metaWebhookUrl: dokployProvisioner.getMetaWebhookUrl(client),
     twilioWebhookUrl: dokployProvisioner.getTwilioWebhookUrl(client),
   });
 
@@ -1635,6 +1745,17 @@ export function startAdminServer(storage: Storage): void {
     }
     next();
   };
+
+  app.post('/internal/meta/whatsapp', requireOwnerApiToken, (req, res) => {
+    if (config.WHATSAPP_PROVIDER !== 'META_CLOUD_API') {
+      res.status(409).json({ error: 'Meta Cloud API provider is not enabled for this client' });
+      return;
+    }
+    res.json({ ok: true });
+    void handleMetaInboundForStorage(req.body).catch((err) => {
+      console.error('Internal Meta dispatch failed:', err);
+    });
+  });
 
   app.post('/internal/twilio/whatsapp', requireOwnerApiToken, async (req, res) => {
     if (config.WHATSAPP_PROVIDER !== 'TWILIO_API') {
