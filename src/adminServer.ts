@@ -984,7 +984,10 @@ export function startAdminServer(storage: Storage): void {
   const handleMetaInboundForStorage = async (payload: any): Promise<void> => {
     const value = payload?.entry?.[0]?.changes?.[0]?.value;
     const message = value?.messages?.[0];
-    if (!message?.from || !message?.id) throw new Error('Invalid Meta webhook message');
+    if (!message?.from || !message?.id) {
+      console.log('[META_WEBHOOK_IGNORED] reason=no_messages');
+      return;
+    }
     const contact = value?.contacts?.[0];
     const body = String(message?.text?.body || message?.interactive?.button_reply?.title || message?.interactive?.list_reply?.title || message?.interactive?.button_reply?.id || message?.interactive?.list_reply?.id || '').trim();
     const provider = new MetaCloudProvider();
