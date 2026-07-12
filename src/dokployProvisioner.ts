@@ -205,6 +205,16 @@ export class DokployProvisioner {
     return { deleted, warnings };
   }
 
+  getMetaRoutingConfig(): { phoneNumberId: string; displayPhoneNumber: string } | null {
+    if (!this.config?.metaPhoneNumberId || !this.config.metaDisplayPhoneNumber || !this.config.metaAccessToken || !this.config.metaVerifyToken) {
+      return null;
+    }
+    return {
+      phoneNumberId: this.config.metaPhoneNumberId,
+      displayPhoneNumber: this.config.metaDisplayPhoneNumber,
+    };
+  }
+
   getMetaWebhookUrl(client: ManagedClient): string {
     if (client.whatsappProvider !== 'META_CLOUD_API') return '';
     return this.config?.metaWebhookUrl || '';

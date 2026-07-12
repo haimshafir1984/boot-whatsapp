@@ -286,6 +286,7 @@
         </section>
         <button class="retry" id="retryButton" style="display:none" onclick="retryProvision()">נסה שוב להקים את היחידה</button>
         <button class="secondary" id="updateUnitButton" style="display:none" onclick="retryProvision()">עדכן יחידה וקמפיינים</button>
+        <button class="secondary" id="migrateToMetaButton" style="display:none" onclick="migrateToMeta()">&#1492;&#1506;&#1489;&#1512; &#1500;-Meta Cloud API</button>
         <button class="secondary" id="readyButton" style="display:none" onclick="checkReady()">בדוק אם הלינק כבר מוכן</button>
         <div class="future">
           כל לקוחה מקבלת שירות ואחסון נפרדים. העמוד הזה יציג סטטוס אמת וקישור כניסה, ללא גישה לנתונים של לקוחות אחרות.
@@ -760,6 +761,7 @@
       document.getElementById('serviceExpiresAt').textContent = formatDate(currentClient.serviceExpiresAt);
       document.getElementById('whatsappProvider').textContent =
         currentClient.whatsappProvider === 'TWILIO_API' ? 'Twilio' :
+        currentClient.whatsappProvider === 'META_CLOUD_API' ? 'Meta Cloud API' :
         currentClient.whatsappProvider === 'BAILEYS' ? 'Baileys' :
         'WhatsApp Web';
       const isTwilioClient = currentClient.whatsappProvider === 'TWILIO_API';
@@ -774,6 +776,7 @@
       document.getElementById('accessCode').textContent = currentClient.accessCode;
       document.getElementById('retryButton').style.display = 'none';
       document.getElementById('updateUnitButton').style.display = 'none';
+      document.getElementById('migrateToMetaButton').style.display = isTwilioClient ? '' : 'none';
       document.getElementById('readyButton').style.display = 'none';
       const managementEl = document.getElementById('managementUrl');
       if (currentClient.managementUrl) {
@@ -848,6 +851,33 @@
       loadClient();
     }
 
+    async function migrateToMeta() {
+      if (!currentClient || currentClient.whatsappProvider !== 'TWILIO_API') return;
+      const confirmed = confirm('\u05dc\u05d4\u05e2\u05d1\u05d9\u05e8 \u05d0\u05ea \u05d4\u05dc\u05e7\u05d5\u05d7\u05d4 \u05de-Twilio \u05dc-Meta Cloud API?\n\n\u05d4\u05e7\u05de\u05e4\u05d9\u05d9\u05e0\u05d9\u05dd \u05d5\u05d4\u05e7\u05d1\u05e6\u05d9\u05dd \u05d9\u05d9\u05e9\u05d0\u05e8\u05d5 \u05d1\u05d0\u05d5\u05ea\u05d4 \u05d9\u05d7\u05d9\u05d3\u05d4. \u05d4\u05de\u05e2\u05e8\u05db\u05ea \u05ea\u05d7\u05e1\u05d5\u05dd \u05d0\u05ea \u05d4\u05de\u05e2\u05d1\u05e8 \u05d0\u05dd \u05d9\u05e9 \u05e7\u05de\u05e4\u05d9\u05d9\u05df \u05e4\u05e2\u05d9\u05dc.');
+      if (!confirmed) return;
+      const button = document.getElementById('migrateToMetaButton');
+      const error = document.getElementById('error');
+      button.disabled = true;
+      button.textContent = '\u05de\u05e2\u05d1\u05d9\u05e8 \u05dc-Meta \u05d5\u05de\u05e4\u05e8\u05e1...';
+      error.textContent = '';
+      try {
+        const response = await fetch(`/owner/api/clients/${encodeURIComponent(currentClient.id)}/migrate-to-meta`, { method: 'POST' });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          error.textContent = body.error || '\u05d4\u05de\u05e2\u05d1\u05e8 \u05dc-Meta \u05e0\u05db\u05e9\u05dc';
+          if (Array.isArray(body.campaigns) && body.campaigns.length) {
+            error.textContent += ': ' + body.campaigns.map((campaign) => campaign.name || campaign.id).join(', ');
+          }
+          return;
+        }
+        currentClient = body;
+        error.textContent = '\u05d4\u05dc\u05e7\u05d5\u05d7\u05d4 \u05e2\u05d1\u05e8\u05d4 \u05dc-Meta Cloud API. \u05d4\u05e4\u05e8\u05d9\u05e1\u05d4 \u05d4\u05d7\u05dc\u05d4.';
+        await loadClient();
+      } finally {
+        button.disabled = false;
+        button.textContent = '\u05d4\u05e2\u05d1\u05e8 \u05dc-Meta Cloud API';
+      }
+    }
     async function retryProvision() {
       if (!currentClient) return;
       const response = await fetch(`/owner/api/clients/${encodeURIComponent(currentClient.id)}/provision`, { method: 'POST' });

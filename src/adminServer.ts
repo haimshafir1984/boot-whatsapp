@@ -1548,6 +1548,58 @@ export function startAdminServer(storage: Storage): void {
     res.json(updated ? exposeOwnerClient(updated) : null);
   });
 
+  app.post('/owner/api/clients/:id/migrate-to-meta', async (req, res) => {
+    const client = ownerStorage.getClient(req.params.id);
+    if (!client) {
+      res.status(404).json({ error: 'Client not found' });
+      return;
+    }
+    if (client.whatsappProvider === 'META_CLOUD_API') {
+      res.json(exposeOwnerClient(client));
+      return;
+    }
+    if (client.whatsappProvider !== 'TWILIO_API') {
+      res.status(409).json({ error: 'Only Twilio clients can be migrated to Meta Cloud API.' });
+      return;
+    }
+
+    const metaRouting = dokployProvisioner.getMetaRoutingConfig();
+    if (!metaRouting) {
+      res.status(409).json({ error: 'Meta provisioning is not fully configured in flowsbiz-admin.' });
+      return;
+    }
+
+    const campaignsResult = await fetchClientAsOwner<any[]>(client, '/owner-api/campaigns');
+    if (!campaignsResult.ok || !Array.isArray(campaignsResult.body)) {
+      res.status(502).json({ error: 'Could not verify that all client campaigns are inactive.' });
+      return;
+    }
+    const activeCampaigns = campaignsResult.body.filter((campaign: any) => campaign?.active === true && campaign?.runtimeStatus !== 'ended');
+    if (activeCampaigns.length) {
+      res.status(409).json({
+        error: 'Disable all active or scheduled campaigns before migrating this client to Meta Cloud API.',
+        campaigns: activeCampaigns.map((campaign: any) => ({ id: campaign.id, name: campaign.name, runtimeStatus: campaign.runtimeStatus })),
+      });
+      return;
+    }
+
+    ownerStorage.updateClient(client.id, {
+      whatsappProvider: 'META_CLOUD_API',
+      metaPhoneNumberId: metaRouting.phoneNumberId,
+      metaDisplayPhoneNumber: metaRouting.displayPhoneNumber,
+      provisioningError: undefined,
+    });
+
+    try {
+      res.json(exposeOwnerClient(await provisionClient(client.id)));
+    } catch (err: any) {
+      res.status(502).json({
+        error: err?.message ?? String(err),
+        client: ownerStorage.getClient(client.id) ? exposeOwnerClient(ownerStorage.getClient(client.id)!) : null,
+      });
+    }
+  });
+
   app.get('/owner/api/clients/:id', (req, res) => {
     const client = ownerStorage.getClient(req.params.id);
     if (!client) {
