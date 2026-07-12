@@ -542,7 +542,9 @@ function conversationSettings(
     contactCardPlacement: input?.contactCardPlacement === 'before_questions'
       ? 'before_questions'
       : (defaults.contactCardPlacement ?? 'after_completion'),
-    contactCardSendMode: 'separate',
+    contactCardSendMode: input?.contactCardSendMode === 'combined' || input?.contactCardSendMode === 'separate'
+      ? input.contactCardSendMode
+      : (defaults.contactCardSendMode ?? 'separate'),
     contactCards,
     contactCardName: primaryContactCard.name ?? '',
     contactCardPhone: primaryContactCard.phone ?? '',

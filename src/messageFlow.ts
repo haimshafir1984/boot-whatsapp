@@ -1127,6 +1127,37 @@ async function sendCompletionContactCards(
 ): Promise<void> {
   const cards = uniqueContactCards(contactCards ?? []).slice(0, 2);
   if (!cards.length) return;
+
+  if (_sendMode === 'combined' && cards.length > 1 && transport.sendContactCards) {
+    const combinedContacts = cards
+      .filter((contactCard) => contactCard.enabled)
+      .map((contactCard) => {
+        const name = (contactCard.name || 'Contact').trim();
+        const phone = normalizeVCardPhone((contactCard.phone || '').trim());
+        const email = (contactCard.email || '').trim();
+        const organization = (contactCard.organization || '').trim();
+        if (!name && !phone && !email) return null;
+        return {
+          displayName: name || phone || email || 'Contact',
+          vcard: buildVCard({ name, phone, email, organization }),
+        };
+      })
+      .filter((contact): contact is { displayName: string; vcard: string } => Boolean(contact));
+    if (combinedContacts.length > 1) {
+      try {
+        await waitBeforeBotReply();
+        await transport.sendContactCards(senderJid, combinedContacts, combinedContacts.map((contact) => contact.displayName).join(', '));
+        console.log('   Combined native contact card sent.');
+        for (const contact of combinedContacts) {
+          recordContactCardEvent(storage, campaignId, campaignResultId, senderPhone, `contact card: ${contact.displayName}`);
+        }
+        return;
+      } catch (err) {
+        console.warn('   Combined contact card failed, falling back to separate cards:', err);
+      }
+    }
+  }
+
   for (const [index, contactCard] of cards.entries()) {
     await sendCompletionContactCard(transport, storage, senderJid, contactCard, campaignId, campaignResultId, senderPhone, index + 1);
   }
