@@ -1112,7 +1112,7 @@ export class Storage {
       completionFileIds: campaign.conversation?.completionFileIds ?? [],
       sendContactCard: campaign.conversation?.sendContactCard ?? defaults.sendContactCard ?? false,
       contactCardPlacement: campaign.conversation?.contactCardPlacement ?? defaults.contactCardPlacement ?? 'after_completion',
-      contactCardSendMode: 'separate',
+      contactCardSendMode: campaign.conversation?.contactCardSendMode ?? defaults.contactCardSendMode ?? 'separate',
       contactCards: campaign.conversation?.contactCards ?? defaults.contactCards ?? [],
       contactCardName: campaign.conversation?.contactCardName ?? defaults.contactCardName ?? '',
       contactCardPhone: campaign.conversation?.contactCardPhone ?? defaults.contactCardPhone ?? '',
@@ -1189,6 +1189,27 @@ export class Storage {
     this.data.campaigns.push(campaign);
     this.persist();
     return campaign;
+  }
+
+  duplicateCampaign(id: string, name: string): Campaign | null {
+    const source = this.data.campaigns.find((campaign) => campaign.id === id);
+    if (!source) return null;
+
+    const copy = JSON.parse(JSON.stringify(source)) as Campaign;
+    const {
+      id: _sourceId,
+      runtimeStatus: _runtimeStatus,
+      currentResultBatchId: _currentResultBatchId,
+      currentResultBatchStartedAt: _currentResultBatchStartedAt,
+      ...campaignData
+    } = copy;
+
+    return this.addCampaign({
+      ...campaignData,
+      name,
+      // A duplicate must never start responding before its trigger is reviewed.
+      active: false,
+    });
   }
 
   updateCampaign(id: string, patch: Partial<Omit<Campaign, 'id'>>): Campaign | null {

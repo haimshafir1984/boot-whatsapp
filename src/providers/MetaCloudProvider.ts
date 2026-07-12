@@ -39,6 +39,7 @@ export class MetaCloudProvider implements WhatsAppProvider {
   async sendContactCards(to: string, contacts: Array<{ vcard: string; displayName: string }>, _displayName: string): Promise<void> {
     const parsed = contacts.slice(0, 2).map((contact) => parseVCard(contact.vcard, contact.displayName)).filter(Boolean);
     if (!parsed.length) return;
+    console.log('[META_CONTACTS_SEND] count=' + parsed.length);
     await this.postMessages({ messaging_product: 'whatsapp', to: normalizePhone(to), type: 'contacts', contacts: parsed });
   }
 

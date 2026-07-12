@@ -2753,6 +2753,29 @@ ${detailRows.map((values) => `<tr>${values.map((value) => cell(value)).join('')}
     res.json(campaign);
   });
 
+  app.post('/api/campaigns/:id/duplicate', requireWritableClient, (req, res) => {
+    const source = storage.getCampaigns().find((campaign) => campaign.id === req.params.id);
+    if (!source) {
+      res.status(404).json({ error: 'קמפיין לא נמצא' });
+      return;
+    }
+
+    const capabilities = getClientCapabilities(storage);
+    if (storage.getCampaigns().length >= capabilities.maxCampaigns) {
+      res.status(403).json({ error: `המסלול מאפשר עד ${capabilities.maxCampaigns} קמפיינים.` });
+      return;
+    }
+
+    const requestedName = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    const campaign = storage.duplicateCampaign(source.id, requestedName || `${source.name} - עותק`);
+    if (!campaign) {
+      res.status(404).json({ error: 'קמפיין לא נמצא' });
+      return;
+    }
+
+    res.status(201).json(campaign);
+  });
+
   app.put('/api/campaigns/:id', requireWritableClient, (req, res) => {
     const { name, triggerType, triggerPhrase, basePhrase, referrerName, active, startAt, endAt, conversation, twilio } =
       req.body as Partial<Campaign>;

@@ -1815,6 +1815,7 @@
             ${c.active ? '⏸' : '▶'}
           </button>
           <button class="btn-icon btn-edit" onclick="openEditModal('${c.id}')" title="עריכה">✏️</button>
+          <button class="btn-icon btn-edit" onclick="duplicateCampaign('${c.id}')" title="שכפול קמפיין">⧉</button>
           <button class="btn-icon btn-delete" onclick="deleteCampaign('${c.id}', '${esc(c.name)}')" title="מחק">🗑</button>
         </div>
       </div>
@@ -2053,6 +2054,32 @@
   async function toggleCampaign(id) {
     await fetch(`/api/campaigns/${id}/toggle`, { method: 'PATCH' });
     loadCampaigns();
+  }
+
+  async function duplicateCampaign(id) {
+    if (!canEditCampaigns()) return;
+    const source = lastCampaigns.find(campaign => campaign.id === id);
+    if (!source) return;
+    const name = prompt('שם הקמפיין המשוכפל:', `${source.name} - עותק`);
+    if (name === null) return;
+    if (!name.trim()) {
+      alert('יש להזין שם לקמפיין.');
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/campaigns/${encodeURIComponent(id)}/duplicate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'שכפול הקמפיין נכשל');
+      await loadCampaigns();
+      alert('הקמפיין שוכפל ונשמר כבוי. אפשר לערוך אותו ולהפעיל רק כשהוא מוכן.');
+    } catch (err) {
+      alert(err?.message || 'שכפול הקמפיין נכשל');
+    }
   }
 
   async function deleteCampaign(id, name) {
