@@ -1043,12 +1043,12 @@ export function startAdminServer(storage: Storage): void {
       : [];
     const sharedAdminNumber = (phoneNumberId && phoneNumberId === String(config.META_PHONE_NUMBER_ID || '').trim())
       || (displayPhoneNumber && displayPhoneNumber === normalizeGatewayPhone(config.META_DISPLAY_PHONE_NUMBER || ''));
-    const clients = exactPhoneIdClients.length
-      ? exactPhoneIdClients
-      : exactDisplayClients.length
-        ? exactDisplayClients
-        : sharedAdminNumber
-          ? allMetaClients
+    const clients = sharedAdminNumber
+      ? allMetaClients
+      : exactPhoneIdClients.length
+        ? exactPhoneIdClients
+        : exactDisplayClients.length
+          ? exactDisplayClients
           : [];
 
     if (!clients.length) {
@@ -1118,6 +1118,8 @@ export function startAdminServer(storage: Storage): void {
         targetClient.id,
         routedCampaignId ? `campaign=${routedCampaignId}` : 'campaign=unknown',
         routedTriggerText ? `trigger=${routedTriggerText}` : 'trigger=session',
+        `clients_checked=${clients.length}`,
+        `candidates=${candidates.length}`,
       );
     }
     return { handled: true };
