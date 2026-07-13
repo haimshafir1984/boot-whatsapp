@@ -1684,6 +1684,10 @@
   };
   let editingId = null;
   let lastWizardLink = '';
+  let wizardDraftReady = false;
+  let wizardDraftDirty = false;
+  let wizardDraftApplying = false;
+  let wizardDraftTimer = null;
   let activeDecisionStepId = '';
   let appFiles = [];
   let appCapabilities = { readonlyDashboard: false, maxCampaigns: 7, serviceExpired: false, campaignCount: 0, whatsappProvider: '', referralContestEnabled: false };
@@ -2178,6 +2182,73 @@
     ['fName', 'fPhrase', 'fBasePhrase', 'fReferrer'].forEach(clearFieldError);
   }
 
+  function wizardDraftKey(id = editingId) {
+    return `flowsbiz:campaign-builder-draft:${window.location.host}:${id || 'new'}`;
+  }
+
+  function captureWizardDraft() {
+    const triggerType = Number(document.querySelector('input[name=triggerType]:checked')?.value || 1);
+    return {
+      savedAt: new Date().toISOString(),
+      editingId,
+      wizardStep,
+      name: document.getElementById('fName')?.value || '',
+      triggerType,
+      phrase: document.getElementById('fPhrase')?.value || '',
+      basePhrase: document.getElementById('fBasePhrase')?.value || '',
+      referrerName: document.getElementById('fReferrer')?.value || '',
+      startAt: document.getElementById('fStartAt')?.value || '',
+      endAt: document.getElementById('fEndAt')?.value || '',
+      conversation: getCampaignConversation(),
+    };
+  }
+
+  function applyWizardDraft(draft) {
+    if (!draft) return;
+    wizardDraftApplying = true;
+    document.getElementById('fName').value = draft.name || '';
+    document.getElementById('fStartAt').value = draft.startAt || '';
+    document.getElementById('fEndAt').value = draft.endAt || '';
+    populateCampaignConversation(draft.conversation || appSettings);
+    selectType(Number(draft.triggerType || 1));
+    document.getElementById('fPhrase').value = draft.phrase || '';
+    document.getElementById('fBasePhrase').value = draft.basePhrase || '';
+    document.getElementById('fReferrer').value = draft.referrerName || '';
+    updatePreview();
+    updateCampaignConversationPreview();
+    goWizardStep(Number(draft.wizardStep || 1));
+    wizardDraftApplying = false;
+    wizardDraftDirty = true;
+  }
+
+  function maybeRestoreWizardDraft(id = editingId) {
+    try {
+      const raw = localStorage.getItem(wizardDraftKey(id));
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      const hasContent = draft?.name || draft?.phrase || draft?.basePhrase || draft?.referrerName || (draft?.conversation?.decisionFlow || []).length;
+      if (!hasContent) return;
+      if (confirm('\u05e0\u05de\u05e6\u05d0\u05d4 \u05d8\u05d9\u05d5\u05d8\u05d4 \u05de\u05e7\u05d5\u05de\u05d9\u05ea \u05dc\u05e7\u05de\u05e4\u05d9\u05d9\u05df. \u05dc\u05e9\u05d7\u05d6\u05e8 \u05d0\u05d5\u05ea\u05d4?')) {
+        applyWizardDraft(draft);
+      } else {
+        localStorage.removeItem(wizardDraftKey(id));
+      }
+    } catch (_) {}
+  }
+
+  function scheduleWizardDraftSave() {
+    if (!wizardDraftReady || wizardDraftApplying || !document.getElementById('modalOverlay')?.classList.contains('open')) return;
+    wizardDraftDirty = true;
+    clearTimeout(wizardDraftTimer);
+    wizardDraftTimer = setTimeout(() => {
+      try { localStorage.setItem(wizardDraftKey(), JSON.stringify(captureWizardDraft())); } catch (_) {}
+    }, 250);
+  }
+
+  function clearWizardDraft(id = editingId) {
+    try { localStorage.removeItem(wizardDraftKey(id)); } catch (_) {}
+    wizardDraftDirty = false;
+  }
   function currentTriggerText() {
     const triggerType = Number(document.querySelector('input[name=triggerType]:checked')?.value || 1);
     if (triggerType === 1) return document.getElementById('fPhrase').value.trim();
@@ -2305,6 +2376,9 @@
     updateCampaignConversationPreview();
     goWizardStep(1);
     document.getElementById('modalOverlay').classList.add('open');
+    wizardDraftReady = true;
+    wizardDraftDirty = false;
+    maybeRestoreWizardDraft(null);
   }
 
   async function openEditModal(id) {
@@ -2337,10 +2411,16 @@
     updateCampaignConversationPreview();
     goWizardStep(1);
     document.getElementById('modalOverlay').classList.add('open');
+    wizardDraftReady = true;
+    wizardDraftDirty = false;
+    maybeRestoreWizardDraft(id);
   }
 
-  function closeModal() {
+  function closeModal(options = {}) {
+    if (!options.force && wizardDraftReady && wizardDraftDirty && !confirm('\u05dc\u05e1\u05d2\u05d5\u05e8 \u05d1\u05dc\u05d9 \u05dc\u05e9\u05de\u05d5\u05e8? \u05d4\u05d8\u05d9\u05d5\u05d8\u05d4 \u05ea\u05d9\u05e9\u05d0\u05e8 \u05d1\u05d3\u05e4\u05d3\u05e4\u05df \u05dc\u05e9\u05d7\u05d6\u05d5\u05e8 \u05de\u05d0\u05d5\u05d7\u05e8 \u05d9\u05d5\u05ea\u05e8.')) return;
     document.getElementById('modalOverlay').classList.remove('open');
+    wizardDraftReady = false;
+    wizardDraftDirty = false;
     editingId = null;
   }
 
@@ -2413,6 +2493,7 @@
       body = { name, triggerType, basePhrase, referrerName, startAt, endAt, conversation, twilio: { mode: 'link', optInConfirmed: true, audienceNotes: 'הלקוח פתח את שיחת ה-WhatsApp דרך לינק הקמפיין; אין צורך בטמפלייט מאושר.' } };
     }
 
+    const draftIdBeforeSave = editingId;
     const url    = editingId ? `/api/campaigns/${editingId}` : '/api/campaigns';
     const method = editingId ? 'PUT' : 'POST';
     const saveBtn = document.getElementById('wizardNextBtn');
@@ -2432,7 +2513,9 @@
       return;
     }
 
+    clearWizardDraft(draftIdBeforeSave);
     editingId = data.id || editingId;
+    clearWizardDraft(editingId);
     const savedTrigger = data.triggerPhrase || currentTriggerText();
     await ensureSharePhone();
     const link = buildCampaignShareLink(savedTrigger, data.id || editingId);
@@ -2447,6 +2530,8 @@
   document.getElementById('modalOverlay').addEventListener('click', e => {
     if (e.target === e.currentTarget) closeModal();
   });
+  document.getElementById('modalOverlay').addEventListener('input', scheduleWizardDraftSave);
+  document.getElementById('modalOverlay').addEventListener('change', scheduleWizardDraftSave);
 
   // ── Settings ────────────────────────────────────────────────────────────────
 
@@ -3638,6 +3723,7 @@
     if (askRow) askRow.style.display = conversation.askNameEnabled ? 'flex' : 'none';
     updateConversationMap(conversation, triggerText);
     updateWizardSummary();
+    scheduleWizardDraftSave();
   }
 
   function previewDecisionFlow(flow = [], conversation = getCampaignConversation()) {

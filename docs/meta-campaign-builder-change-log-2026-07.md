@@ -63,3 +63,15 @@
   - Removed the duplicate bottom add-step control; the main add-step control remains.
 - Verification: pending final `npm run build` and manual builder smoke tests.
 - Rollback: revert this step commit only.
+### 5. Local draft recovery
+
+- Status: completed.
+- Files: `public/index.html`.
+- Changes:
+  - Added local-only draft capture in `localStorage`, scoped by host and campaign id/new campaign.
+  - Prompts to restore a local draft when reopening the builder.
+  - Warns before closing with unsaved local changes.
+  - Clears the relevant draft after a successful campaign save.
+  - Does not write drafts to the server and does not mutate existing campaigns without explicit save.
+- Verification: pending final `npm run build` and manual draft close/restore/discard tests.
+- Rollback: revert this step commit only.
