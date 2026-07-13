@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc13",
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "googleapis": "^140.0.0",
     "open": "^8.4.2",
