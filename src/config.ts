@@ -4,20 +4,31 @@
  * Campaigns and admin-controlled settings live in storage.ts / the dashboard.
  */
 
+function envValue(value: string | undefined, fallback = ''): string {
+  const trimmed = String(value ?? fallback).trim();
+  return trimmed.replace(/^[\'\"]|[\'\"]$/g, '');
+}
+
+function envFlag(value: string | undefined, defaultValue: boolean): boolean {
+  const normalized = envValue(value).toLowerCase();
+  if (!normalized) return defaultValue;
+  return !['false', '0', 'no', 'off'].includes(normalized);
+}
+
 export const config = {
-  CLIENT_PLAN: process.env.CLIENT_PLAN ?? 'self_service',
-  CLIENT_READONLY_DASHBOARD: process.env.CLIENT_READONLY_DASHBOARD === 'true',
-  CLIENT_MAX_CAMPAIGNS: Number(process.env.CLIENT_MAX_CAMPAIGNS) || 7,
-  CLIENT_SERVICE_EXPIRES_AT: process.env.CLIENT_SERVICE_EXPIRES_AT ?? '',
-  CLIENT_REFERRAL_CONTEST_ENABLED: process.env.CLIENT_REFERRAL_CONTEST_ENABLED === 'true',
-  WHATSAPP_PROVIDER: process.env.WHATSAPP_PROVIDER ?? 'BAILEYS',
-  META_ACCESS_TOKEN: process.env.META_ACCESS_TOKEN ?? process.env.DOKPLOY_META_ACCESS_TOKEN ?? '',
-  META_PHONE_NUMBER_ID: process.env.META_PHONE_NUMBER_ID ?? process.env.DOKPLOY_META_PHONE_NUMBER_ID ?? '',
-  META_DISPLAY_PHONE_NUMBER: process.env.META_DISPLAY_PHONE_NUMBER ?? process.env.DOKPLOY_META_DISPLAY_PHONE_NUMBER ?? '',
-  META_VERIFY_TOKEN: process.env.META_VERIFY_TOKEN ?? process.env.DOKPLOY_META_VERIFY_TOKEN ?? '',
-  META_APP_SECRET: process.env.META_APP_SECRET ?? process.env.DOKPLOY_META_APP_SECRET ?? '',
-  META_GRAPH_API_VERSION: process.env.META_GRAPH_API_VERSION ?? 'v23.0',
-  WHATSAPP_KEEP_CONNECTED: process.env.WHATSAPP_KEEP_CONNECTED !== 'false',
+  CLIENT_PLAN: envValue(process.env.CLIENT_PLAN, 'self_service'),
+  CLIENT_READONLY_DASHBOARD: envFlag(process.env.CLIENT_READONLY_DASHBOARD, false),
+  CLIENT_MAX_CAMPAIGNS: Number(envValue(process.env.CLIENT_MAX_CAMPAIGNS)) || 7,
+  CLIENT_SERVICE_EXPIRES_AT: envValue(process.env.CLIENT_SERVICE_EXPIRES_AT),
+  CLIENT_REFERRAL_CONTEST_ENABLED: envFlag(process.env.CLIENT_REFERRAL_CONTEST_ENABLED, false),
+  WHATSAPP_PROVIDER: envValue(process.env.WHATSAPP_PROVIDER, 'BAILEYS'),
+  META_ACCESS_TOKEN: envValue(process.env.META_ACCESS_TOKEN ?? process.env.DOKPLOY_META_ACCESS_TOKEN),
+  META_PHONE_NUMBER_ID: envValue(process.env.META_PHONE_NUMBER_ID ?? process.env.DOKPLOY_META_PHONE_NUMBER_ID),
+  META_DISPLAY_PHONE_NUMBER: envValue(process.env.META_DISPLAY_PHONE_NUMBER ?? process.env.DOKPLOY_META_DISPLAY_PHONE_NUMBER),
+  META_VERIFY_TOKEN: envValue(process.env.META_VERIFY_TOKEN ?? process.env.DOKPLOY_META_VERIFY_TOKEN),
+  META_APP_SECRET: envValue(process.env.META_APP_SECRET ?? process.env.DOKPLOY_META_APP_SECRET),
+  META_GRAPH_API_VERSION: envValue(process.env.META_GRAPH_API_VERSION, 'v23.0'),
+  WHATSAPP_KEEP_CONNECTED: envFlag(process.env.WHATSAPP_KEEP_CONNECTED, true),
   BOT_REPLY_DELAY_MS: Number(process.env.BOT_REPLY_DELAY_MS ?? 3000),
   TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID ?? process.env.DOKPLOY_TWILIO_ACCOUNT_SID ?? '',
   TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN ?? process.env.DOKPLOY_TWILIO_AUTH_TOKEN ?? '',
