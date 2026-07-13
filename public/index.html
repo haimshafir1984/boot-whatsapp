@@ -2490,7 +2490,7 @@
         errEl.textContent = 'יש שדה שצריך להשלים לפני שמירה.';
         return;
       }
-      body = { name, triggerType, triggerPhrase: phrase, active: true, startAt, endAt, conversation, twilio: { mode: 'link', optInConfirmed: true, audienceNotes: 'הלקוח פתח את שיחת ה-WhatsApp דרך לינק הקמפיין; אין צורך בטמפלייט מאושר.' } };
+      body = { name, triggerType, triggerPhrase: phrase, startAt, endAt, conversation, twilio: { mode: 'link', optInConfirmed: true, audienceNotes: 'הלקוח פתח את שיחת ה-WhatsApp דרך לינק הקמפיין; אין צורך בטמפלייט מאושר.' } };
     } else {
       const basePhrase   = document.getElementById('fBasePhrase').value.trim();
       const referrerName = document.getElementById('fReferrer').value.trim();
@@ -2504,7 +2504,7 @@
         errEl.textContent = 'יש שדה שצריך להשלים לפני שמירה.';
         return;
       }
-      body = { name, triggerType, basePhrase, referrerName, active: true, startAt, endAt, conversation, twilio: { mode: 'link', optInConfirmed: true, audienceNotes: 'הלקוח פתח את שיחת ה-WhatsApp דרך לינק הקמפיין; אין צורך בטמפלייט מאושר.' } };
+      body = { name, triggerType, basePhrase, referrerName, startAt, endAt, conversation, twilio: { mode: 'link', optInConfirmed: true, audienceNotes: 'הלקוח פתח את שיחת ה-WhatsApp דרך לינק הקמפיין; אין צורך בטמפלייט מאושר.' } };
     }
 
     const draftIdBeforeSave = editingId;

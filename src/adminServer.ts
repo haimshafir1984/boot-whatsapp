@@ -1085,6 +1085,8 @@ export function startAdminServer(storage: Storage): void {
     const destinationKey = phoneNumberId || displayPhoneNumber;
     const sessionKey = destinationKey ? fromKey + ':' + destinationKey : fromKey;
     let targetClient: ManagedClient | null = best?.client ?? null;
+    let routedCampaignId = best?.campaign.id ?? '';
+    let routedTriggerText = best?.triggerText ?? '';
     if (best) {
       metaGatewaySessions.set({
         from: sessionKey,
@@ -1095,6 +1097,7 @@ export function startAdminServer(storage: Storage): void {
     } else {
       const session = metaGatewaySessions.get(sessionKey);
       targetClient = session ? clients.find((client) => client.id === session.clientId) ?? null : null;
+      routedCampaignId = session?.campaignId ?? '';
     }
 
     if (!targetClient) {
@@ -1109,7 +1112,13 @@ export function startAdminServer(storage: Storage): void {
     if (!forwarded.ok) {
       console.error('[META_GATEWAY_FAILED]', targetClient.id, forwarded.status, JSON.stringify(forwarded.body).slice(0, 300));
     } else {
-      console.log('[META_GATEWAY_ROUTED]', message.id, targetClient.id);
+      console.log(
+        '[META_GATEWAY_ROUTED]',
+        message.id,
+        targetClient.id,
+        routedCampaignId ? `campaign=${routedCampaignId}` : 'campaign=unknown',
+        routedTriggerText ? `trigger=${routedTriggerText}` : 'trigger=session',
+      );
     }
     return { handled: true };
   };
