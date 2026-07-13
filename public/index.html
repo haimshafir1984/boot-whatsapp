@@ -1698,6 +1698,10 @@
   let activeDecisionStepId = '';
   let appFiles = [];
   let appCapabilities = { readonlyDashboard: false, maxCampaigns: 7, serviceExpired: false, campaignCount: 0, whatsappProvider: '', referralContestEnabled: false };
+
+  function isMetaCloudProvider() {
+    return appCapabilities.whatsappProvider === 'META_CLOUD_API';
+  }
   let lastCampaigns = [];
 
   // ── Campaigns ───────────────────────────────────────────────────────────────
@@ -2496,7 +2500,7 @@
       else decisionFlow.push(contactStep);
     }
     const contactSendMode = document.getElementById('fContactCardSendMode');
-    if (contactSendMode) contactSendMode.value = settings.contactCardSendMode === 'combined' ? 'combined' : 'separate';
+    if (contactSendMode) contactSendMode.value = isMetaCloudProvider() && settings.contactCardSendMode === 'combined' ? 'combined' : 'separate';
     const contactPlacement = document.getElementById('fContactCardPlacement');
     if (contactPlacement) contactPlacement.value = settings.contactCardPlacement || 'after_completion';
     document.getElementById('fContactCardWaitForConfirmation').checked = Boolean(settings.contactCardWaitForConfirmation);
@@ -3242,7 +3246,7 @@
 
   function syncFlowContactSendMode(select) {
     const globalSelect = document.getElementById('fContactCardSendMode');
-    const mode = select?.value === 'combined' ? 'combined' : 'separate';
+    const mode = isMetaCloudProvider() && select?.value === 'combined' ? 'combined' : 'separate';
     if (globalSelect) globalSelect.value = mode;
     if (select) select.value = mode;
     updateCampaignConversationPreview();
@@ -3275,7 +3279,14 @@
         const summary = contactFields.querySelector('[data-flow-contact-card-summary]');
         if (summary) summary.innerHTML = contactCardPreviewText(getCampaignConversation()) || '&#1500;&#1488; &#1492;&#1493;&#1490;&#1491;&#1512;&#1493; &#1488;&#1504;&#1513;&#1497; &#1511;&#1513;&#1512;.';
         const sendMode = contactFields.querySelector('[data-flow-contact-send-mode]');
-        if (sendMode) sendMode.value = document.getElementById('fContactCardSendMode')?.value === 'combined' ? 'combined' : 'separate';
+        if (sendMode) {
+          const combinedOption = sendMode.querySelector('option[value="combined"]');
+          if (combinedOption) {
+            combinedOption.hidden = !isMetaCloudProvider();
+            combinedOption.disabled = !isMetaCloudProvider();
+          }
+          sendMode.value = isMetaCloudProvider() && document.getElementById('fContactCardSendMode')?.value === 'combined' ? 'combined' : 'separate';
+        }
       }
       const title = step.querySelector('.decision-step-title');
       const titleText = step.querySelector('[data-step-text]')?.value.trim();
@@ -3497,7 +3508,7 @@
         .filter(Boolean),
       sendContactCard: flowHasContactCard,
       contactCardPlacement: flowHasContactCard ? 'before_questions' : 'after_completion',
-      contactCardSendMode: document.getElementById('fContactCardSendMode')?.value === 'combined' ? 'combined' : 'separate',
+      contactCardSendMode: isMetaCloudProvider() && document.getElementById('fContactCardSendMode')?.value === 'combined' ? 'combined' : 'separate',
       contactCards,
       contactCardName: primaryContactCard.name || '',
       contactCardPhone: primaryContactCard.phone || '',
@@ -3609,14 +3620,14 @@
   function previewDecisionFlow(flow = [], conversation = getCampaignConversation()) {
     if (!flow.length) return '';
     const byId = new Map(flow.map(step => [step.id, step]));
-    const first = flow.find(step => step.text?.trim());
+    const first = flow[0];
     const ordered = [];
     const seen = new Set();
     let current = first;
     while (current && !seen.has(current.id) && ordered.length < 8) {
       ordered.push(current);
       seen.add(current.id);
-      const nextId = (current.kind === 'message' || current.kind === 'wait_reply' || current.kind === 'contact_card')
+      const nextId = (current.kind === 'message' || current.kind === 'wait_reply' || current.kind === 'contact_card' || current.kind === 'referral_share')
         ? current.nextStepId
         : current.options?.find(option => option.nextStepId)?.nextStepId;
       current = nextId ? byId.get(nextId) : null;
@@ -3651,12 +3662,14 @@
         return `<div class="chat-row bot"><div class="chat-bubble">${esc((step.text || '').split('{referral_link}').join('https://wa.me/...').split('{referral_code}').join('ABC123'))}</div></div>`;
       }
       if (step.kind === 'contact_card') {
-        return `<div class="chat-row bot"><div class="chat-bubble">${contactCardPreviewText(conversation) || '&#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1500;&#1513;&#1502;&#1497;&#1512;&#1492;: &#1488;&#1497;&#1513; &#1511;&#1513;&#1512;'}</div></div>`;
+        const introBubble = step.text?.trim() ? `<div class="chat-row bot"><div class="chat-bubble">${esc(step.text.trim())}</div></div>` : '';
+        return `${introBubble}<div class="chat-row bot"><div class="chat-bubble">${contactCardPreviewText(conversation) || '&#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1500;&#1513;&#1502;&#1497;&#1512;&#1492;: &#1488;&#1497;&#1513; &#1511;&#1513;&#1512;'}</div></div>`;
       }
       if (step.kind === 'message' && step.fileId) {
         const file = appFiles.find(item => item.id === step.fileId);
         const fileText = `${step.fileAsSticker ? '\u05de\u05d3\u05d1\u05e7\u05d4' : '\u05e7\u05d5\u05d1\u05e5'}${file ? `: ${file.originalName}` : ''}`;
-        return `<div class="chat-row bot"><div class="chat-bubble">${esc(step.text)}</div></div><div class="chat-row bot"><div class="chat-bubble">${esc(fileText)}</div></div>`;
+        const textBubble = step.text?.trim() ? `<div class="chat-row bot"><div class="chat-bubble">${esc(step.text.trim())}</div></div>` : '';
+        return `${textBubble}<div class="chat-row bot"><div class="chat-bubble">${esc(fileText)}</div></div>`;
       }
       return `<div class="chat-row bot"><div class="chat-bubble">${esc(step.text)}</div></div>`;
     }).join('') + (conversation.decisionFlow.some(step => step.kind === 'question') && conversation.decisionTimeoutText

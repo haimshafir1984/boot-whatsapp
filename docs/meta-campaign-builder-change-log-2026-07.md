@@ -27,3 +27,15 @@
 - Status: completed.
 - Files: `docs/meta-campaign-builder-change-log-2026-07.md`.
 - Verification: document-only change.
+
+### 2. Meta no-intro media/contact and combined isolation
+
+- Status: completed.
+- Files: `public/index.html`.
+- Changes:
+  - Added a Meta provider helper for UI/runtime serialization decisions.
+  - Kept combined contact-card mode available only for `META_CLOUD_API` clients.
+  - Prevented file-only and contact-only preview from showing empty message bubbles.
+  - Kept Twilio serialization on separate contact cards.
+- Verification: pending final `npm run build` and manual Meta/Twilio smoke tests.
+- Rollback: revert this step commit only.
