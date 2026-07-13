@@ -37,6 +37,12 @@ import { handleIncomingWhatsAppMessage } from './messageFlow';
 import { TwilioProvider } from './providers/TwilioProvider';
 import { MetaCloudProvider } from './providers/MetaCloudProvider';
 import { getTwilioEvents, recordTwilioEvent } from './twilioEvents';
+import {
+  defaultMetaCampaignEndAt,
+  metaCampaignReservesTrigger,
+  normalizeMetaTrigger,
+  selectMetaRouteCandidate,
+} from './metaCampaignRouting';
 
 interface TwilioGatewaySession {
   from: string;
@@ -48,6 +54,7 @@ interface TwilioGatewaySession {
 interface TwilioGatewaySessionStore {
   get(from: string): TwilioGatewaySession | null;
   set(session: TwilioGatewaySession): void;
+  delete(from: string): void;
 }
 
 const TWILIO_GATEWAY_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -73,11 +80,7 @@ function normalizeGatewayPhone(value: string): string {
 }
 
 function normalizeGatewayText(value: string): string {
-  return value
-    .replace(/[​-‏﻿‪-‮⁦-⁩]/g, '')
-    .replace(/\s+/g, ' ')
-    .toLocaleLowerCase()
-    .trim();
+  return normalizeMetaTrigger(value);
 }
 
 function twilioMediaSecret(): string {
@@ -134,6 +137,12 @@ function createTwilioGatewaySessionStore(filePath: string): TwilioGatewaySession
     set(session: TwilioGatewaySession) {
       prune();
       sessions[normalizeGatewayPhone(session.from)] = { ...session, from: normalizeGatewayPhone(session.from) };
+      persist();
+    },
+    delete(from: string) {
+      const key = normalizeGatewayPhone(from);
+      if (!(key in sessions)) return;
+      delete sessions[key];
       persist();
     },
   };
@@ -891,6 +900,86 @@ export function startAdminServer(storage: Storage): void {
   app.use(express.json({ limit: '24mb' }));
   app.use(express.urlencoded({ extended: false }));
 
+  const managedClientForOwnerToken = (provided: unknown): ManagedClient | null => {
+    if (typeof provided !== 'string' || !provided.trim()) return null;
+    const right = Buffer.from(provided.trim());
+    return ownerStorage.getClients().find((client) => {
+      const left = Buffer.from(client.ownerAccessToken || '');
+      return left.length === right.length && left.length > 0 && crypto.timingSafeEqual(left, right);
+    }) ?? null;
+  };
+
+  const inspectMetaTriggerAvailability = async (requester: ManagedClient, triggerPhrase: string, campaignId?: string) => {
+    const normalizedTrigger = normalizeMetaTrigger(triggerPhrase);
+    if (!normalizedTrigger) return { available: false, conflicts: [] };
+    const metaClients = ownerStorage.getClients().filter((client) =>
+      client.whatsappProvider === 'META_CLOUD_API' && client.managementUrl && client.ownerAccessToken && client.provisioningStatus !== 'disabled');
+    const results = await Promise.all(metaClients.map(async (client) => ({
+      client,
+      result: await fetchClientAsOwner<Campaign[]>(client, '/owner-api/campaigns'),
+    })));
+    const unavailable = results.filter(({ result }) => !result.ok || !Array.isArray(result.body));
+    if (unavailable.length) throw new Error(`Could not verify Meta triggers for ${unavailable.length} managed client(s).`);
+    const conflicts: Array<{ clientId: string; campaignId: string; campaignName: string }> = [];
+    for (const { client, result } of results) {
+      for (const campaign of result.body as Campaign[]) {
+        if (client.id === requester.id && campaign.id === campaignId) continue;
+        if (!metaCampaignReservesTrigger(campaign)) continue;
+        if (normalizeMetaTrigger(campaign.triggerPhrase || '') !== normalizedTrigger) continue;
+        conflicts.push({ clientId: client.id, campaignId: campaign.id, campaignName: campaign.name });
+      }
+    }
+    return { available: conflicts.length === 0, conflicts };
+  };
+
+  const campaignWouldReserveTrigger = (active: boolean, endAt?: string): boolean => {
+    if (!active) return false;
+    if (!endAt) return true;
+    const end = new Date(endAt).getTime();
+    return Number.isNaN(end) || end >= Date.now();
+  };
+
+  const verifyMetaTriggerBeforeActivation = async (triggerPhrase: string, campaignId?: string) => {
+    if (config.WHATSAPP_PROVIDER !== 'META_CLOUD_API') return { ok: true, status: 200 };
+    const ownerToken = process.env.OWNER_ACCESS_TOKEN?.trim();
+    if (!ownerToken) return { ok: false, status: 503, error: 'לא ניתן לבדוק כרגע אם משפט הטריגר פנוי. יש לפנות למנהל המערכת.', code: 'META_TRIGGER_CHECK_UNAVAILABLE' };
+    try {
+      const url = new URL('/internal/meta/trigger-availability', config.META_GATEWAY_BASE_URL).toString();
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Owner-Token': ownerToken },
+        body: JSON.stringify({ triggerPhrase, campaignId }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      const body = await response.json().catch(() => ({})) as { available?: boolean; error?: string };
+      if (!response.ok) return { ok: false, status: response.status, error: body.error || 'בדיקת משפט הטריגר נכשלה.', code: 'META_TRIGGER_CHECK_UNAVAILABLE' };
+      if (body.available !== true) return { ok: false, status: 409, error: 'משפט הטריגר הזה כבר תפוס בקמפיין Meta פעיל. יש לבחור משפט טריגר אחר.', code: 'META_TRIGGER_OCCUPIED' };
+      return { ok: true, status: 200 };
+    } catch (err) {
+      console.error('[META_TRIGGER_CHECK_FAILED]', err);
+      return { ok: false, status: 503, error: 'לא ניתן לבדוק כרגע אם משפט הטריגר פנוי. נסה שוב בעוד רגע.', code: 'META_TRIGGER_CHECK_UNAVAILABLE' };
+    }
+  };
+
+  app.post('/internal/meta/trigger-availability', async (req, res) => {
+    const requester = managedClientForOwnerToken(req.get('x-owner-token'));
+    if (!requester || requester.whatsappProvider !== 'META_CLOUD_API') {
+      res.status(401).json({ error: 'Managed client token is invalid' });
+      return;
+    }
+    const triggerPhrase = String(req.body?.triggerPhrase || '').trim();
+    if (!triggerPhrase) {
+      res.status(400).json({ error: 'Trigger phrase is required' });
+      return;
+    }
+    try {
+      res.json(await inspectMetaTriggerAvailability(requester, triggerPhrase, String(req.body?.campaignId || '').trim() || undefined));
+    } catch (err) {
+      console.error('[META_TRIGGER_REGISTRY_FAILED]', err);
+      res.status(503).json({ error: 'Could not verify all managed Meta campaign triggers' });
+    }
+  });
+
   app.get('/client/login', (_req, res) => {
     res.sendFile(path.join(publicDir, 'login.html'));
   });
@@ -1064,20 +1153,21 @@ export function startAdminServer(storage: Storage): void {
       || message?.interactive?.list_reply?.id
       || '').trim();
     const normalizedBody = normalizeGatewayText(body);
-    const candidates: Array<{ client: ManagedClient; campaign: Campaign; triggerText: string }> = [];
+    const campaignsByClient = new Map<string, Campaign[]>();
+    const candidates: Array<{ client: ManagedClient; clientId: string; campaign: Campaign; triggerText: string }> = [];
     await Promise.all(clients.map(async (client) => {
       const result = await fetchClientAsOwner<Campaign[]>(client, '/owner-api/campaigns');
       if (!result.ok || !Array.isArray(result.body)) return;
+      campaignsByClient.set(client.id, result.body);
       for (const campaign of result.body) {
         if (!campaign.active || (campaign.runtimeStatus && campaign.runtimeStatus !== 'active')) continue;
         const triggerText = normalizeGatewayText(campaign.triggerPhrase ?? '');
-        if (triggerText && normalizedBody.includes(triggerText)) candidates.push({ client, campaign, triggerText });
+        if (triggerText && normalizedBody.includes(triggerText)) candidates.push({ client, clientId: client.id, campaign, triggerText });
       }
     }));
 
-    candidates.sort((a, b) => b.triggerText.length - a.triggerText.length);
-    const best = candidates[0];
-    if (best && candidates[1] && candidates[1].triggerText.length === best.triggerText.length && candidates[1].client.id !== best.client.id) {
+    const { best, ambiguous } = selectMetaRouteCandidate(candidates);
+    if (ambiguous) {
       console.log('[META_GATEWAY_IGNORED] reason=ambiguous_trigger', message.id, message.from);
       return { handled: true };
     }
@@ -1096,8 +1186,17 @@ export function startAdminServer(storage: Storage): void {
       });
     } else {
       const session = metaGatewaySessions.get(sessionKey);
-      targetClient = session ? clients.find((client) => client.id === session.clientId) ?? null : null;
-      routedCampaignId = session?.campaignId ?? '';
+      const sessionCampaigns = session ? campaignsByClient.get(session.clientId) : undefined;
+      const sessionCampaign = sessionCampaigns?.find((campaign) => campaign.id === session?.campaignId);
+      if (session && sessionCampaign?.active && sessionCampaign.runtimeStatus === 'active') {
+        targetClient = clients.find((client) => client.id === session.clientId) ?? null;
+        routedCampaignId = session.campaignId;
+      } else if (session && sessionCampaigns) {
+        metaGatewaySessions.delete(sessionKey);
+        console.log('[META_GATEWAY_SESSION_RELEASED] reason=campaign_not_active', session.clientId, session.campaignId);
+      } else if (session) {
+        console.log('[META_GATEWAY_IGNORED] reason=session_client_unavailable', session.clientId, session.campaignId);
+      }
     }
 
     if (!targetClient) {
@@ -1880,10 +1979,16 @@ export function startAdminServer(storage: Storage): void {
     })));
   });
 
-  app.post('/owner-api/campaigns', (req, res) => {
+  app.post('/owner-api/campaigns', async (req, res) => {
     const { name, triggerType, triggerPhrase, basePhrase, referrerName, startAt, endAt, conversation, twilio } =
       req.body as Partial<Campaign>;
     const capabilities = getClientCapabilities(storage);
+    const explicitNoEnd = req.body?.endAt === null;
+    const resolvedEndAt = explicitNoEnd
+      ? undefined
+      : (typeof endAt === 'string' && endAt.trim()
+        ? endAt.trim()
+        : (config.WHATSAPP_PROVIDER === 'META_CLOUD_API' ? defaultMetaCampaignEndAt(typeof startAt === 'string' ? startAt : undefined) : undefined));
 
     if (!name?.trim()) { res.status(400).json({ error: 'שם הקמפיין חסר' }); return; }
     if (storage.getCampaigns().length >= capabilities.maxCampaigns) {
@@ -1891,13 +1996,13 @@ export function startAdminServer(storage: Storage): void {
       return;
     }
     if (triggerType !== 1 && triggerType !== 2) { res.status(400).json({ error: 'סוג טריגר לא תקין' }); return; }
-    if (startAt && endAt && new Date(startAt).getTime() >= new Date(endAt).getTime()) {
+    if (startAt && resolvedEndAt && new Date(startAt).getTime() >= new Date(resolvedEndAt).getTime()) {
       res.status(400).json({ error: 'שעת הסיום חייבת להיות אחרי שעת ההתחלה' });
       return;
     }
     if (capabilities.serviceExpiresAt) {
       const expiry = new Date(capabilities.serviceExpiresAt).getTime();
-      const campaignEnd = endAt ? new Date(endAt).getTime() : expiry;
+      const campaignEnd = resolvedEndAt ? new Date(resolvedEndAt).getTime() : expiry;
       if (!Number.isNaN(expiry) && campaignEnd > expiry) {
         res.status(400).json({ error: 'זמן סיום הקמפיין חייב להיות בתוך תקופת הפעילות של הלקוח.' });
         return;
@@ -1921,6 +2026,12 @@ export function startAdminServer(storage: Storage): void {
       suffix = ` - (${refName})`;
     }
 
+    const triggerAvailability = await verifyMetaTriggerBeforeActivation(phrase);
+    if (!triggerAvailability.ok) {
+      res.status(triggerAvailability.status).json({ error: triggerAvailability.error, code: triggerAvailability.code });
+      return;
+    }
+
     const campaign = storage.addCampaign({
       name: name.trim(),
       triggerType,
@@ -1930,14 +2041,26 @@ export function startAdminServer(storage: Storage): void {
       suffix,
       active: true,
       startAt: typeof startAt === 'string' && startAt ? startAt : undefined,
-      endAt: typeof endAt === 'string' && endAt ? endAt : undefined,
+      endAt: resolvedEndAt,
       conversation: conversationSettings(conversation, storage.getAdminSettings()),
       twilio: campaignTwilioSettings(twilio),
     });
     res.status(201).json(campaign);
   });
 
-  app.patch('/owner-api/campaigns/:id/toggle', (req, res) => {
+  app.patch('/owner-api/campaigns/:id/toggle', async (req, res) => {
+    const current = storage.getCampaigns().find((campaign) => campaign.id === String(req.params.id));
+    if (!current) {
+      res.status(404).json({ error: 'קמפיין לא נמצא' });
+      return;
+    }
+    if (!current.active && campaignWouldReserveTrigger(true, current.endAt)) {
+      const triggerAvailability = await verifyMetaTriggerBeforeActivation(current.triggerPhrase, current.id);
+      if (!triggerAvailability.ok) {
+        res.status(triggerAvailability.status).json({ error: triggerAvailability.error, code: triggerAvailability.code });
+        return;
+      }
+    }
     const updated = storage.toggleCampaign(String(req.params.id));
     if (!updated) {
       res.status(404).json({ error: 'קמפיין לא נמצא' });
@@ -2669,10 +2792,16 @@ export function startAdminServer(storage: Storage): void {
     res.send(vcard);
   });
 
-  app.post('/api/campaigns', requireWritableClient, (req, res) => {
+  app.post('/api/campaigns', requireWritableClient, async (req, res) => {
     const { name, triggerType, triggerPhrase, basePhrase, referrerName, startAt, endAt, conversation, twilio } =
       req.body as Partial<Campaign>;
     const capabilities = getClientCapabilities(storage);
+    const explicitNoEnd = req.body?.endAt === null;
+    const resolvedEndAt = explicitNoEnd
+      ? undefined
+      : (typeof endAt === 'string' && endAt.trim()
+        ? endAt.trim()
+        : (config.WHATSAPP_PROVIDER === 'META_CLOUD_API' ? defaultMetaCampaignEndAt(typeof startAt === 'string' ? startAt : undefined) : undefined));
 
     if (!name?.trim()) { res.status(400).json({ error: 'שם הקמפיין חסר' }); return; }
     if (storage.getCampaigns().length >= capabilities.maxCampaigns) {
@@ -2680,13 +2809,13 @@ export function startAdminServer(storage: Storage): void {
       return;
     }
     if (triggerType !== 1 && triggerType !== 2) { res.status(400).json({ error: 'סוג טריגר לא תקין' }); return; }
-    if (startAt && endAt && new Date(startAt).getTime() >= new Date(endAt).getTime()) {
+    if (startAt && resolvedEndAt && new Date(startAt).getTime() >= new Date(resolvedEndAt).getTime()) {
       res.status(400).json({ error: 'שעת הסיום חייבת להיות אחרי שעת ההתחלה' });
       return;
     }
     if (capabilities.serviceExpiresAt) {
       const expiry = new Date(capabilities.serviceExpiresAt).getTime();
-      const campaignEnd = endAt ? new Date(endAt).getTime() : expiry;
+      const campaignEnd = resolvedEndAt ? new Date(resolvedEndAt).getTime() : expiry;
       if (!Number.isNaN(expiry) && campaignEnd > expiry) {
         res.status(400).json({ error: 'זמן סיום הקמפיין חייב להיות בתוך תקופת הפעילות של הלקוח.' });
         return;
@@ -2712,6 +2841,12 @@ export function startAdminServer(storage: Storage): void {
       suffix = ` - (${refName})`;
     }
 
+    const triggerAvailability = await verifyMetaTriggerBeforeActivation(phrase);
+    if (!triggerAvailability.ok) {
+      res.status(triggerAvailability.status).json({ error: triggerAvailability.error, code: triggerAvailability.code });
+      return;
+    }
+
     const campaign = storage.addCampaign({
       name: name.trim(),
       triggerType,
@@ -2721,7 +2856,7 @@ export function startAdminServer(storage: Storage): void {
       suffix,
       active: true,
       startAt: typeof startAt === 'string' && startAt ? startAt : undefined,
-      endAt: typeof endAt === 'string' && endAt ? endAt : undefined,
+      endAt: resolvedEndAt,
       conversation: conversationSettings(conversation, storage.getAdminSettings()),
       twilio: campaignTwilioSettings(twilio),
     });
@@ -2751,9 +2886,14 @@ export function startAdminServer(storage: Storage): void {
     res.status(201).json(campaign);
   });
 
-  app.put('/api/campaigns/:id', requireWritableClient, (req, res) => {
+  app.put('/api/campaigns/:id', requireWritableClient, async (req, res) => {
     const { name, triggerType, triggerPhrase, basePhrase, referrerName, active, startAt, endAt, conversation, twilio } =
       req.body as Partial<Campaign>;
+    const existing = storage.getCampaigns().find((campaign) => campaign.id === String(req.params.id));
+    if (!existing) {
+      res.status(404).json({ error: 'קמפיין לא נמצא' });
+      return;
+    }
 
     const patch: Partial<Omit<Campaign, 'id'>> = {};
 
@@ -2775,10 +2915,7 @@ export function startAdminServer(storage: Storage): void {
     if ('startAt' in req.body) patch.startAt = typeof startAt === 'string' && startAt ? startAt : undefined;
     if ('endAt' in req.body) patch.endAt = typeof endAt === 'string' && endAt ? endAt : undefined;
     if ('conversation' in req.body) {
-      const existing = storage.getCampaigns().find((campaign) => campaign.id === req.params.id);
-      const defaults = existing
-        ? storage.getCampaignConversationSettings(existing)
-        : conversationSettings(undefined, storage.getAdminSettings());
+      const defaults = storage.getCampaignConversationSettings(existing);
       patch.conversation = conversationSettings(conversation, defaults);
     }
     if ('twilio' in req.body) {
@@ -2805,6 +2942,17 @@ export function startAdminServer(storage: Storage): void {
       patch.suffix = ` - (${refName})`;
     }
 
+    const resultingActive = patch.active ?? existing.active;
+    const resultingEndAt = Object.prototype.hasOwnProperty.call(patch, 'endAt') ? patch.endAt : existing.endAt;
+    const resultingTrigger = patch.triggerPhrase ?? existing.triggerPhrase;
+    if (campaignWouldReserveTrigger(resultingActive, resultingEndAt)) {
+      const triggerAvailability = await verifyMetaTriggerBeforeActivation(resultingTrigger, existing.id);
+      if (!triggerAvailability.ok) {
+        res.status(triggerAvailability.status).json({ error: triggerAvailability.error, code: triggerAvailability.code });
+        return;
+      }
+    }
+
     const updated = storage.updateCampaign(String(req.params.id), patch);
     if (!updated) {
       res.status(404).json({ error: 'קמפיין לא נמצא' });
@@ -2827,7 +2975,19 @@ export function startAdminServer(storage: Storage): void {
     res.json(buildCampaignDryRun(campaign, storage));
   });
 
-  app.patch('/api/campaigns/:id/toggle', requireWritableClient, (req, res) => {
+  app.patch('/api/campaigns/:id/toggle', requireWritableClient, async (req, res) => {
+    const current = storage.getCampaigns().find((campaign) => campaign.id === String(req.params.id));
+    if (!current) {
+      res.status(404).json({ error: 'קמפיין לא נמצא' });
+      return;
+    }
+    if (!current.active && campaignWouldReserveTrigger(true, current.endAt)) {
+      const triggerAvailability = await verifyMetaTriggerBeforeActivation(current.triggerPhrase, current.id);
+      if (!triggerAvailability.ok) {
+        res.status(triggerAvailability.status).json({ error: triggerAvailability.error, code: triggerAvailability.code });
+        return;
+      }
+    }
     const updated = storage.toggleCampaign(String(req.params.id));
     if (!updated) {
       res.status(404).json({ error: 'קמפיין לא נמצא' });

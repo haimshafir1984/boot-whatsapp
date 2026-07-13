@@ -346,6 +346,7 @@ export class DokployProvisioner {
       envLines.push('META_VERIFY_TOKEN=' + escapeEnvValue(this.config.metaVerifyToken!));
       if (this.config.metaAppSecret) envLines.push('META_APP_SECRET=' + escapeEnvValue(this.config.metaAppSecret));
       envLines.push('META_GRAPH_API_VERSION="v23.0"');
+      envLines.push('META_GATEWAY_BASE_URL=' + escapeEnvValue(new URL('/', this.config.metaWebhookUrl!).toString().replace(/\/$/, '')));
     }
 
     await this.post('application.saveEnvironment', {

@@ -1412,7 +1412,7 @@
               <div class="hint" style="margin-top:4px">סיומת לשם השמור: <strong id="suffixPreview">- ([שם הממליץ])</strong></div>
             </div>
           </div>
-          <div class="field" style="display:none;margin-bottom:0">
+          <div class="field" style="margin-bottom:0">
             <label>זמן פעילות הקמפיין</label>
             <div class="two-fields">
               <div>
@@ -1422,9 +1422,10 @@
               <div>
                 <div class="hint">סיום</div>
                 <input type="datetime-local" id="fEndAt" />
+                <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:.82rem;font-weight:400"><input type="checkbox" id="fNoEndAt" onchange="updateCampaignEndMode()" /> ללא סיום אוטומטי</label>
               </div>
             </div>
-            <div class="hint">ללא תאריכים הקמפיין נשאר פעיל עד שתכבי אותו ידנית.</div>
+            <div class="hint">ברירת המחדל היא סיום אוטומטי לאחר 30 יום. בסיום הקמפיין משפט הטריגר משתחרר.</div>
           </div>
         </div>
 
@@ -1776,6 +1777,19 @@
     return Number.isNaN(date.getTime()) ? '' : date.toISOString();
   }
 
+  function defaultCampaignEndLocal() {
+    if (appCapabilities.whatsappProvider !== 'META_CLOUD_API') return '';
+    return formatDateTimeLocal(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString());
+  }
+
+  function updateCampaignEndMode() {
+    const noEnd = Boolean(document.getElementById('fNoEndAt')?.checked);
+    const endInput = document.getElementById('fEndAt');
+    if (!endInput) return;
+    endInput.disabled = noEnd;
+    if (noEnd) endInput.value = '';
+  }
+
   function formatSchedule(value) {
     if (!value) return '';
     const date = new Date(value);
@@ -2063,7 +2077,12 @@
   }
 
   async function toggleCampaign(id) {
-    await fetch(`/api/campaigns/${id}/toggle`, { method: 'PATCH' });
+    const res = await fetch(`/api/campaigns/${id}/toggle`, { method: 'PATCH' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.error || 'שינוי מצב הקמפיין נכשל.');
+      return;
+    }
     loadCampaigns();
   }
 
@@ -2213,6 +2232,7 @@
       referrerName: document.getElementById('fReferrer')?.value || '',
       startAt: document.getElementById('fStartAt')?.value || '',
       endAt: document.getElementById('fEndAt')?.value || '',
+      noEndAt: Boolean(document.getElementById('fNoEndAt')?.checked),
       conversation: getCampaignConversation(),
     };
   }
@@ -2223,6 +2243,8 @@
     document.getElementById('fName').value = draft.name || '';
     document.getElementById('fStartAt').value = draft.startAt || '';
     document.getElementById('fEndAt').value = draft.endAt || '';
+    document.getElementById('fNoEndAt').checked = Boolean(draft.noEndAt);
+    updateCampaignEndMode();
     populateCampaignConversation(draft.conversation || appSettings);
     selectType(Number(draft.triggerType || 1));
     document.getElementById('fPhrase').value = draft.phrase || '';
@@ -2380,7 +2402,9 @@
     document.getElementById('fBasePhrase').value = '';
     document.getElementById('fReferrer').value  = '';
     document.getElementById('fStartAt').value = '';
-    document.getElementById('fEndAt').value = '';
+    document.getElementById('fEndAt').value = defaultCampaignEndLocal();
+    document.getElementById('fNoEndAt').checked = false;
+    updateCampaignEndMode();
     populateCampaignConversation(appSettings);
     loadCampaignFiles();
     document.getElementById('modalError').textContent = '';
@@ -2407,6 +2431,8 @@
     document.getElementById('fName').value = c.name;
     document.getElementById('fStartAt').value = formatDateTimeLocal(c.startAt);
     document.getElementById('fEndAt').value = formatDateTimeLocal(c.endAt);
+    document.getElementById('fNoEndAt').checked = !c.endAt;
+    updateCampaignEndMode();
     populateCampaignConversation(c.conversation || appSettings);
     loadCampaignFiles();
     document.getElementById('modalError').textContent = '';
@@ -2473,13 +2499,14 @@
       return;
     }
     const startAtLocal = document.getElementById('fStartAt').value;
+    const noEndAt = Boolean(document.getElementById('fNoEndAt')?.checked);
     const endAtLocal = document.getElementById('fEndAt').value;
-    if (startAtLocal && endAtLocal && new Date(startAtLocal).getTime() >= new Date(endAtLocal).getTime()) {
+    if (!noEndAt && startAtLocal && endAtLocal && new Date(startAtLocal).getTime() >= new Date(endAtLocal).getTime()) {
       errEl.textContent = 'שעת הסיום חייבת להיות אחרי שעת ההתחלה';
       return;
     }
     const startAt = localDateTimeToIso(startAtLocal);
-    const endAt = localDateTimeToIso(endAtLocal);
+    const endAt = noEndAt ? null : localDateTimeToIso(endAtLocal);
     const conversation = getCampaignConversation();
 
     let body;
@@ -2520,6 +2547,10 @@
 
     if (!res.ok) {
       errEl.textContent = data.error || 'שגיאה';
+      if (data.code === 'META_TRIGGER_OCCUPIED') {
+        setFieldError(triggerType === 1 ? 'fPhrase' : 'fBasePhrase', data.error);
+        goWizardStep(1);
+      }
       if (saveBtn) {
         saveBtn.disabled = false;
         saveBtn.textContent = 'שמירת הקמפיין והפעלתו';
