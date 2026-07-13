@@ -39,3 +39,14 @@
   - Kept Twilio serialization on separate contact cards.
 - Verification: pending final `npm run build` and manual Meta/Twilio smoke tests.
 - Rollback: revert this step commit only.
+### 3. Inline campaign file upload
+
+- Status: completed.
+- Files: `public/index.html`.
+- Changes:
+  - Added an inline upload control inside message/file flow blocks.
+  - Reused the existing `/api/files` upload path; no server changes.
+  - Auto-selects the uploaded file in the current block after upload.
+  - Shows a short inline upload status and preserves the existing files manager behavior.
+- Verification: pending final `npm run build` and manual upload/send smoke tests.
+- Rollback: revert this step commit only.

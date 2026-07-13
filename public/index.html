@@ -864,6 +864,8 @@
       gap: 5px;
       margin-top: 6px;
     }
+    .inline-file-upload { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .inline-file-upload span { color: #4b5563; font-size: .74rem; }
     .decision-next-row label,
     .decision-options-label {
       display: block;
@@ -2747,10 +2749,15 @@
     if (!file) return;
     const errEl = document.getElementById('modalError');
     const toastId = input.id === 'clientFileUpload' ? 'filesToast' : 'modalError';
+    const inlineStatus = input.closest('[data-message-file]')?.querySelector('[data-step-file-upload-status]');
+    const stepFileSelect = input.closest('[data-message-file]')?.querySelector('[data-step-file]');
     if (errEl) errEl.textContent = '';
+    if (inlineStatus) inlineStatus.textContent = '\u05de\u05e2\u05dc\u05d4...';
     if (file.size > 15 * 1024 * 1024) {
-      if (toastId === 'filesToast') showToast('filesToast', 'error', 'הקובץ גדול מדי. אפשר להעלות קובץ עד 15MB.');
-      else if (errEl) errEl.textContent = 'הקובץ גדול מדי. המגבלה כרגע היא 15MB.';
+      const message = '\u05d4\u05e7\u05d5\u05d1\u05e5 \u05d2\u05d3\u05d5\u05dc \u05de\u05d3\u05d9. \u05d0\u05e4\u05e9\u05e8 \u05dc\u05d4\u05e2\u05dc\u05d5\u05ea \u05e7\u05d5\u05d1\u05e5 \u05e2\u05d3 15MB.';
+      if (toastId === 'filesToast') showToast('filesToast', 'error', message);
+      else if (errEl) errEl.textContent = message;
+      if (inlineStatus) inlineStatus.textContent = '\u05d4\u05e7\u05d5\u05d1\u05e5 \u05d2\u05d3\u05d5\u05dc \u05de\u05d3\u05d9';
       input.value = '';
       return;
     }
@@ -2763,21 +2770,30 @@
       });
       const data = await res.json();
       if (!res.ok) {
-        if (toastId === 'filesToast') showToast('filesToast', 'error', data.error || 'העלאת הקובץ נכשלה');
-        else if (errEl) errEl.textContent = data.error || 'העלאת הקובץ נכשלה';
+        const message = data.error || '\u05d4\u05e2\u05dc\u05d0\u05ea \u05d4\u05e7\u05d5\u05d1\u05e5 \u05e0\u05db\u05e9\u05dc\u05d4';
+        if (toastId === 'filesToast') showToast('filesToast', 'error', message);
+        else if (errEl) errEl.textContent = message;
+        if (inlineStatus) inlineStatus.textContent = message;
         return;
       }
+      if (stepFileSelect && data.id) stepFileSelect.dataset.selectedFile = data.id;
       await loadCampaignFiles();
-      if (toastId === 'filesToast') showToast('filesToast', 'success', 'הקובץ עלה ונשמר לשימוש בקמפיינים.');
+      if (stepFileSelect && data.id) {
+        stepFileSelect.value = data.id;
+        stepFileSelect.dataset.selectedFile = data.id;
+      }
+      if (inlineStatus) inlineStatus.textContent = '\u05d4\u05e7\u05d5\u05d1\u05e5 \u05e0\u05d1\u05d7\u05e8 \u05dc\u05e9\u05dc\u05d9\u05d7\u05d4';
+      if (toastId === 'filesToast') showToast('filesToast', 'success', '\u05d4\u05e7\u05d5\u05d1\u05e5 \u05e2\u05dc\u05d4 \u05d5\u05e0\u05e9\u05de\u05e8 \u05dc\u05e9\u05d9\u05de\u05d5\u05e9 \u05d1\u05e7\u05de\u05e4\u05d9\u05d9\u05e0\u05d9\u05dd.');
       updateCampaignConversationPreview();
     } catch (err) {
-      if (toastId === 'filesToast') showToast('filesToast', 'error', 'העלאת הקובץ נכשלה');
-      else if (errEl) errEl.textContent = 'העלאת הקובץ נכשלה';
+      const message = '\u05d4\u05e2\u05dc\u05d0\u05ea \u05d4\u05e7\u05d5\u05d1\u05e5 \u05e0\u05db\u05e9\u05dc\u05d4';
+      if (toastId === 'filesToast') showToast('filesToast', 'error', message);
+      else if (errEl) errEl.textContent = message;
+      if (inlineStatus) inlineStatus.textContent = message;
     } finally {
       input.value = '';
     }
   }
-
   function renderDecisionFlow(steps = []) {
     parkContactCardEditor();
     const el = document.getElementById('fDecisionFlow');
@@ -2910,6 +2926,11 @@
           <div class="decision-next-row" data-message-file style="display:none">
             <label>&#1511;&#1493;&#1489;&#1509; &#1500;&#1513;&#1500;&#1497;&#1495;&#1492; &#1489;&#1513;&#1500;&#1489; &#1492;&#1494;&#1492;</label>
             <select data-step-file data-selected-file="${esc(step.fileId || '')}" onchange="updateCampaignConversationPreview()">${fileOptions(step.fileId || '')}</select>
+            <div class="inline-file-upload">
+              <button type="button" class="btn-small" onclick="this.closest('[data-message-file]').querySelector('[data-step-file-upload]').click()">&#1492;&#1506;&#1500;&#1492; &#1511;&#1493;&#1489;&#1509;</button>
+              <input data-step-file-upload type="file" accept=".pdf,image/jpeg,image/png,image/webp,video/mp4" style="display:none" onchange="uploadCampaignFile(this)" />
+              <span data-step-file-upload-status></span>
+            </div>
           </div>
           <label class="decision-inline-check" data-message-sticker style="display:none"><input data-step-file-sticker type="checkbox" ${step.fileAsSticker ? 'checked' : ''} onchange="updateCampaignConversationPreview()" /> &#1513;&#1500;&#1495; &#1499;&#1502;&#1491;&#1489;&#1511;&#1492; &#1500;&#1514;&#1502;&#1493;&#1504;&#1492;</label>
           <div class="decision-options" data-score-result style="display:none">
