@@ -192,6 +192,18 @@ class ConversationStateManager {
     this.persist();
   }
 
+  removeByCampaign(campaignId: string): number {
+    let removed = 0;
+    for (const [jid, state] of this.map.entries()) {
+      if (state.campaignId !== campaignId) continue;
+      this.clearTimer(state);
+      this.map.delete(jid);
+      removed += 1;
+    }
+    if (removed) this.persist();
+    return removed;
+  }
+
   size(): number {
     return this.map.size;
   }

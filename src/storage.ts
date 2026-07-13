@@ -911,6 +911,37 @@ export class Storage {
       .map((event) => ({ ...event }));
   }
 
+  resetCampaignData(campaignId: string): { results: number; events: number; queueJobs: number; batchId: string } | null {
+    const campaign = this.data.campaigns.find((item) => item.id === campaignId);
+    if (!campaign) return null;
+
+    const resultIds = new Set(this.data.campaignResults
+      .filter((result) => result.campaignId === campaignId)
+      .map((result) => result.id));
+    const results = resultIds.size;
+    const events = this.data.campaignEvents.filter((event) => event.campaignId === campaignId).length;
+    this.data.campaignResults = this.data.campaignResults.filter((result) => result.campaignId !== campaignId);
+    this.data.campaignEvents = this.data.campaignEvents.filter((event) => event.campaignId !== campaignId);
+
+    let queueJobs = 0;
+    this.data.contactQueue = this.data.contactQueue.filter((job) => {
+      const linkedIds = job.campaignResultIds ?? [];
+      const remainingIds = linkedIds.filter((id) => !resultIds.has(id));
+      if (remainingIds.length === linkedIds.length) return true;
+      queueJobs += 1;
+      if (!remainingIds.length) return false;
+      job.campaignResultIds = remainingIds;
+      return true;
+    });
+
+    const now = new Date().toISOString();
+    const batchId = generateId();
+    campaign.currentResultBatchId = batchId;
+    campaign.currentResultBatchStartedAt = now;
+    this.persist();
+    return { results, events, queueJobs, batchId };
+  }
+
   getCampaignResultSummary(campaignId: string, resultBatchId?: string): {
     total: number;
     awaitingName: number;

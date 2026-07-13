@@ -2660,16 +2660,16 @@ export function startAdminServer(storage: Storage): void {
       ['Human handoff', String(summary.humanHandoff)], ['Score average', String(summary.scoreAverage)],
     ];
     const maxEventsPerPerson = Math.max(0, ...results.map((result) => (eventsByResult.get(result.id) ?? []).length));
-    const eventHeaders = Array.from({ length: maxEventsPerPerson }, (_, index) => [`Event ${index + 1} at`, `Event ${index + 1} type`, `Event ${index + 1} details`]).flat();
-    const headers = ['Campaign', 'Name', 'Phone', 'WhatsApp name', 'Saved/fallback name', 'Status', 'Last stage', 'Triggered at', 'Last event at', 'Updated at', 'Steps passed', 'Events count', ...eventHeaders, 'Score total', 'Score answers'];
+    const eventHeaders = Array.from({ length: maxEventsPerPerson }, (_, index) => [`Event ${index + 1} type`, `Event ${index + 1} details`]).flat();
+    const headers = ['Campaign', 'Name', 'Phone', 'WhatsApp name', 'Saved/fallback name', 'Status', 'Last stage', 'Triggered at', 'Updated at', 'Steps passed', 'Events count', ...eventHeaders, 'Score total', 'Score answers'];
     const detailRows: Array<Array<string | number>> = results.map((result) => {
       const personEvents = eventsByResult.get(result.id) ?? [];
       const stepLabels = personEvents.map((event) => event.label ? `${event.type}: ${event.label}` : event.type).join(' | ');
       const scoreAnswers = (result.scoreAnswers ?? []).map((answer) => `${answer.question}: ${answer.answerText} (${answer.score})`).join(' | ');
       const name = contactNames.get(result.phone) || result.fallbackName || result.whatsappName || result.phone;
-      const eventCells = personEvents.flatMap((event) => [event.createdAt, event.type, event.label ?? '']);
-      while (eventCells.length < maxEventsPerPerson * 3) eventCells.push('');
-      return [campaign.name, name, result.phone, result.whatsappName ?? '', result.fallbackName ?? '', result.status, result.lastStage ?? '', result.triggeredAt, result.lastEventAt ?? '', result.updatedAt, stepLabels, personEvents.length, ...eventCells, result.scoreTotal ?? '', scoreAnswers];
+      const eventCells = personEvents.flatMap((event) => [event.type, event.label ?? '']);
+      while (eventCells.length < maxEventsPerPerson * 2) eventCells.push('');
+      return [campaign.name, name, result.phone, result.whatsappName ?? '', result.fallbackName ?? '', result.status, result.lastStage ?? '', result.triggeredAt, result.updatedAt, stepLabels, personEvents.length, ...eventCells, result.scoreTotal ?? '', scoreAnswers];
     });
 
     const workbook = new ExcelJS.Workbook();
@@ -2703,23 +2703,33 @@ export function startAdminServer(storage: Storage): void {
     }
 
     const eventsSheet = workbook.addWorksheet('Events', { views: [{ rightToLeft: true, state: 'frozen', ySplit: 1 }] });
-    const normalizedEventHeaders = ['Campaign', 'Campaign ID', 'Result ID', 'Phone', 'Event at', 'Event type', 'Label', 'Details'];
+    const normalizedEventHeaders = ['Campaign', 'Campaign ID', 'Result ID', 'Phone', 'Event type', 'Label', 'Details'];
     eventsSheet.addRow(normalizedEventHeaders);
-    const normalizedEventRows = events.map((event) => { const result = results.find((item) => item.id === event.campaignResultId); return [campaign.name, campaign.id, event.campaignResultId ?? '', result?.phone ?? '', event.createdAt, event.type, event.label ?? '', JSON.stringify(event)].map((value) => excelText(value)); });
+    const normalizedEventRows = events.map((event) => { const result = results.find((item) => item.id === event.campaignResultId); return [campaign.name, campaign.id, event.campaignResultId ?? '', result?.phone ?? '', event.type, event.label ?? '', JSON.stringify(event)].map((value) => excelText(value)); });
     normalizedEventRows.forEach((rowValues) => eventsSheet.addRow(rowValues));
     eventsSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
     eventsSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF274E13' } };
     eventsSheet.getRow(1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-    eventsSheet.columns = [{ width: 24 }, { width: 24 }, { width: 28 }, { width: 18 }, { width: 26 }, { width: 24 }, { width: 32 }, { width: 60 }];
+    eventsSheet.columns = [{ width: 24 }, { width: 24 }, { width: 28 }, { width: 18 }, { width: 24 }, { width: 32 }, { width: 60 }];
     eventsSheet.eachRow((worksheetRow, rowNumber) => { if (rowNumber === 1) return; worksheetRow.eachCell((worksheetCell) => { worksheetCell.alignment = { vertical: 'top', wrapText: true }; }); });
     if (eventsSheet.rowCount > 1) {
-      eventsSheet.addTable({ name: 'CampaignEvents', ref: `A1:H${eventsSheet.rowCount}`, headerRow: true, totalsRow: false, style: { theme: 'TableStyleMedium4', showRowStripes: true }, columns: normalizedEventHeaders.map((name) => ({ name })), rows: normalizedEventRows });
+      eventsSheet.addTable({ name: 'CampaignEvents', ref: `A1:G${eventsSheet.rowCount}`, headerRow: true, totalsRow: false, style: { theme: 'TableStyleMedium4', showRowStripes: true }, columns: normalizedEventHeaders.map((name) => ({ name })), rows: normalizedEventRows });
     }
 
     const xlsx = await workbook.xlsx.writeBuffer();
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="campaign-${campaign.id}-detailed.xlsx"`);
     res.send(Buffer.from(xlsx));
+  });
+  app.post('/api/campaign-results/:id/reset', requireWritableClient, (req, res) => {
+    const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
+    if (!campaign) {
+      res.status(404).json({ error: 'Campaign not found' });
+      return;
+    }
+    const reset = storage.resetCampaignData(campaign.id);
+    const conversations = conversationState.removeByCampaign(campaign.id);
+    res.json({ ok: true, campaignId: campaign.id, ...reset, conversations });
   });
   app.post('/api/campaign-results/:id/new-batch', requireWritableClient, (req, res) => {
     const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
