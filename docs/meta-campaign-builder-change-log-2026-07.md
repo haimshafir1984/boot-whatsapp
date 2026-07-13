@@ -75,3 +75,9 @@
   - Does not write drafts to the server and does not mutate existing campaigns without explicit save.
 - Verification: pending final `npm run build` and manual draft close/restore/discard tests.
 - Rollback: revert this step commit only.
+## Final Verification
+
+- `npm run build`: passed.
+- Inline JavaScript syntax check for `public/index.html`: passed.
+- Push: not performed, per instruction.
+- Manual browser/WhatsApp checks: pending user-side review before any push/deploy.
