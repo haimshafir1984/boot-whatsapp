@@ -1542,20 +1542,6 @@
               </div>
             </div>
             <div class="decision-flow timeline-flow" id="fDecisionFlow"></div>
-            <div class="flow-add-wrap" style="justify-content:flex-end;margin-top:12px">
-              <select id="flowAddStepTypeBottom" aria-label="&#1505;&#1493;&#1490; &#1513;&#1500;&#1489; &#1500;&#1492;&#1493;&#1505;&#1508;&#1492; &#1489;&#1514;&#1495;&#1514;&#1497;&#1514;">
-                  <option value="message">&#1492;&#1493;&#1491;&#1506;&#1514; &#1496;&#1511;&#1505;&#1496;</option>
-                  <option value="buttons">&#1513;&#1488;&#1500;&#1492; &#1506;&#1501; &#1499;&#1508;&#1514;&#1493;&#1512;&#1497;&#1501;</option>
-                  <option value="list">&#1512;&#1513;&#1497;&#1502;&#1514; &#1489;&#1495;&#1497;&#1512;&#1492;</option>
-                  <option value="score">&#1513;&#1488;&#1500;&#1514; &#1495;&#1497;&#1513;&#1493;&#1489;</option>
-                  <option value="score_result">&#1514;&#1493;&#1510;&#1488;&#1514; &#1495;&#1497;&#1513;&#1493;&#1489;</option>
-                  <option value="wait_reply">&#1492;&#1493;&#1491;&#1506;&#1492; &#1513;&#1502;&#1502;&#1514;&#1497;&#1504;&#1492; &#1500;&#1514;&#1513;&#1493;&#1489;&#1492;</option>
-                  <option value="media">&#1514;&#1502;&#1493;&#1504;&#1492; / &#1505;&#1512;&#1496;&#1493;&#1503; / &#1511;&#1493;&#1489;&#1509;</option>
-                  <option value="contact_card">&#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1500;&#1513;&#1502;&#1497;&#1512;&#1492;</option>
-                  <option value="referral_share" data-referral-feature>&#1500;&#1497;&#1504;&#1511; &#1488;&#1497;&#1513;&#1497; &#1500;&#1514;&#1495;&#1512;&#1493;&#1514;</option>
-                </select>
-              <button type="button" class="btn-small" onclick="addDecisionStepFromBottomSelect()">+ &#1492;&#1493;&#1505;&#1507; &#1513;&#1500;&#1489;</button>
-            </div>
             <div class="flow-legacy-followups" style="display:none">
               <div class="followup-list" id="fFollowupMessages"></div>
             </div>
@@ -1629,7 +1615,8 @@
             <div><span>סוג</span><strong id="wizardSummaryType">-</strong></div>
             <div><span>משפט טריגר</span><strong id="wizardSummaryTrigger">-</strong></div>
             <div><span>שאלת שם</span><strong id="wizardSummaryAskName">-</strong></div>
-            <div><span>הודעות המשך / שאלות</span><strong id="wizardSummaryFlow">-</strong></div>
+            <div><span>&#1513;&#1500;&#1489;&#1497; &#1513;&#1497;&#1495;&#1492;</span><strong id="wizardSummaryFlow">-</strong></div>
+            <div><span>&#1508;&#1512;&#1497;&#1496;&#1497; &#1505;&#1497;&#1493;&#1501;</span><strong id="wizardSummaryCompletion">-</strong></div>
           </div>
           <div class="wizard-link-box">
             <strong style="display:block;color:#14532d;margin-bottom:4px">הלינק מוכן לשיתוף</strong>
@@ -2265,11 +2252,10 @@
     const triggerType = Number(document.querySelector('input[name=triggerType]:checked')?.value || 1);
     const trigger = currentTriggerText() || '-';
     const conversation = getCampaignConversation();
-    const flowCount = conversation.followupMessages.length
-      + conversation.decisionFlow.length
-      + conversation.completionLinks.length
+    const conversationStepCount = conversation.followupMessages.length + conversation.decisionFlow.length;
+    const completionItemCount = conversation.completionLinks.length
       + conversation.completionFileIds.length
-      + (conversation.sendContactCard ? 1 : 0);
+      + (conversation.sendContactCard && conversation.contactCardPlacement !== 'before_questions' ? 1 : 0);
 
     document.getElementById('wizardSummaryName')?.replaceChildren(document.createTextNode(name));
     document.getElementById('wizardSummaryType')?.replaceChildren(document.createTextNode(triggerType === 1 ? 'קמפיין רגיל' : 'קמפיין ממליץ'));
@@ -2280,7 +2266,8 @@
         : 'פעילה - המערכת תשאל שם לפני השמירה')
       : 'כבויה - איש הקשר יישמר בלי שאלת שם';
     document.getElementById('wizardSummaryAskName')?.replaceChildren(document.createTextNode(askNameSummary));
-    document.getElementById('wizardSummaryFlow')?.replaceChildren(document.createTextNode(flowCount ? `${flowCount} פריטים` : 'ללא המשך'));
+    document.getElementById('wizardSummaryFlow')?.replaceChildren(document.createTextNode(conversationStepCount ? `${conversationStepCount} \u05e9\u05dc\u05d1\u05d9\u05dd` : '\u05dc\u05dc\u05d0 \u05e9\u05dc\u05d1\u05d9 \u05e9\u05d9\u05d7\u05d4'));
+    document.getElementById('wizardSummaryCompletion')?.replaceChildren(document.createTextNode(completionItemCount ? `${completionItemCount} \u05e4\u05e8\u05d9\u05d8\u05d9\u05dd` : '\u05dc\u05dc\u05d0 \u05e4\u05e8\u05d9\u05d8\u05d9 \u05e1\u05d9\u05d5\u05dd'));
     const link = buildCampaignShareLink(trigger, editingId);
     lastWizardLink = link;
     document.getElementById('wizardShareLink')?.replaceChildren(document.createTextNode(link || '\u05de\u05e1\u05e4\u05e8 WhatsApp \u05e2\u05d3\u05d9\u05d9\u05df \u05dc\u05d0 \u05e0\u05d8\u05e2\u05df'));
@@ -3289,7 +3276,15 @@
       if (messageFile) messageFile.style.display = kind === 'message' ? '' : 'none';
       if (messageSticker) messageSticker.style.display = kind === 'message' ? '' : 'none';
       if (questionPresentation) questionPresentation.style.display = isChoice ? '' : 'none';
-      if (optionsPanel) optionsPanel.style.display = isChoice ? '' : 'none';
+      if (optionsPanel) {
+        optionsPanel.style.display = isChoice ? '' : 'none';
+        const maxOptions = presentation === 'buttons' ? 3 : 10;
+        const label = optionsPanel.querySelector('.decision-options-label');
+        const addButton = optionsPanel.querySelector('button');
+        const currentOptions = optionsPanel.querySelectorAll('[data-decision-option]').length;
+        if (label) label.textContent = `\u05ea\u05e9\u05d5\u05d1\u05d5\u05ea \u05d0\u05e4\u05e9\u05e8\u05d9\u05d5\u05ea (\u05e2\u05d3 ${maxOptions})`;
+        if (addButton) addButton.disabled = isChoice && currentOptions >= maxOptions;
+      }
       const contactFields = step.querySelector('[data-flow-contact-card-fields]');
       if (kind === 'contact_card') {
         enableFlowContactCard();
@@ -3312,7 +3307,14 @@
       const title = step.querySelector('.decision-step-title');
       const titleText = step.querySelector('[data-step-text]')?.value.trim();
       const stepIndex = [...document.querySelectorAll('[data-decision-step]')].indexOf(step);
-      if (title) title.textContent = 'שלב ' + (stepIndex + 1) + (titleText ? ' · ' + titleText.slice(0, 34) : '');
+      let titleFallback = '';
+      if (!titleText && kind === 'message') {
+        const fileLabel = selectedFileLabel(step.querySelector('[data-step-file]'));
+        if (fileLabel) titleFallback = `\u05e7\u05d5\u05d1\u05e5: ${fileLabel}`;
+      }
+      if (!titleText && kind === 'contact_card') titleFallback = '\u05d0\u05d9\u05e9 \u05e7\u05e9\u05e8 \u05dc\u05e9\u05de\u05d9\u05e8\u05d4';
+      if (!titleText && kind === 'score_result') titleFallback = '\u05ea\u05d5\u05e6\u05d0\u05ea \u05d7\u05d9\u05e9\u05d5\u05d1';
+      if (title) title.textContent = '\u05e9\u05dc\u05d1 ' + (stepIndex + 1) + (titleText ? ' · ' + titleText.slice(0, 34) : (titleFallback ? ' · ' + titleFallback : ''));
       step.querySelector('.decision-step-subtitle').textContent = decisionKindLabel(kind, presentation);
       step.querySelector('[data-step-text]').placeholder = decisionStepPlaceholder(kind);
       step.querySelectorAll('[data-decision-option]').forEach(option => {
@@ -3561,7 +3563,7 @@
     document.getElementById('flowMapTrigger')?.replaceChildren(document.createTextNode(triggerText || 'משפט פתיחה'));
     document.getElementById('flowMapAskName')?.replaceChildren(document.createTextNode(conversation.askNameEnabled ? 'פעילה - שואלים שם' : 'כבויה'));
     const flowCount = (conversation.followupMessages || []).length + (conversation.decisionFlow || []).length;
-    document.getElementById('flowMapQuestions')?.replaceChildren(document.createTextNode(flowCount ? flowCount + ' צמתים' : 'ללא שאלות'));
+    document.getElementById('flowMapQuestions')?.replaceChildren(document.createTextNode(flowCount ? flowCount + ' \u05e9\u05dc\u05d1\u05d9\u05dd' : '\u05dc\u05dc\u05d0 \u05e9\u05dc\u05d1\u05d9 \u05e9\u05d9\u05d7\u05d4'));
     const sequence = 'סדר נוכחי: שם -> שאלות והודעות לפי סדר הבלוקים -> סיום.';
     document.getElementById('flowMapSequenceNote')?.replaceChildren(document.createTextNode(sequence));
   }

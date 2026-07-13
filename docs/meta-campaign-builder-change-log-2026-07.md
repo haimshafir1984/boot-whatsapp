@@ -50,3 +50,16 @@
   - Shows a short inline upload status and preserves the existing files manager behavior.
 - Verification: pending final `npm run build` and manual upload/send smoke tests.
 - Rollback: revert this step commit only.
+### 4. Builder summary, terminology, and answer limits
+
+- Status: completed.
+- Files: `public/index.html`.
+- Changes:
+  - Split the final summary into conversation steps and completion items.
+  - Replaced the technical flow-map count wording with step wording.
+  - Updated answer-limit labels dynamically: buttons up to 3, list/text up to 10.
+  - Disabled adding more answers only when the current presentation reaches its limit.
+  - Improved collapsed step titles for file-only, contact-card, and score-result blocks.
+  - Removed the duplicate bottom add-step control; the main add-step control remains.
+- Verification: pending final `npm run build` and manual builder smoke tests.
+- Rollback: revert this step commit only.
