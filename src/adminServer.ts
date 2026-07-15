@@ -43,6 +43,11 @@ import {
   normalizeMetaTrigger,
   selectMetaRouteCandidate,
 } from './metaCampaignRouting';
+import {
+  AsyncExpiringCache,
+  META_CAMPAIGN_CACHE_TTL_MS,
+  retryTransientMetaOperation,
+} from './metaGatewayReliability';
 
 interface TwilioGatewaySession {
   from: string;
@@ -514,7 +519,7 @@ async function fetchClientAsOwner<T>(
   const response = await fetch(`${baseUrl}${pathName}`, {
     ...init,
     headers,
-    signal: AbortSignal.timeout(10_000),
+    signal: init.signal ?? AbortSignal.timeout(10_000),
   });
   const body = await response.json().catch(() => ({}));
   return { ok: response.ok, status: response.status, body };
@@ -895,6 +900,7 @@ export function startAdminServer(storage: Storage): void {
   const metaGatewaySessions = createTwilioGatewaySessionStore(
     path.join(path.dirname(config.OWNER_STORAGE_PATH), 'meta-gateway-sessions.json'),
   );
+  const metaCampaignCache = new AsyncExpiringCache<Campaign[]>(META_CAMPAIGN_CACHE_TTL_MS);
 
   app.set('trust proxy', 1);
   app.use(express.json({ limit: '24mb' }));
@@ -1156,13 +1162,22 @@ export function startAdminServer(storage: Storage): void {
     const campaignsByClient = new Map<string, Campaign[]>();
     const candidates: Array<{ client: ManagedClient; clientId: string; campaign: Campaign; triggerText: string }> = [];
     await Promise.all(clients.map(async (client) => {
-      const result = await fetchClientAsOwner<Campaign[]>(client, '/owner-api/campaigns');
-      if (!result.ok || !Array.isArray(result.body)) return;
-      campaignsByClient.set(client.id, result.body);
-      for (const campaign of result.body) {
-        if (!campaign.active || (campaign.runtimeStatus && campaign.runtimeStatus !== 'active')) continue;
-        const triggerText = normalizeGatewayText(campaign.triggerPhrase ?? '');
-        if (triggerText && normalizedBody.includes(triggerText)) candidates.push({ client, clientId: client.id, campaign, triggerText });
+      try {
+        const campaigns = await metaCampaignCache.get(client.id, async () => {
+          const result = await fetchClientAsOwner<Campaign[]>(client, '/owner-api/campaigns', {
+            signal: AbortSignal.timeout(3_000),
+          });
+          if (!result.ok || !Array.isArray(result.body)) throw new Error('Campaign lookup failed with status ' + result.status);
+          return result.body;
+        });
+        campaignsByClient.set(client.id, campaigns);
+        for (const campaign of campaigns) {
+          if (!campaign.active || (campaign.runtimeStatus && campaign.runtimeStatus !== 'active')) continue;
+          const triggerText = normalizeGatewayText(campaign.triggerPhrase ?? '');
+          if (triggerText && normalizedBody.includes(triggerText)) candidates.push({ client, clientId: client.id, campaign, triggerText });
+        }
+      } catch (err) {
+        console.error('[META_GATEWAY_CLIENT_SKIPPED]', client.id, err);
       }
     }));
 
@@ -1204,12 +1219,30 @@ export function startAdminServer(storage: Storage): void {
       return { handled: true };
     }
 
-    const forwarded = await fetchClientAsOwner(targetClient, '/internal/meta/whatsapp', {
-      method: 'POST',
-      body: JSON.stringify(payload ?? {}),
-    });
+    const selectedClient = targetClient;
+    let forwarded: { ok: boolean; status: number; body: any };
+    try {
+      forwarded = await retryTransientMetaOperation(
+        () => fetchClientAsOwner(selectedClient, '/internal/meta/whatsapp', {
+          method: 'POST',
+          body: JSON.stringify(payload ?? {}),
+        }),
+        {
+          onRetry: ({ attempt, result, error }) => console.warn(
+            '[META_GATEWAY_RETRY]',
+            selectedClient.id,
+            'attempt=' + attempt,
+            result ? 'status=' + result.status : 'network_error',
+            error ?? '',
+          ),
+        },
+      );
+    } catch (err) {
+      console.error('[META_GATEWAY_FAILED]', selectedClient.id, 'network_error', err);
+      return { handled: true };
+    }
     if (!forwarded.ok) {
-      console.error('[META_GATEWAY_FAILED]', targetClient.id, forwarded.status, JSON.stringify(forwarded.body).slice(0, 300));
+      console.error('[META_GATEWAY_FAILED]', selectedClient.id, forwarded.status, JSON.stringify(forwarded.body).slice(0, 300));
     } else {
       console.log(
         '[META_GATEWAY_ROUTED]',
