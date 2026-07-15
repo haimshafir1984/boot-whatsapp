@@ -2557,6 +2557,10 @@ export function startAdminServer(storage: Storage): void {
     }
 
     const buffer = Buffer.from(match[2], 'base64');
+    if (detectedMimeType.startsWith('image/') && buffer.length > 5 * 1024 * 1024) {
+      res.status(400).json({ error: '\u05d4\u05ea\u05de\u05d5\u05e0\u05d4 \u05d2\u05d3\u05d5\u05dc\u05d4 \u05de\u05d3\u05d9. \u05e0\u05d9\u05ea\u05df \u05dc\u05d4\u05e2\u05dc\u05d5\u05ea \u05ea\u05de\u05d5\u05e0\u05d4 \u05e2\u05d3 5MB.' });
+      return;
+    }
     const maxBytes = 15 * 1024 * 1024;
     if (buffer.length > maxBytes) {
       res.status(400).json({ error: 'הקובץ גדול מדי. המגבלה כרגע היא 15MB.' });
@@ -2681,73 +2685,175 @@ export function startAdminServer(storage: Storage): void {
       const textValue = String(value ?? '');
       return /^[=+\-@\t\r]/.test(textValue) ? `'${textValue}` : textValue;
     };
-    const title = `${campaign.name} - detailed campaign export`;
-    const generatedAt = new Date().toISOString();
-    const summaryRows = [
-      ['Campaign', campaign.name], ['Campaign ID', campaign.id], ['Twilio mode', campaign.twilio?.mode ?? ''],
-      ['Twilio template ID', campaign.twilio?.templateId ?? ''], ['Generated at', generatedAt], ['Results file', resultBatchId],
-      ['Total people', String(summary.total)], ['Saved contacts', String(summary.saved)], ['Pending saves', String(summary.pending)],
-      ['Failed saves', String(summary.failed)], ['Completed', String(summary.completed)],
-      ['Referral links sent', String(storage.getCampaignEvents(campaign.id).filter((event) => event.type === 'referral_link_sent').length)],
-      ['Referral attributed entries', String(results.filter((result) => result.referredByCode).length)],
-      ['Human handoff', String(summary.humanHandoff)], ['Score average', String(summary.scoreAverage)],
+    const statusLabels: Record<string, string> = {
+      awaiting_name: 'ממתין לשם',
+      pending: 'ממתין לשמירה',
+      saved: 'נשמר',
+      failed: 'שמירה נכשלה',
+    };
+    const eventTypeLabels: Record<string, string> = {
+      step_sent: 'הגיעו לשלב',
+      step_answered: 'לחצו או ענו',
+      score_answered: 'ענו על שאלת ניקוד',
+      contact_card_confirmed: 'אישרו שמירת איש קשר',
+      completion_sent: 'הודעת סיום נשלחה',
+      completion_link_sent: 'קישור סיום נשלח',
+      completed: 'השלימו את התהליך',
+      human_handoff: 'עברו למענה אנושי',
+      referral_link_sent: 'קישור הפניה נשלח',
+      referral_attributed: 'כניסה יוחסה להפניה',
+    };
+    const reportableEventTypes = new Set(Object.keys(eventTypeLabels));
+    const eventDisplayLabel = (event: { type: string; label?: string }): string => {
+      const typeLabel = eventTypeLabels[event.type] ?? event.type;
+      if (event.type === 'completed' || event.type === 'human_handoff') return typeLabel;
+      return event.label ? `${typeLabel}: ${event.label}` : typeLabel;
+    };
+    const personDisplayName = (result: typeof results[number]): string =>
+      contactNames.get(result.phone) || result.fallbackName || result.whatsappName || result.phone;
+    const reportableEvents = events.filter((event) => reportableEventTypes.has(event.type));
+    const checkpointCounts = new Map<string, { label: string; people: Set<string> }>();
+    reportableEvents.forEach((event) => {
+      const personKey = event.campaignResultId || event.phone;
+      if (!personKey) return;
+      const key = `${event.type}\\u0000${event.label ?? ''}`;
+      const checkpoint = checkpointCounts.get(key) ?? { label: eventDisplayLabel(event), people: new Set<string>() };
+      checkpoint.people.add(personKey);
+      checkpointCounts.set(key, checkpoint);
+    });
+
+    const title = `דוח תוצאות קמפיין – ${campaign.name}`;
+    const summaryRows: Array<[string, string | number]> = [
+      ['שם הקמפיין', campaign.name],
+      ['מזהה הקמפיין', campaign.id],
+      ['מועד הפקת הדוח', new Date().toLocaleString('he-IL')],
+      ['קובץ התוצאות', resultBatchId],
+      ['סך המשתתפים', summary.total],
+      ['אנשי קשר שנשמרו', summary.saved],
+      ['ממתינים לשמירה', summary.pending],
+      ['שמירת אנשי קשר שנכשלה', summary.failed],
+      ['השלימו את התהליך', summary.completed],
+      ['עברו למענה אנושי', summary.humanHandoff],
+      ['ממוצע ניקוד', summary.scoreAverage],
+      ['קישורי הפניה שנשלחו', storage.getCampaignEvents(campaign.id).filter((event) => event.type === 'referral_link_sent').length],
+      ['כניסות שיוחסו להפניה', results.filter((result) => result.referredByCode).length],
     ];
+
     const maxEventsPerPerson = Math.max(0, ...results.map((result) => (eventsByResult.get(result.id) ?? []).length));
-    const eventHeaders = Array.from({ length: maxEventsPerPerson }, (_, index) => [`Event ${index + 1} type`, `Event ${index + 1} details`]).flat();
-    const headers = ['Campaign', 'Name', 'Phone', 'WhatsApp name', 'Saved/fallback name', 'Status', 'Last stage', 'Triggered at', 'Updated at', 'Steps passed', 'Events count', ...eventHeaders, 'Score total', 'Score answers'];
+    const eventHeaders = Array.from({ length: maxEventsPerPerson }, (_, index) => [`אירוע ${index + 1} – סוג`, `אירוע ${index + 1} – פירוט`]).flat();
+    const detailHeaders = ['קמפיין', 'שם', 'טלפון', 'שם WhatsApp', 'שם שנשמר/שם חלופי', 'סטטוס', 'שלב אחרון', 'מועד כניסה', 'מועד עדכון', 'כל השלבים והפעולות', 'מספר אירועים', ...eventHeaders, 'ניקוד כולל', 'תשובות ניקוד'];
     const detailRows: Array<Array<string | number>> = results.map((result) => {
       const personEvents = eventsByResult.get(result.id) ?? [];
-      const stepLabels = personEvents.map((event) => event.label ? `${event.type}: ${event.label}` : event.type).join(' | ');
+      const stepLabels = personEvents.map((event) => eventDisplayLabel(event)).join(' | ');
       const scoreAnswers = (result.scoreAnswers ?? []).map((answer) => `${answer.question}: ${answer.answerText} (${answer.score})`).join(' | ');
-      const name = contactNames.get(result.phone) || result.fallbackName || result.whatsappName || result.phone;
       const eventCells = personEvents.flatMap((event) => [event.type, event.label ?? '']);
       while (eventCells.length < maxEventsPerPerson * 2) eventCells.push('');
-      return [campaign.name, name, result.phone, result.whatsappName ?? '', result.fallbackName ?? '', result.status, result.lastStage ?? '', result.triggeredAt, result.updatedAt, stepLabels, personEvents.length, ...eventCells, result.scoreTotal ?? '', scoreAnswers];
+      return [campaign.name, personDisplayName(result), result.phone, result.whatsappName ?? '', result.fallbackName ?? '', statusLabels[result.status] ?? result.status, eventTypeLabels[result.lastStage ?? ''] ?? result.lastStage ?? '', result.triggeredAt, result.updatedAt, stepLabels, personEvents.length, ...eventCells, result.scoreTotal ?? '', scoreAnswers];
     });
+
+    const peopleHeaders = ['שם', 'טלפון', 'סטטוס', 'מועד כניסה', 'שלב או פעולה אחרונים', 'מועד עדכון', 'מספר שלבים ופעולות', 'אישר/ה שמירה', 'סיים/ה', 'ניקוד'];
+    const peopleRows: Array<Array<string | number>> = results.map((result) => {
+      const personEvents = eventsByResult.get(result.id) ?? [];
+      const personReportableEvents = personEvents.filter((event) => reportableEventTypes.has(event.type));
+      const lastEvent = personReportableEvents[personReportableEvents.length - 1];
+      return [
+        personDisplayName(result),
+        result.phone,
+        statusLabels[result.status] ?? result.status,
+        result.triggeredAt,
+        lastEvent ? eventDisplayLabel(lastEvent) : 'התחיל/ה את הקמפיין',
+        result.updatedAt,
+        personReportableEvents.length,
+        personEvents.some((event) => event.type === 'contact_card_confirmed') ? 'כן' : 'לא',
+        personEvents.some((event) => event.type === 'completed') ? 'כן' : 'לא',
+        result.scoreTotal ?? '',
+      ];
+    });
+
+    const styleDataSheet = (sheet: ExcelJS.Worksheet, widths: number[], wrappedColumns: number[] = []): void => {
+      sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF274E13' } };
+      sheet.getRow(1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      sheet.getRow(1).height = 32;
+      sheet.columns = widths.map((width) => ({ width }));
+      sheet.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return;
+        row.height = 26;
+        row.eachCell((cell, columnNumber) => {
+          cell.alignment = { vertical: 'middle', wrapText: wrappedColumns.includes(columnNumber) };
+        });
+      });
+      sheet.views = [{ rightToLeft: true, state: 'frozen', ySplit: 1 }];
+    };
+    const addDataTable = (sheet: ExcelJS.Worksheet, name: string, headers: string[], rows: Array<Array<string | number>>): void => {
+      const safeRows = rows.map((values) => values.map((value) => typeof value === 'number' ? value : excelText(value)));
+      if (safeRows.length) {
+        sheet.addTable({ name, ref: 'A1', headerRow: true, totalsRow: false, style: { theme: 'TableStyleMedium4', showRowStripes: true }, columns: headers.map((header) => ({ name: header })), rows: safeRows });
+      } else {
+        sheet.addRow(headers);
+      }
+    };
 
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'FlowsBiz';
     workbook.created = new Date();
     workbook.modified = new Date();
-    const summarySheet = workbook.addWorksheet('Summary', { views: [{ rightToLeft: true }] });
+
+    const summarySheet = workbook.addWorksheet('סיכום', { views: [{ rightToLeft: true }] });
     summarySheet.addRow([title]);
-    summarySheet.mergeCells('A1:B1');
+    summarySheet.mergeCells('A1:C1');
     summarySheet.getCell('A1').font = { bold: true, size: 16, color: { argb: 'FFFFFFFF' } };
     summarySheet.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF274E13' } };
-    summarySheet.addRow([]); summarySheet.addRow(['Summary', 'Value']);
-    summaryRows.forEach(([label, value]) => summarySheet.addRow([label, excelText(value)]));
-    summarySheet.getRow(3).font = { bold: true };
-    summarySheet.getRow(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9EAD3' } };
-    summarySheet.columns = [{ width: 30 }, { width: 58 }];
-    summarySheet.getColumn(2).alignment = { wrapText: true, vertical: 'top' };
+    summarySheet.getCell('A1').alignment = { horizontal: 'right', vertical: 'middle' };
+    summarySheet.addRow([]);
+    summarySheet.addRow(['נתוני הקמפיין', 'ערך']);
+    summaryRows.forEach(([label, value]) => summarySheet.addRow([label, typeof value === 'number' ? value : excelText(value)]));
+    summarySheet.getRow(3).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    summarySheet.getRow(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF274E13' } };
+    const stageHeaderRow = summarySheet.rowCount + 3;
+    summarySheet.getRow(stageHeaderRow).values = ['הגעה לשלבים ופעולות', 'מספר משתתפים', 'אחוז מהמשתתפים'];
+    summarySheet.getRow(stageHeaderRow).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    summarySheet.getRow(stageHeaderRow).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF274E13' } };
+    const stages = [
+      { label: 'התחילו את הקמפיין', count: summary.total },
+      ...Array.from(checkpointCounts.values()).map((checkpoint) => ({ label: checkpoint.label, count: checkpoint.people.size })),
+    ];
+    stages.forEach((stage) => {
+      const row = summarySheet.addRow([excelText(stage.label), stage.count]);
+      row.getCell(3).value = { formula: `IFERROR(B${row.number}/$B$8,0)`, result: summary.total ? stage.count / summary.total : 0 };
+      row.getCell(3).numFmt = '0%';
+      row.height = 30;
+    });
+    summarySheet.columns = [{ width: 62 }, { width: 22 }, { width: 20 }];
+    summarySheet.getColumn(1).alignment = { wrapText: true, vertical: 'middle' };
     summarySheet.views = [{ rightToLeft: true, state: 'frozen', ySplit: 3 }];
 
-    const peopleSheet = workbook.addWorksheet('People and stages', { views: [{ rightToLeft: true, state: 'frozen', ySplit: 1 }] });
-    peopleSheet.addRow(headers);
-    detailRows.forEach((values) => peopleSheet.addRow(values.map((value) => typeof value === 'number' ? value : excelText(value))));
-    peopleSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    peopleSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF274E13' } };
-    peopleSheet.getRow(1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-    peopleSheet.getRow(1).height = 32;
-    peopleSheet.columns = headers.map((header) => ({ width: /details|answers|passed/i.test(header) ? 38 : Math.min(Math.max(header.length + 3, 14), 28) }));
-    peopleSheet.eachRow((worksheetRow, rowNumber) => { if (rowNumber === 1) return; worksheetRow.eachCell((worksheetCell) => { worksheetCell.alignment = { vertical: 'top', wrapText: true }; }); });
-    if (peopleSheet.rowCount > 1) {
-      peopleSheet.addTable({ name: 'CampaignPeopleStages', ref: `A1:${peopleSheet.getCell(1, headers.length).address.replace(/1$/, peopleSheet.rowCount.toString())}`, headerRow: true, totalsRow: false, style: { theme: 'TableStyleMedium4', showRowStripes: true }, columns: headers.map((name) => ({ name })), rows: detailRows.map((values) => values.map((value) => typeof value === 'number' ? value : excelText(value))) });
-    }
+    const peopleSheet = workbook.addWorksheet('משתתפים ושלבים');
+    addDataTable(peopleSheet, 'CampaignPeopleOverview', peopleHeaders, peopleRows);
+    styleDataSheet(peopleSheet, [24, 18, 18, 22, 42, 22, 20, 16, 12, 12], [5]);
 
-    const eventsSheet = workbook.addWorksheet('Events', { views: [{ rightToLeft: true, state: 'frozen', ySplit: 1 }] });
-    const normalizedEventHeaders = ['Campaign', 'Campaign ID', 'Result ID', 'Phone', 'Event type', 'Label', 'Details'];
-    eventsSheet.addRow(normalizedEventHeaders);
-    const normalizedEventRows = events.map((event) => { const result = results.find((item) => item.id === event.campaignResultId); return [campaign.name, campaign.id, event.campaignResultId ?? '', result?.phone ?? '', event.type, event.label ?? '', JSON.stringify(event)].map((value) => excelText(value)); });
-    normalizedEventRows.forEach((rowValues) => eventsSheet.addRow(rowValues));
-    eventsSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    eventsSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF274E13' } };
-    eventsSheet.getRow(1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-    eventsSheet.columns = [{ width: 24 }, { width: 24 }, { width: 28 }, { width: 18 }, { width: 24 }, { width: 32 }, { width: 60 }];
-    eventsSheet.eachRow((worksheetRow, rowNumber) => { if (rowNumber === 1) return; worksheetRow.eachCell((worksheetCell) => { worksheetCell.alignment = { vertical: 'top', wrapText: true }; }); });
-    if (eventsSheet.rowCount > 1) {
-      eventsSheet.addTable({ name: 'CampaignEvents', ref: `A1:G${eventsSheet.rowCount}`, headerRow: true, totalsRow: false, style: { theme: 'TableStyleMedium4', showRowStripes: true }, columns: normalizedEventHeaders.map((name) => ({ name })), rows: normalizedEventRows });
-    }
+    const historySheet = workbook.addWorksheet('היסטוריית שלבים');
+    const historyHeaders = ['שם', 'טלפון', 'סוג הפעולה', 'שלב או פעולה', 'תאריך ושעה'];
+    const resultsById = new Map(results.map((result) => [result.id, result]));
+    const historyRows: Array<Array<string | number>> = reportableEvents.map((event) => {
+      const result = event.campaignResultId ? resultsById.get(event.campaignResultId) : undefined;
+      return [result ? personDisplayName(result) : '', result?.phone ?? event.phone ?? '', eventTypeLabels[event.type] ?? event.type, event.label ?? eventTypeLabels[event.type] ?? '', event.createdAt];
+    });
+    addDataTable(historySheet, 'CampaignStageHistory', historyHeaders, historyRows);
+    styleDataSheet(historySheet, [24, 18, 28, 58, 22], [4]);
+
+    const detailsSheet = workbook.addWorksheet('נתונים מלאים');
+    addDataTable(detailsSheet, 'CampaignFullDetails', detailHeaders, detailRows);
+    styleDataSheet(detailsSheet, detailHeaders.map((header) => /פירוט|תשובות|פעולות/.test(header) ? 42 : Math.min(Math.max(header.length + 3, 14), 28)), [10]);
+
+    const eventsSheet = workbook.addWorksheet('אירועים מלאים');
+    const normalizedEventHeaders = ['קמפיין', 'מזהה קמפיין', 'מזהה תוצאה', 'טלפון', 'סוג אירוע', 'פירוט', 'תאריך ושעה', 'נתונים גולמיים'];
+    const normalizedEventRows = events.map((event) => {
+      const result = results.find((item) => item.id === event.campaignResultId);
+      return [campaign.name, campaign.id, event.campaignResultId ?? '', result?.phone ?? event.phone ?? '', event.type, event.label ?? '', event.createdAt, JSON.stringify(event)];
+    });
+    addDataTable(eventsSheet, 'CampaignEvents', normalizedEventHeaders, normalizedEventRows);
+    styleDataSheet(eventsSheet, [24, 24, 28, 18, 26, 42, 22, 65], [6, 8]);
 
     const xlsx = await workbook.xlsx.writeBuffer();
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

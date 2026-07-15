@@ -2887,6 +2887,14 @@
     const stepFileSelect = input.closest('[data-message-file]')?.querySelector('[data-step-file]');
     if (errEl) errEl.textContent = '';
     if (inlineStatus) inlineStatus.textContent = '\u05de\u05e2\u05dc\u05d4...';
+    if (file.type.startsWith('image/') && file.size > 5 * 1024 * 1024) {
+      const message = '\u05d4\u05ea\u05de\u05d5\u05e0\u05d4 \u05d2\u05d3\u05d5\u05dc\u05d4 \u05de\u05d3\u05d9. \u05d0\u05e4\u05e9\u05e8 \u05dc\u05d4\u05e2\u05dc\u05d5\u05ea \u05ea\u05de\u05d5\u05e0\u05d4 \u05e2\u05d3 5MB.';
+      if (toastId === 'filesToast') showToast('filesToast', 'error', message);
+      else if (errEl) errEl.textContent = message;
+      if (inlineStatus) inlineStatus.textContent = '\u05d4\u05ea\u05de\u05d5\u05e0\u05d4 \u05d2\u05d3\u05d5\u05dc\u05d4 \u05de\u05d3\u05d9';
+      input.value = '';
+      return;
+    }
     if (file.size > 15 * 1024 * 1024) {
       const message = '\u05d4\u05e7\u05d5\u05d1\u05e5 \u05d2\u05d3\u05d5\u05dc \u05de\u05d3\u05d9. \u05d0\u05e4\u05e9\u05e8 \u05dc\u05d4\u05e2\u05dc\u05d5\u05ea \u05e7\u05d5\u05d1\u05e5 \u05e2\u05d3 15MB.';
       if (toastId === 'filesToast') showToast('filesToast', 'error', message);
