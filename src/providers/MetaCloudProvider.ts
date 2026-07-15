@@ -37,7 +37,7 @@ export class MetaCloudProvider implements WhatsAppProvider {
   }
 
   async sendContactCards(to: string, contacts: Array<{ vcard: string; displayName: string }>, _displayName: string): Promise<void> {
-    const parsed = contacts.slice(0, 2).map((contact) => parseVCard(contact.vcard, contact.displayName)).filter(Boolean);
+    const parsed = contacts.slice(0, 2).map((contact) => buildMetaContactFromVCard(contact.vcard, contact.displayName)).filter(Boolean);
     if (!parsed.length) return;
     console.log('[META_CONTACTS_SEND] count=' + parsed.length);
     await this.postMessages({ messaging_product: 'whatsapp', to: normalizePhone(to), type: 'contacts', contacts: parsed });
@@ -109,15 +109,26 @@ function mimeTypeForFile(fileName: string): string {
   return ({ '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.3gp': 'video/3gpp', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.pdf': 'application/pdf', '.vcf': 'text/vcard' } as Record<string, string>)[ext] || 'application/octet-stream';
 }
 
-function parseVCard(vcard: string, fallbackName: string): Record<string, unknown> | null {
+export function buildMetaContactFromVCard(vcard: string, fallbackName: string): Record<string, unknown> | null {
   const name = (vcard.match(/^FN(?:;[^:]*)?:(.*)$/mi)?.[1] || fallbackName || 'Contact').trim();
   const phone = (vcard.match(/^TEL(?:;[^:]*)?:(.*)$/mi)?.[1] || '').trim();
   const email = (vcard.match(/^EMAIL(?:;[^:]*)?:(.*)$/mi)?.[1] || '').trim();
   const organization = (vcard.match(/^ORG(?:;[^:]*)?:(.*)$/mi)?.[1] || '').trim();
   if (!phone && !email && !name) return null;
   const contact: Record<string, unknown> = { name: { formatted_name: name, first_name: name } };
-  if (phone) contact.phones = [{ phone, type: 'CELL' }];
+  if (phone) {
+    const waId = normalizeContactWaId(phone);
+    contact.phones = [{ phone, type: 'CELL', ...(waId ? { wa_id: waId } : {}) }];
+  }
   if (email) contact.emails = [{ email, type: 'WORK' }];
   if (organization) contact.org = { company: organization };
   return contact;
+}
+
+function normalizeContactWaId(value: string): string {
+  const clean = value.trim().replace(/^whatsapp:/i, '').split('@')[0];
+  let digits = clean.replace(/\D/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits.startsWith('0') && digits.length >= 9) digits = '972' + digits.slice(1);
+  return digits;
 }
