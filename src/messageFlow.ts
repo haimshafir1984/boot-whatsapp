@@ -31,6 +31,9 @@ interface CampaignReplyBehavior {
   phone?: string;
   decisionTimeoutMinutes?: number;
   decisionTimeoutText?: string;
+  decisionTimeoutMode?: 'message' | 'flow';
+  decisionTimeoutNextStepId?: string;
+  timeoutFlowStarted?: boolean;
 }
 
 interface CompletionContactCard {
@@ -102,6 +105,7 @@ export function scheduleRestoredConversationTimeout(
             conversationState.remove(jid);
             return;
           }
+          conversationState.remove(jid);
           await handleDecisionTimeout(
             transport,
             storage,
@@ -112,8 +116,13 @@ export function scheduleRestoredConversationTimeout(
             state.campaignResultId,
             state.senderPhone,
             state.kind,
+            state.flow,
+            {
+              decisionTimeoutMode: state.decisionTimeoutMode,
+              decisionTimeoutNextStepId: state.decisionTimeoutNextStepId,
+              timeoutFlowStarted: state.timeoutFlowStarted,
+            },
           );
-          conversationState.remove(jid);
           return;
         }
 
@@ -283,6 +292,9 @@ async function handleMessage(
             humanHandoffPhone: pending.humanHandoffPhone,
             decisionTimeoutMinutes: pending.decisionTimeoutMinutes,
             decisionTimeoutText: pending.decisionTimeoutText,
+            decisionTimeoutMode: pending.decisionTimeoutMode,
+            decisionTimeoutNextStepId: pending.decisionTimeoutNextStepId,
+            timeoutFlowStarted: pending.timeoutFlowStarted,
           },
         );
       } catch (err) {
@@ -324,6 +336,9 @@ async function handleMessage(
           phone: pending.humanHandoffPhone,
           decisionTimeoutMinutes: pending.decisionTimeoutMinutes,
           decisionTimeoutText: pending.decisionTimeoutText,
+          decisionTimeoutMode: pending.decisionTimeoutMode,
+          decisionTimeoutNextStepId: pending.decisionTimeoutNextStepId,
+          timeoutFlowStarted: pending.timeoutFlowStarted,
         },
       );
       return;
@@ -346,6 +361,9 @@ async function handleMessage(
           phone: pending.humanHandoffPhone,
           decisionTimeoutMinutes: pending.decisionTimeoutMinutes,
           decisionTimeoutText: pending.decisionTimeoutText,
+          decisionTimeoutMode: pending.decisionTimeoutMode,
+          decisionTimeoutNextStepId: pending.decisionTimeoutNextStepId,
+          timeoutFlowStarted: pending.timeoutFlowStarted,
         },
       );
       return;
@@ -378,6 +396,9 @@ async function handleMessage(
           phone: pending.humanHandoffPhone,
           decisionTimeoutMinutes: pending.decisionTimeoutMinutes,
           decisionTimeoutText: pending.decisionTimeoutText,
+          decisionTimeoutMode: pending.decisionTimeoutMode,
+          decisionTimeoutNextStepId: pending.decisionTimeoutNextStepId,
+          timeoutFlowStarted: pending.timeoutFlowStarted,
         },
       );
       return;
@@ -425,6 +446,9 @@ async function handleMessage(
         phone: pending.humanHandoffPhone,
         decisionTimeoutMinutes: pending.decisionTimeoutMinutes,
         decisionTimeoutText: pending.decisionTimeoutText,
+        decisionTimeoutMode: pending.decisionTimeoutMode,
+        decisionTimeoutNextStepId: pending.decisionTimeoutNextStepId,
+        timeoutFlowStarted: pending.timeoutFlowStarted,
       },
       {
         links: pending.completionLinks,
@@ -545,6 +569,8 @@ async function handleMessage(
         askNameText: settings.askNameText,
         decisionTimeoutMinutes: settings.decisionTimeoutMinutes,
         decisionTimeoutText: settings.decisionTimeoutText,
+        decisionTimeoutMode: settings.decisionTimeoutMode,
+        decisionTimeoutNextStepId: settings.decisionTimeoutNextStepId,
         suffix: trigger.suffix,
         whatsappName: pushname,
         timestamp: Date.now(),
@@ -595,6 +621,8 @@ async function handleMessage(
         phone: settings.humanHandoffPhone,
         decisionTimeoutMinutes: settings.decisionTimeoutMinutes,
         decisionTimeoutText: settings.decisionTimeoutText,
+        decisionTimeoutMode: settings.decisionTimeoutMode,
+        decisionTimeoutNextStepId: settings.decisionTimeoutNextStepId,
       },
       {
         links: settings.completionLinks,
@@ -665,6 +693,8 @@ async function askForContactName(
             phone: settings.humanHandoffPhone,
             decisionTimeoutMinutes: settings.decisionTimeoutMinutes,
             decisionTimeoutText: settings.decisionTimeoutText,
+            decisionTimeoutMode: settings.decisionTimeoutMode,
+            decisionTimeoutNextStepId: settings.decisionTimeoutNextStepId,
           },
           {
             links: settings.completionLinks,
@@ -712,6 +742,8 @@ async function askForContactName(
     nameTimeoutMinutes: settings.nameTimeoutMinutes,
     decisionTimeoutMinutes: settings.decisionTimeoutMinutes,
     decisionTimeoutText: settings.decisionTimeoutText,
+    decisionTimeoutMode: settings.decisionTimeoutMode,
+    decisionTimeoutNextStepId: settings.decisionTimeoutNextStepId,
     suffix,
     whatsappName,
     timestamp: Date.now(),
@@ -1462,7 +1494,7 @@ async function sendDecisionStep(
         try {
           conversationState.remove(senderJid);
           console.log(`   Wait-reply timeout - cleared pending state for ${senderJid}.`);
-          await sendDecisionTimeoutAction(transport, storage, senderJid, step, humanHandoff.decisionTimeoutText, campaignId, campaignResultId, senderPhone);
+          await sendDecisionTimeoutAction(transport, storage, senderJid, step, humanHandoff.decisionTimeoutText, campaignId, campaignResultId, senderPhone, flow, humanHandoff);
         } catch (err) {
           logTimerError('wait-reply timeout', err);
         }
@@ -1481,6 +1513,9 @@ async function sendDecisionStep(
       humanHandoffPhone: humanHandoff.phone,
       decisionTimeoutMinutes: humanHandoff.decisionTimeoutMinutes,
       decisionTimeoutText: humanHandoff.decisionTimeoutText,
+      decisionTimeoutMode: humanHandoff.decisionTimeoutMode,
+      decisionTimeoutNextStepId: humanHandoff.decisionTimeoutNextStepId,
+      timeoutFlowStarted: humanHandoff.timeoutFlowStarted,
       timestamp: Date.now(),
       timeoutHandle,
     });
@@ -1666,7 +1701,7 @@ async function sendDecisionStep(
       try {
         conversationState.remove(senderJid);
         console.log(`   Decision reply timeout - cleared pending state for ${senderJid}.`);
-        await sendDecisionTimeoutAction(transport, storage, senderJid, step, humanHandoff.decisionTimeoutText, campaignId, campaignResultId, senderPhone);
+        await sendDecisionTimeoutAction(transport, storage, senderJid, step, humanHandoff.decisionTimeoutText, campaignId, campaignResultId, senderPhone, flow, humanHandoff);
       } catch (err) {
         logTimerError('decision timeout', err);
       }
@@ -1685,6 +1720,9 @@ async function sendDecisionStep(
     humanHandoffPhone: humanHandoff.phone,
     decisionTimeoutMinutes: humanHandoff.decisionTimeoutMinutes,
     decisionTimeoutText: humanHandoff.decisionTimeoutText,
+    decisionTimeoutMode: humanHandoff.decisionTimeoutMode,
+    decisionTimeoutNextStepId: humanHandoff.decisionTimeoutNextStepId,
+    timeoutFlowStarted: humanHandoff.timeoutFlowStarted,
     timestamp: Date.now(),
     timeoutHandle,
   });
@@ -1894,8 +1932,10 @@ async function handleDecisionTimeout(
   campaignResultId?: string,
   senderPhone?: string,
   source: 'decision' | 'wait-reply' = 'decision',
+  flow: DecisionFlowStep[] = [],
+  humanHandoff: CampaignReplyBehavior = {},
 ): Promise<void> {
-  await sendDecisionTimeoutAction(transport, storage, senderJid, step, defaultTimeoutText, campaignId, campaignResultId, senderPhone);
+  await sendDecisionTimeoutAction(transport, storage, senderJid, step, defaultTimeoutText, campaignId, campaignResultId, senderPhone, flow, humanHandoff);
   if (campaignId) {
     storage.recordCampaignEvent({
       campaignId,
@@ -1916,7 +1956,21 @@ async function sendDecisionTimeoutAction(
   campaignId?: string,
   campaignResultId?: string,
   senderPhone?: string,
+  flow: DecisionFlowStep[] = [],
+  humanHandoff: CampaignReplyBehavior = {},
 ): Promise<void> {
+  const continuationStepId = humanHandoff.decisionTimeoutNextStepId;
+  if (humanHandoff.decisionTimeoutMode === 'flow' && !humanHandoff.timeoutFlowStarted && continuationStepId && flow.some((item) => item.id === continuationStepId)) {
+    if (campaignId) {
+      storage.recordCampaignEvent({ campaignId, campaignResultId, phone: senderPhone, type: 'timeout_flow_started', label: step.text.slice(0, 120) });
+    }
+    await sendDecisionStep(transport, storage, senderJid, flow, continuationStepId, campaignId, campaignResultId, senderPhone, {
+      ...humanHandoff,
+      timeoutFlowStarted: true,
+    });
+    console.log('   Inactivity continuation flow started.');
+    return;
+  }
   const caption = step.timeoutText?.trim() || defaultTimeoutText?.trim();
   if (step.timeoutFileId) {
     await sendDecisionFile(

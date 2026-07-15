@@ -36,6 +36,9 @@ export interface PendingNameConversation {
   nameTimeoutMinutes?: number;
   decisionTimeoutMinutes?: number;
   decisionTimeoutText?: string;
+  decisionTimeoutMode?: 'message' | 'flow';
+  decisionTimeoutNextStepId?: string;
+  timeoutFlowStarted?: boolean;
   /** Suffix to append to the final contact name (" - Bot" or " - [referrer]"). */
   suffix: string;
   /** Fallback: the sender's WhatsApp pushname, used if they don't reply. */
@@ -76,6 +79,9 @@ export interface PendingPreNamePromptConversation {
   askNameText: string;
   decisionTimeoutMinutes?: number;
   decisionTimeoutText?: string;
+  decisionTimeoutMode?: 'message' | 'flow';
+  decisionTimeoutNextStepId?: string;
+  timeoutFlowStarted?: boolean;
   suffix: string;
   whatsappName: string;
   timestamp: number;
@@ -95,6 +101,10 @@ export interface PendingDecisionConversation {
   humanHandoffPhone?: string;
   decisionTimeoutMinutes?: number;
   decisionTimeoutText?: string;
+  decisionTimeoutMode?: 'message' | 'flow';
+  decisionTimeoutNextStepId?: string;
+  /** Prevents the inactivity continuation route from running again inside itself. */
+  timeoutFlowStarted?: boolean;
   timestamp: number;
   /** Cancel this to prevent stale unanswered decision prompts from staying in memory. */
   timeoutHandle?: NodeJS.Timeout;
@@ -113,6 +123,10 @@ export interface PendingWaitReplyConversation {
   humanHandoffPhone?: string;
   decisionTimeoutMinutes?: number;
   decisionTimeoutText?: string;
+  decisionTimeoutMode?: 'message' | 'flow';
+  decisionTimeoutNextStepId?: string;
+  /** Prevents the inactivity continuation route from running again inside itself. */
+  timeoutFlowStarted?: boolean;
   timestamp: number;
   timeoutHandle?: NodeJS.Timeout;
 }
@@ -129,6 +143,9 @@ export interface PendingContactCardConfirmationConversation {
   humanHandoffPhone?: string;
   decisionTimeoutMinutes?: number;
   decisionTimeoutText?: string;
+  decisionTimeoutMode?: 'message' | 'flow';
+  decisionTimeoutNextStepId?: string;
+  timeoutFlowStarted?: boolean;
   contactCardConfirmationTimeoutMinutes?: number;
   timestamp: number;
   timeoutHandle?: NodeJS.Timeout;

@@ -1617,6 +1617,18 @@
                 <input type="number" id="fDecisionTimeoutMinutes" min="1" max="1440" value="30" oninput="updateCampaignConversationPreview()" />
                 <span>דקות</span>
               </div>
+              <div class="field" style="margin-bottom:10px">
+                <label>&#1488;&#1501; &#1488;&#1497;&#1503; &#1514;&#1513;&#1493;&#1489;&#1492;</label>
+                <select id="fDecisionTimeoutMode" onchange="updateDecisionTimeoutModeVisibility(); updateCampaignConversationPreview()">
+                  <option value="message">&#1513;&#1500;&#1493;&#1495; &#1492;&#1493;&#1491;&#1506;&#1514; &#1505;&#1497;&#1493;&#1501; &#1488;&#1495;&#1514;</option>
+                  <option value="flow">&#1492;&#1508;&#1506;&#1500; &#1502;&#1505;&#1500;&#1493;&#1500; &#1492;&#1502;&#1513;&#1498;</option>
+                </select>
+              </div>
+              <div class="field" id="decisionTimeoutFlowFields" style="margin-bottom:10px;display:none">
+                <label>&#1492;&#1513;&#1500;&#1489; &#1492;&#1512;&#1488;&#1513;&#1493;&#1503; &#1489;&#1502;&#1505;&#1500;&#1493;&#1500; &#1492;&#1492;&#1502;&#1513;&#1498;</label>
+                <select id="fDecisionTimeoutNextStep" data-selected-next="" onchange="updateCampaignConversationPreview()"></select>
+                <div class="hint">&#1489;&#1504;&#1493; &#1488;&#1514; &#1492;&#1492;&#1493;&#1491;&#1506;&#1493;&#1514; &#1493;&#1492;&#1513;&#1488;&#1500;&#1493;&#1514; &#1489;&#1513;&#1500;&#1489;&#1497; &#1492;&#1513;&#1497;&#1495;&#1492;, &#1493;&#1489;&#1495;&#1512; &#1499;&#1488;&#1503; &#1488;&#1514; &#1492;&#1513;&#1500;&#1489; &#1492;&#1512;&#1488;&#1513;&#1493;&#1503;. &#1488;&#1501; &#1513;&#1493;&#1489; &#1488;&#1497;&#1503; &#1514;&#1513;&#1493;&#1489;&#1492;, &#1514;&#1513;&#1500;&#1495; &#1492;&#1493;&#1491;&#1506;&#1514; &#1492;&#1505;&#1497;&#1493;&#1501; &#1513;&#1500;&#1502;&#1496;&#1492;.</div>
+              </div>
               <div class="field" style="margin-bottom:0">
                 <label>הודעה אם לא התקבלה תשובה</label>
                 <textarea id="fDecisionTimeoutText" oninput="updateCampaignConversationPreview()" placeholder="למשל: שולחת תזכורת קטנה. אפשר לענות כשנוח לך."></textarea>
@@ -2084,6 +2096,7 @@
       alert(data.error || 'שינוי מצב הקמפיין נכשל.');
       return;
     }
+    if (data.warning) alert(data.warning);
     loadCampaigns();
   }
 
@@ -2575,6 +2588,7 @@
       return;
     }
 
+    if (data.warning) alert(data.warning);
     clearWizardDraft(draftIdBeforeSave);
     editingId = data.id || editingId;
     clearWizardDraft(editingId);
@@ -2646,6 +2660,9 @@
     renderDecisionFlow(decisionFlow);
     document.getElementById('fDecisionTimeoutMinutes').value = settings.decisionTimeoutMinutes || appSettings.decisionTimeoutMinutes || 30;
     document.getElementById('fDecisionTimeoutText').value = settings.decisionTimeoutText || '';
+    document.getElementById('fDecisionTimeoutMode').value = settings.decisionTimeoutMode === 'flow' ? 'flow' : 'message';
+    document.getElementById('fDecisionTimeoutNextStep').dataset.selectedNext = settings.decisionTimeoutNextStepId || '';
+    updateDecisionTimeoutModeVisibility();
     document.getElementById('fHumanHandoffEnabled').checked = settings.humanHandoffEnabled !== false;
     document.getElementById('fHumanHandoffText').value = settings.humanHandoffText || appSettings.humanHandoffText;
     document.getElementById('fHumanHandoffPhone').value = settings.humanHandoffPhone || '';
@@ -2666,6 +2683,30 @@
     if (fields) fields.style.display = enabled ? '' : 'none';
   }
 
+  function updateDecisionTimeoutModeVisibility() {
+    const mode = document.getElementById('fDecisionTimeoutMode')?.value || 'message';
+    const fields = document.getElementById('decisionTimeoutFlowFields');
+    if (fields) fields.style.display = mode === 'flow' ? '' : 'none';
+    refreshDecisionTimeoutFlowOptions();
+  }
+
+  function refreshDecisionTimeoutFlowOptions() {
+    const select = document.getElementById('fDecisionTimeoutNextStep');
+    if (!select) return;
+    const selected = select.value || select.dataset.selectedNext || '';
+    const steps = [...document.querySelectorAll('[data-decision-step]')]
+      .map((step, index) => ({
+        id: step.dataset.stepId || '',
+        label: `&#1513;&#1500;&#1489; ${index + 1}`,
+        text: step.querySelector('[data-step-text]')?.value.trim() || '',
+      }))
+      .filter(step => step.id);
+    select.innerHTML = '<option value="">&#1489;&#1495;&#1512;&#1493; &#1488;&#1514; &#1514;&#1495;&#1497;&#1500;&#1514; &#1502;&#1505;&#1500;&#1493;&#1500; &#1492;&#1492;&#1502;&#1513;&#1498;</option>' + steps
+      .map(step => `<option value="${esc(step.id)}">${esc(step.label)}${step.text ? ` - ${esc(step.text.slice(0, 40))}` : ''}</option>`)
+      .join('');
+    select.value = steps.some(step => step.id === selected) ? selected : '';
+    select.dataset.selectedNext = select.value;
+  }
   function renderCampaignFollowupFields(messages = []) {
     const el = document.getElementById('fFollowupMessages');
     if (!el) return;
@@ -2951,6 +2992,7 @@
     el.innerHTML = steps.map((step, index) => decisionStepHtml(step, index, steps)).join('');
     updateDecisionStepVisibility();
     refreshDecisionNextOptions();
+    refreshDecisionTimeoutFlowOptions();
     updateDecisionStepMoveButtons();
     updateCampaignConversationPreview();
   }
@@ -3701,6 +3743,8 @@
       decisionFlow,
       decisionTimeoutMinutes: Number(document.getElementById('fDecisionTimeoutMinutes')?.value) || appSettings.decisionTimeoutMinutes || 30,
       decisionTimeoutText: document.getElementById('fDecisionTimeoutText')?.value || '',
+      decisionTimeoutMode: document.getElementById('fDecisionTimeoutMode')?.value === 'flow' ? 'flow' : 'message',
+      decisionTimeoutNextStepId: document.getElementById('fDecisionTimeoutNextStep')?.value || '',
       humanHandoffEnabled: document.getElementById('fHumanHandoffEnabled')?.checked !== false,
       humanHandoffText: document.getElementById('fHumanHandoffText')?.value || appSettings.humanHandoffText,
       humanHandoffPhone: document.getElementById('fHumanHandoffPhone')?.value || '',

@@ -584,6 +584,10 @@ function conversationSettings(
     decisionTimeoutText: typeof input?.decisionTimeoutText === 'string'
       ? input.decisionTimeoutText.trim().slice(0, 2000)
       : (defaults.decisionTimeoutText ?? ''),
+    decisionTimeoutMode: input?.decisionTimeoutMode === 'flow' ? 'flow' : 'message',
+    decisionTimeoutNextStepId: typeof input?.decisionTimeoutNextStepId === 'string'
+      ? input.decisionTimeoutNextStepId.trim().slice(0, 80)
+      : (defaults.decisionTimeoutNextStepId ?? ''),
     humanHandoffEnabled: typeof input?.humanHandoffEnabled === 'boolean'
       ? input.humanHandoffEnabled
       : Boolean(defaults.humanHandoffEnabled),
@@ -917,7 +921,7 @@ export function startAdminServer(storage: Storage): void {
 
   const inspectMetaTriggerAvailability = async (requester: ManagedClient, triggerPhrase: string, campaignId?: string) => {
     const normalizedTrigger = normalizeMetaTrigger(triggerPhrase);
-    if (!normalizedTrigger) return { available: false, conflicts: [] };
+    if (!normalizedTrigger) return { available: false, conflicts: [], sameClientConflicts: [], crossClientConflicts: [] };
     const metaClients = ownerStorage.getClients().filter((client) =>
       client.whatsappProvider === 'META_CLOUD_API' && client.managementUrl && client.ownerAccessToken && client.provisioningStatus !== 'disabled');
     const results = await Promise.all(metaClients.map(async (client) => ({
@@ -935,7 +939,18 @@ export function startAdminServer(storage: Storage): void {
         conflicts.push({ clientId: client.id, campaignId: campaign.id, campaignName: campaign.name });
       }
     }
-    return { available: conflicts.length === 0, conflicts };
+    const sameClientConflicts = conflicts.filter((conflict) => conflict.clientId === requester.id);
+    const crossClientConflicts = conflicts.filter((conflict) => conflict.clientId !== requester.id);
+    return {
+      available: crossClientConflicts.length === 0,
+      conflicts,
+      sameClientConflicts,
+      crossClientConflicts,
+      warning: sameClientConflicts.length
+        ? 'אזהרה: ללקוח הזה כבר יש קמפיין פעיל עם אותו משפט טריגר. אם שניהם פעילים, הקמפיין שנוצר מאוחר יותר יקבל את ההודעות.'
+        : undefined,
+      warningCode: sameClientConflicts.length ? 'META_TRIGGER_DUPLICATE_SAME_CLIENT' : undefined,
+    };
   };
 
   const campaignWouldReserveTrigger = (active: boolean, endAt?: string): boolean => {
@@ -945,7 +960,16 @@ export function startAdminServer(storage: Storage): void {
     return Number.isNaN(end) || end >= Date.now();
   };
 
-  const verifyMetaTriggerBeforeActivation = async (triggerPhrase: string, campaignId?: string) => {
+  type MetaTriggerVerification = {
+    ok: boolean;
+    status: number;
+    error?: string;
+    code?: string;
+    warning?: string;
+    warningCode?: string;
+  };
+
+  const verifyMetaTriggerBeforeActivation = async (triggerPhrase: string, campaignId?: string): Promise<MetaTriggerVerification> => {
     if (config.WHATSAPP_PROVIDER !== 'META_CLOUD_API') return { ok: true, status: 200 };
     const ownerToken = process.env.OWNER_ACCESS_TOKEN?.trim();
     if (!ownerToken) return { ok: false, status: 503, error: 'לא ניתן לבדוק כרגע אם משפט הטריגר פנוי. יש לפנות למנהל המערכת.', code: 'META_TRIGGER_CHECK_UNAVAILABLE' };
@@ -957,15 +981,27 @@ export function startAdminServer(storage: Storage): void {
         body: JSON.stringify({ triggerPhrase, campaignId }),
         signal: AbortSignal.timeout(15_000),
       });
-      const body = await response.json().catch(() => ({})) as { available?: boolean; error?: string };
+      const body = await response.json().catch(() => ({})) as {
+        available?: boolean;
+        error?: string;
+        warning?: string;
+        warningCode?: string;
+      };
       if (!response.ok) return { ok: false, status: response.status, error: body.error || 'בדיקת משפט הטריגר נכשלה.', code: 'META_TRIGGER_CHECK_UNAVAILABLE' };
-      if (body.available !== true) return { ok: false, status: 409, error: 'משפט הטריגר הזה כבר תפוס בקמפיין Meta פעיל. יש לבחור משפט טריגר אחר.', code: 'META_TRIGGER_OCCUPIED' };
-      return { ok: true, status: 200 };
+      if (body.available !== true) return { ok: false, status: 409, error: 'משפט הטריגר הזה כבר תפוס אצל לקוח Meta אחר. יש לבחור משפט טריגר אחר.', code: 'META_TRIGGER_OCCUPIED' };
+      return { ok: true, status: 200, warning: body.warning, warningCode: body.warningCode };
     } catch (err) {
       console.error('[META_TRIGGER_CHECK_FAILED]', err);
       return { ok: false, status: 503, error: 'לא ניתן לבדוק כרגע אם משפט הטריגר פנוי. נסה שוב בעוד רגע.', code: 'META_TRIGGER_CHECK_UNAVAILABLE' };
     }
   };
+
+  const withMetaTriggerWarning = <T extends object>(value: T, verification: MetaTriggerVerification): T & {
+    warning?: string;
+    warningCode?: string;
+  } => verification.warning
+    ? { ...value, warning: verification.warning, warningCode: verification.warningCode }
+    : value;
 
   app.post('/internal/meta/trigger-availability', async (req, res) => {
     const requester = managedClientForOwnerToken(req.get('x-owner-token'));
@@ -2078,7 +2114,7 @@ export function startAdminServer(storage: Storage): void {
       conversation: conversationSettings(conversation, storage.getAdminSettings()),
       twilio: campaignTwilioSettings(twilio),
     });
-    res.status(201).json(campaign);
+    res.status(201).json(withMetaTriggerWarning(campaign, triggerAvailability));
   });
 
   app.patch('/owner-api/campaigns/:id/toggle', async (req, res) => {
@@ -2087,8 +2123,9 @@ export function startAdminServer(storage: Storage): void {
       res.status(404).json({ error: 'קמפיין לא נמצא' });
       return;
     }
+    let triggerAvailability: MetaTriggerVerification = { ok: true, status: 200 };
     if (!current.active && campaignWouldReserveTrigger(true, current.endAt)) {
-      const triggerAvailability = await verifyMetaTriggerBeforeActivation(current.triggerPhrase, current.id);
+      triggerAvailability = await verifyMetaTriggerBeforeActivation(current.triggerPhrase, current.id);
       if (!triggerAvailability.ok) {
         res.status(triggerAvailability.status).json({ error: triggerAvailability.error, code: triggerAvailability.code });
         return;
@@ -2099,7 +2136,7 @@ export function startAdminServer(storage: Storage): void {
       res.status(404).json({ error: 'קמפיין לא נמצא' });
       return;
     }
-    res.json(updated);
+    res.json(withMetaTriggerWarning(updated, triggerAvailability));
   });
 
   app.delete('/owner-api/campaigns/:id', (req, res) => {
@@ -3018,7 +3055,7 @@ export function startAdminServer(storage: Storage): void {
       conversation: conversationSettings(conversation, storage.getAdminSettings()),
       twilio: campaignTwilioSettings(twilio),
     });
-    res.json(campaign);
+    res.json(withMetaTriggerWarning(campaign, triggerAvailability));
   });
 
   app.post('/api/campaigns/:id/duplicate', requireWritableClient, (req, res) => {
@@ -3103,8 +3140,9 @@ export function startAdminServer(storage: Storage): void {
     const resultingActive = patch.active ?? existing.active;
     const resultingEndAt = Object.prototype.hasOwnProperty.call(patch, 'endAt') ? patch.endAt : existing.endAt;
     const resultingTrigger = patch.triggerPhrase ?? existing.triggerPhrase;
+    let triggerAvailability: MetaTriggerVerification = { ok: true, status: 200 };
     if (campaignWouldReserveTrigger(resultingActive, resultingEndAt)) {
-      const triggerAvailability = await verifyMetaTriggerBeforeActivation(resultingTrigger, existing.id);
+      triggerAvailability = await verifyMetaTriggerBeforeActivation(resultingTrigger, existing.id);
       if (!triggerAvailability.ok) {
         res.status(triggerAvailability.status).json({ error: triggerAvailability.error, code: triggerAvailability.code });
         return;
@@ -3116,7 +3154,7 @@ export function startAdminServer(storage: Storage): void {
       res.status(404).json({ error: 'קמפיין לא נמצא' });
       return;
     }
-    res.json(updated);
+    res.json(withMetaTriggerWarning(updated, triggerAvailability));
   });
 
   app.delete('/api/campaigns/:id', requireWritableClient, (req, res) => {
@@ -3139,8 +3177,9 @@ export function startAdminServer(storage: Storage): void {
       res.status(404).json({ error: 'קמפיין לא נמצא' });
       return;
     }
+    let triggerAvailability: MetaTriggerVerification = { ok: true, status: 200 };
     if (!current.active && campaignWouldReserveTrigger(true, current.endAt)) {
-      const triggerAvailability = await verifyMetaTriggerBeforeActivation(current.triggerPhrase, current.id);
+      triggerAvailability = await verifyMetaTriggerBeforeActivation(current.triggerPhrase, current.id);
       if (!triggerAvailability.ok) {
         res.status(triggerAvailability.status).json({ error: triggerAvailability.error, code: triggerAvailability.code });
         return;
@@ -3151,7 +3190,7 @@ export function startAdminServer(storage: Storage): void {
       res.status(404).json({ error: 'קמפיין לא נמצא' });
       return;
     }
-    res.json(updated);
+    res.json(withMetaTriggerWarning(updated, triggerAvailability));
   });
 
   // ─────────────────────────────────────────────────────────────────────────

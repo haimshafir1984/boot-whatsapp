@@ -69,6 +69,12 @@ export interface CampaignConversationSettings {
   decisionFlow: DecisionFlowStep[];
   decisionTimeoutMinutes?: number;
   decisionTimeoutText?: string;
+  /** What to do when a decision is left unanswered. Defaults to the legacy final message. */
+  decisionTimeoutMode?: 'message' | 'flow';
+  /** First step of the one-time continuation flow after inactivity. */
+  decisionTimeoutNextStepId?: string;
+  /** Internal pending-state flag; never saved as a campaign choice. */
+  timeoutFlowStarted?: boolean;
   humanHandoffEnabled?: boolean;
   humanHandoffText?: string;
   humanHandoffPhone?: string;
@@ -154,6 +160,12 @@ export interface AdminSettings {
   decisionFlow: DecisionFlowStep[];
   decisionTimeoutMinutes?: number;
   decisionTimeoutText?: string;
+  /** What to do when a decision is left unanswered. Defaults to the legacy final message. */
+  decisionTimeoutMode?: 'message' | 'flow';
+  /** First step of the one-time continuation flow after inactivity. */
+  decisionTimeoutNextStepId?: string;
+  /** Internal pending-state flag; never saved as a campaign choice. */
+  timeoutFlowStarted?: boolean;
   humanHandoffEnabled?: boolean;
   humanHandoffText?: string;
   humanHandoffPhone?: string;
@@ -228,6 +240,7 @@ export type CampaignEventType =
   | 'step_sent'
   | 'step_answered'
   | 'score_answered'
+  | 'timeout_flow_started'
   | 'decision_timeout_sent'
   | 'file_sent'
   | 'file_failed'
@@ -347,6 +360,8 @@ const DEFAULT_SETTINGS: AdminSettings = {
   decisionFlow: [],
   decisionTimeoutMinutes: 30,
   decisionTimeoutText: '',
+  decisionTimeoutMode: 'message',
+  decisionTimeoutNextStepId: '',
   humanHandoffEnabled: true,
   humanHandoffText: 'אני מענה אוטומטי.\nלשאלות נוספות אפשר לעבור לשיחה אנושית כאן:\n[מעבר ל-WhatsApp]',
   humanHandoffPhone: '',
