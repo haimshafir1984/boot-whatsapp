@@ -2709,6 +2709,15 @@ export function startAdminServer(storage: Storage): void {
       if (event.type === 'completed' || event.type === 'human_handoff') return typeLabel;
       return event.label ? `${typeLabel}: ${event.label}` : typeLabel;
     };
+    const confirmsContactSave = (event: { type: string; label?: string }): boolean => {
+      if (event.type === 'contact_card_confirmed') return true;
+      if (event.type !== 'step_answered' && event.type !== 'score_answered') return false;
+      const label = String(event.label ?? '')
+        .normalize('NFKC')
+        .replace(/[^\p{L}\p{N}()+\-.\s]/gu, '')
+        .trim();
+      return /^\u05e9\u05de\u05e8\u05ea\u05d9(?:\s*\([^)]*\))?$/.test(label);
+    };
     const personDisplayName = (result: typeof results[number]): string =>
       contactNames.get(result.phone) || result.fallbackName || result.whatsappName || result.phone;
     const reportableEvents = events.filter((event) => reportableEventTypes.has(event.type));
@@ -2764,7 +2773,7 @@ export function startAdminServer(storage: Storage): void {
         lastEvent ? eventDisplayLabel(lastEvent) : 'התחיל/ה את הקמפיין',
         result.updatedAt,
         personReportableEvents.length,
-        personEvents.some((event) => event.type === 'contact_card_confirmed') ? 'כן' : 'לא',
+        personEvents.some(confirmsContactSave) ? 'כן' : 'לא',
         personEvents.some((event) => event.type === 'completed') ? 'כן' : 'לא',
         result.scoreTotal ?? '',
       ];
