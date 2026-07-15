@@ -1582,7 +1582,8 @@ async function sendDecisionStep(
     try {
       if (step.fileId) {
         const stepFile = storage.getUploadedFile(step.fileId);
-        const sendTextSeparately = Boolean(step.fileAsSticker || stepFile?.mimeType.startsWith('video/'));
+        // Videos, images and documents support a caption. Only stickers must be sent without one.
+        const sendTextSeparately = Boolean(step.fileAsSticker);
         if (sendTextSeparately && step.text.trim()) {
           await sendBotMessage(transport, senderJid, step.text.trim(), stepDelayMs);
         } else {
