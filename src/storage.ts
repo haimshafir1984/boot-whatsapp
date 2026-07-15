@@ -1171,6 +1171,8 @@ export class Storage {
       decisionFlow: campaign.conversation?.decisionFlow ?? defaults.decisionFlow,
       decisionTimeoutMinutes: campaign.conversation?.decisionTimeoutMinutes ?? defaults.decisionTimeoutMinutes,
       decisionTimeoutText: campaign.conversation?.decisionTimeoutText ?? defaults.decisionTimeoutText,
+      decisionTimeoutMode: campaign.conversation?.decisionTimeoutMode ?? defaults.decisionTimeoutMode ?? 'message',
+      decisionTimeoutNextStepId: campaign.conversation?.decisionTimeoutNextStepId ?? defaults.decisionTimeoutNextStepId ?? '',
       humanHandoffEnabled: campaign.conversation?.humanHandoffEnabled ?? defaults.humanHandoffEnabled,
       humanHandoffText: campaign.conversation?.humanHandoffText ?? defaults.humanHandoffText,
       humanHandoffPhone: campaign.conversation?.humanHandoffPhone ?? defaults.humanHandoffPhone,
