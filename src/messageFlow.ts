@@ -1879,7 +1879,23 @@ async function sendReferralShareStep(
   const code = senderPhone || storage.ensureCampaignResultReferralCode(campaignResultId);
   const link = buildReferralShareLink(storage, campaign.triggerPhrase, code);
   const message = formatReferralShareMessage(step.text, link, code);
-  await sendBotMessage(transport, senderJid, message, Number.isFinite(step.delayMs) ? Math.max(0, step.delayMs ?? BOT_REPLY_DELAY_MS) : BOT_REPLY_DELAY_MS);
+  const delayMs = Number.isFinite(step.delayMs) ? Math.max(0, step.delayMs ?? BOT_REPLY_DELAY_MS) : BOT_REPLY_DELAY_MS;
+  if (step.fileId) {
+    await waitBeforeBotReply(delayMs);
+    await sendDecisionFile(
+      transport,
+      storage,
+      senderJid,
+      step.fileId,
+      message,
+      step.fileAsSticker,
+      campaignId,
+      campaignResultId,
+      senderPhone,
+    );
+  } else {
+    await sendBotMessage(transport, senderJid, message, delayMs);
+  }
   storage.recordCampaignEvent({ campaignId, campaignResultId, phone: senderPhone, type: 'referral_link_sent', label: code });
   if (step.nextStepId) {
     await sendDecisionStep(transport, storage, senderJid, flow, step.nextStepId, campaignId, campaignResultId, senderPhone, humanHandoff);

@@ -3471,7 +3471,7 @@
       if (scoreResult) scoreResult.style.display = kind === 'score_result' ? '' : 'none';
       const messageFile = step.querySelector('[data-message-file]');
       const messageSticker = step.querySelector('[data-message-sticker]');
-      if (messageFile) messageFile.style.display = kind === 'message' ? '' : 'none';
+      if (messageFile) messageFile.style.display = (kind === 'message' || kind === 'referral_share') ? '' : 'none';
       if (messageSticker) messageSticker.style.display = kind === 'message' ? '' : 'none';
       if (questionPresentation) questionPresentation.style.display = isChoice ? '' : 'none';
       if (optionsPanel) {
@@ -3643,11 +3643,11 @@
         } else if (kind === 'message' || kind === 'wait_reply' || kind === 'contact_card' || kind === 'referral_share') {
           const nextStepId = step.querySelector('[data-step-next]')?.value || '';
           if (nextStepId && nextStepId !== '__END__') item.nextStepId = nextStepId;
-          if (kind === 'message') {
+          if (kind === 'message' || kind === 'referral_share') {
             const fileSelect = step.querySelector('[data-step-file]');
             const fileId = fileSelect?.value || fileSelect?.dataset.selectedFile || '';
             if (fileId) item.fileId = fileId;
-            if (step.querySelector('[data-step-file-sticker]')?.checked) item.fileAsSticker = true;
+            if (kind === 'message' && step.querySelector('[data-step-file-sticker]')?.checked) item.fileAsSticker = true;
           }
           if (!item.text && kind === 'message' && !item.fileId) return null;
           if (!item.text && (kind === 'wait_reply' || kind === 'referral_share')) return null;

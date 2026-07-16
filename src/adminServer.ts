@@ -711,9 +711,9 @@ function sanitizeDecisionFlow(
       if (typeof item.delayMs === 'number' && Number.isFinite(item.delayMs) && item.delayMs > 0) {
         step.delayMs = Math.min(Math.max(Math.round(item.delayMs), 0), 60_000);
       }
-      if (kind === 'message') {
+      if (kind === 'message' || kind === 'referral_share') {
         if (fileId) step.fileId = fileId;
-        if (typeof item.fileAsSticker === 'boolean') {
+        if (kind === 'message' && typeof item.fileAsSticker === 'boolean') {
           step.fileAsSticker = item.fileAsSticker;
         }
       }
