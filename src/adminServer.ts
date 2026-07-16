@@ -88,6 +88,28 @@ function normalizeGatewayText(value: string): string {
   return normalizeMetaTrigger(value);
 }
 
+/**
+ * Meta sends replies to modern interactive messages under `interactive`, but
+ * replies to legacy reply-buttons under `button`. Always prefer the payload
+ * / id because it is stable even when WhatsApp truncates the visible title.
+ */
+export function getMetaInboundBody(message: any): string {
+  const candidates = [
+    message?.text?.body,
+    message?.interactive?.button_reply?.id,
+    message?.interactive?.list_reply?.id,
+    message?.interactive?.button_reply?.title,
+    message?.interactive?.list_reply?.title,
+    message?.button?.payload,
+    message?.button?.text,
+  ];
+  for (const candidate of candidates) {
+    const body = String(candidate ?? '').trim();
+    if (body) return body;
+  }
+  return '';
+}
+
 function twilioMediaSecret(): string {
   return config.TWILIO_WEBHOOK_TOKEN || config.TWILIO_AUTH_TOKEN;
 }
@@ -1129,7 +1151,7 @@ export function startAdminServer(storage: Storage): void {
       return;
     }
     const contact = value?.contacts?.[0];
-    const body = String(message?.text?.body || message?.interactive?.button_reply?.title || message?.interactive?.list_reply?.title || message?.interactive?.button_reply?.id || message?.interactive?.list_reply?.id || '').trim();
+    const body = getMetaInboundBody(message);
     const provider = new MetaCloudProvider();
     console.log('[META_INBOUND]', message.id, message.from, body.slice(0, 120));
     await handleIncomingWhatsAppMessage({
@@ -1191,12 +1213,7 @@ export function startAdminServer(storage: Storage): void {
     }
 
     const fromKey = normalizeGatewayPhone(String(message.from));
-    const body = String(message?.text?.body
-      || message?.interactive?.button_reply?.title
-      || message?.interactive?.list_reply?.title
-      || message?.interactive?.button_reply?.id
-      || message?.interactive?.list_reply?.id
-      || '').trim();
+    const body = getMetaInboundBody(message);
     const normalizedBody = normalizeGatewayText(body);
     const campaignsByClient = new Map<string, Campaign[]>();
     const candidates: Array<{ client: ManagedClient; clientId: string; campaign: Campaign; triggerText: string }> = [];
