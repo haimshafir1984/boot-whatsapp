@@ -1360,6 +1360,16 @@ async function handleDecisionReply(
       label: option.text,
     });
   }
+  if (campaignId && option.raffleEntry) {
+    const stepNumber = flow.findIndex((item) => item.id === step.id) + 1;
+    storage.recordCampaignEvent({
+      campaignId,
+      campaignResultId,
+      phone: senderPhone,
+      type: 'raffle_entry',
+      label: `\u05d6\u05db\u05d0\u05d5\u05ea \u05dc\u05d4\u05d2\u05e8\u05dc\u05d4 \u05e2\u05dc \u05e9\u05d9\u05ea\u05d5\u05e3 \u05e9\u05dc\u05d1 ${stepNumber}: ${option.text}`,
+    });
+  }
   if (option.fileId) {
     await sendDecisionFile(
       transport,

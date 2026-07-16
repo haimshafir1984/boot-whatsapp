@@ -133,6 +133,8 @@ export interface DecisionFlowOption {
   endText?: string;
   fileId?: string;
   fileAsSticker?: boolean;
+  /** Marks a verified button choice as one raffle entry in the campaign export. */
+  raffleEntry?: boolean;
   score?: number;
 }
 
@@ -240,6 +242,7 @@ export type CampaignEventType =
   | 'step_sent'
   | 'step_answered'
   | 'score_answered'
+  | 'raffle_entry'
   | 'timeout_flow_started'
   | 'decision_timeout_sent'
   | 'file_sent'

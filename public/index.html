@@ -3180,6 +3180,7 @@
             <div class="decision-option-label" data-option-file-label>איזה קובץ לשלוח?</div>
             <select data-option-file data-selected-file="${esc(option.fileId || '')}" onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">${fileOptions(option.fileId || '')}</select>
             <label class="decision-inline-check" data-option-sticker-wrap><input data-option-file-sticker type="checkbox" ${option.fileAsSticker ? 'checked' : ''} onchange="updateCampaignConversationPreview()" /> שלח כמדבקה</label>
+            <label class="decision-inline-check"><input data-option-raffle-entry type="checkbox" ${option.raffleEntry ? 'checked' : ''} onchange="updateCampaignConversationPreview()" /> &#1499;&#1504;&#1497;&#1505;&#1492; &#1500;&#1492;&#1490;&#1512;&#1500;&#1492;</label>
             <div class="decision-option-label" data-option-end-label>הודעת פרידה קבועה</div>
             <textarea data-option-end-text oninput="updateCampaignConversationPreview()" placeholder="הודעת סיום / כיתוב לקובץ">${esc(option.endText || '')}</textarea>
           </div>
@@ -3661,6 +3662,7 @@
                 text,
               };
               if (kind === 'score_question') clean.score = Number(option.querySelector('[data-option-score]')?.value) || index + 1;
+              if (option.querySelector('[data-option-raffle-entry]')?.checked) clean.raffleEntry = true;
               const action = option.querySelector('[data-option-action]')?.value || 'end';
               if (action === 'next') {
                 const nextStepId = option.querySelector('[data-option-next]').value;

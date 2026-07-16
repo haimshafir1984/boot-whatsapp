@@ -755,6 +755,9 @@ function sanitizeDecisionFlow(
             if (typeof rawOption.fileAsSticker === 'boolean') {
               clean.fileAsSticker = rawOption.fileAsSticker;
             }
+            if (rawOption.raffleEntry === true) {
+              clean.raffleEntry = true;
+            }
             if (typeof rawOption.score === 'number' && Number.isFinite(rawOption.score)) {
               clean.score = Math.round(rawOption.score);
             }
@@ -2732,6 +2735,7 @@ export function startAdminServer(storage: Storage): void {
       step_sent: 'הגיעו לשלב',
       step_answered: 'לחצו או ענו',
       score_answered: 'ענו על שאלת ניקוד',
+      raffle_entry: '\u05d6\u05db\u05d0\u05d5\u05ea \u05dc\u05d4\u05d2\u05e8\u05dc\u05d4',
       contact_card_confirmed: 'אישרו שמירת איש קשר',
       completion_sent: 'הודעת סיום נשלחה',
       completion_link_sent: 'קישור סיום נשלח',
@@ -2887,6 +2891,16 @@ export function startAdminServer(storage: Storage): void {
     });
     addDataTable(historySheet, 'CampaignStageHistory', historyHeaders, historyRows);
     styleDataSheet(historySheet, [24, 18, 28, 58, 22], [4]);
+    const raffleEntries = events.filter((event) => event.type === 'raffle_entry');
+    const raffleSheet = workbook.addWorksheet('\u05d6\u05db\u05d0\u05d9\u05dd \u05dc\u05d4\u05d2\u05e8\u05dc\u05d4');
+    const raffleHeaders = ['\u05d6\u05db\u05d0\u05d5\u05ea \u05dc\u05d4\u05d2\u05e8\u05dc\u05d4', '\u05e9\u05dd', '\u05d8\u05dc\u05e4\u05d5\u05df', '\u05de\u05d5\u05e2\u05d3 \u05dc\u05d7\u05d9\u05e6\u05d4'];
+    const raffleRows: Array<Array<string | number>> = raffleEntries.map((event) => {
+      const result = event.campaignResultId ? resultsById.get(event.campaignResultId) : undefined;
+      return [event.label ?? '', result ? personDisplayName(result) : '', result?.phone ?? event.phone ?? '', event.createdAt];
+    });
+    addDataTable(raffleSheet, 'CampaignRaffleEntries', raffleHeaders, raffleRows);
+    styleDataSheet(raffleSheet, [58, 24, 18, 22], [1]);
+
 
     const detailsSheet = workbook.addWorksheet('נתונים מלאים');
     addDataTable(detailsSheet, 'CampaignFullDetails', detailHeaders, detailRows);
