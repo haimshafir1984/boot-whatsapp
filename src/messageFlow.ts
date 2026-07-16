@@ -1361,14 +1361,19 @@ async function handleDecisionReply(
     });
   }
   if (campaignId && option.raffleEntry) {
-    const stepNumber = flow.findIndex((item) => item.id === step.id) + 1;
-    storage.recordCampaignEvent({
-      campaignId,
-      campaignResultId,
-      phone: senderPhone,
-      type: 'raffle_entry',
-      label: `\u05d6\u05db\u05d0\u05d5\u05ea \u05dc\u05d4\u05d2\u05e8\u05dc\u05d4 \u05e2\u05dc \u05e9\u05d9\u05ea\u05d5\u05e3 \u05e9\u05dc\u05d1 ${stepNumber}: ${option.text}`,
-    });
+    try {
+      const stepNumber = flow.findIndex((item) => item.id === step.id) + 1;
+      storage.recordCampaignEvent({
+        campaignId,
+        campaignResultId,
+        phone: senderPhone,
+        type: 'raffle_entry',
+        label: `\u05d6\u05db\u05d0\u05d5\u05ea \u05dc\u05d4\u05d2\u05e8\u05dc\u05d4 \u05e2\u05dc \u05e9\u05d9\u05ea\u05d5\u05e3 \u05e9\u05dc\u05d1 ${stepNumber}: ${option.text}`,
+      });
+    } catch (err) {
+      // Eligibility reporting must never interrupt the participant's conversation.
+      console.error('[RAFFLE] Could not record raffle entry:', err);
+    }
   }
   if (option.fileId) {
     await sendDecisionFile(
