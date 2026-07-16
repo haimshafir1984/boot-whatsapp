@@ -7,6 +7,8 @@ export interface IncomingWhatsAppMessage {
   to?: string;
   body: string;
   hasUserSignal?: boolean;
+  /** Meta reported a reply-button interaction, even if its reply id was omitted. */
+  isButtonReply?: boolean;
   isReaction?: boolean;
   timestamp?: number;
   getDisplayName(): Promise<string>;

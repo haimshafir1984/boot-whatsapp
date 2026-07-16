@@ -102,12 +102,28 @@ export function getMetaInboundBody(message: any): string {
     message?.interactive?.list_reply?.title,
     message?.button?.payload,
     message?.button?.text,
+    message?.button_reply?.id,
+    message?.button_reply?.title,
+    message?.list_reply?.id,
+    message?.list_reply?.title,
+    message?.reply?.id,
+    message?.reply?.title,
   ];
   for (const candidate of candidates) {
     const body = String(candidate ?? '').trim();
     if (body) return body;
   }
   return '';
+}
+
+export function isMetaButtonReply(message: any): boolean {
+  const type = String(message?.type ?? '').trim().toLowerCase();
+  const interactiveType = String(message?.interactive?.type ?? '').trim().toLowerCase();
+  return type === 'button'
+    || type === 'interactive'
+    || interactiveType === 'button_reply'
+    || interactiveType === 'list_reply'
+    || Boolean(message?.button || message?.button_reply || message?.list_reply || message?.reply);
 }
 
 function twilioMediaSecret(): string {
@@ -1152,13 +1168,16 @@ export function startAdminServer(storage: Storage): void {
     }
     const contact = value?.contacts?.[0];
     const body = getMetaInboundBody(message);
+    const isButtonReply = isMetaButtonReply(message);
     const provider = new MetaCloudProvider();
-    console.log('[META_INBOUND]', message.id, message.from, body.slice(0, 120));
+    console.log('[META_INBOUND]', message.id, message.from, body.slice(0, 120), `type=${String(message?.type || 'unknown')}`);
     await handleIncomingWhatsAppMessage({
       id: String(message.id),
       from: 'whatsapp:' + String(message.from),
       to: 'whatsapp:' + normalizeSharePhone(config.META_DISPLAY_PHONE_NUMBER),
       body,
+      hasUserSignal: Boolean(body || isButtonReply),
+      isButtonReply,
       timestamp: Number(message.timestamp) || Math.floor(Date.now() / 1000),
       async getDisplayName() { return String(contact?.profile?.name || '').trim(); },
     }, storage, provider, 'webhook');

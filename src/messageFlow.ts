@@ -314,14 +314,26 @@ async function handleMessage(
       return;
     }
 
-    if (!message.body?.trim()) {
+    let replyBody = message.body?.trim() ?? '';
+    if (!replyBody && pending.kind === 'decision' && message.isButtonReply) {
+      const pendingStep = pending.flow.find((item) => item.id === pending.stepId);
+      const options = pendingStep?.kind === 'question' || pendingStep?.kind === 'score_question'
+        ? (pendingStep.options ?? [])
+        : [];
+      if (options.length === 1) {
+        replyBody = options[0].id || options[0].text;
+        console.warn(`[META_BUTTON_FALLBACK] Empty button reply resolved to the only option for step=${pending.stepId} from=${senderJid}`);
+      }
+    }
+
+    if (!replyBody) {
       console.log(`[MSG] non-text message ignored for pending ${pending.kind} via=${source} from=${senderJid}`);
       return;
     }
 
     if (pending.kind === 'decision') {
       await handleDecisionReply(
-        message.body.trim(),
+        replyBody,
         pending.flow,
         pending.stepId,
         pending.senderJid,
