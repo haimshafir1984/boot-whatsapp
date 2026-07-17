@@ -1026,6 +1026,50 @@
       .wizard-counter { order: -1; flex-basis: 100%; }
       .phone-preview { min-height: 210px; }
     }
+    @media (max-width: 620px) {
+      body { padding: 16px 10px 40px; }
+      .page, #main-content { gap: 12px; }
+      .card { border-radius: 12px; }
+      .card-header { padding: 14px 16px; }
+      .card-body { padding: 16px 14px; }
+      .campaign-card, .result-row, .file-manager-head, .toggle-row {
+        align-items: stretch;
+        flex-direction: column;
+      }
+      .campaign-actions, .result-actions, .provider-tabs, .auth-tabs {
+        flex-wrap: wrap;
+      }
+      .campaign-actions .btn-icon, .result-actions .result-export, .provider-tab, .auth-tab {
+        flex: 1 1 120px;
+        text-align: center;
+      }
+      .campaign-phrase {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
+      }
+      .link-box {
+        align-items: stretch;
+        flex-direction: column;
+        padding: 10px;
+      }
+      .link-url {
+        display: block;
+        font-size: .72rem;
+        line-height: 1.45;
+      }
+      .btn-copy, .btn-save, .btn-add, .btn-small, .result-export {
+        min-height: 38px;
+      }
+      .queue-stats, .result-metrics, .result-funnel, .activity-log-simple {
+        grid-template-columns: 1fr;
+      }
+      .file-item {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      .file-size { white-space: normal; }
+    }
   </style>
 </head>
 <body>
