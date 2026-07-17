@@ -1876,7 +1876,7 @@ async function sendReferralShareStep(
   if (!campaignId || !campaignResultId) return;
   const campaign = storage.getCampaigns().find((item) => item.id === campaignId);
   if (!campaign) return;
-  const code = senderPhone || storage.ensureCampaignResultReferralCode(campaignResultId);
+  const code = storage.ensureCampaignResultReferralCode(campaignResultId) || senderPhone || '';
   const link = buildReferralShareLink(storage, campaign.triggerPhrase, code);
   const message = formatReferralShareMessage(step.text, link, code);
   const delayMs = Number.isFinite(step.delayMs) ? Math.max(0, step.delayMs ?? BOT_REPLY_DELAY_MS) : BOT_REPLY_DELAY_MS;
@@ -1909,8 +1909,20 @@ function buildReferralShareLink(storage: Storage, triggerPhrase: string, code: s
   const profilePhone = storage.getClientProfile().whatsappPhone;
   const rawPhone = config.META_DISPLAY_PHONE_NUMBER || config.TWILIO_FROM || profilePhone;
   const phone = rawPhone.replace(/^whatsapp:/i, '').replace(/[^\d]/g, '');
-  const text = (triggerPhrase + ' הגעתי דרך ' + code).trim();
-  return phone ? 'https://wa.me/' + phone + '?text=' + encodeURIComponent(text) : text;
+  const text = (triggerPhrase + ' ref:' + code).trim();
+  return phone ? 'https://wa.me/' + phone + '?text=' + encodeReadableWhatsappText(text) : text;
+}
+
+function encodeReadableWhatsappText(text: string): string {
+  return text
+    .replace(/%/g, '%25')
+    .replace(/&/g, '%26')
+    .replace(/#/g, '%23')
+    .replace(/\?/g, '%3F')
+    .replace(/=/g, '%3D')
+    .replace(/\+/g, '%2B')
+    .trim()
+    .replace(/\s+/g, '+');
 }
 
 function formatReferralShareMessage(template: string, link: string, code: string): string {

@@ -754,7 +754,7 @@ export class Storage {
       resultBatchId,
       phone,
       whatsappName,
-      referralCode: normalizeReferralPhone(phone),
+      referralCode: this.generateUniqueReferralCode(campaignId),
       referredByCode: referrer?.referralCode,
       referredByResultId: referrer?.id,
       referredByName: referrer ? this.resultDisplayName(referrer) : undefined,
@@ -1289,7 +1289,9 @@ export class Storage {
 }
 
 function normalizeReferralCode(code: string | undefined): string {
-  return normalizeReferralPhone(code);
+  const clean = String(code ?? '').trim().toUpperCase();
+  if (/[A-Z]/.test(clean)) return clean.replace(/[^A-Z0-9]/g, '');
+  return normalizeReferralPhone(clean);
 }
 
 function normalizeReferralPhone(phone: string | undefined): string {
