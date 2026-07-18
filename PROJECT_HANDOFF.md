@@ -992,3 +992,394 @@ Recommended test in a fresh client campaign:
 3. Save and confirm that empty next-step selections follow the visible timeline order.
 4. Confirm Step 4 contains completion settings, no-answer settings, and human handoff settings.
 
+
+## Update - 2026-06-30 - Referral contest / campaign sharing flow
+
+Scope: referral contest feature inside the client campaign builder and campaign results dashboard.
+
+Source note:
+
+- Detailed session changelog: `docs/changelog-referral-session.md`.
+
+What changed:
+
+- A campaign flow can include a referral/share step (`referral_share`) that sends the participant a personal sharing link.
+- The sharing link opens WhatsApp to the campaign sender with the original campaign trigger plus a referral phrase.
+- The referral identifier is now the referrer's phone number, not a random `ref:CODE` token.
+- The generated WhatsApp text now follows this shape:
+  - Before: `[trigger phrase] ref:BSU9TF`
+  - Now: `[trigger phrase] הגעתי דרך 0501234567`
+- Incoming referral attribution is parsed from the Hebrew phrase `הגעתי דרך <phone>`.
+- Each campaign result stores its own `referralCode`, currently the participant phone, so later entrants can be attributed back to that participant.
+- When a person enters through a referral link, the campaign result stores `referredByCode`, `referredByResultId`, `referredByName`, and `referredByPhone` when a matching referrer is found.
+- Referral events are recorded with `referral_link_sent` and `referral_attributed` event types.
+
+Feature gate / compatibility:
+
+- The dashboard receives `referralContestEnabled` from `GET /api/capabilities`.
+- The `referral_share` flow step is accepted by backend sanitization only when `CLIENT_REFERRAL_CONTEST_ENABLED=true`.
+- Existing clients/campaigns are not automatically changed. Existing saved campaign JSON is not rewritten.
+- Existing deployments need the env flag and redeploy before the UI exposes the referral step.
+
+New / updated endpoints:
+
+- `GET /api/campaign-results/:id/referrals`
+  - Returns referral leaderboard rows from `storage.getCampaignReferralLeaderboard(campaign.id)`.
+- `GET /api/campaign-results/:id/referrals/export.xls`
+  - Exports the referral leaderboard as an Excel-compatible XLS file.
+  - Columns: rank, name, phone, referral entries, saved contacts.
+
+Important files:
+
+- `src/adminServer.ts`
+  - Exposes `referralContestEnabled` in capabilities.
+  - Allows `referral_share` in `sanitizeDecisionFlow` when the feature gate is enabled.
+  - Adds referral leaderboard JSON endpoint and Excel export endpoint.
+- `src/triggerDetector.ts`
+  - `extractReferralCode()` now parses `הגעתי דרך <digits>` from the incoming WhatsApp message.
+- `src/messageFlow.ts`
+  - `sendReferralShareStep()` uses the sender phone as the referral identifier when possible.
+  - `buildReferralShareLink()` builds the wa.me text as `[trigger] הגעתי דרך [phone]`.
+- `src/storage.ts`
+  - Campaign results now include referral attribution fields.
+  - `recordCampaignTrigger()` stores `referralCode: phone` for each entrant.
+  - `findCampaignReferral()` matches incoming referral phones to prior campaign results.
+  - `getCampaignReferralLeaderboard()` aggregates referral counts and saved counts by referrer.
+- `public/index.html`
+  - Adds the referral leaderboard popup / overlay in campaign results.
+  - Adds an Excel download button for referral leaderboard export.
+  - Shows an empty-state message when there is no referral data yet.
+
+Recommended test:
+
+1. Enable `CLIENT_REFERRAL_CONTEST_ENABLED=true` for a test client and redeploy.
+2. Create a new campaign and add a `referral_share` step in Step 3.
+3. Enter the campaign from phone A and confirm the bot sends a personal `wa.me` link.
+4. Open the generated link from phone B and confirm the trigger text includes `הגעתי דרך <phone A>`.
+5. Confirm phone B is recorded under the campaign and attributed to phone A.
+6. Open campaign results and confirm the referral leaderboard shows phone A with one entry.
+7. Download `/api/campaign-results/:id/referrals/export.xls` and confirm the ranking data is present.
+
+Operational notes:
+
+- The referral identifier is currently phone-based. This is readable and matches the status text, but it means phone normalization matters. If formats vary (`050...`, `97250...`, `+97250...`), attribution can miss unless normalization is improved.
+- Do not enable the feature for existing active clients during a running campaign unless the UI/runtime behavior has been tested on that client deployment.
+- The old random `ref:CODE` approach is no longer the documented behavior for this feature.
+## עדכון 2026-07-07 - סבב קמפיינים, תוצאות ו-Twilio
+
+### מחזורי תוצאות / `קובץ חדש`
+
+נוספה יכולת לפתוח מחזור תוצאות חדש באותו קמפיין בלי לשכפל את הקמפיין עצמו.
+
+קבצים עיקריים:
+
+- `src/storage.ts`
+- `src/adminServer.ts`
+- `public/index.html`
+
+התנהגות:
+
+- לכל קמפיין יש `currentResultBatchId` ו-`currentResultBatchStartedAt`.
+- `CampaignResult` ו-`CampaignEvent` יכולים לקבל `resultBatchId`.
+- כפתור `קובץ חדש` פותח batch חדש; תוצאות חדשות נכנסות אליו.
+- exports של CSV/Excel/VCF משתמשים במחזור הנוכחי כברירת מחדל, ויכולים לקבל batch קודם להורדה.
+- `שמור מי שלא נשמר` פועל על המחזור הנוכחי בלבד.
+
+### Flow Builder - `שלח וסיים`
+
+נוספה אפשרות מפורשת לסיים flow אחרי שלב, במקום להמשיך אוטומטית.
+
+קובץ עיקרי:
+
+- `public/index.html`
+
+התנהגות:
+
+- ביעד אחרי שלב קיימות אפשרויות `לעבור לשלב הבא ברשימה` ו-`שלח וסיים`.
+- `שלח וסיים` לא שולח `nextStepId` לשרת.
+- `לעבור לשלב הבא ברשימה` מתורגם בעת השמירה ל-`nextStepId` של השלב הבא אם הוא קיים.
+- ב-`src/adminServer.ts` קיימת נורמליזציה שמסירה `nextStepId` לא תקף, כך שגם sentinel לא תקין לא נשמר כקישור שבור.
+
+### תיקון קמפיין חי - שירה מגורי
+
+נבדק הקמפיין החי `שירה מגורי` בדומיין:
+
+```text
+https://client-account-a0effa14.flowsbiz.com/client/
+```
+
+הבעיה שנמצאה:
+
+- שלב הסיום הצביע בטעות חזרה לכרטיס איש קשר.
+- זה יצר המשך הודעות אחרי שלב 15.
+
+תיקון שבוצע:
+
+- הוסר `nextStepId` מהשלב האחרון בקמפיין החי.
+- לאחר התיקון, השלב האחרון מסתיים.
+- בבדיקה חיה נמצאו 15 שלבים, שלבי מדיה 9 ו-11, ללא יעדים חסרים.
+- החזרה היחידה לאחור היא מכוונת: כרטיס איש קשר מוקדם חוזר לשאלת `שמרת?`.
+
+### Twilio media fallback
+
+קובץ עיקרי:
+
+- `src/messageFlow.ts`
+
+התנהגות עדכנית:
+
+- שלב עם קובץ מנסה לשלוח מדיה.
+- אם השליחה נכשלת, מתבצע retry קצר.
+- אם גם ה-retry נכשל, נשלח fallback טקסטואלי וה-flow ממשיך.
+- אם יש caption/טקסט של השלב, fallback שולח את הטקסט המקורי בלי הודעת שגיאה טכנית למשתמש.
+- אם אין caption, fallback שולח הודעה ניטרלית: `הקובץ לא נשלח כרגע, אז אני ממשיך עם הטקסט בלבד.`
+- אם גם fallback טקסטואלי נכשל, ה-flow לא מתקדם כדי לא ליצור רצף שקט שבו המשתמש לא קיבל כלום.
+
+### בדיקת Twilio flow
+
+נבדק שוב מסלול Twilio מקצה לקצה ברמת קוד:
+
+- webhook/gateway ב-`src/adminServer.ts`.
+- בחירת קמפיין לפי טריגר ומספר Twilio מרכזי.
+- pending states ב-`src/messageFlow.ts`.
+- שליחת טקסט, מדיה, כפתורים ורשימות ב-`src/providers/TwilioProvider.ts`.
+
+מסקנה:
+
+- הליבה תקינה אחרי התיקונים: סדר ההודעות נקבע לפי `nextStepId`, שאלה מחכה לתשובה, שלב ללא `nextStepId` מסתיים, וטריגר חדש גובר על session ישן.
+- `sent` בלוג Twilio הוא אישור קבלה מה-API בלבד. להוכחת מסירה/כישלון אמיתי ב-WhatsApp צריך להוסיף StatusCallback.
+- במספר מרכזי, הודעה בלי טריגר יכולה להמשיך ל-session האחרון של אותו שולח. לכן בקמפיינים שמועברים ללקוחות כקישור מוכן חשוב שהלינק יכלול את הטריגר.
+
+### Twilio / Meta Business Verification
+
+התקבלה תשובת Twilio לגבי OBA / הצגת שם ולוגו עסקי:
+
+- Twilio ביקשו Business Verification ל-WABA ואישור display name מול Meta.
+- צריך להבהיר להם שהבקשה היא על המספר הישראלי, לא על המספר האמריקאי `+16602902811`.
+- אם אין מסמכי חברה בע"מ, יש לבדוק אם הם מקבלים מסמכי עוסק פטור/מורשה ישראליים.
+- מסמכים אפשריים: אישור עוסק, אישור ניהול ספרים, ניכוי מס במקור, מסמך רשות המסים, מסמך בנקאי או חשבון שירות שתואם לשם ולכתובת.
+- אם אין עוסק רשום בכלל, כנראה שאין דרך יציבה לעקוף Business Verification עבור OBA.
+
+### בדיקות שבוצעו
+
+- `npm run build` עבר אחרי שינויי TypeScript ו-UI שבוצעו בסבב זה.
+- בוצעה בדיקה חיה דרך API לקמפיין `שירה מגורי` אחרי תיקון ה-flow.
+
+### הערות Git
+
+- לא לבצע reset/revert לשינויים שלא נעשו בסבב הנוכחי.
+- יש שינויים קיימים נוספים בעץ העבודה, כולל מסמכי docs וקבצים אחרים. לפני commit יש לבדוק `git status --short` ולבחור במודע מה נכנס.
+
+## Update - 2026-07-08 - Calculated flow steps, contact-card modes, and campaign link encoding
+
+Scope: client campaign builder, decision-flow runtime, contact-card delivery, and WhatsApp share-link display.
+
+### Calculated questions / score-result flow
+
+- Added `score_question` as a distinct calculated-question step type.
+- Added `score_result` as a logical calculation/result step.
+- `score_question` answers can store numeric `score` values.
+- `score_result` supports configurable rules:
+  - `majority`: match when one answer value has a unique majority.
+  - `sum_range`: match when the sum of collected scores is inside an inclusive range.
+- `score_result` also supports fallback text / fallback next step for ties, no match, or default routing.
+- `score_result` is now preserved even if the editor title is empty; the UI/backend default it to "Calculation result".
+- Backend sanitization accepts `score_result`, `resultRules`, `fallbackText`, and `fallbackNextStepId`.
+- Runtime evaluation is implemented in `src/messageFlow.ts` and reads score answers from campaign state/storage.
+
+### Contact-card delivery
+
+- Contact-card settings now support up to two contacts through `contactCards`.
+- Legacy fields (`contactCardName`, `contactCardPhone`, `contactCardEmail`, `contactCardOrganization`) remain for backward compatibility and map to the first contact.
+- Added `contactCardSendMode`:
+  - `separate`: send each contact separately.
+  - `combined`: send all configured contacts together when supported.
+- In `BaileysProvider`, `sendContactCards()` sends one native WhatsApp contacts payload containing multiple contacts.
+- In `WebJsProvider`, `sendContactCards()` sends multiple vCards with `parseVCards`.
+- For providers without native multi-contact support, runtime falls back to a single combined `.vcf` file containing all contacts.
+- Separate contact-card fallback files now use unique filenames including contact index and contact identity, preventing the second vCard from overwriting the first.
+- Duplicate identical contacts are filtered before send.
+- Flow `contact_card` step is treated as a single logical step that sends all configured contacts.
+- Adding another contact-card flow step focuses the existing step instead of creating a duplicate.
+
+### Contact-card UI
+
+- The contact-card settings area in the campaign wizard shows two contact editors.
+- The delivery mode selector is available both in the contact-card settings section and inside the `contact_card` flow block.
+- Existing campaigns can be edited after deploy and switched from separate delivery to combined delivery without recreating the campaign.
+- The `contact_card` flow block displays a contact summary instead of editing duplicated global fields, avoiding overwrite/confusion between contact 1 and contact 2.
+
+### Flow builder UX
+
+- Added a second "add step" control at the bottom of the flow timeline.
+- Users no longer need to scroll back to the top of Step 3 every time they add another flow block.
+- Both top and bottom add-step controls use the same step-type options.
+
+### WhatsApp campaign links
+
+- `buildCampaignShareLink()` still uses `encodeURIComponent(triggerPhrase)`.
+- The UI no longer displays campaign `wa.me` links through `decodeURIComponent(link)`.
+- This keeps Hebrew trigger text URL-encoded in the visible/copyable link and prevents broken short links.
+
+### Main files touched
+
+- `public/index.html`
+- `src/storage.ts`
+- `src/adminServer.ts`
+- `src/conversationState.ts`
+- `src/messageFlow.ts`
+- `src/types/whatsapp.ts`
+- `src/providers/BaileysProvider.ts`
+- `src/providers/WebJsProvider.ts`
+- `src/providers/TwilioProvider.ts`
+- `src/twilioEvents.ts`
+
+### Recommended verification after deploy
+
+1. Existing client campaign: open a saved campaign with contact-card step, choose combined delivery, save, reload, and confirm the selector stays on combined.
+2. New campaign: add two contacts, choose combined delivery, add a contact-card flow step, and confirm the flow block shows the same send-mode selector.
+3. Baileys/WebJS client: trigger the campaign and confirm the two contacts arrive as one contacts card/message when supported.
+4. Twilio client: trigger the campaign and confirm one combined VCF file is sent.
+5. Add several flow blocks from Step 3 and confirm the bottom add-step control works without scrolling to the top.
+6. Create a campaign with Hebrew trigger text and confirm the visible/copyable `wa.me` link remains URL-encoded.
+
+## Update - 2026-07-12 - Meta Cloud API ישראלי חדש
+
+Meta Cloud API פעיל כעת עם המספר `+972 52-977-1002` (Display phone number: `972529771002`, Phone Number ID: `1207335449126872`). המספר אומת ונרשם בהצלחה דרך Graph API, והאפליקציה `boot1` פורסמה ל-Live.
+
+המספר הפעיל של Twilio, `+972 55-507-1008`, נשאר ללא שינוי ומשמש קמפיינים פעילים. אין לנתק או למחוק אותו. מספר Zadarma `+972 55-507-4779` שימש לבדיקה, אך לא עבד בצורה יציבה מול Meta ולכן אינו משמש כעת לקמפיינים.
+
+ב-Dokploy עודכנו הגדרות Meta באפליקציית `flowsbiz-admin` עבור Phone Number ID ומספר התצוגה החדש, ולאחר מכן בוצע Redeploy. נוצר לקוח בדיקה חדש עם ספק `Meta Cloud API` בכתובת:
+
+```text
+https://client-meta-test-new-number-ce8e0691.flowsbiz.com/client/
+```
+
+Webhook הלקוח מוגדר ל:
+
+```text
+https://client-meta-test-new-number-ce8e0691.flowsbiz.com/webhooks/meta/whatsapp
+```
+
+האירוע `messages` מסומן כ-Subscribed, בוצע `subscribed_apps`, ולאחר פרסום האפליקציה הודעות אמיתיות החלו להגיע. נבדקו הודעת Meta, הודעה אמיתית מהמספר `972504213243` עם הטקסט `טסט`, וקמפיין בדיקה עם הטריגר `טסט`.
+
+ב-`src/adminServer.ts` נוסף טיפול בטוח ב-payloads ללא הודעה אמיתית: נרשם `[META_WEBHOOK_IGNORED] reason=no_messages`, מוחזר HTTP 200, והודעות אמיתיות ממשיכות לעבור. `npm run build` עבר בהצלחה.
+
+המצב לעיל היה נכון בתחילת החיבור בלבד. בהמשך הושלם והופעל Webhook מרכזי ב-`https://admin.flowsbiz.com/webhooks/meta/whatsapp`, והמצב הסופי מתועד בעדכון הבא.
+
+## עדכון 2026-07-15 — סיכום מעבר Meta והמשך עבודה
+
+### מצב תפעולי
+
+- מספר Meta המרכזי הפעיל: `+972 52-977-1002`.
+- Display phone number: `972529771002`.
+- Phone Number ID: `1207335449126872`.
+- כל הלקוחות הפעילים הועברו ל-`Meta Cloud API`.
+- מספר Twilio `+972 55-507-1008` אינו אמור לשמש עוד קמפיינים פעילים, אך טרם תועד שבוטל. לפני ביטולו יש לוודא שאין תלות ישנה ולסיים חלון חזרה.
+- מספר Zadarma `+972 55-507-4779` אינו בשימוש לקמפיינים.
+
+### Webhook וניתוב מרכזי
+
+- ה-Webhook המרכזי הפעיל הוא `https://admin.flowsbiz.com/webhooks/meta/whatsapp`.
+- כל הלקוחות משתמשים באותו מספר Meta; הניתוב ללקוח ולקמפיין מתבצע לפי משפט טריגר פעיל וייחודי.
+- לאחר כניסה לקמפיין, הודעות המשך מנותבות לפי ה-session שנקשר ללקוח ולקמפיין שנבחרו.
+- טריגר חדש ומפורש גובר על session קודם ומעביר את המשתמש לקמפיין החדש.
+- התנגשות טריגר בין לקוחות שונים חסומה: אותו משפט אינו יכול להיות פעיל אצל שני לקוחות.
+- בתוך אותו לקוח מותר להפעיל שני קמפיינים עם אותו טריגר, אך מוצגת אזהרה. אם שניהם פעילים, הקמפיין שנוצר מאוחר יותר מקבל את ההודעות.
+- קמפיין מוגבל ל-30 יום כברירת מחדל, אלא אם הוגדר אחרת; לאחר סיום הקמפיין הטריגר אמור להשתחרר.
+- שכפול קמפיין מעתיק את תוכנו אך משאיר את העותק כבוי, והלקוח אחראי לשנות את משפט הטריגר לפני הפעלה.
+- payloads של Meta שאינם כוללים הודעה אמיתית מוחזרים ב-HTTP 200 ונרשמים כ-`[META_WEBHOOK_IGNORED] reason=no_messages`.
+- נבדקו שני לקוחות עם טריגרים שונים על אותו מספר. כל טריגר הפעיל את הלקוח הנכון, והודעות ההמשך נשארו בקמפיין שנבחר.
+
+### הגדרת לקוח Meta
+
+- `WHATSAPP_PROVIDER=META_CLOUD_API`.
+- `WHATSAPP_KEEP_CONNECTED=false`.
+- אין להפעיל Baileys, WhatsApp Web או סריקת QR בלקוח Meta.
+- לכל לקוח נדרשות הגדרות Meta התקינות של המערכת, אך אין לתעד טוקנים, App Secret או סיסמאות במסמכי הפרויקט.
+
+### שיפורי קמפיין שבוצעו
+
+- נוסף כפתור שכפול קמפיין. כל נתוני הקמפיין והקישורים לקבצים מועתקים, והעותק נוצר כבוי.
+- נוספה העלאת קבצים מתוך בונה הקמפיין, כולל שלב קובץ או מדיה ללא חובה לטקסט מקדים.
+- נוספו שחזור טיוטה, הגנה מאובדן שינויים והבהרות בתהליך הבנייה.
+- הוחזר כפתור `הוסף שלב` לתחתית מסך הבנייה.
+- תוקנה שמירת מצב ההפעלה של קמפיין לאחר עריכה.
+- ייצוא תוצאות נבנה כ-`.xlsx` אמיתי ונפתח ב-Google Sheets.
+- נוסף `איפוס נתונים` שמוחק נתוני בדיקה, תוצאות, אירועים ומצבי שיחה של הקמפיין, בלי למחוק את הקמפיין עצמו.
+- עמודות `Event at` הוסרו מהייצוא ללקוח.
+
+### כרטיסי אנשי קשר
+
+- קמפיין Meta תומך בעד שני אנשי קשר, בשליחה משולבת או נפרדת לפי ההגדרה.
+- WhatsApp במובייל וב-Web מציגים כרטיסי אנשי קשר באופן שונה; ב-Web ייתכן שלא יופיע כפתור שמירה כמו במובייל.
+- Meta Cloud API אינה תומכת בתמונה או לוגו כחלק מה-contact payload. תמונת פרופיל לאחר שמירת המספר תלויה בחשבון WhatsApp ובהגדרות הפרטיות של אותו מספר.
+- אם נדרש לוגו גלוי בשיחה, הפתרון הוא שליחת תמונה נפרדת לפני כרטיס איש הקשר או אחריו.
+
+### קומיטים מרכזיים מהשיחה
+
+- `2ea5fbd` — שליחת שני אנשי קשר משולבים ב-Meta.
+- `28a30cd` — שכפול קמפיין ותיקון מצב כרטיסי הקשר.
+- `05eaf85` — ייצוא XLSX אמיתי.
+- `09d0df0` עד `e4cc1d8` — שיפורי בונה הקמפיין, העלאת קבצים, טיוטות, כפתור תחתון ושמירת הפעלה.
+- `4b6c93c` ו-`9d21b28` — ניתוב מספר Meta משותף לפי טריגר והקשחת מקרי הקצה.
+- `0713bd5` — איפוס נתוני קמפיין ופישוט הייצוא.
+
+### נקודת פתיחה לשיחה הבאה
+
+1. המערכת פעילה בתצורת Meta מרכזית; אין צורך לבנות מחדש את חיבור Meta.
+2. לפני שינוי נוסף יש לקרוא את `META_API_SETUP.md` ואת `docs/meta-campaign-recommended-changes-2026-07.md`.
+3. מומלץ להתחיל בסט regression מלא לכל סוגי שלבי הקמפיין ולתעד תוצאה לכל ספק/לקוח.
+4. לאחר תקופת יציבות ולפני ביטול Twilio, יש לוודא שאין Webhook, לקוח ישן או תהליך fallback שתלוי במספר Twilio.
+5. שיפורי אבטחה, ניטור ו-UI/UX שטרם יושמו מפורטים במסמך ההמלצות; אין להניח שהם כבר בוצעו.
+
+## עדכון 2026-07-18 — שינויים שבוצעו בשיחת הקמפיין הנוכחית
+
+### יציבות Meta וזרימת קמפיין
+
+- תוקן זיהוי תשובות כפתור ריקות/אינטראקטיביות ב-Meta Cloud API, כולל מקרים שבהם ה-webhook מגיע ללא גוף טקסט רגיל.
+- תוקן מצב שבו סימון `כניסה להגרלה` על כפתור עצר את המשך ה-flow. סימון זכאות להגרלה נשמר כאירוע תוצאתי ואינו משנה את מעבר השלב הבא.
+- נוספה התאוששות טובה יותר ממצבי pending/timeout כך שקמפיין יכול להמשיך אחרי חוסר תגובה לפי ההגדרות.
+- נוספה אפשרות ל-flow המשך אחרי חוסר תגובה: במקום הודעת סיום אחת בלבד, ניתן לבחור מסלול המשך קטן שמתחיל אחרי timeout, ואז לסיים בהודעה אחת אם שוב אין תגובה.
+- נשמרת הגדרת `הפעל מסלול המשך` בפתיחה מחדש של קמפיין קיים.
+
+### יצוא Excel ודוחות לקוח
+
+- יצוא הקמפיין שופר כדי להיות נוח יותר ללקוח: לשונית Summary בעברית, תצוגת People and stages נוחה יותר, ולשוניות מלאות נשארות זמינות למקרה שהלקוח רוצה את כל הנתונים.
+- עמודת `אישר/ה שמירה` מזהה גם לחיצה/תשובה בשם `שמרתי`, ולא רק אירוע טכני פנימי.
+- נוספה לשונית/יכולת לזכאי הגרלה לפי שלבי שיתוף מסומנים, כדי להוציא שמית מי לחץ על כפתור שמזכה בהגרלה.
+
+### מדיה, תמונות ושיתוף
+
+- מגבלת העלאת תמונות הוגבלה ל-5MB כדי להפחית סיכון לכשל בשליחה או טיפול במדיה.
+- קובץ מדיה יכול להישלח יחד עם טקסט משלים כ-caption, כדי שהמשתמש יוכל להעביר תמונה/סרטון עם הטקסט לסטטוס בלחיצה אחת.
+- שלב `לינק אישי לתחרות` תומך בבחירת קובץ, והקובץ נשלח עם הטקסט והלינק האישי יחד כאשר זה אפשרי.
+
+### קישורים אישיים והפניות
+
+- לינק אישי כבר לא מציג את מספר הטלפון של המשתמש הקצה בתוך הטקסט. במקום זאת נוצר קוד קצר אקראי כגון `ref:K8M4Q2`.
+- המערכת עדיין תומכת בלינקים ישנים עם `הגעתי דרך <phone>` כדי לא לשבור קמפיינים קיימים.
+- טקסט הקישור האישי נשאר קריא יותר: רווחים מוצגים כ-`+`, עברית נשארת קריאה, והקוד האישי נוסף בסוף כ-`ref:<CODE>`.
+- במסך בניית הקמפיין, כששלב הוא `לינק אישי לתחרות`, מוצגת תזכורת גלויה להעתקה: `{referral_link}`.
+
+### התאמות מובייל
+
+- בוצעה התאמת CSS נקודתית בלבד למסכי ניהול ולקוח, בלי לשנות לוגיקה או את מודאל עריכת הקמפיין.
+- שופרה נוחות שימוש מהנייד: לינקים נשברים נכון, כפתורי העתקה ופעולות פשוטות גדולים יותר, רשימת לקוחות נראית כמו כרטיסים, ושורות מידע בעמוד לקוחה לא נדחסות.
+
+### קומיטים מרכזיים
+
+- `049e345` — שיפור דוחות Excel והגבלת תמונות.
+- `67bc7e7` — זיהוי `שמרתי` באקסל.
+- `744309d` / `0df3ba2` — מסלול המשך אחרי חוסר תגובה ושמירת ההגדרה.
+- `616b1ae` / `eeb9bc4` / `52e26a9` / `bd68bd4` — מעקב זכאות להגרלה ותיקוני Meta button replies בלי עצירת flow.
+- `d1eb604` / `8cf3636` — שליחת מדיה עם caption, כולל לינקים אישיים עם קובץ.
+- `7555004` — קודי referral קצרים במקום מספר משתמש קצה בלינק.
+- `455313e` — התאמות מובייל למסכי לקוח וניהול.
+- הקומיט הבא לאחר עדכון זה מתעד את תזכורת `{referral_link}` ואת עדכון המסמכים.
+
+### בדיקות שבוצעו לאורך השינויים
+
+- `npm run build` עבר לאחר שינויי הקוד המרכזיים, כולל לאחר התאמת מובייל ולאחר תזכורת `{referral_link}`.
+- נבדקו נקודתית יצירת קוד referral קצר, parsing של `ref:<CODE>`, ותמיכה לאחור בקוד referral מבוסס טלפון.
+- נבדק שהשינוי האחרון של `{referral_link}` הוא UI בלבד: 3 שורות ב-`public/index.html`, ללא שינוי ב-flow או בשליחת Meta.

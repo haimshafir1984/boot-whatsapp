@@ -3122,6 +3122,7 @@
         </div>
         <div class="decision-step-body">
           <textarea data-step-text oninput="updateDecisionStepVisibility(); updateCampaignConversationPreview()" placeholder="${esc(decisionStepPlaceholder(kind))}">${esc(step.text || '')}</textarea>
+          <div class="hint" data-referral-token-help style="display:none;margin:-2px 0 10px">כדי להכניס לינק אישי בהודעה, הדבק כאן: <code>{referral_link}</code></div>
           <div class="decision-next-row" data-step-delay-row>
             <label>&#1492;&#1513;&#1492;&#1497;&#1497;&#1492; &#1500;&#1508;&#1504;&#1497; &#1513;&#1500;&#1497;&#1495;&#1514; &#1492;&#1513;&#1500;&#1489;</label>
             <input data-step-delay type="number" min="0" max="60" step="1" value="${Number(step.delayMs || 0) / 1000 || ''}" oninput="updateCampaignConversationPreview()" placeholder="&#1489;&#1512;&#1497;&#1512;&#1514; &#1502;&#1495;&#1491;&#1500;" />
@@ -3515,7 +3516,9 @@
       if (scoreResult) scoreResult.style.display = kind === 'score_result' ? '' : 'none';
       const messageFile = step.querySelector('[data-message-file]');
       const messageSticker = step.querySelector('[data-message-sticker]');
+      const referralTokenHelp = step.querySelector('[data-referral-token-help]');
       if (messageFile) messageFile.style.display = (kind === 'message' || kind === 'referral_share') ? '' : 'none';
+      if (referralTokenHelp) referralTokenHelp.style.display = kind === 'referral_share' ? '' : 'none';
       if (messageSticker) messageSticker.style.display = kind === 'message' ? '' : 'none';
       if (questionPresentation) questionPresentation.style.display = isChoice ? '' : 'none';
       if (optionsPanel) {
