@@ -2022,6 +2022,8 @@ async function sendDecisionTimeoutAction(
     }
     await sendDecisionStep(transport, storage, senderJid, flow, continuationStepId, campaignId, campaignResultId, senderPhone, {
       ...humanHandoff,
+      decisionTimeoutMode: 'message',
+      decisionTimeoutNextStepId: '',
       timeoutFlowStarted: true,
     });
     console.log('   Inactivity continuation flow started.');
