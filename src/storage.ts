@@ -75,6 +75,10 @@ export interface CampaignConversationSettings {
   decisionTimeoutNextStepId?: string;
   /** Internal pending-state flag; never saved as a campaign choice. */
   timeoutFlowStarted?: boolean;
+  /** Optional campaign-level reply used when an answer does not match the current structured question. */
+  invalidReplyText?: string;
+  /** Optional campaign-level notice sent before safely restarting a lost flow from its first decision step. */
+  flowRecoveryText?: string;
   humanHandoffEnabled?: boolean;
   humanHandoffText?: string;
   humanHandoffPhone?: string;
@@ -1176,6 +1180,8 @@ export class Storage {
       decisionTimeoutText: campaign.conversation?.decisionTimeoutText ?? defaults.decisionTimeoutText,
       decisionTimeoutMode: campaign.conversation?.decisionTimeoutMode ?? defaults.decisionTimeoutMode ?? 'message',
       decisionTimeoutNextStepId: campaign.conversation?.decisionTimeoutNextStepId ?? defaults.decisionTimeoutNextStepId ?? '',
+      invalidReplyText: campaign.conversation?.invalidReplyText ?? '',
+      flowRecoveryText: campaign.conversation?.flowRecoveryText ?? '',
       humanHandoffEnabled: campaign.conversation?.humanHandoffEnabled ?? defaults.humanHandoffEnabled,
       humanHandoffText: campaign.conversation?.humanHandoffText ?? defaults.humanHandoffText,
       humanHandoffPhone: campaign.conversation?.humanHandoffPhone ?? defaults.humanHandoffPhone,

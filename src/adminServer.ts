@@ -626,6 +626,12 @@ function conversationSettings(
     decisionTimeoutNextStepId: typeof input?.decisionTimeoutNextStepId === 'string'
       ? input.decisionTimeoutNextStepId.trim().slice(0, 80)
       : (defaults.decisionTimeoutNextStepId ?? ''),
+    invalidReplyText: typeof input?.invalidReplyText === 'string'
+      ? input.invalidReplyText.trim().slice(0, 2000)
+      : (defaults.invalidReplyText ?? ''),
+    flowRecoveryText: typeof input?.flowRecoveryText === 'string'
+      ? input.flowRecoveryText.trim().slice(0, 2000)
+      : (defaults.flowRecoveryText ?? ''),
     humanHandoffEnabled: typeof input?.humanHandoffEnabled === 'boolean'
       ? input.humanHandoffEnabled
       : Boolean(defaults.humanHandoffEnabled),

@@ -1630,6 +1630,19 @@
           </div>
                     <div class="advanced-flow-settings">
             <div class="editor-section-title" style="margin-top:18px">&#1492;&#1490;&#1491;&#1512;&#1493;&#1514; &#1502;&#1514;&#1511;&#1491;&#1502;&#1493;&#1514;</div>
+            <div class="human-handoff-box">
+              <div class="editor-section-title" style="margin-bottom:8px">התאוששות אוטומטית של הקמפיין</div>
+              <div class="field">
+                <label>הודעה כאשר התשובה אינה חלק מה־Flow</label>
+                <div class="hint" style="margin-bottom:8px">אם הוזן נוסח, המערכת תשלח אותו ותציג שוב את השאלה האחרונה. כשהשדה ריק, ההתנהגות אינה פעילה.</div>
+                <textarea id="fInvalidReplyText" maxlength="2000" oninput="updateCampaignConversationPreview()" placeholder="למשל: לא הצלחתי לזהות את התשובה. אפשר לנסות שוב דרך האפשרות שמופיעה כאן 👇"></textarea>
+              </div>
+              <div class="field" style="margin-bottom:0">
+                <label>הודעה כאשר מצב ה־Flow אבד</label>
+                <div class="hint" style="margin-bottom:8px">אם הוזן נוסח ולא ניתן לשחזר שלב פעיל, המערכת תשלח אותו ותחזיר את אותו משתתף לתחילת ה־Flow, בלי ליצור השתתפות נוספת. כשהשדה ריק, ההתנהגות אינה פעילה.</div>
+                <textarea id="fFlowRecoveryText" maxlength="2000" oninput="updateCampaignConversationPreview()" placeholder="למשל: נראה שהשיחה נעצרה לרגע. כדי להמשיך בצורה מסודרת, נחזור להתחלה 👇"></textarea>
+              </div>
+            </div>
 <div class="human-handoff-box">
               <div class="toggle-row">
                 <div>
@@ -2706,6 +2719,8 @@
     document.getElementById('fDecisionTimeoutText').value = settings.decisionTimeoutText || '';
     document.getElementById('fDecisionTimeoutMode').value = settings.decisionTimeoutMode === 'flow' ? 'flow' : 'message';
     document.getElementById('fDecisionTimeoutNextStep').dataset.selectedNext = settings.decisionTimeoutNextStepId || '';
+    document.getElementById('fInvalidReplyText').value = settings.invalidReplyText || '';
+    document.getElementById('fFlowRecoveryText').value = settings.flowRecoveryText || '';
     updateDecisionTimeoutModeVisibility();
     document.getElementById('fHumanHandoffEnabled').checked = settings.humanHandoffEnabled !== false;
     document.getElementById('fHumanHandoffText').value = settings.humanHandoffText || appSettings.humanHandoffText;
@@ -3794,6 +3809,8 @@
       decisionTimeoutText: document.getElementById('fDecisionTimeoutText')?.value || '',
       decisionTimeoutMode: document.getElementById('fDecisionTimeoutMode')?.value === 'flow' ? 'flow' : 'message',
       decisionTimeoutNextStepId: document.getElementById('fDecisionTimeoutNextStep')?.value || '',
+      invalidReplyText: document.getElementById('fInvalidReplyText')?.value || '',
+      flowRecoveryText: document.getElementById('fFlowRecoveryText')?.value || '',
       humanHandoffEnabled: document.getElementById('fHumanHandoffEnabled')?.checked !== false,
       humanHandoffText: document.getElementById('fHumanHandoffText')?.value || appSettings.humanHandoffText,
       humanHandoffPhone: document.getElementById('fHumanHandoffPhone')?.value || '',

@@ -2,7 +2,7 @@ import { config } from './config';
 import fs from 'fs';
 import path from 'path';
 import { conversationState, PersistablePendingConversation } from './conversationState';
-import { CampaignConversationSettings, CampaignScoreAnswer, CompletionLink, DecisionFlowOption, DecisionFlowStep, ScoreResultRule, Storage } from './storage';
+import { Campaign, CampaignConversationSettings, CampaignResult, CampaignScoreAnswer, CompletionLink, DecisionFlowOption, DecisionFlowStep, ScoreResultRule, Storage } from './storage';
 import { detectTrigger } from './triggerDetector';
 import {
   IncomingWhatsAppMessage,
@@ -24,6 +24,11 @@ const BOT_REPLY_DELAY_MS = Math.max(
 );
 const CONTACT_CARD_NEXT_STEP_DELAY_MS = Math.max(BOT_REPLY_DELAY_MS, 4000);
 const FLOW_STEP_FAILURE_CONTINUE_DELAY_MS = 60_000;
+const RECENT_DECISION_REPLY_TTL_MS = 15_000;
+const FLOW_RECOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
+const FLOW_RECOVERY_SETTLE_MS = process.env.NODE_ENV === 'test' ? 0 : 15_000;
+const recentDecisionReplies = new Map<string, number>();
+const flowRecoveriesInProgress = new Set<string>();
 
 interface CampaignReplyBehavior {
   enabled?: boolean;
@@ -220,6 +225,149 @@ function rememberMessage(message: IncomingWhatsAppMessage): boolean {
   return true;
 }
 
+function normalizedPhoneKey(value: string | undefined): string {
+  return String(value ?? '').replace(/\D/g, '');
+}
+
+function recentDecisionReplyKey(phone: string | undefined, value: string): string {
+  return `${normalizedPhoneKey(phone)}|${value.trim().toLowerCase()}`;
+}
+
+function pruneRecentDecisionReplies(now = Date.now()): void {
+  for (const [key, timestamp] of recentDecisionReplies.entries()) {
+    if (now - timestamp > RECENT_DECISION_REPLY_TTL_MS) recentDecisionReplies.delete(key);
+  }
+}
+
+function rememberRecentDecisionReply(phone: string | undefined, ...values: string[]): void {
+  const now = Date.now();
+  pruneRecentDecisionReplies(now);
+  for (const value of values) {
+    if (!value.trim()) continue;
+    recentDecisionReplies.set(recentDecisionReplyKey(phone, value), now);
+  }
+}
+
+function isRecentDecisionReply(phone: string | undefined, value: string): boolean {
+  if (!value.trim()) return false;
+  const now = Date.now();
+  pruneRecentDecisionReplies(now);
+  const timestamp = recentDecisionReplies.get(recentDecisionReplyKey(phone, value));
+  return timestamp !== undefined && now - timestamp <= RECENT_DECISION_REPLY_TTL_MS;
+}
+
+function clearRecentDecisionRepliesForPhone(phone: string | undefined): void {
+  const prefix = `${normalizedPhoneKey(phone)}|`;
+  for (const key of recentDecisionReplies.keys()) {
+    if (key.startsWith(prefix)) recentDecisionReplies.delete(key);
+  }
+}
+
+const TERMINAL_FLOW_STAGES = new Set([
+  'completed',
+  'human_handoff',
+  'decision_timeout_sent',
+]);
+
+function findFlowRecoveryContext(
+  storage: Storage,
+  campaigns: Campaign[],
+  senderPhone: string,
+  replyBody: string,
+  isButtonReply: boolean | undefined,
+): { campaign: Campaign; result: CampaignResult; settings: CampaignConversationSettings } | null {
+  const phone = normalizedPhoneKey(senderPhone);
+  if (!phone) return null;
+  const activeById = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
+  const latest = storage.getCampaignResults()
+    .filter((result) => normalizedPhoneKey(result.phone) === phone && activeById.has(result.campaignId))
+    .sort((left, right) => {
+      const leftAt = Date.parse(left.lastEventAt || left.updatedAt || left.triggeredAt) || 0;
+      const rightAt = Date.parse(right.lastEventAt || right.updatedAt || right.triggeredAt) || 0;
+      return rightAt - leftAt;
+    })[0];
+  if (!latest) return null;
+  const lastActivityAt = Date.parse(latest.lastEventAt || latest.updatedAt || latest.triggeredAt) || 0;
+  if (!lastActivityAt || Date.now() - lastActivityAt > FLOW_RECOVERY_WINDOW_MS) return null;
+  if (TERMINAL_FLOW_STAGES.has(latest.lastStage || '')) return null;
+
+  const campaign = activeById.get(latest.campaignId);
+  if (!campaign) return null;
+  const settings = storage.getCampaignConversationSettings(campaign);
+  if (!settings.flowRecoveryText?.trim() || !settings.decisionFlow.some(isSendableDecisionStep)) return null;
+
+  if (isButtonReply && replyBody.trim()) {
+    const optionIds = new Set(settings.decisionFlow
+      .flatMap((step) => step.options ?? [])
+      .map((option) => option.id.trim().toLowerCase())
+      .filter(Boolean));
+    if (!optionIds.has(replyBody.trim().toLowerCase())) return null;
+  }
+  return { campaign, result: latest, settings };
+}
+
+async function tryRecoverMissingFlow(
+  message: IncomingWhatsAppMessage,
+  storage: Storage,
+  transport: WhatsAppTransport,
+  source: WhatsAppMessageSource,
+  activeCampaigns: Campaign[],
+  senderJid: string,
+  senderPhone: string,
+): Promise<boolean> {
+  const initialContext = findFlowRecoveryContext(storage, activeCampaigns, senderPhone, message.body?.trim() ?? '', message.isButtonReply);
+  if (!initialContext) return false;
+  const recoveryKey = normalizedPhoneKey(senderPhone) || senderJid;
+  if (flowRecoveriesInProgress.has(recoveryKey)) {
+    console.warn(`[FLOW_RECOVERY_DUPLICATE] via=${source} phone=${senderPhone}`);
+    return true;
+  }
+
+  flowRecoveriesInProgress.add(recoveryKey);
+  try {
+    // A normal transition can temporarily have no pending state while its next messages are sent.
+    // Give that transition time to finish before deciding that the flow was genuinely lost.
+    await sleep(FLOW_RECOVERY_SETTLE_MS);
+    const pending = conversationState.get(senderJid) || conversationState.findByPhone(senderPhone);
+    if (pending) {
+      console.warn(`[FLOW_RECOVERY_STATE_REAPPEARED] via=${source} phone=${senderPhone} kind=${pending.kind}`);
+      await handleMessage(message, storage, transport, source);
+      return true;
+    }
+
+    const context = findFlowRecoveryContext(storage, storage.getActiveCampaigns(), senderPhone, message.body?.trim() ?? '', message.isButtonReply);
+    if (!context) return false;
+    console.warn(`[FLOW_RECOVERY_RESTART] via=${source} campaign=${context.campaign.id} result=${context.result.id} phone=${senderPhone}`);
+    try {
+      await sendBotMessage(transport, senderJid, context.settings.flowRecoveryText?.trim() ?? '', 0);
+    } catch (err) {
+      console.error(`[FLOW_RECOVERY_NOTICE_FAILED] campaign=${context.campaign.id} phone=${senderPhone}:`, err);
+    }
+    storage.markCampaignResultStage(context.result.id, 'flow_restarted');
+    await sendDecisionFlowStart(
+      transport,
+      storage,
+      senderJid,
+      context.settings.decisionFlow,
+      context.campaign.id,
+      context.result.id,
+      senderPhone,
+      {
+        enabled: context.settings.humanHandoffEnabled,
+        text: context.settings.humanHandoffText,
+        phone: context.settings.humanHandoffPhone,
+        decisionTimeoutMinutes: context.settings.decisionTimeoutMinutes,
+        decisionTimeoutText: context.settings.decisionTimeoutText,
+        decisionTimeoutMode: context.settings.decisionTimeoutMode,
+        decisionTimeoutNextStepId: context.settings.decisionTimeoutNextStepId,
+      },
+    );
+    return true;
+  } finally {
+    flowRecoveriesInProgress.delete(recoveryKey);
+  }
+}
+
 async function handleMessage(
   message: IncomingWhatsAppMessage,
   storage: Storage,
@@ -234,6 +382,11 @@ async function handleMessage(
     ? Date.now() - message.timestamp * 1000
     : 0;
   const senderPhone = message.senderPhone || await transport.resolvePhone(senderJid);
+  const inboundReplyBody = message.body?.trim() ?? '';
+  if (message.isButtonReply && isRecentDecisionReply(senderPhone, inboundReplyBody)) {
+    console.warn(`[DUPLICATE_REPLY_IGNORED] via=${source} phone=${senderPhone} reply=${inboundReplyBody.slice(0, 80)}`);
+    return;
+  }
   let pending = conversationState.get(senderJid) || conversationState.findByPhone(senderPhone);
   const activeCampaigns = storage.getActiveCampaigns();
   const trigger = message.body?.trim() ? detectTrigger(message.body, activeCampaigns) : { matched: false, campaignId: '', suffix: '', campaignName: '' };
@@ -478,9 +631,16 @@ async function handleMessage(
   }
 
   if (message.isReaction) return;
-  if (!message.body?.trim()) return;
+  if (!message.body?.trim() && !message.isButtonReply) return;
 
   if (!trigger.matched) {
+    const replyBody = message.body?.trim() ?? '';
+    if (isRecentDecisionReply(senderPhone, replyBody)) {
+      console.warn(`[DUPLICATE_REPLY_IGNORED] via=${source} phone=${senderPhone} reply=${replyBody.slice(0, 80)}`);
+      return;
+    }
+    if (await tryRecoverMissingFlow(message, storage, transport, source, activeCampaigns, senderJid, senderPhone)) return;
+    console.log(`[STATE_MISS] via=${source} age=${Math.round(messageAgeMs / 1000)}s phone=${senderPhone} button=${Boolean(message.isButtonReply)} body=${replyBody.slice(0, 80)}`);
     console.log(`[MSG] no trigger match via=${source} age=${Math.round(messageAgeMs / 1000)}s from=${senderJid} active=${activeCampaigns.length}`);
     return;
   }
@@ -489,6 +649,7 @@ async function handleMessage(
     return;
   }
   console.log(`[MSG] trigger matched via=${source} age=${Math.round(messageAgeMs / 1000)}s campaign="${trigger.campaignName}" from=${senderJid}`);
+  clearRecentDecisionRepliesForPhone(senderPhone);
 
   const displayName = await message.getDisplayName();
   const pushname =
@@ -1320,17 +1481,46 @@ async function handleDecisionReply(
 ): Promise<void> {
   const step = flow.find((item) => item.id === stepId);
   if (!step || (step.kind !== 'question' && step.kind !== 'score_question')) {
+    console.error(`[STATE_INVALID] campaign=${campaignId ?? ''} result=${campaignResultId ?? ''} phone=${senderPhone ?? ''} step=${stepId}`);
     conversationState.remove(senderJid);
+    const campaign = campaignId ? storage.getCampaigns().find((item) => item.id === campaignId) : undefined;
+    const settings = campaign ? storage.getCampaignConversationSettings(campaign) : undefined;
+    if (settings?.flowRecoveryText?.trim() && settings.decisionFlow.some(isSendableDecisionStep)) {
+      try {
+        await sendBotMessage(transport, senderJid, settings.flowRecoveryText.trim(), 0);
+      } catch (err) {
+        console.error(`[FLOW_RECOVERY_NOTICE_FAILED] campaign=${campaignId ?? ''} phone=${senderPhone ?? ''}:`, err);
+      }
+      storage.markCampaignResultStage(campaignResultId, 'flow_restarted');
+      await sendDecisionFlowStart(transport, storage, senderJid, settings.decisionFlow, campaignId, campaignResultId, senderPhone, humanHandoff);
+    }
     return;
   }
-
+  const answerId = answer.trim().toLowerCase();
   const normalized = normalizeDecisionAnswer(answer);
   const option = step.options?.find((item, index) => {
     const optionId = String(item.id ?? '').trim().toLowerCase();
     return normalized === String(index + 1) ||
-      Boolean(optionId && normalized === optionId) ||
+      Boolean(optionId && answerId === optionId) ||
       normalized === normalizeDecisionAnswer(item.text);
   });
+
+  if (!option) {
+    const campaign = campaignId ? storage.getCampaigns().find((item) => item.id === campaignId) : undefined;
+    const invalidReplyText = campaign
+      ? storage.getCampaignConversationSettings(campaign).invalidReplyText?.trim() ?? ''
+      : '';
+    if (invalidReplyText) {
+      console.warn(`[INVALID_ANSWER] campaign=${campaignId ?? ''} result=${campaignResultId ?? ''} phone=${senderPhone ?? ''} step=${step.id}`);
+      try {
+        await sendBotMessage(transport, senderJid, invalidReplyText, 0);
+      } catch (err) {
+        console.error(`[INVALID_ANSWER_NOTICE_FAILED] campaign=${campaignId ?? ''} phone=${senderPhone ?? ''}:`, err);
+      }
+      await sendDecisionStep(transport, storage, senderJid, flow, step.id, campaignId, campaignResultId, senderPhone, humanHandoff);
+      return;
+    }
+  }
 
   if (!option && humanHandoff.enabled) {
     await sendHumanHandoff(transport, storage, senderJid, humanHandoff, campaignId, campaignResultId, senderPhone);
@@ -1343,6 +1533,11 @@ async function handleDecisionReply(
     return;
   }
 
+  if (isRecentDecisionReply(senderPhone, option.id) || isRecentDecisionReply(senderPhone, answer)) {
+    console.warn(`[DUPLICATE_REPLY_IGNORED] campaign=${campaignId ?? ''} result=${campaignResultId ?? ''} phone=${senderPhone ?? ''} step=${step.id} option=${option.id}`);
+    return;
+  }
+  rememberRecentDecisionReply(senderPhone, option.id, answer);
   conversationState.remove(senderJid);
   if (step.kind === 'score_question') {
     const score = scoreForOption(option, step);
@@ -2178,10 +2373,12 @@ function formatQuestion(step: DecisionFlowStep): string {
 
 function normalizeDecisionAnswer(answer: string): string {
   return answer
+    .normalize('NFKC')
     .trim()
     .toLowerCase()
     .replace(/^\u05ea\u05e9\u05d5\u05d1\u05d4\s+/u, '')
-    .replace(/[.)\]\s]+$/u, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 

@@ -7,7 +7,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "measure:whatsapp-memory": "node scripts/measure-whatsapp-memory.js"
+    "measure:whatsapp-memory": "node scripts/measure-whatsapp-memory.js",
+    "test:flow-recovery": "npm run build && node scripts/test-flow-recovery.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc13",
