@@ -80,4 +80,6 @@ export const config = {
   CONVERSATION_STATE_PATH: process.env.CONVERSATION_STATE_PATH ?? './data/conversation-state.json',
   GOOGLE_CREDENTIALS_PATH: process.env.GOOGLE_CREDENTIALS_PATH ?? './credentials.json',
   OWNER_STORAGE_PATH: process.env.OWNER_STORAGE_PATH ?? './data/owner/clients.json',
+  DATABASE_URL: envValue(process.env.DATABASE_URL),
 } as const;
+

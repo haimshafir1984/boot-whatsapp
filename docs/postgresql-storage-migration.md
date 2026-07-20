@@ -1,0 +1,85 @@
+﻿# PostgreSQL storage migration
+
+Updated: 2026-07-20
+
+## Safety model
+
+PostgreSQL is opt-in. Existing clients keep using JSON storage unless `DATABASE_URL` is set for that specific deployment.
+
+If `DATABASE_URL` is set and PostgreSQL is unreachable, startup fails. The app must not silently fall back to JSON because that can split data between two stores.
+
+Media files stay in the existing filesystem/Volume. PostgreSQL stores file metadata and paths only.
+
+## Environment
+
+```env
+DATABASE_URL=postgres://USER:PASSWORD@HOST:PORT/DATABASE
+```
+
+Do not commit real database URLs, passwords, tokens, or customer data.
+
+## Local test database
+
+Example local test URL:
+
+```env
+DATABASE_URL=postgres://flowsbiz_test:flowsbiz_test@localhost:5432/flowsbiz_test
+```
+
+## Migrations and import
+
+Dry-run is the default. It verifies database migrations and reports JSON counts without importing JSON data:
+
+```powershell
+$env:DATABASE_URL="postgres://flowsbiz_test:flowsbiz_test@localhost:5432/flowsbiz_test"
+npm run db:migrate
+```
+
+Apply imports the current JSON snapshot idempotently into PostgreSQL:
+
+```powershell
+$env:DATABASE_URL="postgres://flowsbiz_test:flowsbiz_test@localhost:5432/flowsbiz_test"
+npm run db:migrate:apply
+```
+
+The import reads `STORAGE_PATH` and does not modify or delete the JSON file.
+
+## Tables
+
+The first migration creates:
+
+- `schema_migrations`
+- `app_state` for the full compatible storage snapshot
+- `admin_settings`
+- `client_profile`
+- `campaigns`
+- `campaign_results`
+- `campaign_events`
+- `contact_queue`
+- `saved_contacts`
+- `uploaded_files`
+- `twilio_templates`
+
+Indexes cover campaign IDs, phones, pending/status fields, queue schedule time, dedupe keys, and trigger phrases.
+
+## Per-client rollout
+
+1. Create a PostgreSQL database for one client.
+2. Set `DATABASE_URL` only on that client's deployment.
+3. Run `npm run db:migrate` and review counts.
+4. Run `npm run db:migrate:apply` once approved.
+5. Deploy that client manually.
+6. Check `/health`; `storage.enabled` should be `true`, `storage.ready` should be `true`.
+7. Keep the JSON files for rollback until the migration is accepted.
+
+## Rollback
+
+1. Remove `DATABASE_URL` from that client deployment.
+2. Redeploy manually.
+3. The app returns to JSON storage from the existing Volume.
+
+If writes happened in PostgreSQL after migration, export/reconcile them before rollback to avoid data loss.
+
+## Dokploy
+
+No Dokploy action is performed by code or migration scripts. Database creation, env changes, migration execution, and deployments are manual per client.

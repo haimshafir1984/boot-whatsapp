@@ -1099,6 +1099,7 @@ export function startAdminServer(storage: Storage): void {
         disabled: campaigns.filter((campaign) => campaign.runtimeStatus === 'disabled').length,
       },
       contactQueue: queueStats,
+      storage: storage.getStorageHealth(),
       conversations: {
         pending: conversationState.size(),
         flowHealth: getFlowHealthSnapshot(),
@@ -3277,3 +3278,4 @@ export function startAdminServer(storage: Storage): void {
     console.log(`🖥️  Admin dashboard → http://localhost:${config.ADMIN_PORT}`);
   });
 }
+

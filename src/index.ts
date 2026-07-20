@@ -6,6 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { Storage } from './storage';
+import { createStorage } from './storageFactory';
 import { startAdminServer } from './adminServer';
 import { config } from './config';
 import { startContactSaveQueue } from './contactQueue';
@@ -66,7 +67,7 @@ async function main(): Promise<void> {
 
   removeSingletonLocks(config.SESSION_PATH);
 
-  const storage = new Storage(config.STORAGE_PATH);
+  const storage = await createStorage();
   restoreConversationState(storage);
 
   startContactSaveQueue(storage);
@@ -84,5 +85,7 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   console.error('Fatal error:', err);
+  console.error('Startup aborted. If DATABASE_URL is set, verify PostgreSQL is reachable and migrations can run.');
   process.exit(1);
 });
+

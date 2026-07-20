@@ -1,0 +1,289 @@
+import { Pool } from 'pg';
+import { StorageData } from './storage';
+
+export interface DatabaseHealth {
+  enabled: boolean;
+  ready: boolean;
+  lastError?: string;
+  pendingWrites: number;
+  lastWriteAt?: string;
+}
+
+export interface StorageBackend {
+  mode: 'postgres';
+  loadSnapshot(): Promise<StorageData | null>;
+  persistSnapshot(data: StorageData): void;
+  flush(): Promise<void>;
+  close(): Promise<void>;
+  health(): DatabaseHealth;
+}
+
+const MIGRATIONS: Array<{ id: string; sql: string }> = [
+  {
+    id: '001_initial_storage',
+    sql: `
+      create table if not exists schema_migrations (
+        id text primary key,
+        applied_at timestamptz not null default now()
+      );
+
+      create table if not exists app_state (
+        key text primary key,
+        data jsonb not null,
+        updated_at timestamptz not null default now()
+      );
+
+      create table if not exists admin_settings (
+        id text primary key default 'current',
+        data jsonb not null,
+        updated_at timestamptz not null default now()
+      );
+
+      create table if not exists client_profile (
+        id text primary key default 'current',
+        data jsonb not null,
+        updated_at timestamptz not null default now()
+      );
+
+      create table if not exists campaigns (
+        id text primary key,
+        trigger_phrase text,
+        active boolean not null default false,
+        runtime_status text,
+        data jsonb not null,
+        updated_at timestamptz not null default now()
+      );
+      create index if not exists idx_campaigns_trigger_phrase on campaigns(trigger_phrase);
+      create index if not exists idx_campaigns_active on campaigns(active);
+
+      create table if not exists campaign_results (
+        id text primary key,
+        campaign_id text not null,
+        result_batch_id text,
+        phone text not null,
+        status text not null,
+        last_stage text,
+        triggered_at timestamptz,
+        updated_at timestamptz,
+        data jsonb not null
+      );
+      create index if not exists idx_campaign_results_campaign on campaign_results(campaign_id);
+      create index if not exists idx_campaign_results_phone on campaign_results(phone);
+      create index if not exists idx_campaign_results_status on campaign_results(status);
+      create index if not exists idx_campaign_results_batch on campaign_results(result_batch_id);
+
+      create table if not exists campaign_events (
+        id text primary key,
+        campaign_id text not null,
+        campaign_result_id text,
+        result_batch_id text,
+        phone text,
+        type text not null,
+        dedupe_key text,
+        created_at timestamptz not null,
+        data jsonb not null
+      );
+      create index if not exists idx_campaign_events_campaign on campaign_events(campaign_id);
+      create index if not exists idx_campaign_events_phone on campaign_events(phone);
+      create index if not exists idx_campaign_events_type on campaign_events(type);
+      create unique index if not exists idx_campaign_events_dedupe on campaign_events(campaign_id, campaign_result_id, dedupe_key) where dedupe_key is not null and campaign_result_id is not null;
+
+      create table if not exists contact_queue (
+        id text primary key,
+        phone text not null,
+        status text not null,
+        next_attempt_at timestamptz,
+        attempts integer not null default 0,
+        data jsonb not null,
+        updated_at timestamptz not null default now()
+      );
+      create index if not exists idx_contact_queue_phone on contact_queue(phone);
+      create index if not exists idx_contact_queue_status on contact_queue(status);
+      create index if not exists idx_contact_queue_next_attempt on contact_queue(next_attempt_at);
+
+      create table if not exists saved_contacts (
+        phone text primary key,
+        name text,
+        saved_at timestamptz,
+        data jsonb not null
+      );
+
+      create table if not exists uploaded_files (
+        id text primary key,
+        filename text not null,
+        mime_type text,
+        size bigint,
+        data jsonb not null,
+        created_at timestamptz not null
+      );
+
+      create table if not exists twilio_templates (
+        id text primary key,
+        status text not null,
+        data jsonb not null,
+        updated_at timestamptz not null
+      );
+    `,
+  },
+];
+
+export async function createPostgresBackend(databaseUrl: string): Promise<StorageBackend> {
+  const pool = new Pool({ connectionString: databaseUrl });
+  const backend = new PostgresStorageBackend(pool);
+  await backend.initialize();
+  return backend;
+}
+
+export async function migrateDatabase(databaseUrl: string): Promise<void> {
+  const pool = new Pool({ connectionString: databaseUrl });
+  try {
+    await applyMigrations(pool);
+  } finally {
+    await pool.end();
+  }
+}
+
+class PostgresStorageBackend implements StorageBackend {
+  readonly mode = 'postgres' as const;
+  private pending: Promise<void> = Promise.resolve();
+  private pendingWrites = 0;
+  private lastError: string | undefined;
+  private lastWriteAt: string | undefined;
+  private initialized = false;
+
+  constructor(private readonly pool: Pool) {}
+
+  async initialize(): Promise<void> {
+    await this.pool.query('select 1');
+    await applyMigrations(this.pool);
+    this.initialized = true;
+  }
+
+  async loadSnapshot(): Promise<StorageData | null> {
+    const result = await this.pool.query('select data from app_state where key = $1', ['storage']);
+    return result.rows[0]?.data ?? null;
+  }
+
+  persistSnapshot(data: StorageData): void {
+    const snapshot = JSON.parse(JSON.stringify(data)) as StorageData;
+    this.pendingWrites += 1;
+    this.pending = this.pending
+      .then(() => writeSnapshot(this.pool, snapshot))
+      .then(() => {
+        this.lastError = undefined;
+        this.lastWriteAt = new Date().toISOString();
+      })
+      .catch((err) => {
+        this.lastError = err instanceof Error ? err.message : String(err);
+        console.error('PostgreSQL storage write failed:', err);
+      })
+      .finally(() => {
+        this.pendingWrites = Math.max(0, this.pendingWrites - 1);
+      });
+  }
+
+  async flush(): Promise<void> {
+    await this.pending;
+    if (this.lastError) throw new Error(this.lastError);
+  }
+
+  async close(): Promise<void> {
+    await this.flush();
+    await this.pool.end();
+  }
+
+  health(): DatabaseHealth {
+    return {
+      enabled: true,
+      ready: this.initialized && !this.lastError,
+      lastError: this.lastError,
+      pendingWrites: this.pendingWrites,
+      lastWriteAt: this.lastWriteAt,
+    };
+  }
+}
+
+async function applyMigrations(pool: Pool): Promise<void> {
+  await pool.query('create table if not exists schema_migrations (id text primary key, applied_at timestamptz not null default now())');
+  for (const migration of MIGRATIONS) {
+    const existing = await pool.query('select 1 from schema_migrations where id = $1', [migration.id]);
+    if (existing.rowCount) continue;
+    await pool.query('begin');
+    try {
+      await pool.query(migration.sql);
+      await pool.query('insert into schema_migrations(id) values ($1) on conflict do nothing', [migration.id]);
+      await pool.query('commit');
+    } catch (err) {
+      await pool.query('rollback');
+      throw err;
+    }
+  }
+}
+
+export async function replaceStorageSnapshot(databaseUrl: string, data: StorageData): Promise<void> {
+  const pool = new Pool({ connectionString: databaseUrl });
+  try {
+    await applyMigrations(pool);
+    await writeSnapshot(pool, data);
+  } finally {
+    await pool.end();
+  }
+}
+
+async function writeSnapshot(pool: Pool, data: StorageData): Promise<void> {
+  await pool.query('begin');
+  try {
+    await pool.query(
+      `insert into app_state(key, data, updated_at) values ($1, $2, now())
+       on conflict (key) do update set data = excluded.data, updated_at = now()`,
+      ['storage', data],
+    );
+
+    await pool.query('delete from admin_settings');
+    await pool.query('insert into admin_settings(id, data, updated_at) values ($1, $2, now())', ['current', data.adminSettings]);
+
+    await pool.query('delete from client_profile');
+    await pool.query('insert into client_profile(id, data, updated_at) values ($1, $2, now())', ['current', data.clientProfile]);
+
+    await replaceRows(pool, 'campaigns', data.campaigns, (item) => [item.id, item.triggerPhrase, item.active, item.runtimeStatus ?? null, item]);
+    await replaceRows(pool, 'campaign_results', data.campaignResults, (item) => [item.id, item.campaignId, item.resultBatchId ?? null, item.phone, item.status, item.lastStage ?? null, nullableDate(item.triggeredAt), nullableDate(item.updatedAt), item]);
+    await replaceRows(pool, 'campaign_events', data.campaignEvents, (item) => [item.id, item.campaignId, item.campaignResultId ?? null, item.resultBatchId ?? null, item.phone ?? null, item.type, item.dedupeKey ?? null, nullableDate(item.createdAt), item]);
+    await replaceRows(pool, 'contact_queue', data.contactQueue, (item) => [item.id, item.phone, item.status, nullableDate(item.nextAttemptAt), item.attempts, item, nullableDate(item.updatedAt)]);
+    await replaceRows(pool, 'saved_contacts', data.contactsList, (item) => [item.phone, item.name, nullableDate(item.savedAt), item]);
+    await replaceRows(pool, 'uploaded_files', data.uploadedFiles, (item) => [item.id, item.filename, item.mimeType, item.size, item, nullableDate(item.createdAt)]);
+    await replaceRows(pool, 'twilio_templates', data.twilioTemplates, (item) => [item.id, item.status, item, nullableDate(item.updatedAt)]);
+
+    await pool.query('commit');
+  } catch (err) {
+    await pool.query('rollback');
+    throw err;
+  }
+}
+
+async function replaceRows<T>(pool: Pool, table: string, rows: T[], values: (row: T) => unknown[]): Promise<void> {
+  await pool.query(`delete from ${table}`);
+  for (const row of rows) {
+    const params = values(row);
+    const placeholders = params.map((_, index) => `$${index + 1}`).join(', ');
+    const columns = tableColumns(table);
+    await pool.query(`insert into ${table}(${columns}) values (${placeholders})`, params);
+  }
+}
+
+function tableColumns(table: string): string {
+  switch (table) {
+    case 'campaigns': return 'id, trigger_phrase, active, runtime_status, data';
+    case 'campaign_results': return 'id, campaign_id, result_batch_id, phone, status, last_stage, triggered_at, updated_at, data';
+    case 'campaign_events': return 'id, campaign_id, campaign_result_id, result_batch_id, phone, type, dedupe_key, created_at, data';
+    case 'contact_queue': return 'id, phone, status, next_attempt_at, attempts, data, updated_at';
+    case 'saved_contacts': return 'phone, name, saved_at, data';
+    case 'uploaded_files': return 'id, filename, mime_type, size, data, created_at';
+    case 'twilio_templates': return 'id, status, data, updated_at';
+    default: throw new Error(`Unknown table ${table}`);
+  }
+}
+
+function nullableDate(value: string | undefined): string | null {
+  return value || null;
+}
+

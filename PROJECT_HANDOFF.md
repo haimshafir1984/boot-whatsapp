@@ -1392,3 +1392,10 @@ https://client-meta-test-new-number-ce8e0691.flowsbiz.com/webhooks/meta/whatsapp
 - מסמך היציבות המלא: `docs/campaign-flow-reliability-plan-2026-07.md`.
 - מפת רעיונות פונקציונליים נפרדת: `docs/campaign-functional-product-ideas-2026-07.md`.
 - השינויים המשמעותיים שנותרו לחלון תחזוקה: outbox עמיד, transition journal, persisted timeout context, delivery statuses, כתיבה אטומית, restart/load tests והתראות.
+## עדכון 2026-07-20 - PostgreSQL opt-in storage
+
+נוספה שכבת PostgreSQL אופציונלית שמופעלת רק כאשר `DATABASE_URL` מוגדר. ללא `DATABASE_URL` האפליקציה ממשיכה להשתמש ב-JSON הקיים. אם `DATABASE_URL` מוגדר והחיבור למסד נכשל, העלייה נעצרת ואין fallback שקט ל-JSON.
+
+תיעוד הפעלה, dry-run, import, rollback וטבלאות: `docs/postgresql-storage-migration.md`.
+
+אין לבצע Dokploy, migration או הפעלת PostgreSQL ללקוח קיים ללא אישור ידני וללא בדיקת dry-run על סביבת בדיקה.

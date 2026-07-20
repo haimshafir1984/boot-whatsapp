@@ -335,7 +335,7 @@ export interface TwilioTemplateDraft {
   updatedAt: string;
 }
 
-interface StorageData {
+export interface StorageData {
   savedContacts: string[];
   contactsList: SavedContact[];
   contactQueue: ContactSaveJob[];
@@ -408,7 +408,7 @@ function normalizeContactsProvider(provider: unknown): AdminSettings['contactsPr
     : DEFAULT_SETTINGS.contactsProvider;
 }
 
-function emptyStorageData(): StorageData {
+export function emptyStorageData(): StorageData {
   return {
     savedContacts: [],
     contactsList: [],
@@ -426,13 +426,28 @@ function emptyStorageData(): StorageData {
 
 // ─── Storage class ────────────────────────────────────────────────────────────
 
+export interface StoragePersistBackend {
+  mode: 'postgres';
+  persistSnapshot(data: StorageData): void;
+  flush(): Promise<void>;
+  close(): Promise<void>;
+  health(): { enabled: boolean; ready: boolean; lastError?: string; pendingWrites: number; lastWriteAt?: string };
+}
+
+interface StorageOptions {
+  initialData?: StorageData;
+  backend?: StoragePersistBackend;
+}
+
 export class Storage {
   private readonly filePath: string;
+  private readonly backend?: StoragePersistBackend;
   private data: StorageData;
 
-  constructor(filePath: string) {
+  constructor(filePath: string, options: StorageOptions = {}) {
     this.filePath = filePath;
-    this.data = this.load();
+    this.backend = options.backend;
+    this.data = options.initialData ?? this.load();
   }
 
   private load(): StorageData {
@@ -502,6 +517,11 @@ export class Storage {
   }
 
   private persist(): void {
+    if (this.backend) {
+      this.backend.persistSnapshot(this.data);
+      return;
+    }
+
     const dir = path.dirname(this.filePath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
@@ -516,6 +536,17 @@ export class Storage {
 
   // ─── Contacts ──────────────────────────────────────────────────────────────
 
+  getStorageHealth(): ReturnType<StoragePersistBackend['health']> | { enabled: false; ready: true; pendingWrites: 0 } {
+    return this.backend?.health() ?? { enabled: false, ready: true, pendingWrites: 0 };
+  }
+
+  async flush(): Promise<void> {
+    await this.backend?.flush();
+  }
+
+  async close(): Promise<void> {
+    await this.backend?.close();
+  }
   isContactSaved(phone: string): boolean {
     return this.data.savedContacts.includes(phone);
   }
@@ -1302,6 +1333,10 @@ export class Storage {
       active: !this.data.campaigns.find((c) => c.id === id)?.active,
     });
   }
+
+  exportDataSnapshot(): StorageData {
+    return JSON.parse(JSON.stringify(this.data)) as StorageData;
+  }
 }
 
 function normalizeReferralCode(code: string | undefined): string {
@@ -1316,4 +1351,8 @@ function normalizeReferralPhone(phone: string | undefined): string {
   if (digits.startsWith('972') && digits.length === 12) return '0' + digits.slice(3);
   if (digits.startsWith('00972') && digits.length === 14) return '0' + digits.slice(5);
   return digits;
+}
+
+export function loadStorageDataFromFile(filePath: string): StorageData {
+  return new Storage(filePath).exportDataSnapshot();
 }
