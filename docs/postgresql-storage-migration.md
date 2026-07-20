@@ -74,11 +74,13 @@ Indexes cover campaign IDs, phones, pending/status fields, queue schedule time, 
 
 ## Rollback
 
-1. Remove `DATABASE_URL` from that client deployment.
-2. Redeploy manually.
-3. The app returns to JSON storage from the existing Volume.
+If PostgreSQL has received any production writes, export its latest compatible snapshot before removing `DATABASE_URL`:
 
-If writes happened in PostgreSQL after migration, export/reconcile them before rollback to avoid data loss.
+```powershell
+npm run db:export -- --output ./data/contacts-from-postgres.json
+```
+
+Verify the exported counts and keep a copy of the existing JSON. Replace the active JSON only during an approved rollback procedure, then remove `DATABASE_URL` and redeploy manually. Removing `DATABASE_URL` without exporting/reconciling first would return the application to stale JSON data.
 
 ## Dokploy
 
