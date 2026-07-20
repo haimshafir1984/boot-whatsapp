@@ -10,6 +10,7 @@ import { createStorage } from './storageFactory';
 import { startAdminServer } from './adminServer';
 import { config } from './config';
 import { startContactSaveQueue } from './contactQueue';
+import { startOutboxDispatcher } from './outboxDispatcher';
 import { startWhatsAppScheduler } from './whatsappLifecycle';
 import { conversationState } from './conversationState';
 import { scheduleRestoredConversationTimeout } from './messageFlow';
@@ -43,13 +44,17 @@ function currentWhatsAppTransport(): WhatsAppTransport | null {
   return candidate as WhatsAppTransport;
 }
 
+function currentOutboundTransport(): WhatsAppTransport | null {
+  if (config.WHATSAPP_PROVIDER === 'TWILIO_API') return new TwilioProvider();
+  if (config.WHATSAPP_PROVIDER === 'META_CLOUD_API') return new MetaCloudProvider();
+  return currentWhatsAppTransport();
+}
+
 function restoreConversationState(storage: Storage): void {
-  conversationState.configurePersistence(config.CONVERSATION_STATE_PATH);
-  const twilioTransport = config.WHATSAPP_PROVIDER === 'TWILIO_API' ? new TwilioProvider() : null;
-  const metaTransport = config.WHATSAPP_PROVIDER === 'META_CLOUD_API' ? new MetaCloudProvider() : null;
+  conversationState.configurePersistence(config.CONVERSATION_STATE_PATH, storage);
   const restored = conversationState.restore((jid, state) => scheduleRestoredConversationTimeout(
     storage,
-    () => twilioTransport ?? metaTransport ?? currentWhatsAppTransport(),
+    currentOutboundTransport,
     jid,
     state,
   ));
@@ -71,6 +76,7 @@ async function main(): Promise<void> {
   restoreConversationState(storage);
 
   startContactSaveQueue(storage);
+  startOutboxDispatcher(storage, currentOutboundTransport);
 
   startAdminServer(storage);
 

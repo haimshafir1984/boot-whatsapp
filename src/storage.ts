@@ -6,6 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { config } from './config';
+import type { ConversationStateSnapshot } from './conversationState';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -205,6 +206,40 @@ export interface ContactSaveJob {
   campaignResultIds?: string[];
 }
 
+export type OutboxMessageStatus = 'queued' | 'processing' | 'sent' | 'failed' | 'retry';
+export type OutboxMessageKind = 'text' | 'file';
+
+export interface OutboxMessage {
+  id: string;
+  kind: OutboxMessageKind;
+  to: string;
+  text?: string;
+  filePath?: string;
+  caption?: string;
+  fileOptions?: { asSticker?: boolean };
+  label?: string;
+  status: OutboxMessageStatus;
+  attempts: number;
+  createdAt: string;
+  updatedAt: string;
+  nextAttemptAt?: string;
+  lastError?: string;
+  providerMessageId?: string;
+}
+
+export interface ScheduledJobRecord {
+  id: string;
+  kind: 'conversation-timeout' | 'outbox-retry';
+  targetId: string;
+  runAt: string;
+  status: 'scheduled' | 'running' | 'completed' | 'cancelled' | 'failed';
+  attempts: number;
+  createdAt: string;
+  updatedAt: string;
+  lastError?: string;
+  data?: Record<string, unknown>;
+}
+
 export type CampaignResultStatus = 'awaiting_name' | ContactSaveStatus;
 
 export interface CampaignResult {
@@ -347,6 +382,9 @@ export interface StorageData {
   campaigns: Campaign[];
   twilioOnboarding: TwilioOnboardingDetails;
   twilioTemplates: TwilioTemplateDraft[];
+  outboxMessages: OutboxMessage[];
+  conversationStateSnapshot?: ConversationStateSnapshot;
+  scheduledJobs: ScheduledJobRecord[];
 }
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────
@@ -421,6 +459,8 @@ export function emptyStorageData(): StorageData {
     campaigns: [],
     twilioOnboarding: { ...DEFAULT_TWILIO_ONBOARDING },
     twilioTemplates: [],
+    outboxMessages: [],
+    scheduledJobs: [],
   };
 }
 
@@ -513,6 +553,9 @@ export class Storage {
       campaigns: parsed.campaigns ?? [],
       twilioOnboarding: { ...DEFAULT_TWILIO_ONBOARDING, ...(parsed as any).twilioOnboarding },
       twilioTemplates: (parsed as any).twilioTemplates ?? [],
+      outboxMessages: (parsed as any).outboxMessages ?? [],
+      conversationStateSnapshot: (parsed as any).conversationStateSnapshot,
+      scheduledJobs: (parsed as any).scheduledJobs ?? [],
     };
   }
 
@@ -547,6 +590,104 @@ export class Storage {
   async close(): Promise<void> {
     await this.backend?.close();
   }
+
+  enqueueOutboxMessage(input: Omit<OutboxMessage, 'id' | 'status' | 'attempts' | 'createdAt' | 'updatedAt'>): OutboxMessage {
+    const now = new Date().toISOString();
+    const message: OutboxMessage = {
+      id: generateId(),
+      status: 'queued',
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+      ...input,
+    };
+    this.data.outboxMessages.push(message);
+    this.persist();
+    return { ...message, fileOptions: message.fileOptions ? { ...message.fileOptions } : undefined };
+  }
+
+  markOutboxProcessing(id: string): void {
+    const message = this.data.outboxMessages.find((item) => item.id === id);
+    if (!message) return;
+    message.status = 'processing';
+    message.attempts += 1;
+    message.updatedAt = new Date().toISOString();
+    message.lastError = undefined;
+    this.persist();
+  }
+
+  markOutboxSent(id: string, providerMessageId?: string): void {
+    const message = this.data.outboxMessages.find((item) => item.id === id);
+    if (!message) return;
+    message.status = 'sent';
+    message.providerMessageId = providerMessageId;
+    message.nextAttemptAt = undefined;
+    message.lastError = undefined;
+    message.updatedAt = new Date().toISOString();
+    this.persist();
+  }
+
+  markOutboxRetry(id: string, error: unknown, nextAttemptAt?: string): void {
+    const message = this.data.outboxMessages.find((item) => item.id === id);
+    if (!message) return;
+    message.status = 'retry';
+    message.lastError = error instanceof Error ? error.message : String(error);
+    message.nextAttemptAt = nextAttemptAt;
+    message.updatedAt = new Date().toISOString();
+    this.persist();
+  }
+
+  markOutboxFailed(id: string, error: unknown): void {
+    const message = this.data.outboxMessages.find((item) => item.id === id);
+    if (!message) return;
+    message.status = 'failed';
+    message.lastError = error instanceof Error ? error.message : String(error);
+    message.nextAttemptAt = undefined;
+    message.updatedAt = new Date().toISOString();
+    this.persist();
+  }
+
+  getOutboxMessages(limit = 100): OutboxMessage[] {
+    return this.data.outboxMessages
+      .slice()
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .slice(0, limit)
+      .map((message) => ({ ...message, fileOptions: message.fileOptions ? { ...message.fileOptions } : undefined }));
+  }
+
+  getPendingOutboxMessages(limit = 50, now = new Date()): OutboxMessage[] {
+    const nowMs = now.getTime();
+    return this.data.outboxMessages
+      .filter((message) => message.status === 'queued' || message.status === 'processing' || (message.status === 'retry' && (!message.nextAttemptAt || Date.parse(message.nextAttemptAt) <= nowMs)))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .slice(0, limit)
+      .map((message) => ({ ...message, fileOptions: message.fileOptions ? { ...message.fileOptions } : undefined }));
+  }
+
+  getOutboxHealth(): Record<OutboxMessageStatus | 'total', number> {
+    const counts = { total: this.data.outboxMessages.length, queued: 0, processing: 0, sent: 0, failed: 0, retry: 0 };
+    for (const message of this.data.outboxMessages) counts[message.status] += 1;
+    return counts;
+  }
+
+  loadConversationStateSnapshot(): ConversationStateSnapshot | undefined {
+    return this.data.conversationStateSnapshot
+      ? JSON.parse(JSON.stringify(this.data.conversationStateSnapshot)) as ConversationStateSnapshot
+      : undefined;
+  }
+
+  saveConversationStateSnapshot(snapshot: ConversationStateSnapshot): void {
+    this.data.conversationStateSnapshot = JSON.parse(JSON.stringify(snapshot)) as ConversationStateSnapshot;
+    this.persist();
+  }
+
+  getDurableTimerHealth(): { scheduled: number; jobs: number } {
+    return {
+      scheduled: Object.keys(this.data.conversationStateSnapshot?.conversations ?? {}).length,
+      jobs: this.data.scheduledJobs.filter((job) => job.status === 'scheduled' || job.status === 'running').length,
+    };
+  }
+
   isContactSaved(phone: string): boolean {
     return this.data.savedContacts.includes(phone);
   }

@@ -1099,9 +1099,11 @@ export function startAdminServer(storage: Storage): void {
         disabled: campaigns.filter((campaign) => campaign.runtimeStatus === 'disabled').length,
       },
       contactQueue: queueStats,
+      outbox: storage.getOutboxHealth(),
       storage: storage.getStorageHealth(),
       conversations: {
         pending: conversationState.size(),
+        durableTimers: storage.getDurableTimerHealth(),
         flowHealth: getFlowHealthSnapshot(),
       },
       whatsapp: {

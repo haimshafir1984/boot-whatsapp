@@ -7,6 +7,7 @@ import { detectTrigger } from './triggerDetector';
 import {
   IncomingWhatsAppMessage,
   WhatsAppMessageSource,
+  WhatsAppSendResult,
   WhatsAppTransport,
 } from './types/whatsapp';
 
@@ -51,6 +52,28 @@ const flowHealth = {
   maxQueueDepth: 0,
 };
 const senderQueueDepth = new Map<string, number>();
+
+let activeOutboxStorage: Storage | undefined;
+
+async function withDurableMessaging<T>(storage: Storage, action: () => Promise<T>): Promise<T> {
+  const previous = activeOutboxStorage;
+  activeOutboxStorage = storage;
+  try {
+    return await action();
+  } finally {
+    activeOutboxStorage = previous;
+  }
+}
+
+function providerMessageId(result: void | WhatsAppSendResult): string | undefined {
+  return result && typeof result === 'object' && typeof result.messageId === 'string'
+    ? result.messageId
+    : undefined;
+}
+
+function nextRetryIso(delayMs: number): string {
+  return new Date(Date.now() + delayMs).toISOString();
+}
 
 export function getFlowHealthSnapshot(): Record<string, number> {
   return {
@@ -269,7 +292,7 @@ export function scheduleRestoredConversationTimeout(
             return;
           }
           conversationState.remove(jid);
-          await handleDecisionTimeout(
+          await withDurableMessaging(storage, () => handleDecisionTimeout(
             transport,
             storage,
             jid,
@@ -285,7 +308,7 @@ export function scheduleRestoredConversationTimeout(
               decisionTimeoutNextStepId: state.decisionTimeoutNextStepId,
               timeoutFlowStarted: state.timeoutFlowStarted,
             },
-          );
+          ));
           return;
         }
 
@@ -315,14 +338,31 @@ async function sendBotMessage(transport: WhatsAppTransport, to: string, text: st
   const cleanText = text.trim();
   if (!cleanText) return;
 
+  const storage = activeOutboxStorage;
+  const outbox = storage?.enqueueOutboxMessage({ kind: 'text', to, text: cleanText });
+  if (storage && outbox) await storage.flush();
+
   let lastError: unknown;
   for (let attempt = 1; attempt <= TEXT_SEND_ATTEMPTS; attempt += 1) {
     await waitBeforeBotReply(delayMs);
     try {
-      await transport.sendMessage(to, cleanText);
+      if (storage && outbox) {
+        storage.markOutboxProcessing(outbox.id);
+        await storage.flush();
+      }
+      const result = await transport.sendMessage(to, cleanText);
+      if (storage && outbox) {
+        storage.markOutboxSent(outbox.id, providerMessageId(result));
+        await storage.flush();
+      }
       return;
     } catch (err) {
       lastError = err;
+      if (storage && outbox) {
+        if (attempt < TEXT_SEND_ATTEMPTS) storage.markOutboxRetry(outbox.id, err, nextRetryIso(TEXT_SEND_RETRY_DELAY_MS));
+        else storage.markOutboxFailed(outbox.id, err);
+        await storage.flush();
+      }
       if (attempt < TEXT_SEND_ATTEMPTS) {
         console.warn(`[SEND_RETRY] text attempt=${attempt} to=${to}:`, err);
         await sleep(TEXT_SEND_RETRY_DELAY_MS);
@@ -343,14 +383,14 @@ export async function handleIncomingWhatsAppMessage(
   if (!rememberMessage(message)) return;
 
   flowHealth.inboundQueued += 1;
-  await runSerializedForSender(message.senderPhone || message.from, `inbound:${source}`, async () => {
+  await withDurableMessaging(storage, () => runSerializedForSender(message.senderPhone || message.from, `inbound:${source}`, async () => {
     await markIncomingMessageReadIfEnabled(message, storage, transport, source);
     try {
       await handleMessage(message, storage, transport, source);
     } catch (err) {
       console.error(`[MSG] handler failed via ${source}:`, err);
     }
-  });
+  }));
 }
 
 async function markIncomingMessageReadIfEnabled(
@@ -2532,22 +2572,50 @@ async function sendFileWithRetry(
   label: string,
 ): Promise<void> {
   if (!transport.sendFile) throw new Error('WhatsApp transport does not support files.');
+  const storage = activeOutboxStorage;
+  const outbox = storage?.enqueueOutboxMessage({ kind: 'file', to, filePath, caption, fileOptions: options, label });
+  if (storage && outbox) await storage.flush();
+
   await waitBeforeBotReply();
   console.log(`[SEND] file "${label}"`);
   try {
-    await transport.sendFile(to, filePath, caption, options);
+    if (storage && outbox) {
+      storage.markOutboxProcessing(outbox.id);
+      await storage.flush();
+    }
+    const result = await transport.sendFile(to, filePath, caption, options);
+    if (storage && outbox) {
+      storage.markOutboxSent(outbox.id, providerMessageId(result));
+      await storage.flush();
+    }
     console.log(`[SEND_OK] file "${label}"`);
     return;
   } catch (err) {
+    if (storage && outbox) {
+      storage.markOutboxRetry(outbox.id, err, nextRetryIso(FILE_SEND_RETRY_DELAY_MS));
+      await storage.flush();
+    }
     console.warn(`[SEND_RETRY] file "${label}" after failure:`, err);
   }
 
   await sleep(FILE_SEND_RETRY_DELAY_MS);
   await waitBeforeBotReply();
   try {
-    await transport.sendFile(to, filePath, caption, options);
+    if (storage && outbox) {
+      storage.markOutboxProcessing(outbox.id);
+      await storage.flush();
+    }
+    const result = await transport.sendFile(to, filePath, caption, options);
+    if (storage && outbox) {
+      storage.markOutboxSent(outbox.id, providerMessageId(result));
+      await storage.flush();
+    }
     console.log(`[SEND_OK] file "${label}" after retry`);
   } catch (err) {
+    if (storage && outbox) {
+      storage.markOutboxFailed(outbox.id, err);
+      await storage.flush();
+    }
     console.error(`[SEND_FAIL] file "${label}"`, err);
     throw err;
   }

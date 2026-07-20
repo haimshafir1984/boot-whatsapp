@@ -11,7 +11,8 @@
     "test:flow-recovery": "npm run build && node scripts/test-flow-recovery.js",
     "test:flow-concurrency": "npm run build && node scripts/test-flow-concurrency.js",
     "db:migrate": "node scripts/migrate-json-to-postgres.js",
-    "db:migrate:apply": "node scripts/migrate-json-to-postgres.js --apply"
+    "db:migrate:apply": "node scripts/migrate-json-to-postgres.js --apply",
+    "test:outbox-durability": "npm run build && node scripts/test-outbox-durability.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc13",
@@ -32,6 +33,3 @@
     "typescript": "^5.3.3"
   }
 }
-
-
-

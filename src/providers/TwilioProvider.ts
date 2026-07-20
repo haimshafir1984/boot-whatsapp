@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { WhatsAppProvider } from '../types/whatsapp';
+import { WhatsAppProvider, WhatsAppSendResult } from '../types/whatsapp';
 import { config } from '../config';
 import { recordTwilioEvent } from '../twilioEvents';
 
@@ -22,24 +22,24 @@ export class TwilioProvider implements WhatsAppProvider {
     return normalizeWhatsAppAddress(jid).replace(/^whatsapp:\+?/, '');
   }
 
-  async sendMessage(_to: string, _message: string): Promise<void> {
-    await this.createMessage({
+  async sendMessage(_to: string, _message: string): Promise<WhatsAppSendResult> {
+    return await this.createMessage({
       To: normalizeWhatsAppAddress(_to),
       Body: _message,
     }, _message);
   }
 
-  async sendContentTemplate(to: string, contentSid: string, contentVariables: Record<string, string> = {}): Promise<void> {
+  async sendContentTemplate(to: string, contentSid: string, contentVariables: Record<string, string> = {}): Promise<void | WhatsAppSendResult> {
     const cleanSid = contentSid.trim();
     if (!cleanSid) throw new Error('ContentSid is required.');
-    await this.createMessage({
+    return await this.createMessage({
       To: normalizeWhatsAppAddress(to),
       ContentSid: cleanSid,
       ContentVariables: Object.keys(contentVariables).length ? JSON.stringify(contentVariables) : undefined,
     }, cleanSid);
   }
 
-  async sendFile(to: string, filePath: string, caption?: string, _options: { asSticker?: boolean } = {}): Promise<void> {
+  async sendFile(to: string, filePath: string, caption?: string, _options: { asSticker?: boolean } = {}): Promise<void | WhatsAppSendResult> {
     const baseUrl = config.TWILIO_MEDIA_BASE_URL.trim().replace(/\/$/, '');
     if (!baseUrl) {
       recordTwilioEvent({
@@ -58,7 +58,7 @@ export class TwilioProvider implements WhatsAppProvider {
       return;
     }
     const token = signTwilioMediaFilename(fileName);
-    await this.createMessage({
+    return await this.createMessage({
       To: normalizeWhatsAppAddress(to),
       Body: caption?.trim() || undefined,
       MediaUrl: `${baseUrl}/${encodeURIComponent(fileName)}?token=${token}`,
@@ -180,7 +180,7 @@ export class TwilioProvider implements WhatsAppProvider {
     }
   }
 
-  private async createMessage(fields: Record<string, string | string[] | undefined>, logBody?: string): Promise<void> {
+  private async createMessage(fields: Record<string, string | string[] | undefined>, logBody?: string): Promise<WhatsAppSendResult> {
     this.assertConfigured();
     const body = new URLSearchParams();
     for (const [key, value] of Object.entries(fields)) {
@@ -229,6 +229,7 @@ export class TwilioProvider implements WhatsAppProvider {
         body: logBody,
         messageSid: responseBody.sid,
       });
+      return typeof responseBody.sid === 'string' ? { messageId: responseBody.sid } : {};
     } catch (err: any) {
       if (!String(err?.message ?? '').startsWith('Twilio message failed')) {
         recordTwilioEvent({

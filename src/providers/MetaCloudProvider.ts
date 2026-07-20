@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { config } from '../config';
-import { IncomingWhatsAppMessage, WhatsAppProvider } from '../types/whatsapp';
+import { IncomingWhatsAppMessage, WhatsAppProvider, WhatsAppSendResult } from '../types/whatsapp';
 
 type MetaMessage = Record<string, unknown>;
 
@@ -11,25 +11,24 @@ export class MetaCloudProvider implements WhatsAppProvider {
   async logout(): Promise<void> {}
   async resolvePhone(jid: string): Promise<string> { return normalizePhone(jid); }
 
-  async sendMessage(to: string, message: string): Promise<void> {
-    await this.postMessages({ messaging_product: 'whatsapp', to: normalizePhone(to), type: 'text', text: { body: message } });
+  async sendMessage(to: string, message: string): Promise<WhatsAppSendResult> {
+    return await this.postMessages({ messaging_product: 'whatsapp', to: normalizePhone(to), type: 'text', text: { body: message } });
   }
 
-  async sendFile(to: string, filePath: string, caption?: string, options: { asSticker?: boolean } = {}): Promise<void> {
+  async sendFile(to: string, filePath: string, caption?: string, options: { asSticker?: boolean } = {}): Promise<WhatsAppSendResult> {
     this.assertConfigured();
     const fileName = path.basename(filePath);
     const mimeType = mimeTypeForFile(fileName);
     const mediaId = await this.uploadMedia(filePath, mimeType, fileName);
     const recipient = normalizePhone(to);
     if (options.asSticker && mimeType === 'image/webp') {
-      await this.postMessages({ messaging_product: 'whatsapp', to: recipient, type: 'sticker', sticker: { id: mediaId } });
-      return;
+      return await this.postMessages({ messaging_product: 'whatsapp', to: recipient, type: 'sticker', sticker: { id: mediaId } });
     }
     const type = mimeType.startsWith('image/') ? 'image' : mimeType.startsWith('video/') ? 'video' : mimeType.startsWith('audio/') ? 'audio' : 'document';
     const media: Record<string, string> = { id: mediaId };
     if (caption && (type === 'image' || type === 'video' || type === 'document')) media.caption = caption;
     if (type === 'document') media.filename = fileName;
-    await this.postMessages({ messaging_product: 'whatsapp', to: recipient, type, [type]: media });
+    return await this.postMessages({ messaging_product: 'whatsapp', to: recipient, type, [type]: media });
   }
 
   async sendContactCard(to: string, vcard: string, displayName: string): Promise<void> {
@@ -88,7 +87,7 @@ export class MetaCloudProvider implements WhatsAppProvider {
     return body.id;
   }
 
-  private async postMessages(payload: MetaMessage): Promise<void> {
+  private async postMessages(payload: MetaMessage): Promise<WhatsAppSendResult> {
     this.assertConfigured();
     const response = await fetch(this.graphUrl('messages'), {
       method: 'POST',
@@ -97,6 +96,8 @@ export class MetaCloudProvider implements WhatsAppProvider {
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error('Meta message failed (' + response.status + '): ' + JSON.stringify(body).slice(0, 500));
+    const messageId = Array.isArray((body as any).messages) ? (body as any).messages[0]?.id : undefined;
+    return typeof messageId === 'string' ? { messageId } : {};
   }
 }
 

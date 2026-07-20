@@ -173,15 +173,21 @@ export type PersistablePendingConversation =
   | Omit<PendingContactCardConfirmationConversation, 'timeoutHandle'>
   | Omit<PendingHandoffConversation, 'timeoutHandle'>;
 
-interface ConversationStateSnapshot {
+export interface ConversationStateSnapshot {
   version: 1;
   savedAt: string;
   conversations: Record<string, PersistablePendingConversation>;
 }
 
+interface ConversationStatePersistenceBackend {
+  loadConversationStateSnapshot(): ConversationStateSnapshot | undefined;
+  saveConversationStateSnapshot(snapshot: ConversationStateSnapshot): void;
+}
+
 class ConversationStateManager {
   private readonly map = new Map<string, PendingConversation>();
   private filePath = '';
+  private backend?: ConversationStatePersistenceBackend;
   private hydrationComplete = false;
 
   set(jid: string, state: PendingConversation): void {
@@ -241,19 +247,23 @@ class ConversationStateManager {
     return this.map.size;
   }
 
-  configurePersistence(filePath: string): void {
+  configurePersistence(filePath: string, backend?: ConversationStatePersistenceBackend): void {
     this.filePath = filePath;
+    this.backend = backend;
   }
 
   restore(
     schedule: (jid: string, state: PersistablePendingConversation) => NodeJS.Timeout | undefined,
   ): number {
-    if (!this.filePath || !fs.existsSync(this.filePath)) {
-      this.hydrationComplete = true;
-      return 0;
-    }
     try {
-      const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf-8')) as Partial<ConversationStateSnapshot>;
+      const parsed = this.backend?.loadConversationStateSnapshot()
+        ?? (this.filePath && fs.existsSync(this.filePath)
+          ? JSON.parse(fs.readFileSync(this.filePath, 'utf-8')) as Partial<ConversationStateSnapshot>
+          : undefined);
+      if (!parsed) {
+        this.hydrationComplete = true;
+        return 0;
+      }
       const entries = Object.entries(parsed.conversations ?? {});
       for (const [jid, state] of entries) {
         if (!state || typeof state !== 'object') continue;
@@ -293,7 +303,8 @@ class ConversationStateManager {
         savedAt: new Date().toISOString(),
         conversations,
       };
-      fs.writeFileSync(this.filePath, JSON.stringify(snapshot, null, 2), 'utf-8');
+      this.backend?.saveConversationStateSnapshot(snapshot);
+      if (this.filePath) fs.writeFileSync(this.filePath, JSON.stringify(snapshot, null, 2), 'utf-8');
     } catch (err) {
       console.warn('Could not persist conversation state:', err);
     }

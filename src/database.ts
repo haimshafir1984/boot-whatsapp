@@ -125,6 +125,53 @@ const MIGRATIONS: Array<{ id: string; sql: string }> = [
       );
     `,
   },
+  {
+    id: '002_outbox_conversations_timers',
+    sql: `
+      create table if not exists outbox_messages (
+        id text primary key,
+        kind text not null,
+        recipient text not null,
+        status text not null,
+        attempts integer not null default 0,
+        provider_message_id text,
+        next_attempt_at timestamptz,
+        created_at timestamptz not null,
+        updated_at timestamptz not null,
+        data jsonb not null
+      );
+      create index if not exists idx_outbox_messages_status on outbox_messages(status);
+      create index if not exists idx_outbox_messages_recipient on outbox_messages(recipient);
+      create index if not exists idx_outbox_messages_next_attempt on outbox_messages(next_attempt_at);
+
+      create table if not exists conversation_state (
+        jid text primary key,
+        kind text not null,
+        sender_phone text,
+        campaign_id text,
+        campaign_result_id text,
+        scheduled_at timestamptz,
+        data jsonb not null,
+        updated_at timestamptz not null default now()
+      );
+      create index if not exists idx_conversation_state_sender_phone on conversation_state(sender_phone);
+      create index if not exists idx_conversation_state_campaign on conversation_state(campaign_id);
+      create index if not exists idx_conversation_state_scheduled_at on conversation_state(scheduled_at);
+
+      create table if not exists scheduled_jobs (
+        id text primary key,
+        kind text not null,
+        target_id text not null,
+        run_at timestamptz not null,
+        status text not null,
+        attempts integer not null default 0,
+        data jsonb not null,
+        updated_at timestamptz not null default now()
+      );
+      create index if not exists idx_scheduled_jobs_status_run_at on scheduled_jobs(status, run_at);
+      create index if not exists idx_scheduled_jobs_target on scheduled_jobs(target_id);
+    `,
+  },
 ];
 
 export async function createPostgresBackend(databaseUrl: string): Promise<StorageBackend> {
@@ -252,6 +299,9 @@ async function writeSnapshot(pool: Pool, data: StorageData): Promise<void> {
     await replaceRows(pool, 'saved_contacts', data.contactsList, (item) => [item.phone, item.name, nullableDate(item.savedAt), item]);
     await replaceRows(pool, 'uploaded_files', data.uploadedFiles, (item) => [item.id, item.filename, item.mimeType, item.size, item, nullableDate(item.createdAt)]);
     await replaceRows(pool, 'twilio_templates', data.twilioTemplates, (item) => [item.id, item.status, item, nullableDate(item.updatedAt)]);
+    await replaceRows(pool, 'outbox_messages', data.outboxMessages ?? [], (item) => [item.id, item.kind, item.to, item.status, item.attempts, item.providerMessageId ?? null, nullableDate(item.nextAttemptAt), nullableDate(item.createdAt), nullableDate(item.updatedAt), item]);
+    await replaceConversationStateRows(pool, data.conversationStateSnapshot?.conversations ?? {});
+    await replaceRows(pool, 'scheduled_jobs', data.scheduledJobs ?? [], (item) => [item.id, item.kind, item.targetId, nullableDate(item.runAt), item.status, item.attempts, item, nullableDate(item.updatedAt)]);
 
     await pool.query('commit');
   } catch (err) {
@@ -279,8 +329,42 @@ function tableColumns(table: string): string {
     case 'saved_contacts': return 'phone, name, saved_at, data';
     case 'uploaded_files': return 'id, filename, mime_type, size, data, created_at';
     case 'twilio_templates': return 'id, status, data, updated_at';
+    case 'outbox_messages': return 'id, kind, recipient, status, attempts, provider_message_id, next_attempt_at, created_at, updated_at, data';
+    case 'scheduled_jobs': return 'id, kind, target_id, run_at, status, attempts, data, updated_at';
     default: throw new Error(`Unknown table ${table}`);
   }
+}
+
+async function replaceConversationStateRows(pool: Pool, conversations: Record<string, unknown>): Promise<void> {
+  await pool.query('delete from conversation_state');
+  for (const [jid, state] of Object.entries(conversations)) {
+    const item = state as any;
+    await pool.query(
+      `insert into conversation_state(jid, kind, sender_phone, campaign_id, campaign_result_id, scheduled_at, data, updated_at)
+       values ($1, $2, $3, $4, $5, $6, $7, now())`,
+      [
+        jid,
+        typeof item.kind === 'string' ? item.kind : 'unknown',
+        typeof item.senderPhone === 'string' ? item.senderPhone : null,
+        typeof item.campaignId === 'string' ? item.campaignId : null,
+        typeof item.campaignResultId === 'string' ? item.campaignResultId : null,
+        scheduledAtForState(item),
+        item,
+      ],
+    );
+  }
+}
+
+function scheduledAtForState(state: { timestamp?: unknown; nameTimeoutMinutes?: unknown; preNamePromptTimeoutMinutes?: unknown; contactCardConfirmationTimeoutMinutes?: unknown; decisionTimeoutMinutes?: unknown; kind?: unknown; flow?: unknown; stepId?: unknown }): string | null {
+  const timestamp = typeof state.timestamp === 'number' ? state.timestamp : 0;
+  if (!timestamp) return null;
+  let minutes = 30;
+  if (state.kind === 'name') minutes = typeof state.nameTimeoutMinutes === 'number' ? state.nameTimeoutMinutes : 5;
+  else if (state.kind === 'pre-name-prompt') minutes = typeof state.preNamePromptTimeoutMinutes === 'number' ? state.preNamePromptTimeoutMinutes : 1;
+  else if (state.kind === 'contact-card-confirmation') minutes = typeof state.contactCardConfirmationTimeoutMinutes === 'number' ? state.contactCardConfirmationTimeoutMinutes : 30;
+  else if (state.kind === 'handoff') minutes = 24 * 60;
+  else if (state.kind === 'decision' || state.kind === 'wait-reply') minutes = typeof state.decisionTimeoutMinutes === 'number' ? state.decisionTimeoutMinutes : 30;
+  return new Date(timestamp + Math.max(1, minutes) * 60 * 1000).toISOString();
 }
 
 function nullableDate(value: string | undefined): string | null {
