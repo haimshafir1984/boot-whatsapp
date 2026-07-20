@@ -211,6 +211,8 @@ class PostgresStorageBackend implements StorageBackend {
   private lastWriteAt: string | undefined;
   private initialized = false;
   private persistedSnapshot: StorageData | null = null;
+  private queuedSnapshot: StorageData | null = null;
+  private draining = false;
 
   constructor(private readonly pool: Pool) {}
 
@@ -228,28 +230,42 @@ class PostgresStorageBackend implements StorageBackend {
   }
 
   persistSnapshot(data: StorageData): void {
-    const snapshot = JSON.parse(JSON.stringify(data)) as StorageData;
-    this.pendingWrites += 1;
-    this.pending = this.pending
-      .then(async () => {
+    this.queuedSnapshot = cloneSnapshot(data);
+    this.pendingWrites = 1;
+    if (this.draining) return;
+
+    this.draining = true;
+    this.pending = this.drainPendingSnapshots();
+  }
+
+  private async drainPendingSnapshots(): Promise<void> {
+    try {
+      while (this.queuedSnapshot) {
+        const snapshot = this.queuedSnapshot;
+        this.queuedSnapshot = null;
         await writeSnapshotDelta(this.pool, this.persistedSnapshot, snapshot);
         this.persistedSnapshot = cloneSnapshot(snapshot);
-      })
-      .then(() => {
         this.lastError = undefined;
         this.lastWriteAt = new Date().toISOString();
-      })
-      .catch((err) => {
-        this.lastError = err instanceof Error ? err.message : String(err);
-        console.error('PostgreSQL storage write failed:', err);
-      })
-      .finally(() => {
-        this.pendingWrites = Math.max(0, this.pendingWrites - 1);
-      });
+      }
+    } catch (err) {
+      this.lastError = err instanceof Error ? err.message : String(err);
+      console.error('PostgreSQL storage write failed:', err);
+    } finally {
+      this.draining = false;
+      this.pendingWrites = this.queuedSnapshot ? 1 : 0;
+      if (this.queuedSnapshot) {
+        this.draining = true;
+        this.pending = this.drainPendingSnapshots();
+      }
+    }
   }
 
   async flush(): Promise<void> {
-    await this.pending;
+    do {
+      const pending = this.pending;
+      await pending;
+    } while (this.draining || this.queuedSnapshot);
     if (this.lastError) throw new Error(this.lastError);
   }
 

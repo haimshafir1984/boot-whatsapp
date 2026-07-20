@@ -17,7 +17,8 @@
     "test:outbox-durability": "npm run build && node scripts/test-outbox-durability.js",
     "test:postgres-delta": "npm run build && node scripts/test-postgres-delta.js",
     "test:outbox-claim": "npm run build && node scripts/test-outbox-claim.js",
-    "test:migration-safety": "npm run build && node scripts/test-migration-safety.js"
+    "test:migration-safety": "npm run build && node scripts/test-migration-safety.js",
+    "test:postgres-burst": "npm run build && node scripts/test-postgres-burst.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc13",
