@@ -197,6 +197,7 @@ class PostgresStorageBackend implements StorageBackend {
   private lastError: string | undefined;
   private lastWriteAt: string | undefined;
   private initialized = false;
+  private persistedSnapshot: StorageData | null = null;
 
   constructor(private readonly pool: Pool) {}
 
@@ -208,14 +209,19 @@ class PostgresStorageBackend implements StorageBackend {
 
   async loadSnapshot(): Promise<StorageData | null> {
     const result = await this.pool.query('select data from app_state where key = $1', ['storage']);
-    return result.rows[0]?.data ?? null;
+    const snapshot = result.rows[0]?.data ?? null;
+    this.persistedSnapshot = snapshot ? cloneSnapshot(snapshot) : null;
+    return snapshot;
   }
 
   persistSnapshot(data: StorageData): void {
     const snapshot = JSON.parse(JSON.stringify(data)) as StorageData;
     this.pendingWrites += 1;
     this.pending = this.pending
-      .then(() => writeSnapshot(this.pool, snapshot))
+      .then(async () => {
+        await writeSnapshotDelta(this.pool, this.persistedSnapshot, snapshot);
+        this.persistedSnapshot = cloneSnapshot(snapshot);
+      })
       .then(() => {
         this.lastError = undefined;
         this.lastWriteAt = new Date().toISOString();
@@ -248,6 +254,10 @@ class PostgresStorageBackend implements StorageBackend {
       lastWriteAt: this.lastWriteAt,
     };
   }
+}
+
+function cloneSnapshot(data: StorageData): StorageData {
+  return JSON.parse(JSON.stringify(data)) as StorageData;
 }
 
 async function applyMigrations(pool: Pool): Promise<void> {
@@ -307,6 +317,128 @@ async function writeSnapshot(pool: Pool, data: StorageData): Promise<void> {
   } catch (err) {
     await pool.query('rollback');
     throw err;
+  }
+}
+
+/**
+ * Runtime persistence keeps app_state as the backwards-compatible source of
+ * truth, but updates derived tables incrementally. The migration importer uses
+ * writeSnapshot() because replacing an explicitly supplied snapshot is its
+ * intended behaviour.
+ */
+async function writeSnapshotDelta(pool: Pool, previous: StorageData | null, data: StorageData): Promise<void> {
+  await pool.query('begin');
+  try {
+    await pool.query(
+      `insert into app_state(key, data, updated_at) values ($1, $2, now())
+       on conflict (key) do update set data = excluded.data, updated_at = now()`,
+      ['storage', data],
+    );
+
+    if (!previous || !sameJson(previous.adminSettings, data.adminSettings)) {
+      await pool.query(
+        `insert into admin_settings(id, data, updated_at) values ('current', $1, now())
+         on conflict (id) do update set data = excluded.data, updated_at = now()`,
+        [data.adminSettings],
+      );
+    }
+    if (!previous || !sameJson(previous.clientProfile, data.clientProfile)) {
+      await pool.query(
+        `insert into client_profile(id, data, updated_at) values ('current', $1, now())
+         on conflict (id) do update set data = excluded.data, updated_at = now()`,
+        [data.clientProfile],
+      );
+    }
+
+    await syncRowsDelta(pool, 'campaigns', previous?.campaigns ?? [], data.campaigns, (item) => item.id, (item) => [item.id, item.triggerPhrase, item.active, item.runtimeStatus ?? null, item]);
+    await syncRowsDelta(pool, 'campaign_results', previous?.campaignResults ?? [], data.campaignResults, (item) => item.id, (item) => [item.id, item.campaignId, item.resultBatchId ?? null, item.phone, item.status, item.lastStage ?? null, nullableDate(item.triggeredAt), nullableDate(item.updatedAt), item]);
+    await syncRowsDelta(pool, 'campaign_events', previous?.campaignEvents ?? [], data.campaignEvents, (item) => item.id, (item) => [item.id, item.campaignId, item.campaignResultId ?? null, item.resultBatchId ?? null, item.phone ?? null, item.type, item.dedupeKey ?? null, nullableDate(item.createdAt), item]);
+    await syncRowsDelta(pool, 'contact_queue', previous?.contactQueue ?? [], data.contactQueue, (item) => item.id, (item) => [item.id, item.phone, item.status, nullableDate(item.nextAttemptAt), item.attempts, item, nullableDate(item.updatedAt)]);
+    await syncRowsDelta(pool, 'saved_contacts', previous?.contactsList ?? [], data.contactsList, (item) => item.phone, (item) => [item.phone, item.name, nullableDate(item.savedAt), item]);
+    await syncRowsDelta(pool, 'uploaded_files', previous?.uploadedFiles ?? [], data.uploadedFiles, (item) => item.id, (item) => [item.id, item.filename, item.mimeType, item.size, item, nullableDate(item.createdAt)]);
+    await syncRowsDelta(pool, 'twilio_templates', previous?.twilioTemplates ?? [], data.twilioTemplates, (item) => item.id, (item) => [item.id, item.status, item, nullableDate(item.updatedAt)]);
+    await syncRowsDelta(pool, 'outbox_messages', previous?.outboxMessages ?? [], data.outboxMessages ?? [], (item) => item.id, (item) => [item.id, item.kind, item.to, item.status, item.attempts, item.providerMessageId ?? null, nullableDate(item.nextAttemptAt), nullableDate(item.createdAt), nullableDate(item.updatedAt), item]);
+    await syncConversationStateDelta(pool, previous?.conversationStateSnapshot?.conversations ?? {}, data.conversationStateSnapshot?.conversations ?? {});
+    await syncRowsDelta(pool, 'scheduled_jobs', previous?.scheduledJobs ?? [], data.scheduledJobs ?? [], (item) => item.id, (item) => [item.id, item.kind, item.targetId, nullableDate(item.runAt), item.status, item.attempts, item, nullableDate(item.updatedAt)]);
+
+    await pool.query('commit');
+  } catch (err) {
+    await pool.query('rollback');
+    throw err;
+  }
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+async function syncRowsDelta<T extends Record<string, any>>(
+  pool: Pool,
+  table: string,
+  previousRows: T[],
+  nextRows: T[],
+  keyOf: (row: T) => string,
+  values: (row: T) => unknown[],
+): Promise<void> {
+  const previous = new Map(previousRows.map((row) => [keyOf(row), row]));
+  const next = new Map(nextRows.map((row) => [keyOf(row), row]));
+  const removed = [...previous.keys()].filter((key) => !next.has(key));
+  if (removed.length) {
+    const keyColumn = table === 'saved_contacts' ? 'phone' : 'id';
+    await pool.query(`delete from ${table} where ${keyColumn} = any($1::text[])`, [removed]);
+  }
+  for (const [key, row] of next) {
+    if (previous.has(key) && sameJson(previous.get(key), row)) continue;
+    await upsertRow(pool, table, values(row));
+  }
+}
+
+async function upsertRow(pool: Pool, table: string, params: unknown[]): Promise<void> {
+  const columns = tableColumns(table).split(',').map((column) => column.trim());
+  const placeholders = params.map((_, index) => `$${index + 1}`).join(', ');
+  const keyColumn = table === 'saved_contacts' ? 'phone' : 'id';
+  const updates = columns
+    .filter((column) => column !== keyColumn)
+    .map((column) => `${column} = excluded.${column}`);
+  if (table === 'campaigns') updates.push('updated_at = now()');
+  await pool.query(
+    `insert into ${table}(${columns.join(', ')}) values (${placeholders})
+     on conflict (${keyColumn}) do update set ${updates.join(', ')}`,
+    params,
+  );
+}
+
+async function syncConversationStateDelta(
+  pool: Pool,
+  previous: Record<string, unknown>,
+  next: Record<string, unknown>,
+): Promise<void> {
+  const removed = Object.keys(previous).filter((jid) => !(jid in next));
+  if (removed.length) await pool.query('delete from conversation_state where jid = any($1::text[])', [removed]);
+  for (const [jid, state] of Object.entries(next)) {
+    if (jid in previous && sameJson(previous[jid], state)) continue;
+    const item = state as any;
+    await pool.query(
+      `insert into conversation_state(jid, kind, sender_phone, campaign_id, campaign_result_id, scheduled_at, data, updated_at)
+       values ($1, $2, $3, $4, $5, $6, $7, now())
+       on conflict (jid) do update set
+         kind = excluded.kind,
+         sender_phone = excluded.sender_phone,
+         campaign_id = excluded.campaign_id,
+         campaign_result_id = excluded.campaign_result_id,
+         scheduled_at = excluded.scheduled_at,
+         data = excluded.data,
+         updated_at = now()`,
+      [
+        jid,
+        typeof item.kind === 'string' ? item.kind : 'unknown',
+        typeof item.senderPhone === 'string' ? item.senderPhone : null,
+        typeof item.campaignId === 'string' ? item.campaignId : null,
+        typeof item.campaignResultId === 'string' ? item.campaignResultId : null,
+        scheduledAtForState(item),
+        item,
+      ],
+    );
   }
 }
 
