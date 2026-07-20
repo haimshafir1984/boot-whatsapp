@@ -340,16 +340,15 @@ async function sendBotMessage(transport: WhatsAppTransport, to: string, text: st
 
   const storage = activeOutboxStorage;
   const outbox = storage?.enqueueOutboxMessage({ kind: 'text', to, text: cleanText });
-  if (storage && outbox) await storage.flush();
+  if (storage && outbox) {
+    if (!storage.claimOutboxMessage(outbox.id)) throw new Error('Could not claim newly queued outbox message.');
+    await storage.flush();
+  }
 
   let lastError: unknown;
   for (let attempt = 1; attempt <= TEXT_SEND_ATTEMPTS; attempt += 1) {
     await waitBeforeBotReply(delayMs);
     try {
-      if (storage && outbox) {
-        storage.markOutboxProcessing(outbox.id);
-        await storage.flush();
-      }
       const result = await transport.sendMessage(to, cleanText);
       if (storage && outbox) {
         storage.markOutboxSent(outbox.id, providerMessageId(result));
@@ -366,6 +365,10 @@ async function sendBotMessage(transport: WhatsAppTransport, to: string, text: st
       if (attempt < TEXT_SEND_ATTEMPTS) {
         console.warn(`[SEND_RETRY] text attempt=${attempt} to=${to}:`, err);
         await sleep(TEXT_SEND_RETRY_DELAY_MS);
+        if (storage && outbox) {
+          if (!storage.claimOutboxMessage(outbox.id)) throw new Error('Could not reclaim outbox message for retry.');
+          await storage.flush();
+        }
       }
     }
   }
@@ -2574,15 +2577,14 @@ async function sendFileWithRetry(
   if (!transport.sendFile) throw new Error('WhatsApp transport does not support files.');
   const storage = activeOutboxStorage;
   const outbox = storage?.enqueueOutboxMessage({ kind: 'file', to, filePath, caption, fileOptions: options, label });
-  if (storage && outbox) await storage.flush();
+  if (storage && outbox) {
+    if (!storage.claimOutboxMessage(outbox.id)) throw new Error('Could not claim newly queued file outbox message.');
+    await storage.flush();
+  }
 
   await waitBeforeBotReply();
   console.log(`[SEND] file "${label}"`);
   try {
-    if (storage && outbox) {
-      storage.markOutboxProcessing(outbox.id);
-      await storage.flush();
-    }
     const result = await transport.sendFile(to, filePath, caption, options);
     if (storage && outbox) {
       storage.markOutboxSent(outbox.id, providerMessageId(result));
@@ -2599,12 +2601,12 @@ async function sendFileWithRetry(
   }
 
   await sleep(FILE_SEND_RETRY_DELAY_MS);
+  if (storage && outbox) {
+    if (!storage.claimOutboxMessage(outbox.id)) throw new Error('Could not reclaim file outbox message for retry.');
+    await storage.flush();
+  }
   await waitBeforeBotReply();
   try {
-    if (storage && outbox) {
-      storage.markOutboxProcessing(outbox.id);
-      await storage.flush();
-    }
     const result = await transport.sendFile(to, filePath, caption, options);
     if (storage && outbox) {
       storage.markOutboxSent(outbox.id, providerMessageId(result));

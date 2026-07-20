@@ -218,11 +218,13 @@ export interface OutboxMessage {
   caption?: string;
   fileOptions?: { asSticker?: boolean };
   label?: string;
+  idempotencyKey?: string;
   status: OutboxMessageStatus;
   attempts: number;
   createdAt: string;
   updatedAt: string;
   nextAttemptAt?: string;
+  processingStartedAt?: string;
   lastError?: string;
   providerMessageId?: string;
 }
@@ -592,6 +594,11 @@ export class Storage {
   }
 
   enqueueOutboxMessage(input: Omit<OutboxMessage, 'id' | 'status' | 'attempts' | 'createdAt' | 'updatedAt'>): OutboxMessage {
+    const existing = input.idempotencyKey
+      ? this.data.outboxMessages.find((item) => item.idempotencyKey === input.idempotencyKey)
+      : undefined;
+    if (existing) return this.copyOutboxMessage(existing);
+
     const now = new Date().toISOString();
     const message: OutboxMessage = {
       id: generateId(),
@@ -603,7 +610,7 @@ export class Storage {
     };
     this.data.outboxMessages.push(message);
     this.persist();
-    return { ...message, fileOptions: message.fileOptions ? { ...message.fileOptions } : undefined };
+    return this.copyOutboxMessage(message);
   }
 
   markOutboxProcessing(id: string): void {
@@ -612,6 +619,7 @@ export class Storage {
     message.status = 'processing';
     message.attempts += 1;
     message.updatedAt = new Date().toISOString();
+    message.processingStartedAt = message.updatedAt;
     message.lastError = undefined;
     this.persist();
   }
@@ -622,6 +630,7 @@ export class Storage {
     message.status = 'sent';
     message.providerMessageId = providerMessageId;
     message.nextAttemptAt = undefined;
+    message.processingStartedAt = undefined;
     message.lastError = undefined;
     message.updatedAt = new Date().toISOString();
     this.persist();
@@ -633,6 +642,7 @@ export class Storage {
     message.status = 'retry';
     message.lastError = error instanceof Error ? error.message : String(error);
     message.nextAttemptAt = nextAttemptAt;
+    message.processingStartedAt = undefined;
     message.updatedAt = new Date().toISOString();
     this.persist();
   }
@@ -643,6 +653,7 @@ export class Storage {
     message.status = 'failed';
     message.lastError = error instanceof Error ? error.message : String(error);
     message.nextAttemptAt = undefined;
+    message.processingStartedAt = undefined;
     message.updatedAt = new Date().toISOString();
     this.persist();
   }
@@ -652,16 +663,40 @@ export class Storage {
       .slice()
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .slice(0, limit)
-      .map((message) => ({ ...message, fileOptions: message.fileOptions ? { ...message.fileOptions } : undefined }));
+      .map((message) => this.copyOutboxMessage(message));
   }
 
-  getPendingOutboxMessages(limit = 50, now = new Date()): OutboxMessage[] {
+  getPendingOutboxMessages(limit = 50, now = new Date(), processingStaleMs = 2 * 60 * 1000): OutboxMessage[] {
     const nowMs = now.getTime();
     return this.data.outboxMessages
-      .filter((message) => message.status === 'queued' || message.status === 'processing' || (message.status === 'retry' && (!message.nextAttemptAt || Date.parse(message.nextAttemptAt) <= nowMs)))
+      .filter((message) => this.isOutboxClaimable(message, nowMs, processingStaleMs))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
       .slice(0, limit)
-      .map((message) => ({ ...message, fileOptions: message.fileOptions ? { ...message.fileOptions } : undefined }));
+      .map((message) => this.copyOutboxMessage(message));
+  }
+
+  claimOutboxMessage(id: string, now = new Date(), processingStaleMs = 2 * 60 * 1000): OutboxMessage | null {
+    const message = this.data.outboxMessages.find((item) => item.id === id);
+    if (!message || !this.isOutboxClaimable(message, now.getTime(), processingStaleMs)) return null;
+    this.markOutboxProcessing(id);
+    return this.copyOutboxMessage(message);
+  }
+
+  private isOutboxClaimable(message: OutboxMessage, nowMs: number, processingStaleMs: number): boolean {
+    if (message.status === 'queued') return true;
+    if (message.status === 'retry') {
+      return !message.nextAttemptAt || Date.parse(message.nextAttemptAt) <= nowMs;
+    }
+    if (message.status !== 'processing') return false;
+    const processingStartedMs = Date.parse(message.processingStartedAt || message.updatedAt);
+    return !Number.isFinite(processingStartedMs) || processingStartedMs <= nowMs - processingStaleMs;
+  }
+
+  private copyOutboxMessage(message: OutboxMessage): OutboxMessage {
+    return {
+      ...message,
+      fileOptions: message.fileOptions ? { ...message.fileOptions } : undefined,
+    };
   }
 
   getOutboxHealth(): Record<OutboxMessageStatus | 'total', number> {

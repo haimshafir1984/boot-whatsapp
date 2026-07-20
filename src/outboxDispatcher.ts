@@ -24,17 +24,18 @@ async function dispatchMessage(storage: Storage, transport: WhatsAppTransport, m
     return;
   }
 
-  storage.markOutboxProcessing(message.id);
+  const claimed = storage.claimOutboxMessage(message.id);
+  if (!claimed) return;
   await storage.flush();
   try {
-    const result = message.kind === 'file'
-      ? await sendOutboxFile(transport, message)
-      : await transport.sendMessage(message.to, message.text || '');
-    storage.markOutboxSent(message.id, providerMessageId(result));
+    const result = claimed.kind === 'file'
+      ? await sendOutboxFile(transport, claimed)
+      : await transport.sendMessage(claimed.to, claimed.text || '');
+    storage.markOutboxSent(claimed.id, providerMessageId(result));
     await storage.flush();
   } catch (err) {
-    if (message.attempts + 1 >= OUTBOX_MAX_ATTEMPTS) storage.markOutboxFailed(message.id, err);
-    else storage.markOutboxRetry(message.id, err, nextRetryIso());
+    if (claimed.attempts >= OUTBOX_MAX_ATTEMPTS) storage.markOutboxFailed(claimed.id, err);
+    else storage.markOutboxRetry(claimed.id, err, nextRetryIso());
     await storage.flush();
   }
 }

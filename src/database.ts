@@ -172,6 +172,19 @@ const MIGRATIONS: Array<{ id: string; sql: string }> = [
       create index if not exists idx_scheduled_jobs_target on scheduled_jobs(target_id);
     `,
   },
+  {
+    id: '003_outbox_claims',
+    sql: `
+      alter table outbox_messages add column if not exists idempotency_key text;
+      alter table outbox_messages add column if not exists processing_started_at timestamptz;
+      create unique index if not exists idx_outbox_messages_idempotency
+        on outbox_messages(idempotency_key)
+        where idempotency_key is not null;
+      create index if not exists idx_outbox_messages_processing_started
+        on outbox_messages(processing_started_at);
+    `,
+  },
+
 ];
 
 export async function createPostgresBackend(databaseUrl: string): Promise<StorageBackend> {
@@ -309,7 +322,7 @@ async function writeSnapshot(pool: Pool, data: StorageData): Promise<void> {
     await replaceRows(pool, 'saved_contacts', data.contactsList, (item) => [item.phone, item.name, nullableDate(item.savedAt), item]);
     await replaceRows(pool, 'uploaded_files', data.uploadedFiles, (item) => [item.id, item.filename, item.mimeType, item.size, item, nullableDate(item.createdAt)]);
     await replaceRows(pool, 'twilio_templates', data.twilioTemplates, (item) => [item.id, item.status, item, nullableDate(item.updatedAt)]);
-    await replaceRows(pool, 'outbox_messages', data.outboxMessages ?? [], (item) => [item.id, item.kind, item.to, item.status, item.attempts, item.providerMessageId ?? null, nullableDate(item.nextAttemptAt), nullableDate(item.createdAt), nullableDate(item.updatedAt), item]);
+    await replaceRows(pool, 'outbox_messages', data.outboxMessages ?? [], (item) => [item.id, item.kind, item.to, item.status, item.attempts, item.providerMessageId ?? null, item.idempotencyKey ?? null, nullableDate(item.processingStartedAt), nullableDate(item.nextAttemptAt), nullableDate(item.createdAt), nullableDate(item.updatedAt), item]);
     await replaceConversationStateRows(pool, data.conversationStateSnapshot?.conversations ?? {});
     await replaceRows(pool, 'scheduled_jobs', data.scheduledJobs ?? [], (item) => [item.id, item.kind, item.targetId, nullableDate(item.runAt), item.status, item.attempts, item, nullableDate(item.updatedAt)]);
 
@@ -357,7 +370,7 @@ async function writeSnapshotDelta(pool: Pool, previous: StorageData | null, data
     await syncRowsDelta(pool, 'saved_contacts', previous?.contactsList ?? [], data.contactsList, (item) => item.phone, (item) => [item.phone, item.name, nullableDate(item.savedAt), item]);
     await syncRowsDelta(pool, 'uploaded_files', previous?.uploadedFiles ?? [], data.uploadedFiles, (item) => item.id, (item) => [item.id, item.filename, item.mimeType, item.size, item, nullableDate(item.createdAt)]);
     await syncRowsDelta(pool, 'twilio_templates', previous?.twilioTemplates ?? [], data.twilioTemplates, (item) => item.id, (item) => [item.id, item.status, item, nullableDate(item.updatedAt)]);
-    await syncRowsDelta(pool, 'outbox_messages', previous?.outboxMessages ?? [], data.outboxMessages ?? [], (item) => item.id, (item) => [item.id, item.kind, item.to, item.status, item.attempts, item.providerMessageId ?? null, nullableDate(item.nextAttemptAt), nullableDate(item.createdAt), nullableDate(item.updatedAt), item]);
+    await syncRowsDelta(pool, 'outbox_messages', previous?.outboxMessages ?? [], data.outboxMessages ?? [], (item) => item.id, (item) => [item.id, item.kind, item.to, item.status, item.attempts, item.providerMessageId ?? null, item.idempotencyKey ?? null, nullableDate(item.processingStartedAt), nullableDate(item.nextAttemptAt), nullableDate(item.createdAt), nullableDate(item.updatedAt), item]);
     await syncConversationStateDelta(pool, previous?.conversationStateSnapshot?.conversations ?? {}, data.conversationStateSnapshot?.conversations ?? {});
     await syncRowsDelta(pool, 'scheduled_jobs', previous?.scheduledJobs ?? [], data.scheduledJobs ?? [], (item) => item.id, (item) => [item.id, item.kind, item.targetId, nullableDate(item.runAt), item.status, item.attempts, item, nullableDate(item.updatedAt)]);
 
@@ -461,7 +474,7 @@ function tableColumns(table: string): string {
     case 'saved_contacts': return 'phone, name, saved_at, data';
     case 'uploaded_files': return 'id, filename, mime_type, size, data, created_at';
     case 'twilio_templates': return 'id, status, data, updated_at';
-    case 'outbox_messages': return 'id, kind, recipient, status, attempts, provider_message_id, next_attempt_at, created_at, updated_at, data';
+    case 'outbox_messages': return 'id, kind, recipient, status, attempts, provider_message_id, idempotency_key, processing_started_at, next_attempt_at, created_at, updated_at, data';
     case 'scheduled_jobs': return 'id, kind, target_id, run_at, status, attempts, data, updated_at';
     default: throw new Error(`Unknown table ${table}`);
   }
