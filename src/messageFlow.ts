@@ -26,9 +26,167 @@ const CONTACT_CARD_NEXT_STEP_DELAY_MS = Math.max(BOT_REPLY_DELAY_MS, 4000);
 const FLOW_STEP_FAILURE_CONTINUE_DELAY_MS = 60_000;
 const RECENT_DECISION_REPLY_TTL_MS = 15_000;
 const FLOW_RECOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
-const FLOW_RECOVERY_SETTLE_MS = process.env.NODE_ENV === 'test' ? 0 : 15_000;
+const FLOW_RECOVERY_SETTLE_MS = 0;
 const recentDecisionReplies = new Map<string, number>();
 const flowRecoveriesInProgress = new Set<string>();
+const senderWorkQueues = new Map<string, Promise<void>>();
+
+interface TimedOutDecisionContext {
+  senderJid: string;
+  senderPhone?: string;
+  campaignId?: string;
+  campaignResultId?: string;
+  flow: DecisionFlowStep[];
+  stepId: string;
+  humanHandoff: CampaignReplyBehavior;
+  expiresAt: number;
+}
+
+const timedOutDecisions = new Map<string, TimedOutDecisionContext>();
+const flowHealth = {
+  inboundQueued: 0,
+  serializedWaits: 0,
+  staleTimeoutsIgnored: 0,
+  timedOutRepliesResumed: 0,
+  maxQueueDepth: 0,
+};
+const senderQueueDepth = new Map<string, number>();
+
+export function getFlowHealthSnapshot(): Record<string, number> {
+  return {
+    ...flowHealth,
+    activeSenderQueues: senderWorkQueues.size,
+    rememberedTimedOutDecisions: timedOutDecisions.size,
+  };
+}
+
+function senderWorkKey(value: string | undefined): string {
+  const raw = String(value ?? '').trim().toLowerCase();
+  const withoutProvider = raw.startsWith('whatsapp:') ? raw.slice('whatsapp:'.length) : raw;
+  const jidUser = withoutProvider.split('@')[0].split(':')[0];
+  const digits = jidUser.replace(/\D/g, '');
+  return digits || raw || 'unknown';
+}
+
+async function runSerializedForSender<T>(sender: string | undefined, label: string, action: () => Promise<T>): Promise<T> {
+  const key = senderWorkKey(sender);
+  const previous = senderWorkQueues.get(key) ?? Promise.resolve();
+  const depth = (senderQueueDepth.get(key) ?? 0) + 1;
+  senderQueueDepth.set(key, depth);
+  flowHealth.maxQueueDepth = Math.max(flowHealth.maxQueueDepth, depth);
+  const queuedAt = Date.now();
+  const current = previous.catch(() => undefined).then(async () => {
+    const waitedMs = Date.now() - queuedAt;
+    if (waitedMs > 25) {
+      flowHealth.serializedWaits += 1;
+      console.warn(`[FLOW_QUEUE_WAIT] sender=${key} label=${label} waitedMs=${waitedMs} depth=${depth}`);
+    }
+    return action();
+  });
+  const queueTail = current.then(() => undefined, () => undefined);
+  senderWorkQueues.set(key, queueTail);
+  try {
+    return await current;
+  } finally {
+    const nextDepth = Math.max(0, (senderQueueDepth.get(key) ?? 1) - 1);
+    if (nextDepth) senderQueueDepth.set(key, nextDepth);
+    else senderQueueDepth.delete(key);
+    if (senderWorkQueues.get(key) === queueTail) senderWorkQueues.delete(key);
+  }
+}
+
+interface ExpectedPendingState {
+  kind: PersistablePendingConversation['kind'];
+  timestamp: number;
+  stepId?: string;
+}
+
+function scheduleSerializedPendingTimeout(
+  senderJid: string,
+  senderPhone: string | undefined,
+  delayMs: number,
+  label: string,
+  expected: ExpectedPendingState,
+  action: () => Promise<void>,
+): NodeJS.Timeout {
+  return setTimeout(() => {
+    void runSerializedForSender(senderPhone || senderJid, `timeout:${label}`, async () => {
+      const current = conversationState.get(senderJid);
+      const sameState = Boolean(current &&
+        current.kind === expected.kind &&
+        current.timestamp === expected.timestamp &&
+        (!expected.stepId || ('stepId' in current && current.stepId === expected.stepId)));
+      if (!sameState) {
+        flowHealth.staleTimeoutsIgnored += 1;
+        console.warn(`[STALE_TIMEOUT_IGNORED] sender=${senderWorkKey(senderPhone || senderJid)} kind=${expected.kind} step=${expected.stepId ?? ''}`);
+        return;
+      }
+      await action();
+    }).catch((err) => logTimerError(label, err));
+  }, delayMs);
+}
+
+function rememberTimedOutDecision(context: Omit<TimedOutDecisionContext, 'expiresAt'>): void {
+  const now = Date.now();
+  for (const [key, item] of timedOutDecisions.entries()) {
+    if (item.expiresAt <= now) timedOutDecisions.delete(key);
+  }
+  const key = senderWorkKey(context.senderPhone || context.senderJid);
+  timedOutDecisions.set(key, { ...context, expiresAt: now + FLOW_RECOVERY_WINDOW_MS });
+  if (timedOutDecisions.size > 5000) {
+    const oldestKey = timedOutDecisions.keys().next().value;
+    if (oldestKey) timedOutDecisions.delete(oldestKey);
+  }
+}
+
+function clearTimedOutDecision(sender: string | undefined): void {
+  timedOutDecisions.delete(senderWorkKey(sender));
+}
+
+async function tryResumeTimedOutDecision(
+  message: IncomingWhatsAppMessage,
+  storage: Storage,
+  transport: WhatsAppTransport,
+  source: WhatsAppMessageSource,
+  senderPhone: string,
+): Promise<boolean> {
+  const key = senderWorkKey(senderPhone || message.from);
+  const context = timedOutDecisions.get(key);
+  if (!context) return false;
+  if (context.expiresAt <= Date.now()) {
+    timedOutDecisions.delete(key);
+    return false;
+  }
+  if (context.campaignId && !storage.getActiveCampaigns().some((campaign) => campaign.id === context.campaignId)) return false;
+  const step = context.flow.find((item) => item.id === context.stepId);
+  if (!step || (step.kind !== 'question' && step.kind !== 'score_question')) return false;
+  const rawAnswer = message.body?.trim() ?? '';
+  if (!rawAnswer) return false;
+  const normalized = normalizeDecisionAnswer(rawAnswer);
+  const option = step.options?.find((item, index) =>
+    rawAnswer.toLowerCase() === String(item.id ?? '').trim().toLowerCase() ||
+    normalized === String(index + 1) ||
+    normalized === normalizeDecisionAnswer(item.text),
+  );
+  if (!option) return false;
+
+  timedOutDecisions.delete(key);
+  flowHealth.timedOutRepliesResumed += 1;
+  console.warn(`[TIMED_OUT_REPLY_RESUMED] via=${source} campaign=${context.campaignId ?? ''} result=${context.campaignResultId ?? ''} phone=${senderPhone} step=${context.stepId} option=${option.id}`);
+  await handleDecisionReply(
+    rawAnswer,
+    context.flow,
+    context.stepId,
+    message.from,
+    storage,
+    transport,
+    context.campaignId,
+    context.campaignResultId,
+    context.senderPhone,
+    context.humanHandoff,
+  );
+  return true;
+}
 
 interface CampaignReplyBehavior {
   enabled?: boolean;
@@ -184,13 +342,15 @@ export async function handleIncomingWhatsAppMessage(
   if (!message.body?.trim() && !message.hasUserSignal && !message.isReaction) return;
   if (!rememberMessage(message)) return;
 
-  await markIncomingMessageReadIfEnabled(message, storage, transport, source);
-
-  try {
-    await handleMessage(message, storage, transport, source);
-  } catch (err) {
-    console.error(`[MSG] handler failed via ${source}:`, err);
-  }
+  flowHealth.inboundQueued += 1;
+  await runSerializedForSender(message.senderPhone || message.from, `inbound:${source}`, async () => {
+    await markIncomingMessageReadIfEnabled(message, storage, transport, source);
+    try {
+      await handleMessage(message, storage, transport, source);
+    } catch (err) {
+      console.error(`[MSG] handler failed via ${source}:`, err);
+    }
+  });
 }
 
 async function markIncomingMessageReadIfEnabled(
@@ -639,6 +799,7 @@ async function handleMessage(
       console.warn(`[DUPLICATE_REPLY_IGNORED] via=${source} phone=${senderPhone} reply=${replyBody.slice(0, 80)}`);
       return;
     }
+    if (await tryResumeTimedOutDecision(message, storage, transport, source, senderPhone)) return;
     if (await tryRecoverMissingFlow(message, storage, transport, source, activeCampaigns, senderJid, senderPhone)) return;
     console.log(`[STATE_MISS] via=${source} age=${Math.round(messageAgeMs / 1000)}s phone=${senderPhone} button=${Boolean(message.isButtonReply)} body=${replyBody.slice(0, 80)}`);
     console.log(`[MSG] no trigger match via=${source} age=${Math.round(messageAgeMs / 1000)}s from=${senderJid} active=${activeCampaigns.length}`);
@@ -650,6 +811,7 @@ async function handleMessage(
   }
   console.log(`[MSG] trigger matched via=${source} age=${Math.round(messageAgeMs / 1000)}s campaign="${trigger.campaignName}" from=${senderJid}`);
   clearRecentDecisionRepliesForPhone(senderPhone);
+  clearTimedOutDecision(senderPhone);
 
   const displayName = await message.getDisplayName();
   const pushname =
@@ -1537,8 +1699,7 @@ async function handleDecisionReply(
     console.warn(`[DUPLICATE_REPLY_IGNORED] campaign=${campaignId ?? ''} result=${campaignResultId ?? ''} phone=${senderPhone ?? ''} step=${step.id} option=${option.id}`);
     return;
   }
-  rememberRecentDecisionReply(senderPhone, option.id, answer);
-  conversationState.remove(senderJid);
+  conversationState.pause(senderJid);
   if (step.kind === 'score_question') {
     const score = scoreForOption(option, step);
     storage.recordScoreAnswer(campaignResultId, {
@@ -1555,6 +1716,7 @@ async function handleDecisionReply(
         phone: senderPhone,
         type: 'score_answered',
         label: `${option.text} (${score})`,
+        dedupeKey: `score_answered:${step.id}:${option.id}`,
       });
     }
   }
@@ -1565,6 +1727,7 @@ async function handleDecisionReply(
       phone: senderPhone,
       type: 'step_answered',
       label: option.text,
+      dedupeKey: `step_answered:${step.id}:${option.id}`,
     });
   }
   if (campaignId && option.raffleEntry) {
@@ -1576,6 +1739,7 @@ async function handleDecisionReply(
         phone: senderPhone,
         type: 'raffle_entry',
         label: `\u05d6\u05db\u05d0\u05d5\u05ea \u05dc\u05d4\u05d2\u05e8\u05dc\u05d4 \u05e2\u05dc \u05e9\u05d9\u05ea\u05d5\u05e3 \u05e9\u05dc\u05d1 ${stepNumber}: ${option.text}`,
+        dedupeKey: `raffle_entry:${step.id}:${option.id}`,
       });
     } catch (err) {
       // Eligibility reporting must never interrupt the participant's conversation.
@@ -1611,6 +1775,8 @@ async function handleDecisionReply(
     });
     keepHumanHandoffOpen(senderJid, campaignId, campaignResultId, senderPhone, humanHandoff);
   }
+  rememberRecentDecisionReply(senderPhone, option.id, answer);
+  clearTimedOutDecision(senderPhone || senderJid);
 }
 
 async function handleWaitReply(
@@ -1626,8 +1792,11 @@ async function handleWaitReply(
   humanHandoff: CampaignReplyBehavior = {},
 ): Promise<void> {
   const step = flow.find((item) => item.id === stepId);
-  conversationState.remove(senderJid);
-  if (!step || step.kind !== 'wait_reply') return;
+  conversationState.pause(senderJid);
+  if (!step || step.kind !== 'wait_reply') {
+    conversationState.remove(senderJid);
+    return;
+  }
   if (campaignId) {
     storage.recordCampaignEvent({
       campaignId,
@@ -1711,17 +1880,19 @@ async function sendDecisionStep(
       : (humanHandoff.decisionTimeoutMinutes && humanHandoff.decisionTimeoutMinutes > 0
         ? humanHandoff.decisionTimeoutMinutes
         : DECISION_REPLY_TIMEOUT_MS / 60_000);
-    const timeoutHandle = setTimeout(() => {
-      void (async () => {
-        try {
-          conversationState.remove(senderJid);
-          console.log(`   Wait-reply timeout - cleared pending state for ${senderJid}.`);
-          await sendDecisionTimeoutAction(transport, storage, senderJid, step, humanHandoff.decisionTimeoutText, campaignId, campaignResultId, senderPhone, flow, humanHandoff);
-        } catch (err) {
-          logTimerError('wait-reply timeout', err);
-        }
-      })();
-    }, timeoutMinutes * 60 * 1000);
+    const timestamp = Date.now();
+    const timeoutHandle = scheduleSerializedPendingTimeout(
+      senderJid,
+      senderPhone,
+      timeoutMinutes * 60 * 1000,
+      'wait-reply timeout',
+      { kind: 'wait-reply', timestamp, stepId: step.id },
+      async () => {
+        conversationState.remove(senderJid);
+        console.log(`   Wait-reply timeout - cleared pending state for ${senderJid}.`);
+        await sendDecisionTimeoutAction(transport, storage, senderJid, step, humanHandoff.decisionTimeoutText, campaignId, campaignResultId, senderPhone, flow, humanHandoff);
+      },
+    );
     conversationState.set(senderJid, {
       kind: 'wait-reply',
       senderJid,
@@ -1738,7 +1909,7 @@ async function sendDecisionStep(
       decisionTimeoutMode: humanHandoff.decisionTimeoutMode,
       decisionTimeoutNextStepId: humanHandoff.decisionTimeoutNextStepId,
       timeoutFlowStarted: humanHandoff.timeoutFlowStarted,
-      timestamp: Date.now(),
+      timestamp,
       timeoutHandle,
     });
     return;
@@ -1919,17 +2090,28 @@ async function sendDecisionStep(
     : (humanHandoff.decisionTimeoutMinutes && humanHandoff.decisionTimeoutMinutes > 0
       ? humanHandoff.decisionTimeoutMinutes
       : DECISION_REPLY_TIMEOUT_MS / 60_000);
-  const timeoutHandle = setTimeout(() => {
-    void (async () => {
-      try {
-        conversationState.remove(senderJid);
-        console.log(`   Decision reply timeout - cleared pending state for ${senderJid}.`);
-        await sendDecisionTimeoutAction(transport, storage, senderJid, step, humanHandoff.decisionTimeoutText, campaignId, campaignResultId, senderPhone, flow, humanHandoff);
-      } catch (err) {
-        logTimerError('decision timeout', err);
-      }
-    })();
-  }, timeoutMinutes * 60 * 1000);
+  const timestamp = Date.now();
+  const timeoutHandle = scheduleSerializedPendingTimeout(
+    senderJid,
+    senderPhone,
+    timeoutMinutes * 60 * 1000,
+    'decision timeout',
+    { kind: 'decision', timestamp, stepId: step.id },
+    async () => {
+      rememberTimedOutDecision({
+        senderJid,
+        senderPhone,
+        campaignId,
+        campaignResultId,
+        flow,
+        stepId: step.id,
+        humanHandoff,
+      });
+      conversationState.remove(senderJid);
+      console.log(`   Decision reply timeout - cleared pending state for ${senderJid}.`);
+      await sendDecisionTimeoutAction(transport, storage, senderJid, step, humanHandoff.decisionTimeoutText, campaignId, campaignResultId, senderPhone, flow, humanHandoff);
+    },
+  );
   conversationState.set(senderJid, {
     kind: 'decision',
     senderJid,
@@ -1946,7 +2128,7 @@ async function sendDecisionStep(
     decisionTimeoutMode: humanHandoff.decisionTimeoutMode,
     decisionTimeoutNextStepId: humanHandoff.decisionTimeoutNextStepId,
     timeoutFlowStarted: humanHandoff.timeoutFlowStarted,
-    timestamp: Date.now(),
+    timestamp,
     timeoutHandle,
   });
 }
@@ -2155,10 +2337,17 @@ function keepHumanHandoffOpen(
   senderPhone: string | undefined,
   humanHandoff: CampaignReplyBehavior = {},
 ): void {
+  conversationState.remove(senderJid);
   if (!humanHandoff.enabled) return;
-  const timeoutHandle = setTimeout(() => {
-    conversationState.remove(senderJid);
-  }, HUMAN_HANDOFF_WINDOW_MS);
+  const timestamp = Date.now();
+  const timeoutHandle = scheduleSerializedPendingTimeout(
+    senderJid,
+    senderPhone,
+    HUMAN_HANDOFF_WINDOW_MS,
+    'human handoff timeout',
+    { kind: 'handoff', timestamp },
+    async () => { conversationState.remove(senderJid); },
+  );
   conversationState.set(senderJid, {
     kind: 'handoff',
     senderJid,
@@ -2168,7 +2357,7 @@ function keepHumanHandoffOpen(
     humanHandoffEnabled: humanHandoff.enabled,
     humanHandoffText: humanHandoff.text,
     humanHandoffPhone: humanHandoff.phone,
-    timestamp: Date.now(),
+    timestamp,
     timeoutHandle,
   });
 }

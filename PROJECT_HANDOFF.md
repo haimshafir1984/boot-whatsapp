@@ -1383,3 +1383,12 @@ https://client-meta-test-new-number-ce8e0691.flowsbiz.com/webhooks/meta/whatsapp
 - `npm run build` עבר לאחר שינויי הקוד המרכזיים, כולל לאחר התאמת מובייל ולאחר תזכורת `{referral_link}`.
 - נבדקו נקודתית יצירת קוד referral קצר, parsing של `ref:<CODE>`, ותמיכה לאחור בקוד referral מבוסס טלפון.
 - נבדק שהשינוי האחרון של `{referral_link}` הוא UI בלבד: 3 שורות ב-`public/index.html`, ללא שינוי ב-flow או בשליחת Meta.
+## עדכון 20.7.2026 — Flow hardening 7–11 ומפת מוצר
+
+- שיפורי Flow 1–6 נמצאים ב-commit `b1e6573`: fallback אופציונלי לתשובה לא מזוהה, recovery אופציונלי, התאמת טקסט לכפתור ומניעת כפילויות.
+- שיפורי Flow 7–11 הוכנו: תור טורי לכל משתמש, שמירת pending עד הצלחת מעבר, timeout עם token, המשך מכפתור תקף לאחר timeout, idempotency לניקוד/הגרלה ומדדי `/health`.
+- נוספה בדיקת `npm run test:flow-concurrency` בנוסף ל-`npm run test:flow-recovery` ולבדיקות Meta הקיימות.
+- אין Deploy אוטומטי ללקוחות קיימים. יש לבצע Deploy ידני ו-dry run בחשבון בדיקה לפני לקוחה.
+- מסמך היציבות המלא: `docs/campaign-flow-reliability-plan-2026-07.md`.
+- מפת רעיונות פונקציונליים נפרדת: `docs/campaign-functional-product-ideas-2026-07.md`.
+- השינויים המשמעותיים שנותרו לחלון תחזוקה: outbox עמיד, transition journal, persisted timeout context, delivery statuses, כתיבה אטומית, restart/load tests והתראות.

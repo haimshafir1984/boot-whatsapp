@@ -33,7 +33,7 @@ import { createAccessControl } from './accessControl';
 import { ManagedClient, OwnerStorage } from './ownerStorage';
 import { DokployProvisioner } from './dokployProvisioner';
 import { conversationState } from './conversationState';
-import { handleIncomingWhatsAppMessage } from './messageFlow';
+import { getFlowHealthSnapshot, handleIncomingWhatsAppMessage } from './messageFlow';
 import { TwilioProvider } from './providers/TwilioProvider';
 import { MetaCloudProvider } from './providers/MetaCloudProvider';
 import { getTwilioEvents, recordTwilioEvent } from './twilioEvents';
@@ -1101,6 +1101,7 @@ export function startAdminServer(storage: Storage): void {
       contactQueue: queueStats,
       conversations: {
         pending: conversationState.size(),
+        flowHealth: getFlowHealthSnapshot(),
       },
       whatsapp: {
         ready: botState.ready,

@@ -269,6 +269,8 @@ export interface CampaignEvent {
   phone?: string;
   type: CampaignEventType;
   label?: string;
+  /** Stable key used to make retryable flow side effects idempotent. */
+  dedupeKey?: string;
   createdAt: string;
 }
 
@@ -906,6 +908,14 @@ export class Storage {
   }
 
   recordCampaignEvent(event: Omit<CampaignEvent, 'id' | 'createdAt'>): CampaignEvent {
+    if (event.dedupeKey && event.campaignResultId) {
+      const existing = this.data.campaignEvents.find((item) =>
+        item.campaignId === event.campaignId &&
+        item.campaignResultId === event.campaignResultId &&
+        item.dedupeKey === event.dedupeKey,
+      );
+      if (existing) return { ...existing };
+    }
     const resultBatchId = event.resultBatchId ?? (event.campaignResultId ? this.data.campaignResults.find((item) => item.id === event.campaignResultId)?.resultBatchId : undefined) ?? this.getCurrentCampaignResultBatchId(event.campaignId);
     const saved: CampaignEvent = {
       id: generateId(),

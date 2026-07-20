@@ -194,6 +194,22 @@ class ConversationStateManager {
     return this.map.get(jid);
   }
 
+  /**
+   * Keep the last recoverable state while a reply is being processed, but stop
+   * its timeout. The next successfully-sent step replaces it; a failed send
+   * leaves the previous question available for a safe retry.
+   */
+  pause(jid: string): boolean {
+    const state = this.map.get(jid);
+    if (!state) return false;
+    this.clearTimer(state);
+    state.timestamp = Date.now();
+    (state as PendingConversation & { timeoutHandle?: NodeJS.Timeout }).timeoutHandle = undefined;
+    this.map.set(jid, state);
+    this.persist();
+    return true;
+  }
+
   findByPhone(phone: string | undefined): PendingConversation | undefined {
     const normalized = normalizePhone(phone);
     if (!normalized) return undefined;
