@@ -12,9 +12,12 @@
     "test:flow-concurrency": "npm run build && node scripts/test-flow-concurrency.js",
     "db:migrate": "node scripts/migrate-json-to-postgres.js",
     "db:migrate:apply": "node scripts/migrate-json-to-postgres.js --apply",
+    "db:migrate:force": "node scripts/migrate-json-to-postgres.js --apply --force",
+    "db:export": "node scripts/export-postgres-to-json.js",
     "test:outbox-durability": "npm run build && node scripts/test-outbox-durability.js",
     "test:postgres-delta": "npm run build && node scripts/test-postgres-delta.js",
-    "test:outbox-claim": "npm run build && node scripts/test-outbox-claim.js"
+    "test:outbox-claim": "npm run build && node scripts/test-outbox-claim.js",
+    "test:migration-safety": "npm run build && node scripts/test-migration-safety.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc13",

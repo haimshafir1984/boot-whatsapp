@@ -10,6 +10,7 @@ async function main() {
   const args = new Set(process.argv.slice(2));
   const apply = args.has('--apply');
   const databaseUrl = process.env.DATABASE_URL || config.DATABASE_URL;
+  const force = args.has('--force');
   const storagePath = process.env.STORAGE_PATH || config.STORAGE_PATH;
 
   if (!databaseUrl) {
@@ -40,8 +41,12 @@ async function main() {
     return;
   }
 
-  await replaceStorageSnapshot(databaseUrl, data);
-  console.log('Import completed. Existing PostgreSQL snapshot and derived rows were replaced from JSON.');
+  const result = await replaceStorageSnapshot(databaseUrl, data, { force });
+  if (result === 'unchanged') {
+    console.log('Import skipped: PostgreSQL already contains the identical JSON snapshot.');
+  } else {
+    console.log('Import completed. PostgreSQL now contains the supplied JSON snapshot.');
+  }
   console.log('JSON file was not modified or deleted.');
 }
 

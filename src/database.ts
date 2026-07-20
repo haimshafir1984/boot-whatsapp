@@ -290,11 +290,34 @@ async function applyMigrations(pool: Pool): Promise<void> {
   }
 }
 
-export async function replaceStorageSnapshot(databaseUrl: string, data: StorageData): Promise<void> {
+export async function replaceStorageSnapshot(
+  databaseUrl: string,
+  data: StorageData,
+  options: { force?: boolean } = {},
+): Promise<'imported' | 'unchanged'> {
   const pool = new Pool({ connectionString: databaseUrl });
   try {
     await applyMigrations(pool);
+    const current = await pool.query('select data from app_state where key = $1', ['storage']);
+    if (current.rowCount) {
+      if (sameJson(current.rows[0].data, data)) return 'unchanged';
+      if (!options.force) {
+        throw new Error('PostgreSQL already contains a different storage snapshot. Refusing to overwrite it without --force.');
+      }
+    }
     await writeSnapshot(pool, data);
+    return 'imported';
+  } finally {
+    await pool.end();
+  }
+}
+
+export async function loadStorageSnapshot(databaseUrl: string): Promise<StorageData | null> {
+  const pool = new Pool({ connectionString: databaseUrl });
+  try {
+    await applyMigrations(pool);
+    const result = await pool.query('select data from app_state where key = $1', ['storage']);
+    return result.rows[0]?.data ?? null;
   } finally {
     await pool.end();
   }
@@ -382,7 +405,18 @@ async function writeSnapshotDelta(pool: Pool, previous: StorageData | null, data
 }
 
 function sameJson(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return JSON.stringify(canonicalJsonValue(left)) === JSON.stringify(canonicalJsonValue(right));
+}
+
+function canonicalJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalJsonValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+      .map(([key, item]) => [key, canonicalJsonValue(item)]),
+  );
 }
 
 async function syncRowsDelta<T extends Record<string, any>>(
