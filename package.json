@@ -18,6 +18,7 @@
     "test:postgres-delta": "npm run build && node scripts/test-postgres-delta.js",
     "test:outbox-claim": "npm run build && node scripts/test-outbox-claim.js",
     "test:migration-safety": "npm run build && node scripts/test-migration-safety.js",
+    "test:postgres-migration-pilot": "node scripts/test-postgres-migration-pilot.js",
     "test:postgres-burst": "npm run build && node scripts/test-postgres-burst.js"
   },
   "dependencies": {
