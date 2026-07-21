@@ -1,10 +1,8 @@
 #!/usr/bin/env node
-require('ts-node/register');
-
 const path = require('path');
-const { config } = require('../src/config');
-const { loadStorageDataFromFile } = require('../src/storage');
-const { migrateDatabase, replaceStorageSnapshot } = require('../src/database');
+const { config } = require('../dist/config');
+const { loadStorageDataFromFile } = require('../dist/storage');
+const { migrateDatabase, replaceStorageSnapshot } = require('../dist/database');
 
 async function main() {
   const args = new Set(process.argv.slice(2));

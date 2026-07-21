@@ -1,10 +1,8 @@
 #!/usr/bin/env node
-require('ts-node/register');
-
 const fs = require('fs');
 const path = require('path');
-const { config } = require('../src/config');
-const { loadStorageSnapshot } = require('../src/database');
+const { config } = require('../dist/config');
+const { loadStorageSnapshot } = require('../dist/database');
 
 function argumentValue(name) {
   const prefix = `--${name}=`;

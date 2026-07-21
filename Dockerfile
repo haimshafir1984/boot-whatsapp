@@ -27,6 +27,7 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/owner-public ./owner-public
 COPY --from=builder /app/site-public ./site-public
+COPY --from=builder /app/scripts ./scripts
 COPY package*.json ./
 RUN npm ci --omit=dev
 
