@@ -82,15 +82,15 @@ A Meta webhook health-reporting defect was found, fixed, covered by `npm run tes
 
 ## Stage 9 - Rollback Drill
 
-Result: NOT RUN.
+Result: PASS.
 
-A PostgreSQL export, second-export refusal, JSON clone boot, count/hash comparison, and measured recovery time remain outstanding in the isolated environment.
+The isolated runtime exported PostgreSQL to a new JSON file with matching counts, refused a second export without `--force`, produced SHA-256 `87ba97ec2ecdcce5ee47282be4bb0dbcf1eeed31a297a09f5e11bbf7ab815468`, loaded the export through the JSON storage backend, and booted a temporary clone without `DATABASE_URL` on an internal port. Clone health returned one active campaign, ready JSON storage, an empty outbox, and ready Meta webhook status. The clone was stopped and its port was confirmed closed. Clone health was available within the 3-second verification window.
 
 ## Final Status
 
 Decision: APPROVED WITH LIMITATIONS.
 
-Local regression, PostgreSQL, Unicode/JSON, migration safety, outbox, mock provisioning, isolated runtime storage, 300-save runtime pressure, clean restart, and health acceptance passed. Full release completion remains limited by live Meta message-flow/restart tests, the external rollback drill, and one real owner-driven provisioning run after the owner runtime is upgraded.
+Local regression, PostgreSQL, Unicode/JSON, migration safety, outbox, mock provisioning, isolated runtime storage, 300-save runtime pressure, clean restart, health acceptance, and rollback passed. Full release completion remains limited by live Meta message-flow/restart tests and one real owner-driven provisioning run after the owner runtime is upgraded.
 
 ## Supplemental Verification - Provisioning Retry
 
@@ -186,10 +186,24 @@ Two checks separated by 15 seconds after reload both returned:
 | Restart/recovery | PARTIAL | Clean restart and post-burst persistence passed. Restart while a participant is pending, while an outbox item is in flight, and during delayed media still require the live test handset/provider path. |
 | Load | PARTIAL | Local 2,000-write PostgreSQL test and live 300-save runtime test passed. Multi-user message-flow/provider load was not run. |
 | Health acceptance | PASS | Repeated post-restart health checks passed after the Meta reporting fix. |
-| Rollback drill | NOT RUN | A PostgreSQL export, second-export refusal, JSON clone boot, count/hash comparison, and measured recovery time remain outstanding. |
+| Rollback drill | PASS | PostgreSQL export, overwrite refusal, hash/count verification, JSON clone boot, health verification, and clone shutdown all passed. |
 
 ## Updated QA Decision
 
 Decision: **APPROVED WITH LIMITATIONS**.
 
-The original Unicode/PostgreSQL crash path is covered locally and on the deployed isolated runtime, including real persistence, a 300-save burst, and restart. The isolated client is healthy. Full release completion still requires live Meta message-flow/restart testing, the external rollback drill, and one real owner-driven new-client provisioning run after the owner runtime is upgraded.
+The original Unicode/PostgreSQL crash path is covered locally and on the deployed isolated runtime, including real persistence, a 300-save burst, restart, and rollback. The isolated client is healthy. Full release completion still requires live Meta message-flow/restart testing and one real owner-driven new-client provisioning run after the owner runtime is upgraded.
+
+
+### Rollback drill evidence
+
+| Check | Result | Notes |
+| --- | --- | --- |
+| PostgreSQL export to a new path | PASS | Counts: campaigns 1; all queue/result/event/outbox/pending-conversation collections 0. |
+| Existing export overwrite refused | PASS | A second run without `--force` was rejected. |
+| Export integrity | PASS | JSON parsed successfully and SHA-256 was recorded. |
+| Standalone JSON storage load | PASS | One campaign loaded; queue and outbox counts matched the export. |
+| Temporary JSON clone boot | PASS | Started without `DATABASE_URL` on container-local port 3999 and returned `ok=true`, one active campaign, `storage.enabled=false`, `storage.ready=true`, and a clean outbox. |
+| Clone cleanup | PASS | The temporary process was terminated and port 3999 was confirmed closed. |
+
+The active PostgreSQL runtime was not switched, stopped, or modified by the clone test. The export remains on the isolated test client's data volume as `qa-rollback-20260722.json`.
