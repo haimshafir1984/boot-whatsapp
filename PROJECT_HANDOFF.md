@@ -1445,3 +1445,12 @@ https://client-meta-test-new-number-ce8e0691.flowsbiz.com/webhooks/meta/whatsapp
 - delivery statuses מלאים של Meta והתראות אוטומטיות.
 - replica יחיד לכל לקוח עד להוספת נעילה ותזמון מבוזרים.
 - timed-out context מדויק נשמר בזיכרון; pending conversation רגיל כן נשמר ומשוחזר.
+
+
+## PostgreSQL rollout checkpoint - 2026-07-22
+
+- The validated QA branch was promoted to `master` at `e8eec8e` after Auto Deploy was disabled for all existing client applications and the Owner application.
+- The Owner application was deployed manually and a newly created disposable client, `client-lasttest-e96e18c6`, received a dedicated PostgreSQL service and `DATABASE_URL` before its first deployment. Its health check passed with PostgreSQL ready and zero pending writes.
+- The first existing inactive client, `client-1-cab55e82`, was migrated under a controlled cutover. JSON counts matched the PostgreSQL export: 1 campaign, 378 contacts, 378 contactQueue rows, 407 campaign results, and 1,640 campaign events.
+- `client-1-cab55e82` finished with `storage.enabled=true`, `storage.ready=true`, `pendingWrites=0`, one disabled campaign, 378 saved contacts, and an empty outbox. Its original JSON remains available for rollback.
+- Active clients `client-account-706d5db8` and `client-account-5ec279a8` were not migrated in this checkpoint. `client-account-fce3d086` (Avia) was not touched.
