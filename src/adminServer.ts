@@ -337,6 +337,57 @@ function metaConfigured(): boolean {
   return Boolean(config.META_ACCESS_TOKEN && config.META_PHONE_NUMBER_ID && config.META_VERIFY_TOKEN);
 }
 
+export function getWhatsAppHealth(profilePhone?: string) {
+  if (config.WHATSAPP_PROVIDER === 'META_CLOUD_API') {
+    const configured = metaConfigured();
+    return {
+      ready: configured,
+      authenticated: configured,
+      lifecycle: configured ? 'running' : 'stopped',
+      notReadySince: null,
+      reconnectAttempts: 0,
+      lastReconnectAt: null,
+      lastWatchdogRestartAt: null,
+      connectedPhone: config.META_DISPLAY_PHONE_NUMBER || profilePhone || null,
+      listeningReason: configured ? 'meta webhook mode' : 'meta env missing',
+      requestedProvider: config.WHATSAPP_PROVIDER,
+      actualProvider: 'META_CLOUD_API',
+      providerFallbackReason: null,
+    };
+  }
+  if (config.WHATSAPP_PROVIDER === 'TWILIO_API') {
+    const configured = twilioConfigured();
+    return {
+      ready: configured,
+      authenticated: configured,
+      lifecycle: configured ? 'running' : 'stopped',
+      notReadySince: null,
+      reconnectAttempts: 0,
+      lastReconnectAt: null,
+      lastWatchdogRestartAt: null,
+      connectedPhone: config.TWILIO_FROM.replace(/^whatsapp:/, '') || profilePhone || null,
+      listeningReason: configured ? 'twilio webhook mode' : 'twilio env missing',
+      requestedProvider: config.WHATSAPP_PROVIDER,
+      actualProvider: 'TWILIO_API',
+      providerFallbackReason: null,
+    };
+  }
+  return {
+    ready: botState.ready,
+    authenticated: botState.authenticated,
+    lifecycle: botState.lifecycle,
+    notReadySince: botState.notReadySince ? new Date(botState.notReadySince).toISOString() : null,
+    reconnectAttempts: botState.reconnectAttempts,
+    lastReconnectAt: botState.lastReconnectAt,
+    lastWatchdogRestartAt: botState.lastWatchdogRestartAt,
+    connectedPhone: botState.connectedPhone ?? profilePhone ?? null,
+    listeningReason: botState.listeningReason,
+    requestedProvider: botState.requestedProvider,
+    actualProvider: botState.actualProvider,
+    providerFallbackReason: botState.providerFallbackReason,
+  };
+}
+
 function twilioAuthHeader(): string {
   return `Basic ${Buffer.from(`${config.TWILIO_ACCOUNT_SID}:${config.TWILIO_AUTH_TOKEN}`).toString('base64')}`;
 }
@@ -1083,6 +1134,7 @@ export function startAdminServer(storage: Storage): void {
     const activeCampaigns = campaigns.filter((campaign) => campaign.runtimeStatus === 'active');
     const queueStats = storage.getContactQueueStats();
     const twilioEvents = getTwilioEvents(5);
+    const whatsappHealth = getWhatsAppHealth(storage.getClientProfile().whatsappPhone);
     res.json({
       ok: true,
       clientConfigured: Boolean(process.env.CLIENT_ACCESS_TOKEN?.trim()),
@@ -1107,19 +1159,8 @@ export function startAdminServer(storage: Storage): void {
         flowHealth: getFlowHealthSnapshot(),
       },
       whatsapp: {
-        ready: botState.ready,
-        authenticated: botState.authenticated,
-        lifecycle: botState.lifecycle,
+        ...whatsappHealth,
         shouldRun: storage.hasCampaignsNeedingBot(),
-        notReadySince: botState.notReadySince ? new Date(botState.notReadySince).toISOString() : null,
-        reconnectAttempts: botState.reconnectAttempts,
-        lastReconnectAt: botState.lastReconnectAt,
-        lastWatchdogRestartAt: botState.lastWatchdogRestartAt,
-        connectedPhone: (botState.connectedPhone ?? storage.getClientProfile().whatsappPhone) || null,
-        listeningReason: botState.listeningReason,
-        requestedProvider: botState.requestedProvider,
-        actualProvider: botState.actualProvider,
-        providerFallbackReason: botState.providerFallbackReason,
       },
       twilio: {
         configured: twilioConfigured(),
@@ -2198,27 +2239,11 @@ export function startAdminServer(storage: Storage): void {
 
   app.get('/api/qr', (_req, res) => {
     const profile = storage.getClientProfile();
-    if (config.WHATSAPP_PROVIDER === 'META_CLOUD_API') {
-      res.json({ qr: null, authenticated: metaConfigured(), ready: metaConfigured(), pairingCode: null,
-        connectedPhone: config.META_DISPLAY_PHONE_NUMBER || profile.whatsappPhone,
-        lifecycle: metaConfigured() ? 'running' : 'stopped',
-        listeningReason: metaConfigured() ? 'meta webhook mode' : 'meta env missing',
-        requestedProvider: config.WHATSAPP_PROVIDER, actualProvider: 'META_CLOUD_API', providerFallbackReason: null,
-        shouldRun: storage.hasCampaignsNeedingBot(), });
-      return;
-    }
-    if (config.WHATSAPP_PROVIDER === 'TWILIO_API') {
+    if (config.WHATSAPP_PROVIDER === 'META_CLOUD_API' || config.WHATSAPP_PROVIDER === 'TWILIO_API') {
       res.json({
         qr: null,
-        authenticated: twilioConfigured(),
-        ready: twilioConfigured(),
         pairingCode: null,
-        connectedPhone: config.TWILIO_FROM.replace(/^whatsapp:/, '') || profile.whatsappPhone,
-        lifecycle: twilioConfigured() ? 'running' : 'stopped',
-        listeningReason: twilioConfigured() ? 'twilio webhook mode' : 'twilio env missing',
-        requestedProvider: config.WHATSAPP_PROVIDER,
-        actualProvider: 'TWILIO_API',
-        providerFallbackReason: null,
+        ...getWhatsAppHealth(profile.whatsappPhone),
         shouldRun: storage.hasCampaignsNeedingBot(),
       });
       return;

@@ -20,7 +20,8 @@
     "test:migration-safety": "npm run build && node scripts/test-migration-safety.js",
     "test:postgres-migration-pilot": "node scripts/test-postgres-migration-pilot.js",
     "test:postgres-burst": "npm run build && node scripts/test-postgres-burst.js",
-    "test:dokploy-provisioner": "npm run build && node scripts/test-dokploy-provisioner-postgres.js"
+    "test:dokploy-provisioner": "npm run build && node scripts/test-dokploy-provisioner-postgres.js",
+    "test:provider-health": "npm run build && node scripts/test-provider-health.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc13",
