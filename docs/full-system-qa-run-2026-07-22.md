@@ -60,13 +60,13 @@ Safety boundary: the initial run was local-only. After explicit authorization, e
 
 Result: PARTIAL.
 
-Campaign creation, PostgreSQL persistence, two decision/button steps, long Meta button title configuration, Unicode sanitization, and post-restart readback passed. A real inbound trigger and button reply still require a message from an approved test handset; no arbitrary recipient was contacted.
+Campaign creation, PostgreSQL persistence, a real inbound Meta trigger, timeout, restart, late button recovery, both decision/button steps, long Meta button-title handling, raffle entry, completion, Unicode sanitization, and post-restart readback passed. Ask-name, scoring, media, contact-card confirmation, referral, and provider-failure injection were not exercised.
 
 ## Stage 6 - Restart and Recovery
 
 Result: PARTIAL PASS.
 
-Clean reloads before and after a 300-save burst preserved the campaign and active state with `pendingWrites=0`. Pending-participant, in-flight outbox, delayed media, and timeout restarts still require the live handset/provider flow.
+Clean reloads before and after a 300-save burst preserved the campaign and active state with `pendingWrites=0`. A timed-out button reply after restart triggered flow recovery, restored the correct first step, advanced to the second step, and completed. Restart during an active pending timer, in-flight outbox item, or delayed media send was not exercised.
 
 ## Stage 7 - Load
 
@@ -182,8 +182,8 @@ Two checks separated by 15 seconds after reload both returned:
 
 | Stage | Status | Remaining evidence |
 | --- | --- | --- |
-| Campaign E2E | PARTIAL | Campaign and button configuration persist, but a real inbound Meta trigger, button click, duplicate click, timeout, media, scoring, raffle, and contact-card flow still require an approved test handset. |
-| Restart/recovery | PARTIAL | Clean restart and post-burst persistence passed. Restart while a participant is pending, while an outbox item is in flight, and during delayed media still require the live test handset/provider path. |
+| Campaign E2E | PARTIAL PASS | Real trigger, timeout, restart, flow recovery, long button, second step, raffle, and completion passed. Ask-name, scoring, media, referral, and contact-card confirmation remain untested. WhatsApp disabled the already-used button, so manual duplicate clicking was unavailable; local concurrency/deduplication coverage passed. |
+| Restart/recovery | PARTIAL PASS | Clean restart, post-burst persistence, and a late timed-out reply after restart passed through flow recovery. Restart during an active timer, in-flight outbox item, or delayed media remains untested. |
 | Load | PARTIAL | Local 2,000-write PostgreSQL test and live 300-save runtime test passed. Multi-user message-flow/provider load was not run. |
 | Health acceptance | PASS | Repeated post-restart health checks passed after the Meta reporting fix. |
 | Rollback drill | PASS | PostgreSQL export, overwrite refusal, hash/count verification, JSON clone boot, health verification, and clone shutdown all passed. |
@@ -192,7 +192,7 @@ Two checks separated by 15 seconds after reload both returned:
 
 Decision: **APPROVED WITH LIMITATIONS**.
 
-The original Unicode/PostgreSQL crash path is covered locally and on the deployed isolated runtime, including real persistence, a 300-save burst, restart, and rollback. The isolated client is healthy. Full release completion still requires live Meta message-flow/restart testing and one real owner-driven new-client provisioning run after the owner runtime is upgraded.
+The original Unicode/PostgreSQL crash path is covered locally and on the deployed isolated runtime, including real persistence, a 300-save burst, restart, rollback, and the critical live Meta button recovery path. The isolated client is healthy. Full release completion still requires the unexercised media/scoring/contact-card/fault-injection cases and one real owner-driven new-client provisioning run after the owner runtime is upgraded.
 
 
 ### Rollback drill evidence
@@ -207,3 +207,33 @@ The original Unicode/PostgreSQL crash path is covered locally and on the deploye
 | Clone cleanup | PASS | The temporary process was terminated and port 3999 was confirmed closed. |
 
 The active PostgreSQL runtime was not switched, stopped, or modified by the clone test. The export remains on the isolated test client's data volume as `qa-rollback-20260722.json`.
+
+
+### Live Meta button-flow evidence
+
+An approved test handset sent the unique trigger `qa-c27b91e-3f9077f9` to the configured Meta number.
+
+Observed sequence:
+
+1. The first long-title button was delivered.
+2. The one-minute decision timeout fired.
+3. The isolated application was reloaded.
+4. A late reply to the old button produced the configured `QA flow recovery` response and re-presented the correct first step.
+5. The first choice advanced to the second `Finish QA` button.
+6. The second choice produced `QA completed`.
+
+Post-flow PostgreSQL export counts:
+
+| Item | Count |
+| --- | ---: |
+| campaigns | 1 |
+| campaignResults | 1 |
+| campaignEvents | 7 |
+| outboxMessages | 4 |
+| pendingConversations | 0 |
+
+Event types were exactly: `step_sent=3`, `step_answered=2`, `raffle_entry=1`, `completed=1`. The outbox reported four sent messages and zero queued, processing, retry, or failed messages. The campaign summary reported one participant and one completion. This proves no duplicate result, raffle entry, or completion in the exercised flow.
+
+WhatsApp disabled the button after use, so the same interactive button could not be clicked manually a second time. Duplicate-click and serialized-reply behavior remains covered by the passing local concurrency tests.
+
+One contact-save job ended as failed after retries because this fresh test client uses `contactsProvider=google` while `googleConnected=false`. This is an expected configuration limitation for a client that has not authorized Google Contacts; it did not block campaign completion, Meta delivery, PostgreSQL writes, or outbox completion.
