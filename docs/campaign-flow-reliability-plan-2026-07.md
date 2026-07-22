@@ -1,6 +1,6 @@
 # תוכנית בריאות ועמידות לקמפייני WhatsApp
 
-עודכן: 20 ביולי 2026
+עודכן: 22 ביולי 2026
 
 ## מטרת המסמך
 
@@ -104,3 +104,20 @@ node scripts/test-meta-campaign-routing.js
 4. להריץ dry run מלא ולבדוק `/health`.
 5. לבצע Deploy ללקוחה רק באישור מפורש.
 6. להשאיר יכולת rollback ל-commit הקודם.
+
+## עדכון סטטוס 22 ביולי 2026
+
+הרשימה הקודמת נשמרה כהיסטוריה. זהו הסטטוס הקובע:
+
+1. **Outbox עמיד - בוצע.** קיימים pending/processing/sent/failed, retry, claim, provider message ID ו-idempotency.
+2. **יומן מעבר מלא - טרם בוצע.** חסרים fromStep, toStep, inboundWamid, outboundWamid וסיבת מעבר מלאה.
+3. **שמירת timeout - חלקי.** pending conversations נשמרים ומשוחזרים; ההקשר המדויק אחרי שה-timeout כבר התרחש נשמר בזיכרון בלבד.
+4. **איחוד ושחזור timers - בוצע ל-replica יחיד.** name, pre-name, decision, wait-reply, contact-card confirmation ו-handoff נשמרים ומשוחזרים.
+5. **כתיבה אטומית - בוצע עבור PostgreSQL.** לקוחות JSON ישנים עדיין תלויים בכתיבת הקובץ עד למעבר.
+6. **Delivery status מלא של Meta - טרם בוצע.**
+7. **Restart מבוקר - חלקי.** durability מקומי עבר; נדרש restart אמיתי בזמן שאלה, מדיה ו-timeout.
+8. **עומס מציאותי - חלקי.** 2,000 כתיבות storage עברו; נדרש E2E של 100-300 משתמשים וארבעה קמפיינים.
+9. **התראות - טרם בוצע.** המדדים קיימים ב-`/health`, אך אין alerting לפי ספים.
+10. **נעילה מבוזרת - טרם בוצע.** deployments חייבים להישאר replica יחיד.
+
+הוראות ההרצה ותנאי הקבלה נמצאים ב-`docs/full-system-qa-2026-07.md`.

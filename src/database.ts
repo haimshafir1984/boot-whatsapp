@@ -286,7 +286,46 @@ class PostgresStorageBackend implements StorageBackend {
 }
 
 function cloneSnapshot(data: StorageData): StorageData {
-  return JSON.parse(JSON.stringify(data)) as StorageData;
+  return sanitizeJsonForPostgres(JSON.parse(JSON.stringify(data))) as StorageData;
+}
+
+function sanitizeJsonForPostgres(value: unknown): unknown {
+  if (typeof value === 'string') return sanitizeStringForPostgresJson(value);
+  if (Array.isArray(value)) return value.map(sanitizeJsonForPostgres);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .map(([key, item]) => [key, sanitizeJsonForPostgres(item)]),
+  );
+}
+
+function sanitizeStringForPostgresJson(value: string): string {
+  let result = '';
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code === 0) continue;
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        result += value[index] + value[index + 1];
+        index += 1;
+      }
+      continue;
+    }
+    if (code >= 0xdc00 && code <= 0xdfff) continue;
+    result += value[index];
+  }
+  return result;
+}
+
+function jsonbParam(value: unknown): string {
+  return JSON.stringify(sanitizeJsonForPostgres(value));
+}
+
+function bindJsonbParams(table: string, params: unknown[]): unknown[] {
+  const columns = tableColumns(table).split(',').map((column) => column.trim());
+  return params.map((param, index) => columns[index] === 'data' ? jsonbParam(param) : param);
 }
 
 async function applyMigrations(pool: Pool): Promise<void> {
@@ -311,17 +350,18 @@ export async function replaceStorageSnapshot(
   data: StorageData,
   options: { force?: boolean } = {},
 ): Promise<'imported' | 'unchanged'> {
+  const sanitizedData = sanitizeJsonForPostgres(data) as StorageData;
   const pool = new Pool({ connectionString: databaseUrl });
   try {
     await applyMigrations(pool);
     const current = await pool.query('select data from app_state where key = $1', ['storage']);
     if (current.rowCount) {
-      if (sameJson(current.rows[0].data, data)) return 'unchanged';
+      if (sameJson(current.rows[0].data, sanitizedData)) return 'unchanged';
       if (!options.force) {
         throw new Error('PostgreSQL already contains a different storage snapshot. Refusing to overwrite it without --force.');
       }
     }
-    await writeSnapshot(pool, data);
+    await writeSnapshot(pool, sanitizedData);
     return 'imported';
   } finally {
     await pool.end();
@@ -340,19 +380,20 @@ export async function loadStorageSnapshot(databaseUrl: string): Promise<StorageD
 }
 
 async function writeSnapshot(pool: Pool, data: StorageData): Promise<void> {
+  data = sanitizeJsonForPostgres(data) as StorageData;
   await pool.query('begin');
   try {
     await pool.query(
       `insert into app_state(key, data, updated_at) values ($1, $2, now())
        on conflict (key) do update set data = excluded.data, updated_at = now()`,
-      ['storage', data],
+      ['storage', jsonbParam(data)],
     );
 
     await pool.query('delete from admin_settings');
-    await pool.query('insert into admin_settings(id, data, updated_at) values ($1, $2, now())', ['current', data.adminSettings]);
+    await pool.query('insert into admin_settings(id, data, updated_at) values ($1, $2, now())', ['current', jsonbParam(data.adminSettings)]);
 
     await pool.query('delete from client_profile');
-    await pool.query('insert into client_profile(id, data, updated_at) values ($1, $2, now())', ['current', data.clientProfile]);
+    await pool.query('insert into client_profile(id, data, updated_at) values ($1, $2, now())', ['current', jsonbParam(data.clientProfile)]);
 
     await replaceRows(pool, 'campaigns', data.campaigns, (item) => [item.id, item.triggerPhrase, item.active, item.runtimeStatus ?? null, item]);
     await replaceRows(pool, 'campaign_results', data.campaignResults, (item) => [item.id, item.campaignId, item.resultBatchId ?? null, item.phone, item.status, item.lastStage ?? null, nullableDate(item.triggeredAt), nullableDate(item.updatedAt), item]);
@@ -379,26 +420,27 @@ async function writeSnapshot(pool: Pool, data: StorageData): Promise<void> {
  * intended behaviour.
  */
 async function writeSnapshotDelta(pool: Pool, previous: StorageData | null, data: StorageData): Promise<void> {
+  data = sanitizeJsonForPostgres(data) as StorageData;
   await pool.query('begin');
   try {
     await pool.query(
       `insert into app_state(key, data, updated_at) values ($1, $2, now())
        on conflict (key) do update set data = excluded.data, updated_at = now()`,
-      ['storage', data],
+      ['storage', jsonbParam(data)],
     );
 
     if (!previous || !sameJson(previous.adminSettings, data.adminSettings)) {
       await pool.query(
         `insert into admin_settings(id, data, updated_at) values ('current', $1, now())
          on conflict (id) do update set data = excluded.data, updated_at = now()`,
-        [data.adminSettings],
+        [jsonbParam(data.adminSettings)],
       );
     }
     if (!previous || !sameJson(previous.clientProfile, data.clientProfile)) {
       await pool.query(
         `insert into client_profile(id, data, updated_at) values ('current', $1, now())
          on conflict (id) do update set data = excluded.data, updated_at = now()`,
-        [data.clientProfile],
+        [jsonbParam(data.clientProfile)],
       );
     }
 
@@ -458,7 +500,8 @@ async function syncRowsDelta<T extends Record<string, any>>(
 
 async function upsertRow(pool: Pool, table: string, params: unknown[]): Promise<void> {
   const columns = tableColumns(table).split(',').map((column) => column.trim());
-  const placeholders = params.map((_, index) => `$${index + 1}`).join(', ');
+  const boundParams = bindJsonbParams(table, params);
+  const placeholders = boundParams.map((_, index) => `$${index + 1}`).join(', ');
   const keyColumn = table === 'saved_contacts' ? 'phone' : 'id';
   const updates = columns
     .filter((column) => column !== keyColumn)
@@ -467,7 +510,7 @@ async function upsertRow(pool: Pool, table: string, params: unknown[]): Promise<
   await pool.query(
     `insert into ${table}(${columns.join(', ')}) values (${placeholders})
      on conflict (${keyColumn}) do update set ${updates.join(', ')}`,
-    params,
+    boundParams,
   );
 }
 
@@ -499,7 +542,7 @@ async function syncConversationStateDelta(
         typeof item.campaignId === 'string' ? item.campaignId : null,
         typeof item.campaignResultId === 'string' ? item.campaignResultId : null,
         scheduledAtForState(item),
-        item,
+        jsonbParam(item),
       ],
     );
   }
@@ -509,9 +552,10 @@ async function replaceRows<T>(pool: Pool, table: string, rows: T[], values: (row
   await pool.query(`delete from ${table}`);
   for (const row of rows) {
     const params = values(row);
-    const placeholders = params.map((_, index) => `$${index + 1}`).join(', ');
+    const boundParams = bindJsonbParams(table, params);
+    const placeholders = boundParams.map((_, index) => `$${index + 1}`).join(', ');
     const columns = tableColumns(table);
-    await pool.query(`insert into ${table}(${columns}) values (${placeholders})`, params);
+    await pool.query(`insert into ${table}(${columns}) values (${placeholders})`, boundParams);
   }
 }
 
@@ -544,7 +588,7 @@ async function replaceConversationStateRows(pool: Pool, conversations: Record<st
         typeof item.campaignId === 'string' ? item.campaignId : null,
         typeof item.campaignResultId === 'string' ? item.campaignResultId : null,
         scheduledAtForState(item),
-        item,
+        jsonbParam(item),
       ],
     );
   }
@@ -565,4 +609,3 @@ function scheduledAtForState(state: { timestamp?: unknown; nameTimeoutMinutes?: 
 function nullableDate(value: string | undefined): string | null {
   return value || null;
 }
-

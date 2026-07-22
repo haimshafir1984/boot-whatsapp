@@ -32,6 +32,11 @@ export interface ManagedClient {
   dokployMountId?: string;
   dokployDomainId?: string;
   dokployDeploymentRequested?: boolean;
+  dokployPostgresId?: string;
+  dokployPostgresAppName?: string;
+  dokployPostgresDatabaseName?: string;
+  dokployPostgresDatabaseUser?: string;
+  dokployPostgresDatabasePassword?: string;
   provisioningError?: string;
   createdAt: string;
 }

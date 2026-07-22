@@ -1,10 +1,12 @@
-﻿# PostgreSQL storage migration
+# PostgreSQL storage migration
 
-Updated: 2026-07-20
+Updated: 2026-07-22
 
 ## Safety model
 
-PostgreSQL is opt-in. Existing clients keep using JSON storage unless `DATABASE_URL` is set for that specific deployment.
+PostgreSQL is opt-in for existing clients. Existing clients keep using JSON storage unless `DATABASE_URL` is set for that specific deployment.
+
+New Dokploy clients created through the owner dashboard are PostgreSQL-first: provisioning creates a dedicated PostgreSQL service for that client, stores its Dokploy metadata in owner storage, and injects `DATABASE_URL` into the new application environment before the first application deployment.
 
 If `DATABASE_URL` is set and PostgreSQL is unreachable, startup fails. The app must not silently fall back to JSON because that can split data between two stores.
 
@@ -84,4 +86,8 @@ Verify the exported counts and keep a copy of the existing JSON. Replace the act
 
 ## Dokploy
 
-No Dokploy action is performed by code or migration scripts. Database creation, env changes, migration execution, and deployments are manual per client.
+New clients created through the owner dashboard get a dedicated Dokploy PostgreSQL service automatically. The provisioner creates PostgreSQL, requests its deployment, stores the generated connection metadata with the managed client record, and saves `DATABASE_URL` into the application environment before the first app deployment.
+
+Existing clients are still migrated manually per client. If an existing Dokploy application has no PostgreSQL metadata in owner storage, provisioning refuses to redeploy it instead of creating a blank database or overwriting a manually configured `DATABASE_URL`. Finish the controlled migration and record the metadata before managing that client through provisioning again.
+
+Migration scripts do not create Dokploy resources. They only operate against the `DATABASE_URL` supplied to the app/container.

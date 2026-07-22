@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { ManagedClient } from './ownerStorage';
 
 export interface ClientProvisioningPatch {
@@ -6,6 +7,11 @@ export interface ClientProvisioningPatch {
   dokployMountId?: string;
   dokployDomainId?: string;
   dokployDeploymentRequested?: boolean;
+  dokployPostgresId?: string;
+  dokployPostgresAppName?: string;
+  dokployPostgresDatabaseName?: string;
+  dokployPostgresDatabaseUser?: string;
+  dokployPostgresDatabasePassword?: string;
   managementUrl?: string;
   metaPhoneNumberId?: string;
   metaDisplayPhoneNumber?: string;
@@ -58,6 +64,14 @@ interface DokployDomain {
   domainId: string;
 }
 
+interface DokployPostgres {
+  postgresId: string;
+  appName: string;
+  databaseName: string;
+  databaseUser: string;
+  databasePassword: string;
+}
+
 function serviceName(client: ManagedClient): string {
   const asciiName = client.name
     .toLowerCase()
@@ -69,6 +83,17 @@ function serviceName(client: ManagedClient): string {
 
 function escapeEnvValue(value: string): string {
   return JSON.stringify(value);
+}
+
+function generateDatabasePassword(): string {
+  return crypto.randomBytes(24).toString('base64url').slice(0, 32);
+}
+
+function databaseUrl(client: ManagedClient): string {
+  if (!client.dokployPostgresAppName || !client.dokployPostgresDatabaseName || !client.dokployPostgresDatabaseUser || !client.dokployPostgresDatabasePassword) {
+    throw new Error('PostgreSQL provisioning is incomplete for this client.');
+  }
+  return `postgres://${encodeURIComponent(client.dokployPostgresDatabaseUser)}:${encodeURIComponent(client.dokployPostgresDatabasePassword)}@${client.dokployPostgresAppName}:5432/${encodeURIComponent(client.dokployPostgresDatabaseName)}`;
 }
 
 function clientBaseUrl(config: DokployProvisioningConfig, service: string): string {
@@ -198,6 +223,9 @@ export class DokployProvisioner {
     if (client.dokployMountId) {
       await remove('mount', 'mounts.remove', { mountId: client.dokployMountId });
     }
+    if (client.dokployPostgresId) {
+      await remove('postgres', 'postgres.delete', { postgresId: client.dokployPostgresId });
+    }
     if (client.dokployApplicationId) {
       await remove('application', 'application.delete', { applicationId: client.dokployApplicationId });
     }
@@ -237,6 +265,7 @@ export class DokployProvisioner {
     this.assertClientProvisioningConfig(client);
 
     let current = client;
+    const provisionPostgresForNewClient = !current.dokployApplicationId;
     const name = serviceName(current);
     console.log(`Dokploy provisioning started: ${name}.`);
 
@@ -267,6 +296,33 @@ export class DokployProvisioner {
       });
       current = saveProgress({ dokployMountId: mount.mountId });
       console.log(`Dokploy provisioning: persistent volume created for ${name}.`);
+    }
+
+    if (!current.dokployPostgresId) {
+      if (!provisionPostgresForNewClient) {
+        throw new Error('Existing Dokploy client is missing PostgreSQL metadata. Run the per-client migration before redeploying it through provisioning.');
+      }
+      const postgres = await this.post<DokployPostgres>('postgres.create', {
+        name: `${name}-postgres`,
+        appName: `${name}-pg`,
+        description: `PostgreSQL storage for ${current.name}`,
+        dockerImage: 'postgres:18',
+        databaseName: 'postgres',
+        databaseUser: 'postgres',
+        databasePassword: generateDatabasePassword(),
+        environmentId: this.config.environmentId,
+        serverId: null,
+      });
+      current = saveProgress({
+        dokployPostgresId: postgres.postgresId,
+        dokployPostgresAppName: postgres.appName,
+        dokployPostgresDatabaseName: postgres.databaseName,
+        dokployPostgresDatabaseUser: postgres.databaseUser,
+        dokployPostgresDatabasePassword: postgres.databasePassword,
+      });
+      console.log(`Dokploy provisioning: PostgreSQL created for ${name}.`);
+      await this.post('postgres.deploy', { postgresId: postgres.postgresId });
+      console.log(`Dokploy provisioning: PostgreSQL deployment requested for ${name}.`);
     }
 
     await this.post('application.saveBuildType', {
@@ -301,6 +357,7 @@ export class DokployProvisioner {
       `WHATSAPP_PROVIDER=${escapeEnvValue(current.whatsappProvider)}`,
       'WHATSAPP_KEEP_CONNECTED=true',
       'BAILEYS_FALLBACK_TO_WEBJS=false',
+      `DATABASE_URL=${escapeEnvValue(databaseUrl(current))}`,
       'STORAGE_PATH=./data/contacts.json',
       'SESSION_PATH=./data/session',
       'GOOGLE_TOKEN_PATH=./data/google-token.json',

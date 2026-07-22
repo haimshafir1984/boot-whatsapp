@@ -1391,7 +1391,7 @@ https://client-meta-test-new-number-ce8e0691.flowsbiz.com/webhooks/meta/whatsapp
 - אין Deploy אוטומטי ללקוחות קיימים. יש לבצע Deploy ידני ו-dry run בחשבון בדיקה לפני לקוחה.
 - מסמך היציבות המלא: `docs/campaign-flow-reliability-plan-2026-07.md`.
 - מפת רעיונות פונקציונליים נפרדת: `docs/campaign-functional-product-ideas-2026-07.md`.
-- השינויים המשמעותיים שנותרו לחלון תחזוקה: outbox עמיד, transition journal, persisted timeout context, delivery statuses, כתיבה אטומית, restart/load tests והתראות.
+- רשימת העבודה המקורית נשמרת במסמך היציבות; סטטוס עדכני לכל סעיף מופיע בעדכון 2026-07-22 שבהמשך מסמך זה.
 ## עדכון 2026-07-20 - PostgreSQL opt-in storage
 
 נוספה שכבת PostgreSQL אופציונלית שמופעלת רק כאשר `DATABASE_URL` מוגדר. ללא `DATABASE_URL` האפליקציה ממשיכה להשתמש ב-JSON הקיים. אם `DATABASE_URL` מוגדר והחיבור למסד נכשל, העלייה נעצרת ואין fallback שקט ל-JSON.
@@ -1399,3 +1399,49 @@ https://client-meta-test-new-number-ce8e0691.flowsbiz.com/webhooks/meta/whatsapp
 תיעוד הפעלה, dry-run, import, rollback וטבלאות: `docs/postgresql-storage-migration.md`.
 
 אין לבצע Dokploy, migration או הפעלת PostgreSQL ללקוח קיים ללא אישור ידני וללא בדיקת dry-run על סביבת בדיקה.
+
+
+## עדכון 2026-07-22 - PostgreSQL hardening ו-QA מלא
+
+### מה הושלם
+
+- PostgreSQL מופעל לפי `DATABASE_URL`; כשל חיבור עוצר startup ואינו גורם ל-fallback שקט ל-JSON.
+- הכתיבה דיפרנציאלית, ורק רשומות שנוספו, השתנו או נמחקו מסונכרנות לטבלאות הנגזרות.
+- כתיבות burst מאוחדות כך שנשמר לכל היותר snapshot ממתין אחד ועדכני.
+- נוסף Outbox עמיד עם pending/processing/sent/failed, retry, claim, provider message ID ו-idempotency.
+- pending conversations נשמרים ב-storage, משוחזרים לאחר restart וה-timers נוצרים מחדש.
+- לקוח חדש שנוצר דרך Owner Dashboard מקבל PostgreSQL ייעודי ו-`DATABASE_URL` לפני ה-Deploy הראשון.
+- provisioning של אפליקציה קיימת ללא metadata של PostgreSQL נעצר כדי לא לחבר לקוח למסד ריק.
+- import מ-JSON מוגן מדריסה ו-idempotent; export ל-JSON דורש יעד מפורש ואינו דורס קובץ קיים כברירת מחדל.
+- כל ערך שנכתב ל-`jsonb` עובר sanitization. NUL וחצאי UTF-16 surrogate פגומים מוסרים, בעוד emoji ו-Unicode תקינים נשמרים.
+- תוקנה התאמת תשובת כפתור כאשר Meta מקצרת title ל-20 תווים.
+
+### QA שבוצע ב-2026-07-22
+
+- `npm run build` עבר.
+- Flow recovery, flow concurrency, timeout, לחיצות כפולות וכפתורי Meta עברו.
+- Meta routing, contact payload ו-gateway reliability עברו.
+- Outbox durability, claim ו-idempotency עברו.
+- provisioning של לקוח חדש עם PostgreSQL עבר.
+- PostgreSQL delta, migration safety ו-export עברו.
+- בדיקת burst שמרה 2,000 הודעות ואימתה את הטבלה היחסית ואת ה-snapshot.
+- מטריצת Unicode עברה: high-surrogate שבור, low-surrogate שבור, NUL ו-emoji תקין.
+
+### מצב rollout
+
+- לקוחות חדשים: PostgreSQL-first דרך provisioning.
+- לקוחות קיימים: migration ידני ומבודד לכל לקוח, עם dry-run, counts, export ו-health.
+- אין להגדיר `DATABASE_URL` ללקוח קיים לפני import מאומת.
+- תיקון מקומי אינו משפיע על container פעיל עד build ו-Deploy מפורשים.
+- מעבר: `docs/postgresql-storage-migration.md`.
+- הקשחה: `docs/postgresql-hardening-2026-07.md`.
+- QA וקבלה: `docs/full-system-qa-2026-07.md`.
+
+### מה עדיין נדרש לסגירה מלאה
+
+- restart יזום בזמן שאלה, timeout ושליחת מדיה בסביבת ניסוי.
+- עומס E2E של 100-300 משתמשים וארבעה קמפיינים.
+- transition journal מלא עם inbound/outbound message IDs.
+- delivery statuses מלאים של Meta והתראות אוטומטיות.
+- replica יחיד לכל לקוח עד להוספת נעילה ותזמון מבוזרים.
+- timed-out context מדויק נשמר בזיכרון; pending conversation רגיל כן נשמר ומשוחזר.

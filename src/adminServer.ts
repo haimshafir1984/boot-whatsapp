@@ -1683,6 +1683,8 @@ export function startAdminServer(storage: Storage): void {
     ...client,
     metaAccessToken: undefined,
     metaVerifyToken: undefined,
+    dokployPostgresDatabasePassword: undefined,
+    postgresStorageEnabled: Boolean(client.dokployPostgresId),
     metaWebhookUrl: dokployProvisioner.getMetaWebhookUrl(client),
     twilioWebhookUrl: dokployProvisioner.getTwilioWebhookUrl(client),
   });
@@ -3280,4 +3282,3 @@ export function startAdminServer(storage: Storage): void {
     console.log(`🖥️  Admin dashboard → http://localhost:${config.ADMIN_PORT}`);
   });
 }
-

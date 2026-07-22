@@ -1705,9 +1705,11 @@ async function handleDecisionReply(
   const normalized = normalizeDecisionAnswer(answer);
   const option = step.options?.find((item, index) => {
     const optionId = String(item.id ?? '').trim().toLowerCase();
+    const visibleButtonTitle = String(item.text ?? '').slice(0, 20);
     return normalized === String(index + 1) ||
       Boolean(optionId && answerId === optionId) ||
-      normalized === normalizeDecisionAnswer(item.text);
+      normalized === normalizeDecisionAnswer(item.text) ||
+      normalized === normalizeDecisionAnswer(visibleButtonTitle);
   });
 
   if (!option) {

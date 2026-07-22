@@ -110,6 +110,26 @@ async function inbound(storage, transport, phone, body, isButtonReply = false) {
     assert.strictEqual(transport.sent.length, beforeDuplicate, 'a rapid duplicate button reply should be ignored');
     assert.strictEqual(storage.getCampaignEvents(first.id).filter((event) => event.type === 'raffle_entry').length, 1, 'duplicate reply must not add a raffle entry');
 
+    const truncatedTitlePhone = '972500000003';
+    const longTitle = 'Long button title that Meta truncates';
+    addCampaign(storage, 'Truncated Meta button title', 'join-truncated', {
+      decisionFlow: [
+        {
+          id: 'step-truncated',
+          kind: 'question',
+          presentation: 'buttons',
+          text: 'Pick one',
+          timeoutMinutes: 30,
+          options: [{ id: 'option-truncated', text: longTitle, nextStepId: 'step-truncated-next' }],
+        },
+        { id: 'step-truncated-next', kind: 'message', text: 'continued after truncated title' },
+      ],
+    });
+    await inbound(storage, transport, truncatedTitlePhone, 'join-truncated');
+    await inbound(storage, transport, truncatedTitlePhone, longTitle.slice(0, 20), true);
+    assert.ok(transport.sent.some((item) => item.text === 'continued after truncated title'), 'Meta button title truncated to 20 chars should still match and continue');
+    conversationState.remove(`whatsapp:${truncatedTitlePhone}`);
+
     const second = addCampaign(storage, 'Second campaign', 'join-second', {
       invalidReplyText: 'בחרו שוב',
       flowRecoveryText: 'חוזרים לתחילת הקמפיין השני',

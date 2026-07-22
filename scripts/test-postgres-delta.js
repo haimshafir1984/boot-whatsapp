@@ -113,6 +113,30 @@ async function main() {
     const removed = await pool.query('select jid from conversation_state');
     if (removed.rowCount !== 0) throw new Error('Removed conversation state remained in PostgreSQL.');
 
+    const unicodeCases = [
+      { to: '972503333331', text: 'Broken high surrogate: \ud83d', forbidden: '\ud83d' },
+      { to: '972503333332', text: 'Broken low surrogate: \udc00', forbidden: '\udc00' },
+      { to: '972503333333', text: 'Embedded NUL: \u0000', forbidden: '\u0000' },
+      { to: '972503333334', text: 'Valid emoji remains: \ud83d\ude42', expected: '\ud83d\ude42' },
+    ];
+    for (const item of unicodeCases) {
+      storage.enqueueOutboxMessage({ kind: 'text', to: item.to, text: item.text });
+    }
+    await storage.flush();
+    for (const item of unicodeCases) {
+      const persisted = await pool.query(
+        "select data->>'text' as text from outbox_messages where recipient = $1 order by created_at desc limit 1",
+        [item.to],
+      );
+      if (persisted.rowCount !== 1) throw new Error(`Unicode outbox row was not persisted for ${item.to}.`);
+      if (item.forbidden && persisted.rows[0].text.includes(item.forbidden)) {
+        throw new Error(`Invalid Unicode was not sanitized for ${item.to}.`);
+      }
+      if (item.expected && !persisted.rows[0].text.includes(item.expected)) {
+        throw new Error(`Valid Unicode was changed for ${item.to}.`);
+      }
+    }
+
     await storage.close();
     backend = null;
     console.log('PostgreSQL delta persistence test passed.');

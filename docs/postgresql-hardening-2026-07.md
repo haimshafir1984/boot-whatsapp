@@ -1,6 +1,6 @@
 # PostgreSQL hardening status
 
-Updated: 2026-07-20
+Updated: 2026-07-22
 
 ## Deployment safety
 
@@ -28,6 +28,16 @@ Outbox messages now record:
 A freshly processing message is not picked up by the background dispatcher. It becomes retryable only after its processing lock is stale. This prevents the dispatcher from racing a normal in-flow send.
 
 Migration `003_outbox_claims` adds the corresponding PostgreSQL columns and indexes.
+
+### New-client provisioning
+
+Dokploy provisioning now creates a dedicated PostgreSQL service for new clients, deploys it before the application deployment, and injects `DATABASE_URL` into the app environment. Owner API responses mask the generated database password.
+
+Provisioning refuses to redeploy an existing Dokploy application that has no PostgreSQL metadata in owner storage. This prevents accidentally pointing an existing client at a blank database or wiping a manually configured database URL during a bulk redeploy.
+
+### PostgreSQL JSON sanitization
+
+Snapshots are sanitized before PostgreSQL `jsonb` writes. NUL characters and broken UTF-16 surrogate halves are removed so imported or runtime-entered text cannot fail a PostgreSQL write with invalid JSON encoding.
 
 ### Import protection
 
@@ -88,9 +98,8 @@ The `scheduled_jobs` table exists, but there is not yet a distributed database s
 
 ## Not implemented
 
-- No Dokploy configuration or deployment.
+- No automatic PostgreSQL provisioning for already-existing Dokploy applications without stored PostgreSQL metadata.
 - No automatic migration on application startup.
 - No production database access.
 - No multi-replica distributed timer worker.
 - No JSON-primary shadow migration mode.
-
