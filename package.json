@@ -16,6 +16,7 @@
     "db:export": "node scripts/export-postgres-to-json.js",
     "test:outbox-durability": "npm run build && node scripts/test-outbox-durability.js",
     "test:postgres-delta": "npm run build && node scripts/test-postgres-delta.js",
+    "test:meta-gateway-inbox": "npm run build && node scripts/test-meta-gateway-inbox.js",
     "test:outbox-claim": "npm run build && node scripts/test-outbox-claim.js",
     "test:migration-safety": "npm run build && node scripts/test-migration-safety.js",
     "test:postgres-migration-pilot": "node scripts/test-postgres-migration-pilot.js",

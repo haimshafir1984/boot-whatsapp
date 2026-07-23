@@ -173,6 +173,8 @@ export interface AdminSettings {
   decisionTimeoutNextStepId?: string;
   /** Internal pending-state flag; never saved as a campaign choice. */
   timeoutFlowStarted?: boolean;
+  invalidReplyText?: string;
+  flowRecoveryText?: string;
   humanHandoffEnabled?: boolean;
   humanHandoffText?: string;
   humanHandoffPhone?: string;
@@ -411,6 +413,8 @@ const DEFAULT_SETTINGS: AdminSettings = {
   decisionTimeoutText: '',
   decisionTimeoutMode: 'message',
   decisionTimeoutNextStepId: '',
+  invalidReplyText: '\u05dc\u05d0 \u05d4\u05e6\u05dc\u05d7\u05ea\u05d9 \u05dc\u05d6\u05d4\u05d5\u05ea \u05d0\u05ea \u05d4\u05ea\u05e9\u05d5\u05d1\u05d4. \u05d1\u05d1\u05e7\u05e9\u05d4 \u05dc\u05d1\u05d7\u05d5\u05e8 \u05d0\u05d7\u05ea \u05de\u05d4\u05d0\u05e4\u05e9\u05e8\u05d5\u05d9\u05d5\u05ea \u05e9\u05de\u05d5\u05e4\u05d9\u05e2\u05d5\u05ea \u05d1\u05d4\u05d5\u05d3\u05e2\u05d4.',
+  flowRecoveryText: '\u05e0\u05e8\u05d0\u05d4 \u05e9\u05d4\u05e9\u05d9\u05d7\u05d4 \u05e0\u05e7\u05d8\u05e2\u05d4. \u05e0\u05d7\u05d6\u05d5\u05e8 \u05dc\u05e9\u05d0\u05dc\u05d4 \u05d4\u05d0\u05d7\u05e8\u05d5\u05e0\u05d4 \u05db\u05d3\u05d9 \u05e9\u05d0\u05e4\u05e9\u05e8 \u05d9\u05d4\u05d9\u05d4 \u05dc\u05d4\u05de\u05e9\u05d9\u05da.',
   humanHandoffEnabled: true,
   humanHandoffText: 'אני מענה אוטומטי.\nלשאלות נוספות אפשר לעבור לשיחה אנושית כאן:\n[מעבר ל-WhatsApp]',
   humanHandoffPhone: '',
@@ -1370,6 +1374,12 @@ export class Storage {
 
   getCampaignConversationSettings(campaign: Campaign): CampaignConversationSettings {
     const defaults = this.getAdminSettings();
+    const invalidReplyText = campaign.conversation?.invalidReplyText?.trim()
+      || defaults.invalidReplyText?.trim()
+      || DEFAULT_SETTINGS.invalidReplyText;
+    const flowRecoveryText = campaign.conversation?.flowRecoveryText?.trim()
+      || defaults.flowRecoveryText?.trim()
+      || DEFAULT_SETTINGS.flowRecoveryText;
     return {
       askNameEnabled: campaign.conversation?.askNameEnabled ?? defaults.askNameEnabled,
       nameTimeoutMinutes: campaign.conversation?.nameTimeoutMinutes ?? defaults.nameTimeoutMinutes,
@@ -1397,8 +1407,8 @@ export class Storage {
       decisionTimeoutText: campaign.conversation?.decisionTimeoutText ?? defaults.decisionTimeoutText,
       decisionTimeoutMode: campaign.conversation?.decisionTimeoutMode ?? defaults.decisionTimeoutMode ?? 'message',
       decisionTimeoutNextStepId: campaign.conversation?.decisionTimeoutNextStepId ?? defaults.decisionTimeoutNextStepId ?? '',
-      invalidReplyText: campaign.conversation?.invalidReplyText ?? '',
-      flowRecoveryText: campaign.conversation?.flowRecoveryText ?? '',
+      invalidReplyText,
+      flowRecoveryText,
       humanHandoffEnabled: campaign.conversation?.humanHandoffEnabled ?? defaults.humanHandoffEnabled,
       humanHandoffText: campaign.conversation?.humanHandoffText ?? defaults.humanHandoffText,
       humanHandoffPhone: campaign.conversation?.humanHandoffPhone ?? defaults.humanHandoffPhone,

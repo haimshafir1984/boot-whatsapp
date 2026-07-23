@@ -49,6 +49,7 @@ import {
   retryTransientMetaOperation,
 } from './metaGatewayReliability';
 
+import { MetaGatewayInbox } from './metaGatewayInbox';
 interface TwilioGatewaySession {
   from: string;
   clientId: string;
@@ -1003,6 +1004,7 @@ export function startAdminServer(storage: Storage): void {
     path.join(path.dirname(config.OWNER_STORAGE_PATH), 'meta-gateway-sessions.json'),
   );
   const metaCampaignCache = new AsyncExpiringCache<Campaign[]>(META_CAMPAIGN_CACHE_TTL_MS);
+  const metaGatewayInbox = new MetaGatewayInbox(path.join(path.dirname(config.OWNER_STORAGE_PATH), 'meta-gateway-inbox.json'));
 
   app.set('trust proxy', 1);
   app.use(express.json({ limit: '24mb' }));
@@ -1157,6 +1159,7 @@ export function startAdminServer(storage: Storage): void {
         pending: conversationState.size(),
         durableTimers: storage.getDurableTimerHealth(),
         flowHealth: getFlowHealthSnapshot(),
+        metaGatewayInbox: metaGatewayInbox.counts(),
       },
       whatsapp: {
         ...whatsappHealth,
@@ -1286,6 +1289,7 @@ export function startAdminServer(storage: Storage): void {
     const body = getMetaInboundBody(message);
     const normalizedBody = normalizeGatewayText(body);
     const campaignsByClient = new Map<string, Campaign[]>();
+    let lookupFailures = 0;
     const candidates: Array<{ client: ManagedClient; clientId: string; campaign: Campaign; triggerText: string }> = [];
     await Promise.all(clients.map(async (client) => {
       try {
@@ -1303,6 +1307,7 @@ export function startAdminServer(storage: Storage): void {
           if (triggerText && normalizedBody.includes(triggerText)) candidates.push({ client, clientId: client.id, campaign, triggerText });
         }
       } catch (err) {
+        lookupFailures += 1;
         console.error('[META_GATEWAY_CLIENT_SKIPPED]', client.id, err);
       }
     }));
@@ -1338,6 +1343,7 @@ export function startAdminServer(storage: Storage): void {
       } else if (session) {
         console.log('[META_GATEWAY_IGNORED] reason=session_client_unavailable', session.clientId, session.campaignId);
       }
+      if (lookupFailures > 0) throw new Error(`Campaign routing unavailable for ${lookupFailures} client(s)`);
     }
 
     if (!targetClient) {
@@ -1365,10 +1371,11 @@ export function startAdminServer(storage: Storage): void {
       );
     } catch (err) {
       console.error('[META_GATEWAY_FAILED]', selectedClient.id, 'network_error', err);
-      return { handled: true };
+      throw err;
     }
     if (!forwarded.ok) {
       console.error('[META_GATEWAY_FAILED]', selectedClient.id, forwarded.status, JSON.stringify(forwarded.body).slice(0, 300));
+      throw new Error(`Meta gateway forward failed with status ${forwarded.status}`);
     } else {
       console.log(
         '[META_GATEWAY_ROUTED]',
@@ -1383,17 +1390,50 @@ export function startAdminServer(storage: Storage): void {
     return { handled: true };
   };
 
-  app.post('/webhooks/meta/whatsapp', (req, res) => {
-    res.sendStatus(200);
-    void (async () => {
-      try {
-        const gateway = await routeMetaGatewayInbound(req.body);
-        if (gateway.handled) return;
-        await handleMetaInboundForStorage(req.body);
-      } catch (err) {
-        console.error('Meta webhook failed:', err);
+  let metaGatewayInboxRunning = false;
+  const processMetaGatewayInbox = async (): Promise<void> => {
+    if (metaGatewayInboxRunning) return;
+    metaGatewayInboxRunning = true;
+    try {
+      for (let processed = 0; processed < 20; processed += 1) {
+        const item = metaGatewayInbox.claimNext();
+        if (!item) break;
+        try {
+          const gateway = await routeMetaGatewayInbound(item.payload);
+          if (!gateway.handled) await handleMetaInboundForStorage(item.payload);
+          metaGatewayInbox.markCompleted(item.id);
+        } catch (err) {
+          if (item.attempts >= 10) {
+            metaGatewayInbox.markFailed(item.id, err);
+            console.error('[META_GATEWAY_INBOX_FAILED]', item.id, err);
+          } else {
+            const retryDelayMs = Math.min(15_000 * (2 ** Math.max(0, item.attempts - 1)), 5 * 60_000);
+            metaGatewayInbox.markRetry(item.id, err, new Date(Date.now() + retryDelayMs));
+            console.warn('[META_GATEWAY_INBOX_RETRY]', item.id, `attempt=${item.attempts}`, err);
+          }
+        }
       }
-    })();
+    } finally {
+      metaGatewayInboxRunning = false;
+    }
+  };
+  setInterval(() => { void processMetaGatewayInbox(); }, 15_000);
+  void processMetaGatewayInbox();
+
+  app.post('/webhooks/meta/whatsapp', (req, res) => {
+    const messageId = String(req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.id || '').trim();
+    if (!messageId) {
+      res.sendStatus(200);
+      return;
+    }
+    try {
+      metaGatewayInbox.enqueue(messageId, req.body);
+      res.sendStatus(200);
+      void processMetaGatewayInbox();
+    } catch (err) {
+      console.error('[META_GATEWAY_INBOX_PERSIST_FAILED]', messageId, err);
+      res.sendStatus(503);
+    }
   });
   const routeTwilioGatewayInbound = async (payload: any): Promise<{ handled: boolean; status?: number; reason?: string }> => {
     const meta = twilioInboundMeta(payload);
@@ -2072,15 +2112,18 @@ export function startAdminServer(storage: Storage): void {
     next();
   };
 
-  app.post('/internal/meta/whatsapp', requireOwnerApiToken, (req, res) => {
+  app.post('/internal/meta/whatsapp', requireOwnerApiToken, async (req, res) => {
     if (config.WHATSAPP_PROVIDER !== 'META_CLOUD_API') {
       res.status(409).json({ error: 'Meta Cloud API provider is not enabled for this client' });
       return;
     }
-    res.json({ ok: true });
-    void handleMetaInboundForStorage(req.body).catch((err) => {
+    try {
+      await handleMetaInboundForStorage(req.body);
+      res.json({ ok: true });
+    } catch (err) {
       console.error('Internal Meta dispatch failed:', err);
-    });
+      res.status(503).json({ error: 'Meta message processing failed' });
+    }
   });
 
   app.post('/internal/twilio/whatsapp', requireOwnerApiToken, async (req, res) => {

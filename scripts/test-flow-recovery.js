@@ -180,18 +180,20 @@ async function inbound(storage, transport, phone, body, isButtonReply = false) {
     conversationState.remove(`whatsapp:${phone}`);
     const beforeInactive = transport.sent.length;
     await inbound(storage, transport, phone, 'option-shared', true);
-    assert.strictEqual(transport.sent.length, beforeInactive, 'empty recovery fields must preserve legacy behavior');
+    assert.strictEqual(transport.sent.length, beforeInactive + 2, 'empty recovery fields must use the safe system fallback');
+    assert.strictEqual(transport.sent[beforeInactive].text, storage.getCampaignConversationSettings(inactive).flowRecoveryText);
     assert.strictEqual(storage.getCampaignResults(inactive.id).length, 1, 'inactive recovery must not create a new participant result');
 
     const legacyPhone = '972500000002';
-    addCampaign(storage, 'Legacy invalid answer', 'join-legacy', {
+    const legacy = addCampaign(storage, 'Legacy invalid answer', 'join-legacy', {
       humanHandoffEnabled: true,
       humanHandoffText: 'legacy handoff',
     });
     await inbound(storage, transport, legacyPhone, 'join-legacy');
     const beforeLegacyInvalid = transport.sent.length;
     await inbound(storage, transport, legacyPhone, 'not-an-option');
-    assert.ok(transport.sent.slice(beforeLegacyInvalid).some((item) => String(item.text || '').includes('legacy handoff')), 'an empty invalid-answer field must preserve the legacy handoff behavior');
+    assert.strictEqual(transport.sent[beforeLegacyInvalid].text, storage.getCampaignConversationSettings(legacy).invalidReplyText);
+    assert.ok(transport.sent.length >= beforeLegacyInvalid + 2, 'safe invalid-answer fallback must repeat the current question');
     conversationState.remove(`whatsapp:${legacyPhone}`);
 
     console.log('Flow recovery tests passed.');
@@ -199,7 +201,9 @@ async function inbound(storage, transport, phone, body, isButtonReply = false) {
     conversationState.remove(`whatsapp:${phone}`);
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
-})().catch((err) => {
+})().then(() => {
+  process.exit(0);
+}).catch((err) => {
   console.error(err);
   process.exitCode = 1;
 });
