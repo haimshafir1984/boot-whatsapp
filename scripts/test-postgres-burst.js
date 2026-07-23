@@ -1,5 +1,5 @@
 const { Pool } = require('pg');
-const { createPostgresBackend } = require('../dist/database');
+const { createPostgresBackend, loadStorageSnapshot, replaceStorageSnapshot } = require('../dist/database');
 const { emptyStorageData, Storage } = require('../dist/storage');
 
 function assertSafeTestDatabase(databaseUrl) {
@@ -27,8 +27,9 @@ async function main() {
   const pool = new Pool({ connectionString: databaseUrl });
   let backend;
   try {
-    backend = await createPostgresBackend(databaseUrl);
     await clearData(pool);
+    await replaceStorageSnapshot(databaseUrl, emptyStorageData());
+    backend = await createPostgresBackend(databaseUrl);
     const storage = new Storage('unused-postgres-burst.json', {
       initialData: emptyStorageData(),
       backend,
@@ -53,12 +54,13 @@ async function main() {
     if (rows.rows[0].count !== total) {
       throw new Error(`Expected ${total} persisted rows, got ${rows.rows[0].count}.`);
     }
-    const snapshot = await pool.query(
-      `select jsonb_array_length(data->'outboxMessages')::int as count
-       from app_state where key = 'storage'`,
-    );
-    if (snapshot.rows[0].count !== total) {
-      throw new Error(`Expected ${total} snapshot messages, got ${snapshot.rows[0].count}.`);
+    const snapshot = await loadStorageSnapshot(databaseUrl);
+    if (!snapshot || snapshot.outboxMessages.length !== total) {
+      throw new Error(`Expected ${total} reconstructed snapshot messages.`);
+    }
+    const appState = await pool.query("select jsonb_array_length(data->'outboxMessages')::int as count from app_state where key = 'storage'");
+    if (appState.rows[0].count !== 0) {
+      throw new Error('Burst runtime writes unexpectedly rewrote app_state.');
     }
 
     const elapsedMs = Date.now() - started;

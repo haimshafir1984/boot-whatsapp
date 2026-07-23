@@ -1,5 +1,5 @@
-import { Pool } from 'pg';
-import { StorageData } from './storage';
+import { Pool, PoolClient } from 'pg';
+import { emptyStorageData, StorageData } from './storage';
 
 export interface DatabaseHealth {
   enabled: boolean;
@@ -223,14 +223,13 @@ class PostgresStorageBackend implements StorageBackend {
   }
 
   async loadSnapshot(): Promise<StorageData | null> {
-    const result = await this.pool.query('select data from app_state where key = $1', ['storage']);
-    const snapshot = result.rows[0]?.data ?? null;
+    const snapshot = await loadRuntimeSnapshot(this.pool);
     this.persistedSnapshot = snapshot ? cloneSnapshot(snapshot) : null;
     return snapshot;
   }
 
   persistSnapshot(data: StorageData): void {
-    this.queuedSnapshot = cloneSnapshot(data);
+    this.queuedSnapshot = data;
     this.pendingWrites = 1;
     if (this.draining) return;
 
@@ -241,10 +240,11 @@ class PostgresStorageBackend implements StorageBackend {
   private async drainPendingSnapshots(): Promise<void> {
     try {
       while (this.queuedSnapshot) {
-        const snapshot = this.queuedSnapshot;
+        const source = this.queuedSnapshot;
         this.queuedSnapshot = null;
+        const snapshot = cloneSnapshot(source);
         await writeSnapshotDelta(this.pool, this.persistedSnapshot, snapshot);
-        this.persistedSnapshot = cloneSnapshot(snapshot);
+        this.persistedSnapshot = snapshot;
         this.lastError = undefined;
         this.lastWriteAt = new Date().toISOString();
       }
@@ -345,6 +345,77 @@ async function applyMigrations(pool: Pool): Promise<void> {
   }
 }
 
+function mergeRowsInSnapshotOrder<T>(base: T[], current: T[], key: (item: T) => string): T[] {
+  const currentByKey = new Map(current.map((item) => [key(item), item]));
+  const merged = base.flatMap((item) => {
+    const updated = currentByKey.get(key(item));
+    if (!updated) return [];
+    currentByKey.delete(key(item));
+    return [updated];
+  });
+  return [...merged, ...currentByKey.values()];
+}
+
+async function readRuntimeSnapshot(connection: Pool | PoolClient): Promise<StorageData | null> {
+  const appState = await connection.query('select data from app_state where key = $1', ['storage']);
+  const adminSettings = await connection.query("select data from admin_settings where id = 'current'");
+  const clientProfile = await connection.query("select data from client_profile where id = 'current'");
+  const campaigns = await connection.query('select data from campaigns order by updated_at, id');
+  const campaignResults = await connection.query('select data from campaign_results order by triggered_at nulls last, updated_at nulls last, id');
+  const campaignEvents = await connection.query('select data from campaign_events order by created_at, id');
+  const contactQueue = await connection.query('select data from contact_queue order by updated_at, id');
+  const savedContacts = await connection.query('select data from saved_contacts order by saved_at nulls last, phone');
+  const uploadedFiles = await connection.query('select data from uploaded_files order by created_at, id');
+  const twilioTemplates = await connection.query('select data from twilio_templates order by updated_at, id');
+  const outboxMessages = await connection.query('select data from outbox_messages order by created_at, id');
+  const conversationState = await connection.query('select jid, data from conversation_state');
+  const scheduledJobs = await connection.query('select data from scheduled_jobs order by run_at, id');
+  const hasNormalizedData = [
+    adminSettings, clientProfile, campaigns, campaignResults, campaignEvents, contactQueue,
+    savedContacts, uploadedFiles, twilioTemplates, outboxMessages, conversationState, scheduledJobs,
+  ].some((result) => (result.rowCount ?? 0) > 0);
+  if (!appState.rowCount && !hasNormalizedData) return null;
+
+  const base = appState.rows[0]?.data
+    ? cloneSnapshot(appState.rows[0].data as StorageData)
+    : emptyStorageData();
+  const rowData = <T>(result: { rows: Array<{ data: T }> }): T[] => result.rows.map((row) => row.data);
+  const conversations = Object.fromEntries(conversationState.rows.map((row) => [row.jid, row.data]));
+
+  return {
+    ...base,
+    adminSettings: adminSettings.rows[0]?.data ?? base.adminSettings,
+    clientProfile: clientProfile.rows[0]?.data ?? base.clientProfile,
+    campaigns: mergeRowsInSnapshotOrder(base.campaigns, rowData(campaigns), (item) => item.id),
+    campaignResults: mergeRowsInSnapshotOrder(base.campaignResults, rowData(campaignResults), (item) => item.id),
+    campaignEvents: mergeRowsInSnapshotOrder(base.campaignEvents, rowData(campaignEvents), (item) => item.id),
+    contactQueue: mergeRowsInSnapshotOrder(base.contactQueue, rowData(contactQueue), (item) => item.id),
+    contactsList: mergeRowsInSnapshotOrder(base.contactsList, rowData(savedContacts), (item) => item.phone),
+    uploadedFiles: mergeRowsInSnapshotOrder(base.uploadedFiles, rowData(uploadedFiles), (item) => item.id),
+    twilioTemplates: mergeRowsInSnapshotOrder(base.twilioTemplates, rowData(twilioTemplates), (item) => item.id),
+    outboxMessages: mergeRowsInSnapshotOrder(base.outboxMessages ?? [], rowData(outboxMessages), (item) => item.id),
+    conversationStateSnapshot: Object.keys(conversations).length
+      ? { version: 1, savedAt: base.conversationStateSnapshot?.savedAt ?? new Date().toISOString(), conversations }
+      : undefined,
+    scheduledJobs: mergeRowsInSnapshotOrder(base.scheduledJobs ?? [], rowData(scheduledJobs), (item) => item.id),
+  };
+}
+
+async function loadRuntimeSnapshot(pool: Pool): Promise<StorageData | null> {
+  const client = await pool.connect();
+  try {
+    await client.query('begin transaction isolation level repeatable read');
+    const snapshot = await readRuntimeSnapshot(client);
+    await client.query('commit');
+    return snapshot;
+  } catch (err) {
+    await client.query('rollback').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export async function replaceStorageSnapshot(
   databaseUrl: string,
   data: StorageData,
@@ -354,9 +425,9 @@ export async function replaceStorageSnapshot(
   const pool = new Pool({ connectionString: databaseUrl });
   try {
     await applyMigrations(pool);
-    const current = await pool.query('select data from app_state where key = $1', ['storage']);
-    if (current.rowCount) {
-      if (sameJson(current.rows[0].data, sanitizedData)) return 'unchanged';
+    const current = await loadRuntimeSnapshot(pool);
+    if (current) {
+      if (sameJson(current, sanitizedData)) return 'unchanged';
       if (!options.force) {
         throw new Error('PostgreSQL already contains a different storage snapshot. Refusing to overwrite it without --force.');
       }
@@ -372,8 +443,7 @@ export async function loadStorageSnapshot(databaseUrl: string): Promise<StorageD
   const pool = new Pool({ connectionString: databaseUrl });
   try {
     await applyMigrations(pool);
-    const result = await pool.query('select data from app_state where key = $1', ['storage']);
-    return result.rows[0]?.data ?? null;
+    return await loadRuntimeSnapshot(pool);
   } finally {
     await pool.end();
   }
@@ -414,20 +484,12 @@ async function writeSnapshot(pool: Pool, data: StorageData): Promise<void> {
 }
 
 /**
- * Runtime persistence keeps app_state as the backwards-compatible source of
- * truth, but updates derived tables incrementally. The migration importer uses
- * writeSnapshot() because replacing an explicitly supplied snapshot is its
- * intended behaviour.
+ * Runtime persistence updates normalized tables only. app_state remains an
+ * import/rollback checkpoint; startup and exports overlay these tables onto it.
  */
 async function writeSnapshotDelta(pool: Pool, previous: StorageData | null, data: StorageData): Promise<void> {
-  data = sanitizeJsonForPostgres(data) as StorageData;
   await pool.query('begin');
   try {
-    await pool.query(
-      `insert into app_state(key, data, updated_at) values ($1, $2, now())
-       on conflict (key) do update set data = excluded.data, updated_at = now()`,
-      ['storage', jsonbParam(data)],
-    );
 
     if (!previous || !sameJson(previous.adminSettings, data.adminSettings)) {
       await pool.query(

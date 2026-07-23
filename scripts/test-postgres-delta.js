@@ -1,5 +1,5 @@
 const { Pool } = require('pg');
-const { createPostgresBackend } = require('../dist/database');
+const { createPostgresBackend, loadStorageSnapshot, replaceStorageSnapshot } = require('../dist/database');
 const { emptyStorageData, Storage } = require('../dist/storage');
 
 function assertSafeTestDatabase(databaseUrl) {
@@ -37,8 +37,9 @@ async function main() {
   const pool = new Pool({ connectionString: databaseUrl });
   let backend;
   try {
-    backend = await createPostgresBackend(databaseUrl);
     await clearData(pool);
+    await replaceStorageSnapshot(databaseUrl, emptyStorageData());
+    backend = await createPostgresBackend(databaseUrl);
 
     const storage = new Storage('unused-postgres-test.json', {
       initialData: emptyStorageData(),
@@ -137,8 +138,23 @@ async function main() {
       }
     }
 
+    const runtimeSnapshot = await loadStorageSnapshot(databaseUrl);
+    if (!runtimeSnapshot || runtimeSnapshot.outboxMessages.length !== 6) {
+      throw new Error('Runtime snapshot was not reconstructed from normalized tables.');
+    }
+    const appState = await pool.query("select jsonb_array_length(data->'outboxMessages')::int as count from app_state where key = 'storage'");
+    if (appState.rows[0].count !== 0) {
+      throw new Error('Runtime delta unexpectedly rewrote the app_state checkpoint.');
+    }
+
     await storage.close();
     backend = null;
+    const restartedBackend = await createPostgresBackend(databaseUrl);
+    const restartedSnapshot = await restartedBackend.loadSnapshot();
+    if (!restartedSnapshot || restartedSnapshot.outboxMessages.length !== 6) {
+      throw new Error('Restart did not reconstruct the latest normalized state.');
+    }
+    await restartedBackend.close();
     console.log('PostgreSQL delta persistence test passed.');
   } finally {
     if (backend) await backend.close().catch(() => {});
