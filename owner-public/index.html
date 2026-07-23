@@ -53,6 +53,33 @@
       white-space: nowrap;
     }
     .bulk-redeploy:disabled { opacity: .65; cursor: progress; }
+    .link-tool {
+      border: 1px solid #e5e7eb; background: #fff; padding: 14px;
+      border-radius: 8px; margin-bottom: 18px;
+    }
+    .link-tool strong { display: block; font-size: .9rem; margin-bottom: 3px; }
+    .link-tool .sub { color: #6b7280; font-size: .8rem; line-height: 1.45; margin-bottom: 11px; }
+    .link-tool .row { display: flex; gap: 9px; flex-wrap: wrap; align-items: flex-start; }
+    .link-tool .row input { min-width: 150px; }
+    .link-tool .field-note { color: #b91c1c; font-size: .76rem; margin-top: 6px; min-height: 1em; }
+    .link-tool .result {
+      display: none; margin-top: 12px; padding: 11px 12px;
+      border: 1px solid #bbf7d0; background: #f0fdf4; border-radius: 7px;
+    }
+    .link-tool .result.on { display: block; }
+    .link-tool .result-link {
+      font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .8rem;
+      direction: ltr; text-align: left; overflow-wrap: anywhere; margin-bottom: 9px;
+    }
+    .link-tool .result .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .link-tool .result a, .link-tool .result button {
+      border: 1px solid #d1d5db; background: #fff; color: #111827;
+      border-radius: 7px; padding: 7px 12px; cursor: pointer; font-size: .8rem;
+      text-decoration: none; font-weight: 600;
+    }
+    @media (max-width: 720px) {
+      .link-tool .row input, .link-tool .row button { flex: 1 1 100%; }
+    }
     table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e5e7eb; }
     th, td { text-align: right; padding: 12px 13px; border-bottom: 1px solid #e5e7eb; font-size: .84rem; }
     th { background: #f9fafb; color: #6b7280; font-size: .75rem; }
@@ -168,12 +195,94 @@
       </div>
       <button class="bulk-redeploy" id="redeployAllBtn" onclick="redeployAllClients()">פרוס מחדש את כל הלקוחות</button>
     </div>
+    <div class="link-tool">
+      <strong>יצירת לינק WhatsApp מקוצר</strong>
+      <div class="sub">כלי עצמאי: מזינים מספר טלפון ישראלי וטקסט, ומקבלים לינק wa.me מוכן לשיתוף. לא קשור לקמפיין או ללקוחה מסוימת.</div>
+      <div class="row">
+        <input id="waLinkPhone" type="tel" dir="ltr" placeholder="0529771002" autocomplete="off" />
+        <input id="waLinkText" type="text" placeholder="גם אני רוצה אבחון DNA" autocomplete="off" />
+        <button class="primary" type="button" onclick="buildWaLink()">צור לינק</button>
+      </div>
+      <div class="field-note" id="waLinkError"></div>
+      <div class="result" id="waLinkResult">
+        <div class="result-link" id="waLinkOutput"></div>
+        <div class="actions">
+          <button type="button" onclick="copyWaLink()">העתק</button>
+          <a id="waLinkOpen" href="#" target="_blank" rel="noopener">פתח ב-WhatsApp</a>
+        </div>
+      </div>
+    </div>
     <div id="error"></div>
     <div id="clients"></div>
   </main>
   <script>
     const liveClientSummaries = new Map();
     const ownerClientRows = new Map();
+
+    /** Israeli input in any common shape -> the local form wa.me expects (no country code). */
+    function normalizeIsraeliLocalPhone(raw) {
+      let digits = String(raw || '').replace(/\D/g, '');
+      if (digits.startsWith('00972')) digits = digits.slice(5);
+      else if (digits.startsWith('972')) digits = digits.slice(3);
+      else if (digits.startsWith('0')) digits = digits.slice(1);
+      return digits;
+    }
+
+    /** Mirrors encodeReadableWhatsappText() on the server: Hebrew stays readable, spaces become "+". */
+    function encodeReadableWaText(text) {
+      return String(text || '')
+        .replace(/%/g, '%25')
+        .replace(/&/g, '%26')
+        .replace(/#/g, '%23')
+        .replace(/\?/g, '%3F')
+        .replace(/=/g, '%3D')
+        .replace(/\+/g, '%2B')
+        .trim()
+        .replace(/\s+/g, '+');
+    }
+
+    function buildWaLink() {
+      const errEl = document.getElementById('waLinkError');
+      const resultEl = document.getElementById('waLinkResult');
+      errEl.textContent = '';
+      resultEl.classList.remove('on');
+
+      const phone = normalizeIsraeliLocalPhone(document.getElementById('waLinkPhone').value);
+      if (!phone) {
+        errEl.textContent = 'חסר מספר טלפון.';
+        return;
+      }
+      if (!/^[2-9]\d{7,8}$/.test(phone)) {
+        errEl.textContent = 'מספר לא תקין. אפשר להזין 0529771002, 972529771002 או ‎+972529771002.';
+        return;
+      }
+      const text = encodeReadableWaText(document.getElementById('waLinkText').value);
+      if (!text) {
+        errEl.textContent = 'חסר טקסט להודעה.';
+        return;
+      }
+
+      const link = 'https://wa.me/' + phone + '?text=' + text;
+      document.getElementById('waLinkOutput').textContent = link;
+      document.getElementById('waLinkOpen').href = link;
+      resultEl.classList.add('on');
+    }
+
+    async function copyWaLink() {
+      const link = document.getElementById('waLinkOutput').textContent;
+      if (!link) return;
+      try {
+        await navigator.clipboard.writeText(link);
+      } catch (err) {
+        const helper = document.createElement('textarea');
+        helper.value = link;
+        document.body.appendChild(helper);
+        helper.select();
+        document.execCommand('copy');
+        helper.remove();
+      }
+      document.getElementById('waLinkError').textContent = '';
+    }
 
     function esc(value) {
       return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
