@@ -698,6 +698,9 @@ function conversationSettings(
     groupJoinParticipantFailureText: typeof input?.groupJoinParticipantFailureText === 'string' ? input.groupJoinParticipantFailureText.trim().slice(0, 2000) : (defaults.groupJoinParticipantFailureText ?? ''),
     groupJoinMetaTemplateName: typeof input?.groupJoinMetaTemplateName === 'string' ? input.groupJoinMetaTemplateName.trim().replace(/[^a-z0-9_]/gi, '').slice(0, 512) : (defaults.groupJoinMetaTemplateName ?? ''),
     groupJoinMetaTemplateLanguage: typeof input?.groupJoinMetaTemplateLanguage === 'string' ? input.groupJoinMetaTemplateLanguage.trim().replace(/[^a-zA-Z_-]/g, '').slice(0, 20) : (defaults.groupJoinMetaTemplateLanguage ?? 'he'),
+    groupJoinMetaTemplateParams: Array.isArray(input?.groupJoinMetaTemplateParams)
+      ? input.groupJoinMetaTemplateParams.slice(0, 10).map((value: unknown) => String(value ?? '').slice(0, 500))
+      : (defaults.groupJoinMetaTemplateParams ?? []),
   };
 }
 
@@ -1163,7 +1166,7 @@ export function startAdminServer(storage: Storage): void {
         disabled: campaigns.filter((campaign) => campaign.runtimeStatus === 'disabled').length,
       },
       contactQueue: queueStats,
-      outbox: storage.getOutboxHealth(),
+      outbox: { ...storage.getOutboxHealth(), deliveryFailed: storage.getFailedDeliveries(100).length },
       storage: storage.getStorageHealth(),
       conversations: {
         pending: conversationState.size(),
@@ -1223,8 +1226,39 @@ export function startAdminServer(storage: Storage): void {
     }, 'webhook');
   };
 
+  // Delivery statuses arrive on the same webhook as inbound messages but under `statuses`.
+  // They carry the wamid we stored as providerMessageId, so the client that sent the message
+  // can record whether it was actually delivered/read or failed after the API accepted it.
+  const isMetaStatusPayload = (payload: any): boolean =>
+    Array.isArray(payload?.entry?.[0]?.changes?.[0]?.value?.statuses);
+
+  const handleMetaStatusesForStorage = (payload: any): boolean => {
+    const statuses = payload?.entry?.[0]?.changes?.[0]?.value?.statuses;
+    if (!Array.isArray(statuses) || !statuses.length) return false;
+    let matched = false;
+    for (const status of statuses) {
+      const wamid = String(status?.id || '').trim();
+      const rawStatus = String(status?.status || '').trim();
+      if (!wamid || !['sent', 'delivered', 'read', 'failed'].includes(rawStatus)) continue;
+      const errorDetail = Array.isArray(status?.errors) && status.errors[0]
+        ? `${status.errors[0].code ?? ''} ${status.errors[0].title ?? status.errors[0].message ?? ''}`.trim()
+        : undefined;
+      const updated = storage.recordOutboxDelivery(wamid, rawStatus as 'sent' | 'delivered' | 'read' | 'failed', errorDetail);
+      if (updated) {
+        matched = true;
+        if (rawStatus === 'failed') console.error(`[META_DELIVERY_FAILED] to=${updated.to} wamid=${wamid} error=${errorDetail ?? ''}`);
+        else console.log(`[META_DELIVERY] to=${updated.to} wamid=${wamid} status=${rawStatus}`);
+      }
+    }
+    return matched;
+  };
+
   const handleMetaInboundForStorage = async (payload: any): Promise<void> => {
     const value = payload?.entry?.[0]?.changes?.[0]?.value;
+    if (Array.isArray(value?.statuses)) {
+      handleMetaStatusesForStorage(payload);
+      return;
+    }
     const message = value?.messages?.[0];
     if (!message?.from || !message?.id) {
       console.log('[META_WEBHOOK_IGNORED] reason=no_messages');
@@ -1430,7 +1464,28 @@ export function startAdminServer(storage: Storage): void {
   setInterval(() => { void processMetaGatewayInbox(); }, 15_000);
   void processMetaGatewayInbox();
 
+  // Broadcast a delivery-status webhook to every managed Meta client; each ignores wamids it
+  // does not own. Fire-and-forget: statuses are high-volume and self-superseding, so a missed
+  // one is corrected by the next, and we must not block the webhook response.
+  const forwardMetaStatusToClients = (payload: any): void => {
+    const clients = ownerStorage.getClients().filter((client) =>
+      client.whatsappProvider === 'META_CLOUD_API' && client.managementUrl && client.ownerAccessToken && client.provisioningStatus !== 'disabled');
+    for (const client of clients) {
+      void fetchClientAsOwner(client, '/internal/meta/whatsapp', {
+        method: 'POST',
+        body: JSON.stringify(payload ?? {}),
+      }).catch((err) => console.warn('[META_STATUS_FORWARD_FAILED]', client.id, err));
+    }
+  };
+
   app.post('/webhooks/meta/whatsapp', (req, res) => {
+    if (isMetaStatusPayload(req.body)) {
+      res.sendStatus(200);
+      // Record on the admin's own storage too, then fan out to clients.
+      handleMetaStatusesForStorage(req.body);
+      forwardMetaStatusToClients(req.body);
+      return;
+    }
     const messageId = String(req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.id || '').trim();
     if (!messageId) {
       res.sendStatus(200);
@@ -2750,6 +2805,85 @@ export function startAdminServer(storage: Storage): void {
       ...campaign,
       conversation: storage.getCampaignConversationSettings(campaign),
     })));
+  });
+
+  // Preflight: catch the misconfigurations that otherwise fail silently at runtime.
+  const preflightCampaign = (campaign: Campaign) => {
+    const settings = storage.getCampaignConversationSettings(campaign);
+    const flow = settings.decisionFlow ?? [];
+    const errors: string[] = [];
+    const warnings: string[] = [];
+    const stepIds = new Set(flow.map((step) => step.id));
+    const referenced = new Set<string>();
+    let usesGroupJoin = false;
+    for (const step of flow) {
+      for (const option of step.options ?? []) {
+        if (option.nextStepId && option.nextStepId !== '__NEXT__') referenced.add(option.nextStepId);
+        if (option.action === 'request_group_join') usesGroupJoin = true;
+        if (option.fileId && !storage.getUploadedFile(option.fileId)) errors.push(`שלב "${step.text?.slice(0, 30) || step.id}": קובץ מצורף לא קיים.`);
+      }
+      if (step.nextStepId && step.nextStepId !== '__NEXT__') referenced.add(step.nextStepId);
+      for (const option of step.options ?? []) {
+        if (option.nextStepId && option.nextStepId !== '__NEXT__' && !stepIds.has(option.nextStepId)) {
+          errors.push(`שלב "${step.text?.slice(0, 30) || step.id}": מפנה ליעד שלא קיים.`);
+        }
+      }
+      const groupJoinOnly = (step.options?.length ?? 0) > 0 && (step.options ?? []).every((option) => option.action === 'request_group_join');
+      if (groupJoinOnly) warnings.push(`שלב "${step.text?.slice(0, 30) || step.id}": כל האפשרויות הן בקשת צירוף; המשתתפת תישאר בשלב עד לפקיעת הזמן.`);
+    }
+    // Steps nobody reaches (besides the first sendable step) are usually mistakes.
+    const firstSendable = flow.find((step) => (step.text?.trim() || step.kind === 'contact_card' || (step.kind === 'message' && step.fileId)));
+    for (const step of flow) {
+      if (step === firstSendable) continue;
+      if (!referenced.has(step.id)) warnings.push(`שלב "${step.text?.slice(0, 30) || step.id}": אף שלב לא מוביל אליו.`);
+    }
+    if (usesGroupJoin) {
+      if (!String(settings.groupJoinManagerPhone || '').trim()) errors.push('יש כפתור "בקשת צירוף לקבוצה" אבל לא הוגדר מספר WhatsApp של המנהלת.');
+      if (config.WHATSAPP_PROVIDER === 'META_CLOUD_API' && !String(settings.groupJoinMetaTemplateName || '').trim()) {
+        warnings.push('בקשת צירוף ללא תבנית Meta מאושרת תיכשל אם המנהלת לא כתבה לבוט ב-24 השעות האחרונות.');
+      }
+      if (!String(settings.groupJoinParticipantFailureText || '').trim()) warnings.push('לא הוגדרה הודעת כשל למשתתפת בבקשת צירוף; תישלח הודעת ברירת מחדל.');
+    }
+    if (!String(settings.flowRecoveryText || '').trim()) warnings.push('לא הוגדר טקסט התאוששות ממצב אבוד; ייעשה שימוש בברירת מחדל.');
+    return { ok: errors.length === 0, errors, warnings };
+  };
+
+  app.get('/api/campaigns/:id/preflight', (req, res) => {
+    const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
+    if (!campaign) { res.status(404).json({ error: 'Campaign not found' }); return; }
+    res.json(preflightCampaign(campaign));
+  });
+
+  // Send-test: exercise the group-join manager notification once, surfacing the provider's answer.
+  app.post('/api/campaigns/:id/group-join/test', requireWritableClient, async (req, res) => {
+    const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
+    if (!campaign) { res.status(404).json({ error: 'Campaign not found' }); return; }
+    if (config.WHATSAPP_PROVIDER !== 'META_CLOUD_API') { res.status(409).json({ error: 'זמין רק ללקוח Meta Cloud API.' }); return; }
+    const settings = storage.getCampaignConversationSettings(campaign);
+    const managerPhone = String(settings.groupJoinManagerPhone || '').replace(/\D/g, '');
+    if (!managerPhone) { res.status(400).json({ error: 'לא הוגדר מספר WhatsApp של המנהלת.' }); return; }
+    const templateName = String(settings.groupJoinMetaTemplateName || '').trim();
+    const params = (settings.groupJoinMetaTemplateParams ?? []).length
+      ? settings.groupJoinMetaTemplateParams!.map((value) => String(value ?? '').split('{phone}').join('972500000000').split('{campaign}').join(campaign.name).split('{name}').join('בדיקה').trim())
+      : ['972500000000', campaign.name];
+    try {
+      const provider = new MetaCloudProvider();
+      if (templateName) {
+        const result = await provider.sendTemplateMessage(`whatsapp:${managerPhone}`, templateName, String(settings.groupJoinMetaTemplateLanguage || 'he'), params);
+        res.json({ ok: true, mode: 'template', providerMessageId: result.messageId || null, note: 'Meta קיבלה את הבקשה. מסירה בפועל תופיע בסטטוס המסירה.' });
+      } else {
+        const result = await provider.sendMessage(`whatsapp:${managerPhone}`, `בדיקת בקשת צירוף מקמפיין ${campaign.name}.`);
+        res.json({ ok: true, mode: 'text', providerMessageId: result.messageId || null, note: 'נשלחה הודעת טקסט (עובדת רק בתוך חלון 24 השעות).' });
+      }
+    } catch (err) {
+      res.status(502).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.get('/api/delivery-failures', (_req, res) => {
+    res.json({ failures: storage.getFailedDeliveries(30).map((message) => ({
+      to: message.to, error: message.deliveryError, at: message.deliveryUpdatedAt, label: message.label || message.kind,
+    })) });
   });
 
   app.get('/api/campaign-results', (_req, res) => {

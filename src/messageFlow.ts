@@ -1878,11 +1878,21 @@ async function handleGroupJoinRequest(transport: WhatsAppTransport, storage: Sto
   if (!delivered && managerPhone && campaignId) {
     const participantPhone = normalizeHumanHandoffPhone(senderPhone || senderJid);
     const campaignName = campaign?.name || campaignId;
+    const participantName = campaignResultId
+      ? (storage.getCampaignResults(campaignId).find((item) => item.id === campaignResultId)?.whatsappName?.trim() || '')
+      : '';
+    // Map each configured template variable ({{1}}, {{2}}, ...) to its value, expanding placeholders.
+    const fillPlaceholders = (template: string): string => template
+      .split('{phone}').join(participantPhone)
+      .split('{campaign}').join(campaignName)
+      .split('{name}').join(participantName);
+    const configuredParams = (settings?.groupJoinMetaTemplateParams ?? []).map((value) => fillPlaceholders(String(value ?? '')).trim());
+    const templateParams = configuredParams.length ? configuredParams : [participantPhone, campaignName];
     try {
       const templateName = settings?.groupJoinMetaTemplateName?.trim();
       if (templateName) {
         if (!transport.sendTemplateMessage) throw new Error('Configured Meta template is not supported by this provider.');
-        await transport.sendTemplateMessage(`whatsapp:${managerPhone}`, templateName, settings?.groupJoinMetaTemplateLanguage?.trim() || 'he', [participantPhone, campaignName]);
+        await transport.sendTemplateMessage(`whatsapp:${managerPhone}`, templateName, settings?.groupJoinMetaTemplateLanguage?.trim() || 'he', templateParams);
       } else {
         const managerText = `\u05d1\u05e7\u05e9\u05ea \u05e6\u05d9\u05e8\u05d5\u05e3 \u05dc\u05e7\u05d1\u05d5\u05e6\u05d4 \u05e2\u05d1\u05d5\u05e8 \u05d4\u05de\u05e1\u05e4\u05e8 ${participantPhone}, \u05de\u05e7\u05de\u05e4\u05d9\u05d9\u05df ${campaignName}.`;
         await sendBotMessage(transport, `whatsapp:${managerPhone}`, managerText, 0);

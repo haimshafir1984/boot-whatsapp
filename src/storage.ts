@@ -88,6 +88,12 @@ export interface CampaignConversationSettings {
   groupJoinParticipantFailureText?: string;
   groupJoinMetaTemplateName?: string;
   groupJoinMetaTemplateLanguage?: string;
+  /**
+   * Ordered body parameters for the approved Meta template, one per {{n}}.
+   * Each entry may contain the placeholders {phone}, {campaign} and {name}.
+   * Empty means the legacy pair [participant phone, campaign name].
+   */
+  groupJoinMetaTemplateParams?: string[];
 }
 
 export interface CompletionLink {
@@ -236,6 +242,10 @@ export interface OutboxMessage {
   processingStartedAt?: string;
   lastError?: string;
   providerMessageId?: string;
+  /** Delivery outcome reported by the provider webhook, not by the send call. */
+  deliveryStatus?: 'sent' | 'delivered' | 'read' | 'failed';
+  deliveryError?: string;
+  deliveryUpdatedAt?: string;
 }
 
 export interface ScheduledJobRecord {
@@ -711,6 +721,30 @@ export class Storage {
       ...message,
       fileOptions: message.fileOptions ? { ...message.fileOptions } : undefined,
     };
+  }
+
+  /** Record an async delivery result reported by the provider's status webhook. */
+  recordOutboxDelivery(providerMessageId: string, status: 'sent' | 'delivered' | 'read' | 'failed', error?: string): OutboxMessage | null {
+    const id = String(providerMessageId || '').trim();
+    if (!id) return null;
+    const message = this.data.outboxMessages.find((item) => item.providerMessageId === id);
+    if (!message) return null;
+    // Never let a late 'sent' clobber a terminal 'delivered'/'read'/'failed' already recorded.
+    const rank = { sent: 1, delivered: 2, read: 3, failed: 3 } as const;
+    if (message.deliveryStatus && rank[status] < rank[message.deliveryStatus]) return message;
+    message.deliveryStatus = status;
+    message.deliveryError = status === 'failed' ? (error || 'Delivery failed') : undefined;
+    message.deliveryUpdatedAt = new Date().toISOString();
+    this.persist();
+    return message;
+  }
+
+  /** Recent messages the provider reported as failed to deliver, newest first. */
+  getFailedDeliveries(limit = 20): OutboxMessage[] {
+    return this.data.outboxMessages
+      .filter((item) => item.deliveryStatus === 'failed')
+      .sort((a, b) => String(b.deliveryUpdatedAt ?? '').localeCompare(String(a.deliveryUpdatedAt ?? '')))
+      .slice(0, limit);
   }
 
   getOutboxHealth(): Record<OutboxMessageStatus | 'total', number> {
@@ -1447,6 +1481,7 @@ export class Storage {
       groupJoinParticipantFailureText: campaign.conversation?.groupJoinParticipantFailureText ?? '',
       groupJoinMetaTemplateName: campaign.conversation?.groupJoinMetaTemplateName ?? '',
       groupJoinMetaTemplateLanguage: campaign.conversation?.groupJoinMetaTemplateLanguage ?? 'he',
+      groupJoinMetaTemplateParams: campaign.conversation?.groupJoinMetaTemplateParams ?? [],
     };
   }
 

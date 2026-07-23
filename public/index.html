@@ -1652,7 +1652,15 @@
 <div class="editor-section-title">&#1489;&#1511;&#1513;&#1514; &#1510;&#1497;&#1512;&#1493;&#1507; &#1500;&#1511;&#1489;&#1493;&#1510;&#1492;</div><div class="hint">&#1492;&#1502;&#1513;&#1514;&#1514;&#1508;&#1514; &#1514;&#1497;&#1513;&#1488;&#1512; &#1489;&#1488;&#1493;&#1514;&#1492; &#1513;&#1488;&#1500;&#1492;.</div>
 <div class="field"><label>&#1502;&#1505;&#1508;&#1512; WhatsApp &#1513;&#1500; &#1492;&#1502;&#1504;&#1492;&#1500;&#1514;</label><input type="tel" id="fGroupJoinManagerPhone" placeholder="9725XXXXXXXX" /></div>
 <div class="field"><label>&#1488;&#1497;&#1513;&#1493;&#1512; &#1500;&#1502;&#1513;&#1514;&#1514;&#1508;&#1514;</label><textarea id="fGroupJoinConfirmationText"></textarea></div><div class="field"><label>&#1492;&#1493;&#1491;&#1506;&#1514; &#1499;&#1513;&#1500;</label><textarea id="fGroupJoinFailureText"></textarea></div>
-<div class="field"><label>&#1513;&#1501; &#1514;&#1489;&#1504;&#1497;&#1514; Meta (&#1488;&#1493;&#1508;&#1510;&#1497;&#1493;&#1504;&#1500;&#1497;)</label><input id="fGroupJoinTemplateName" placeholder="group_join_request_manager" /><div class="hint">&#1502;&#1513;&#1514;&#1504;&#1497;&#1501;: &#1502;&#1505;&#1508;&#1512; &#1492;&#1502;&#1513;&#1514;&#1514;&#1508;&#1514; &#1493;&#1513;&#1501; &#1492;&#1511;&#1502;&#1508;&#1497;&#1497;&#1503;.</div></div><div class="field"><label>&#1513;&#1508;&#1492;</label><input id="fGroupJoinTemplateLanguage" value="he" /></div></div>
+<div class="field"><label>&#1513;&#1501; &#1514;&#1489;&#1504;&#1497;&#1514; Meta (&#1488;&#1493;&#1508;&#1510;&#1497;&#1493;&#1504;&#1500;&#1497;)</label><input id="fGroupJoinTemplateName" placeholder="group_join_request_manager" /><div class="hint">&#1502;&#1513;&#1514;&#1504;&#1497;&#1501;: &#1502;&#1505;&#1508;&#1512; &#1492;&#1502;&#1513;&#1514;&#1514;&#1508;&#1514; &#1493;&#1513;&#1501; &#1492;&#1511;&#1502;&#1508;&#1497;&#1497;&#1503;.</div></div><div class="field"><label>&#1513;&#1508;&#1492;</label><input id="fGroupJoinTemplateLanguage" value="he" /></div>
+<div class="field"><label>משתני התבנית (לפי הסדר {{1}}, {{2}}, ...)</label>
+<div class="hint">ערך לכל משתנה בתבנית המאושרת. אפשר להשתמש ב-<code>{phone}</code> (טלפון המשתתפת), <code>{campaign}</code> (שם הקמפיין) ו-<code>{name}</code> (שם המשתתפת). אם ריק, נשלחים כברירת מחדל טלפון ואז שם הקמפיין.</div>
+<div id="fGroupJoinTemplateParams"></div>
+<button type="button" class="decision-action-tab" onclick="addGroupJoinTemplateParam()">הוסף משתנה</button>
+</div>
+<div class="hint" style="margin-top:6px">הנוסח שהמנהלת מקבלת נקבע בתבנית המאושרת ב-Meta ולא ניתן לעריכה כאן; כאן שולטים רק בערכי המשתנים.</div>
+<div class="field"><button type="button" class="decision-action-tab" onclick="testGroupJoin()">שלח בדיקה למנהלת</button>
+<div class="hint" id="fGroupJoinTestResult"></div></div></div>
 <div class="human-handoff-box">
               <div class="toggle-row">
                 <div>
@@ -2157,6 +2165,21 @@
   }
 
   async function toggleCampaign(id) {
+    // Before activating, run preflight so misconfigurations surface here instead of failing silently at runtime.
+    const campaign = (lastCampaigns || []).find(item => item.id === id);
+    const activating = campaign && !campaign.active;
+    if (activating) {
+      try {
+        const pf = await fetch(`/api/campaigns/${id}/preflight`, { credentials: 'include' }).then(r => r.ok ? r.json() : null);
+        if (pf && (pf.errors.length || pf.warnings.length)) {
+          const lines = [];
+          if (pf.errors.length) lines.push('שגיאות שימנעו הפעלה תקינה:\n• ' + pf.errors.join('\n• '));
+          if (pf.warnings.length) lines.push('אזהרות:\n• ' + pf.warnings.join('\n• '));
+          if (!pf.ok) { alert('לא ניתן להפעיל:\n\n' + lines.join('\n\n')); return; }
+          if (!confirm(lines.join('\n\n') + '\n\nלהפעיל בכל זאת?')) return;
+        }
+      } catch (_err) { /* preflight is advisory; never block on its own failure */ }
+    }
     const res = await fetch(`/api/campaigns/${id}/toggle`, { method: 'PATCH' });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -2752,6 +2775,7 @@
     document.getElementById('fGroupJoinFailureText').value = settings.groupJoinParticipantFailureText || '';
     document.getElementById('fGroupJoinTemplateName').value = settings.groupJoinMetaTemplateName || '';
     document.getElementById('fGroupJoinTemplateLanguage').value = settings.groupJoinMetaTemplateLanguage || 'he';
+    renderGroupJoinTemplateParams(settings.groupJoinMetaTemplateParams || []);
     document.getElementById('fHumanHandoffEnabled').checked = settings.humanHandoffEnabled !== false;
     document.getElementById('fHumanHandoffText').value = settings.humanHandoffText || appSettings.humanHandoffText;
     document.getElementById('fHumanHandoffPhone').value = settings.humanHandoffPhone || '';
@@ -3820,6 +3844,60 @@
     return steps;
   }
 
+  function groupJoinParamRow(value) {
+    const row = document.createElement('div');
+    row.className = 'field';
+    row.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px';
+    const idx = document.querySelectorAll('#fGroupJoinTemplateParams .field').length + 1;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.setAttribute('data-group-join-param', '');
+    input.placeholder = '{{' + idx + '}}';
+    input.value = value || '';
+    input.style.flex = '1';
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'decision-action-tab';
+    remove.textContent = 'הסר';
+    remove.onclick = () => { row.remove(); };
+    row.appendChild(input);
+    row.appendChild(remove);
+    return row;
+  }
+
+  function renderGroupJoinTemplateParams(values) {
+    const box = document.getElementById('fGroupJoinTemplateParams');
+    if (!box) return;
+    box.innerHTML = '';
+    (Array.isArray(values) ? values : []).forEach(value => box.appendChild(groupJoinParamRow(value)));
+  }
+
+  function addGroupJoinTemplateParam() {
+    const box = document.getElementById('fGroupJoinTemplateParams');
+    if (box) box.appendChild(groupJoinParamRow(''));
+  }
+
+  function collectGroupJoinTemplateParams() {
+    return [...document.querySelectorAll('#fGroupJoinTemplateParams [data-group-join-param]')]
+      .map(el => el.value.trim())
+      .filter((value, index, all) => value || index < all.length); // keep order, allow empty middle slots
+  }
+
+  async function testGroupJoin() {
+    const out = document.getElementById('fGroupJoinTestResult');
+    if (!editingId) { out.textContent = 'צריך לשמור את הקמפיין לפני בדיקה.'; return; }
+    out.textContent = 'שולח בדיקה...';
+    try {
+      const res = await fetch(`/api/campaigns/${editingId}/group-join/test`, { method: 'POST', credentials: 'include' });
+      const data = await res.json();
+      out.textContent = res.ok
+        ? `✅ נשלח (${data.mode}). ${data.note || ''}`
+        : `🔴 נכשל: ${data.error || res.status}`;
+    } catch (err) {
+      out.textContent = '🔴 שגיאה: ' + (err?.message || err);
+    }
+  }
+
   function getCampaignConversation() {
     const contactCards = getContactCards();
     const primaryContactCard = contactCards[0] || {};
@@ -3869,6 +3947,7 @@
       groupJoinParticipantFailureText: document.getElementById('fGroupJoinFailureText')?.value || '',
       groupJoinMetaTemplateName: document.getElementById('fGroupJoinTemplateName')?.value || '',
       groupJoinMetaTemplateLanguage: document.getElementById('fGroupJoinTemplateLanguage')?.value || 'he',
+      groupJoinMetaTemplateParams: collectGroupJoinTemplateParams(),
       humanHandoffEnabled: document.getElementById('fHumanHandoffEnabled')?.checked !== false,
       humanHandoffText: document.getElementById('fHumanHandoffText')?.value || appSettings.humanHandoffText,
       humanHandoffPhone: document.getElementById('fHumanHandoffPhone')?.value || '',
