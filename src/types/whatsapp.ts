@@ -24,6 +24,7 @@ export interface WhatsAppTransport {
   sendContactCard?(to: string, vcard: string, displayName: string): Promise<void | WhatsAppSendResult>;
   sendContactCards?(to: string, contacts: Array<{ vcard: string; displayName: string }>, displayName: string): Promise<void | WhatsAppSendResult>;
   sendContentTemplate?(to: string, contentSid: string, contentVariables?: Record<string, string>): Promise<void | WhatsAppSendResult>;
+  sendTemplateMessage?(to: string, templateName: string, languageCode: string, bodyParameters?: string[]): Promise<void | WhatsAppSendResult>;
   sendInteractiveButtons?(to: string, text: string, buttons: Array<{ id: string; text: string }>): Promise<void | WhatsAppSendResult>;
   sendInteractiveList?(to: string, text: string, buttonText: string, items: Array<{ id: string; text: string }>): Promise<void | WhatsAppSendResult>;
   resolvePhone(jid: string): Promise<string>;
@@ -39,6 +40,7 @@ export interface WhatsAppProvider {
   sendContactCard?(to: string, vcard: string, displayName: string): Promise<void | WhatsAppSendResult>;
   sendContactCards?(to: string, contacts: Array<{ vcard: string; displayName: string }>, displayName: string): Promise<void | WhatsAppSendResult>;
   sendContentTemplate?(to: string, contentSid: string, contentVariables?: Record<string, string>): Promise<void | WhatsAppSendResult>;
+  sendTemplateMessage?(to: string, templateName: string, languageCode: string, bodyParameters?: string[]): Promise<void | WhatsAppSendResult>;
   sendInteractiveButtons(
     to: string,
     text: string,

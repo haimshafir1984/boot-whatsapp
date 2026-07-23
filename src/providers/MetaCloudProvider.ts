@@ -15,6 +15,12 @@ export class MetaCloudProvider implements WhatsAppProvider {
     return await this.postMessages({ messaging_product: 'whatsapp', to: normalizePhone(to), type: 'text', text: { body: message } });
   }
 
+  async sendTemplateMessage(to: string, templateName: string, languageCode: string, bodyParameters: string[] = []): Promise<WhatsAppSendResult> {
+    const template: Record<string, unknown> = { name: templateName, language: { code: languageCode || 'he' } };
+    if (bodyParameters.length) template.components = [{ type: 'body', parameters: bodyParameters.map((text) => ({ type: 'text', text })) }];
+    return await this.postMessages({ messaging_product: 'whatsapp', to: normalizePhone(to), type: 'template', template });
+  }
+
   async sendFile(to: string, filePath: string, caption?: string, options: { asSticker?: boolean } = {}): Promise<WhatsAppSendResult> {
     this.assertConfigured();
     const fileName = path.basename(filePath);

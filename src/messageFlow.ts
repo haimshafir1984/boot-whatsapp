@@ -1744,6 +1744,11 @@ async function handleDecisionReply(
     console.warn(`[DUPLICATE_REPLY_IGNORED] campaign=${campaignId ?? ''} result=${campaignResultId ?? ''} phone=${senderPhone ?? ''} step=${step.id} option=${option.id}`);
     return;
   }
+  if (option.action === 'request_group_join') {
+    rememberRecentDecisionReply(senderPhone, option.id, answer);
+    await handleGroupJoinRequest(transport, storage, senderJid, flow, step, option, campaignId, campaignResultId, senderPhone, humanHandoff);
+    return;
+  }
   conversationState.pause(senderJid);
   if (step.kind === 'score_question') {
     const score = scoreForOption(option, step);
@@ -1822,6 +1827,33 @@ async function handleDecisionReply(
   }
   rememberRecentDecisionReply(senderPhone, option.id, answer);
   clearTimedOutDecision(senderPhone || senderJid);
+}
+
+async function handleGroupJoinRequest(transport: WhatsAppTransport, storage: Storage, senderJid: string, flow: DecisionFlowStep[], step: DecisionFlowStep, option: DecisionFlowOption, campaignId?: string, campaignResultId?: string, senderPhone?: string, humanHandoff: CampaignReplyBehavior = {}): Promise<void> {
+  const campaign = campaignId ? storage.getCampaigns().find((item) => item.id === campaignId) : undefined;
+  const settings = campaign ? storage.getCampaignConversationSettings(campaign) : undefined;
+  const managerPhone = normalizeHumanHandoffPhone(settings?.groupJoinManagerPhone);
+  const dedupeKey = `group_join_request:${step.id}:${option.id}`;
+  let delivered = Boolean(campaignId && campaignResultId && storage.getCampaignEvents(campaignId).some((event) => event.campaignResultId === campaignResultId && event.dedupeKey === dedupeKey));
+  if (!delivered && managerPhone && campaignId) {
+    const participantPhone = normalizeHumanHandoffPhone(senderPhone || senderJid);
+    const campaignName = campaign?.name || campaignId;
+    try {
+      const templateName = settings?.groupJoinMetaTemplateName?.trim();
+      if (templateName) {
+        if (!transport.sendTemplateMessage) throw new Error('Configured Meta template is not supported by this provider.');
+        await transport.sendTemplateMessage(`whatsapp:${managerPhone}`, templateName, settings?.groupJoinMetaTemplateLanguage?.trim() || 'he', [participantPhone, campaignName]);
+      } else {
+        const managerText = `\u05d1\u05e7\u05e9\u05ea \u05e6\u05d9\u05e8\u05d5\u05e3 \u05dc\u05e7\u05d1\u05d5\u05e6\u05d4 \u05e2\u05d1\u05d5\u05e8 \u05d4\u05de\u05e1\u05e4\u05e8 ${participantPhone}, \u05de\u05e7\u05de\u05e4\u05d9\u05d9\u05df ${campaignName}.`;
+        await sendBotMessage(transport, `whatsapp:${managerPhone}`, managerText, 0);
+      }
+      storage.recordCampaignEvent({ campaignId, campaignResultId, phone: senderPhone, type: 'group_join_request', label: `${managerPhone}: ${option.text}`, dedupeKey });
+      delivered = true;
+    } catch (err) { console.error(`[GROUP_JOIN_REQUEST_FAILED] campaign=${campaignId} result=${campaignResultId ?? ''} phone=${senderPhone ?? ''}:`, err); }
+  }
+  const participantText = delivered ? (settings?.groupJoinParticipantConfirmationText?.trim() || '\u05d4\u05d1\u05e7\u05e9\u05d4 \u05e0\u05e9\u05dc\u05d7\u05d4 \u05dc\u05de\u05e0\u05d4\u05dc\u05ea. \u05d0\u05e4\u05e9\u05e8 \u05dc\u05d4\u05de\u05e9\u05d9\u05da \u05db\u05d0\u05df \u05d1\u05e7\u05de\u05e4\u05d9\u05d9\u05df.') : (settings?.groupJoinParticipantFailureText?.trim() || '\u05dc\u05d0 \u05d4\u05e6\u05dc\u05d7\u05e0\u05d5 \u05dc\u05e9\u05dc\u05d5\u05d7 \u05d0\u05ea \u05d4\u05d1\u05e7\u05e9\u05d4 \u05db\u05e8\u05d2\u05e2. \u05d0\u05e4\u05e9\u05e8 \u05dc\u05e0\u05e1\u05d5\u05ea \u05e9\u05d5\u05d1.');
+  await sendBotMessage(transport, senderJid, participantText, 0);
+  await sendDecisionStep(transport, storage, senderJid, flow, step.id, campaignId, campaignResultId, senderPhone, humanHandoff);
 }
 
 async function handleWaitReply(

@@ -693,6 +693,11 @@ function conversationSettings(
     humanHandoffPhone: typeof input?.humanHandoffPhone === 'string'
       ? input.humanHandoffPhone.replace(/[^\d+]/g, '').slice(0, 30)
       : (defaults.humanHandoffPhone ?? ''),
+    groupJoinManagerPhone: typeof input?.groupJoinManagerPhone === 'string' ? input.groupJoinManagerPhone.replace(/[^\d+]/g, '').slice(0, 30) : (defaults.groupJoinManagerPhone ?? ''),
+    groupJoinParticipantConfirmationText: typeof input?.groupJoinParticipantConfirmationText === 'string' ? input.groupJoinParticipantConfirmationText.trim().slice(0, 2000) : (defaults.groupJoinParticipantConfirmationText ?? ''),
+    groupJoinParticipantFailureText: typeof input?.groupJoinParticipantFailureText === 'string' ? input.groupJoinParticipantFailureText.trim().slice(0, 2000) : (defaults.groupJoinParticipantFailureText ?? ''),
+    groupJoinMetaTemplateName: typeof input?.groupJoinMetaTemplateName === 'string' ? input.groupJoinMetaTemplateName.trim().replace(/[^a-z0-9_]/gi, '').slice(0, 512) : (defaults.groupJoinMetaTemplateName ?? ''),
+    groupJoinMetaTemplateLanguage: typeof input?.groupJoinMetaTemplateLanguage === 'string' ? input.groupJoinMetaTemplateLanguage.trim().replace(/[^a-zA-Z_-]/g, '').slice(0, 20) : (defaults.groupJoinMetaTemplateLanguage ?? 'he'),
   };
 }
 
@@ -853,6 +858,10 @@ function sanitizeDecisionFlow(
             }
             if (rawOption.raffleEntry === true) {
               clean.raffleEntry = true;
+            }
+            if (rawOption.action === 'request_group_join') {
+              clean.action = 'request_group_join';
+              delete clean.nextStepId; delete clean.endText; delete clean.fileId; delete clean.fileAsSticker;
             }
             if (typeof rawOption.score === 'number' && Number.isFinite(rawOption.score)) {
               clean.score = Math.round(rawOption.score);

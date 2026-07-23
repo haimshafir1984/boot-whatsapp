@@ -1129,6 +1129,9 @@
         <button onclick="stopWhatsApp()" style="background:#f59e0b;color:white;border:none;border-radius:8px;padding:8px 16px;cursor:pointer;font-size:.85rem">
           כבה עד קמפיין פעיל
         </button>
+        <button onclick="restartWhatsApp()" style="background:#2563eb;color:white;border:none;border-radius:8px;padding:8px 16px;cursor:pointer;font-size:.85rem">
+          אפס חיבור WhatsApp
+        </button>
         <button onclick="logoutWhatsApp()" style="background:#ef4444;color:white;border:none;border-radius:8px;padding:8px 16px;cursor:pointer;font-size:.85rem">
           &#x1F512; החלף חשבון / התנתק
         </button>
@@ -1643,6 +1646,11 @@
                 <textarea id="fFlowRecoveryText" maxlength="2000" oninput="updateCampaignConversationPreview()" placeholder="למשל: נראה שהשיחה נעצרה לרגע. כדי להמשיך בצורה מסודרת, נחזור להתחלה 👇"></textarea>
               </div>
             </div>
+<div class="human-handoff-box">
+<div class="editor-section-title">&#1489;&#1511;&#1513;&#1514; &#1510;&#1497;&#1512;&#1493;&#1507; &#1500;&#1511;&#1489;&#1493;&#1510;&#1492;</div><div class="hint">&#1492;&#1502;&#1513;&#1514;&#1514;&#1508;&#1514; &#1514;&#1497;&#1513;&#1488;&#1512; &#1489;&#1488;&#1493;&#1514;&#1492; &#1513;&#1488;&#1500;&#1492;.</div>
+<div class="field"><label>&#1502;&#1505;&#1508;&#1512; WhatsApp &#1513;&#1500; &#1492;&#1502;&#1504;&#1492;&#1500;&#1514;</label><input type="tel" id="fGroupJoinManagerPhone" placeholder="9725XXXXXXXX" /></div>
+<div class="field"><label>&#1488;&#1497;&#1513;&#1493;&#1512; &#1500;&#1502;&#1513;&#1514;&#1514;&#1508;&#1514;</label><textarea id="fGroupJoinConfirmationText"></textarea></div><div class="field"><label>&#1492;&#1493;&#1491;&#1506;&#1514; &#1499;&#1513;&#1500;</label><textarea id="fGroupJoinFailureText"></textarea></div>
+<div class="field"><label>&#1513;&#1501; &#1514;&#1489;&#1504;&#1497;&#1514; Meta (&#1488;&#1493;&#1508;&#1510;&#1497;&#1493;&#1504;&#1500;&#1497;)</label><input id="fGroupJoinTemplateName" placeholder="group_join_request_manager" /><div class="hint">&#1502;&#1513;&#1514;&#1504;&#1497;&#1501;: &#1502;&#1505;&#1508;&#1512; &#1492;&#1502;&#1513;&#1514;&#1514;&#1508;&#1514; &#1493;&#1513;&#1501; &#1492;&#1511;&#1502;&#1508;&#1497;&#1497;&#1503;.</div></div><div class="field"><label>&#1513;&#1508;&#1492;</label><input id="fGroupJoinTemplateLanguage" value="he" /></div></div>
 <div class="human-handoff-box">
               <div class="toggle-row">
                 <div>
@@ -2722,6 +2730,11 @@
     document.getElementById('fInvalidReplyText').value = settings.invalidReplyText || '';
     document.getElementById('fFlowRecoveryText').value = settings.flowRecoveryText || '';
     updateDecisionTimeoutModeVisibility();
+    document.getElementById('fGroupJoinManagerPhone').value = settings.groupJoinManagerPhone || '';
+    document.getElementById('fGroupJoinConfirmationText').value = settings.groupJoinParticipantConfirmationText || '';
+    document.getElementById('fGroupJoinFailureText').value = settings.groupJoinParticipantFailureText || '';
+    document.getElementById('fGroupJoinTemplateName').value = settings.groupJoinMetaTemplateName || '';
+    document.getElementById('fGroupJoinTemplateLanguage').value = settings.groupJoinMetaTemplateLanguage || 'he';
     document.getElementById('fHumanHandoffEnabled').checked = settings.humanHandoffEnabled !== false;
     document.getElementById('fHumanHandoffText').value = settings.humanHandoffText || appSettings.humanHandoffText;
     document.getElementById('fHumanHandoffPhone').value = settings.humanHandoffPhone || '';
@@ -3202,7 +3215,7 @@
     `;
   }
   function decisionOptionHtml(option = {}, index = 0) {
-    const action = option.fileId ? 'file' : (option.nextStepId ? 'next' : 'end');
+    const action = option.action === 'request_group_join' ? 'request_group_join' : (option.fileId ? 'file' : (option.nextStepId ? 'next' : 'end'));
     return `
       <div class="decision-option" data-decision-option data-option-id="${esc(option.id || makeFlowId('option'))}">
         <div class="decision-option-number">${index + 1}</div>
@@ -3228,11 +3241,13 @@
               <option value="end" ${action === 'end' ? 'selected' : ''}>סיום</option>
               <option value="file" ${action === 'file' ? 'selected' : ''}>שליחת קובץ</option>
               <option value="next" ${action === 'next' ? 'selected' : ''}>לעבור לשלב</option>
+              <option value="request_group_join" ${action === 'request_group_join' ? 'selected' : ''}>&#1489;&#1511;&#1513;&#1514; &#1510;&#1497;&#1512;&#1493;&#1507; &#1500;&#1511;&#1489;&#1493;&#1510;&#1492;</option>
             </select>
             <div class="decision-action-tabs">
               <button type="button" class="decision-action-tab" data-action="end" onclick="setDecisionOptionAction(this, 'end')">שלח הודעה וסיים</button>
               <button type="button" class="decision-action-tab" data-action="file" onclick="setDecisionOptionAction(this, 'file')">שלח קובץ</button>
               <button type="button" class="decision-action-tab" data-action="next" onclick="setDecisionOptionAction(this, 'next')">מעבר לשאלה הבאה</button>
+              <button type="button" class="decision-action-tab" data-action="request_group_join" onclick="setDecisionOptionAction(this, 'request_group_join')">&#1513;&#1500;&#1495; &#1489;&#1511;&#1513;&#1514; &#1510;&#1497;&#1512;&#1493;&#1507; &#1500;&#1502;&#1504;&#1492;&#1500;&#1514;</button>
             </div>
             <div class="decision-action-summary" data-option-summary></div>
             <div class="decision-option-label" data-option-next-label>לאיזו שאלה ממשיכים אחרי הבחירה?</div>
@@ -3726,7 +3741,9 @@
               if (kind === 'score_question') clean.score = Number(option.querySelector('[data-option-score]')?.value) || index + 1;
               if (option.querySelector('[data-option-raffle-entry]')?.checked) clean.raffleEntry = true;
               const action = option.querySelector('[data-option-action]')?.value || 'end';
-              if (action === 'next') {
+              if (action === 'request_group_join') {
+                clean.action = 'request_group_join';
+              } else if (action === 'next') {
                 const nextStepId = option.querySelector('[data-option-next]').value;
                 const nextText = option.querySelector('[data-option-end-text]').value.trim();
                 clean.nextStepId = nextStepId || '__NEXT__';
@@ -3811,6 +3828,11 @@
       decisionTimeoutNextStepId: document.getElementById('fDecisionTimeoutNextStep')?.value || '',
       invalidReplyText: document.getElementById('fInvalidReplyText')?.value || '',
       flowRecoveryText: document.getElementById('fFlowRecoveryText')?.value || '',
+      groupJoinManagerPhone: document.getElementById('fGroupJoinManagerPhone')?.value || '',
+      groupJoinParticipantConfirmationText: document.getElementById('fGroupJoinConfirmationText')?.value || '',
+      groupJoinParticipantFailureText: document.getElementById('fGroupJoinFailureText')?.value || '',
+      groupJoinMetaTemplateName: document.getElementById('fGroupJoinTemplateName')?.value || '',
+      groupJoinMetaTemplateLanguage: document.getElementById('fGroupJoinTemplateLanguage')?.value || 'he',
       humanHandoffEnabled: document.getElementById('fHumanHandoffEnabled')?.checked !== false,
       humanHandoffText: document.getElementById('fHumanHandoffText')?.value || appSettings.humanHandoffText,
       humanHandoffPhone: document.getElementById('fHumanHandoffPhone')?.value || '',

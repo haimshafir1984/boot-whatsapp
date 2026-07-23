@@ -83,6 +83,11 @@ export interface CampaignConversationSettings {
   humanHandoffEnabled?: boolean;
   humanHandoffText?: string;
   humanHandoffPhone?: string;
+  groupJoinManagerPhone?: string;
+  groupJoinParticipantConfirmationText?: string;
+  groupJoinParticipantFailureText?: string;
+  groupJoinMetaTemplateName?: string;
+  groupJoinMetaTemplateLanguage?: string;
 }
 
 export interface CompletionLink {
@@ -140,6 +145,8 @@ export interface DecisionFlowOption {
   fileAsSticker?: boolean;
   /** Marks a verified button choice as one raffle entry in the campaign export. */
   raffleEntry?: boolean;
+  /** Auxiliary action that keeps the participant on the current question. */
+  action?: 'request_group_join';
   score?: number;
 }
 
@@ -286,6 +293,7 @@ export type CampaignEventType =
   | 'step_answered'
   | 'score_answered'
   | 'raffle_entry'
+  | 'group_join_request'
   | 'timeout_flow_started'
   | 'decision_timeout_sent'
   | 'file_sent'
