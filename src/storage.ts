@@ -146,7 +146,7 @@ export interface DecisionFlowOption {
   /** Marks a verified button choice as one raffle entry in the campaign export. */
   raffleEntry?: boolean;
   /** Auxiliary action that keeps the participant on the current question. */
-  action?: 'request_group_join';
+  action?: 'request_group_join' | 'referral_link' | 'referral_leaderboard' | 'referral_my_rank';
   score?: number;
 }
 
@@ -306,6 +306,8 @@ export type CampaignEventType =
   | 'completed'
   | 'human_handoff'
   | 'referral_link_sent'
+  | 'referral_leaderboard_viewed'
+  | 'referral_rank_viewed'
   | 'referral_attributed';
 
 export interface CampaignEvent {
@@ -1014,24 +1016,43 @@ export class Storage {
     return result ? { ...result } : null;
   }
 
-  getCampaignReferralLeaderboard(campaignId: string): Array<{ referralCode: string; name: string; phone: string; invited: number; saved: number; lastReferralAt?: string }> {
-    const referrers = new Map<string, CampaignResult>();
-    for (const result of this.data.campaignResults) {
-      if (result.campaignId === campaignId && result.referralCode) referrers.set(normalizeReferralCode(result.referralCode), result);
+  getCampaignReferralLeaderboard(campaignId: string, resultBatchId?: string): Array<{ referralCode: string; name: string; phone: string; invited: number; saved: number; lastReferralAt?: string }> {
+    const batchId = resultBatchId || this.getCurrentCampaignResultBatchId(campaignId);
+    const results = this.data.campaignResults.filter((result) => result.campaignId === campaignId && this.matchesResultBatch(result.resultBatchId, batchId));
+    const referrerByPhone = new Map<string, CampaignResult>();
+    const referrerPhoneByCode = new Map<string, string>();
+    for (const result of results) {
+      const phoneKey = normalizeCampaignPhone(result.phone);
+      const code = normalizeReferralCode(result.referralCode);
+      if (!phoneKey || !code) continue;
+      if (!referrerByPhone.has(phoneKey)) referrerByPhone.set(phoneKey, result);
+      referrerPhoneByCode.set(code, phoneKey);
     }
-    const rows = [...referrers.values()].map((referrer) => {
-      const code = normalizeReferralCode(referrer.referralCode);
-      const invitedResults = this.data.campaignResults.filter((result) => result.campaignId === campaignId && normalizeReferralCode(result.referredByCode) === code);
-      return {
-        referralCode: referrer.referralCode || '',
-        name: this.resultDisplayName(referrer),
-        phone: referrer.phone,
-        invited: invitedResults.length,
-        saved: invitedResults.filter((result) => result.status === 'saved').length,
-        lastReferralAt: invitedResults.map((result) => result.triggeredAt).sort().at(-1),
-      };
+    const invitedByReferrer = new Map<string, Map<string, CampaignResult>>();
+    for (const result of results) {
+      const referrerPhone = referrerPhoneByCode.get(normalizeReferralCode(result.referredByCode));
+      const invitedPhone = normalizeCampaignPhone(result.phone);
+      if (!referrerPhone || !invitedPhone || referrerPhone === invitedPhone) continue;
+      const invited = invitedByReferrer.get(referrerPhone) || new Map<string, CampaignResult>();
+      const existing = invited.get(invitedPhone);
+      if (!existing || (existing.status !== 'saved' && result.status === 'saved')) invited.set(invitedPhone, result);
+      invitedByReferrer.set(referrerPhone, invited);
+    }
+    const rows = [...referrerByPhone.entries()].map(([phoneKey, referrer]) => {
+      const invitedResults = [...(invitedByReferrer.get(phoneKey)?.values() || [])];
+      return { referralCode: referrer.referralCode || '', name: this.resultDisplayName(referrer), phone: referrer.phone, invited: invitedResults.length, saved: invitedResults.filter((result) => result.status === 'saved').length, lastReferralAt: invitedResults.map((result) => result.triggeredAt).sort().at(-1) };
     });
     return rows.sort((a, b) => b.invited - a.invited || b.saved - a.saved || a.name.localeCompare(b.name));
+  }
+
+  getCampaignReferralRank(campaignId: string, phone: string, resultBatchId?: string): { rank: number; participants: number; invited: number; saved: number; nextGap: number } | null {
+    const rows = this.getCampaignReferralLeaderboard(campaignId, resultBatchId);
+    const index = rows.findIndex((row) => normalizeCampaignPhone(row.phone) === normalizeCampaignPhone(phone));
+    if (index < 0) return null;
+    const row = rows[index];
+    const rank = rows.findIndex((candidate) => candidate.invited === row.invited && candidate.saved === row.saved) + 1;
+    const previous = rank > 1 ? rows[rank - 2] : undefined;
+    return { rank, participants: rows.length, invited: row.invited, saved: row.saved, nextGap: previous ? Math.max(0, previous.invited - row.invited + 1) : 0 };
   }
   markCampaignResultStage(resultId: string | undefined, stage: string, fallbackName?: string): void {
     if (!resultId) return;
@@ -1531,6 +1552,10 @@ export class Storage {
   exportDataSnapshot(): StorageData {
     return JSON.parse(JSON.stringify(this.data)) as StorageData;
   }
+}
+
+function normalizeCampaignPhone(value: string | undefined): string {
+  return String(value || '').replace(/^whatsapp:/i, '').split('@')[0].replace(/\D/g, '');
 }
 
 function normalizeReferralCode(code: string | undefined): string {

@@ -859,9 +859,10 @@ function sanitizeDecisionFlow(
             if (rawOption.raffleEntry === true) {
               clean.raffleEntry = true;
             }
-            if (rawOption.action === 'request_group_join') {
-              clean.action = 'request_group_join';
-              delete clean.nextStepId; delete clean.endText; delete clean.fileId; delete clean.fileAsSticker;
+            if (rawOption.action === 'request_group_join' || rawOption.action === 'referral_link' || rawOption.action === 'referral_leaderboard' || rawOption.action === 'referral_my_rank') {
+              clean.action = rawOption.action;
+              delete clean.nextStepId; delete clean.fileId; delete clean.fileAsSticker;
+              if (rawOption.action === 'request_group_join') delete clean.endText;
             }
             if (typeof rawOption.score === 'number' && Number.isFinite(rawOption.score)) {
               clean.score = Math.round(rawOption.score);

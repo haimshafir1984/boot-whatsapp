@@ -1585,6 +1585,7 @@
                   <option value="media">&#1514;&#1502;&#1493;&#1504;&#1492; / &#1505;&#1512;&#1496;&#1493;&#1503; / &#1511;&#1493;&#1489;&#1509;</option>
                   <option value="contact_card">&#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1500;&#1513;&#1502;&#1497;&#1512;&#1492;</option>
                   <option value="referral_share" data-referral-feature>&#1500;&#1497;&#1504;&#1511; &#1488;&#1497;&#1513;&#1497; &#1500;&#1514;&#1495;&#1512;&#1493;&#1514;</option>
+                  <option value="referral_hub" data-referral-feature>&#1502;&#1512;&#1499;&#1494; &#1513;&#1497;&#1514;&#1493;&#1508;&#1497;&#1501; &#1493;&#1491;&#1497;&#1512;&#1493;&#1490;</option>
                 </select>
                 <button type="button" class="btn-small" onclick="addDecisionStepFromSelect()">+ &#1492;&#1493;&#1505;&#1507; &#1513;&#1500;&#1489;</button>
               </div>
@@ -1601,6 +1602,7 @@
                 <option value="media">&#1514;&#1502;&#1493;&#1504;&#1492; / &#1505;&#1512;&#1496;&#1493;&#1503; / &#1511;&#1493;&#1489;&#1509;</option>
                 <option value="contact_card">&#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1500;&#1513;&#1502;&#1497;&#1512;&#1492;</option>
                 <option value="referral_share" data-referral-feature>&#1500;&#1497;&#1504;&#1511; &#1488;&#1497;&#1513;&#1497; &#1500;&#1514;&#1495;&#1512;&#1493;&#1514;</option>
+                <option value="referral_hub" data-referral-feature>&#1502;&#1512;&#1499;&#1494; &#1513;&#1497;&#1514;&#1493;&#1508;&#1497;&#1501; &#1493;&#1491;&#1497;&#1512;&#1493;&#1490;</option>
               </select>
               <button type="button" class="btn-small" onclick="addDecisionStepFromBottomSelect()">+ &#1492;&#1493;&#1505;&#1507; &#1513;&#1500;&#1489;</button>
             </div>
@@ -3215,7 +3217,7 @@
     `;
   }
   function decisionOptionHtml(option = {}, index = 0) {
-    const action = option.action === 'request_group_join' ? 'request_group_join' : (option.fileId ? 'file' : (option.nextStepId ? 'next' : 'end'));
+    const action = option.action || (option.fileId ? 'file' : (option.nextStepId ? 'next' : 'end'));
     return `
       <div class="decision-option" data-decision-option data-option-id="${esc(option.id || makeFlowId('option'))}">
         <div class="decision-option-number">${index + 1}</div>
@@ -3242,12 +3244,18 @@
               <option value="file" ${action === 'file' ? 'selected' : ''}>שליחת קובץ</option>
               <option value="next" ${action === 'next' ? 'selected' : ''}>לעבור לשלב</option>
               <option value="request_group_join" ${action === 'request_group_join' ? 'selected' : ''}>&#1489;&#1511;&#1513;&#1514; &#1510;&#1497;&#1512;&#1493;&#1507; &#1500;&#1511;&#1489;&#1493;&#1510;&#1492;</option>
+              <option value="referral_link" ${action === 'referral_link' ? 'selected' : ''}>&#1500;&#1497;&#1504;&#1511; &#1488;&#1497;&#1513;&#1497;</option>
+              <option value="referral_leaderboard" ${action === 'referral_leaderboard' ? 'selected' : ''}>&#1492;&#1510;&#1490;&#1514; &#1502;&#1493;&#1489;&#1497;&#1500;&#1497;&#1501;</option>
+              <option value="referral_my_rank" ${action === 'referral_my_rank' ? 'selected' : ''}>&#1502;&#1492; &#1492;&#1502;&#1511;&#1493;&#1501; &#1513;&#1500;&#1497;</option>
             </select>
             <div class="decision-action-tabs">
               <button type="button" class="decision-action-tab" data-action="end" onclick="setDecisionOptionAction(this, 'end')">שלח הודעה וסיים</button>
               <button type="button" class="decision-action-tab" data-action="file" onclick="setDecisionOptionAction(this, 'file')">שלח קובץ</button>
               <button type="button" class="decision-action-tab" data-action="next" onclick="setDecisionOptionAction(this, 'next')">מעבר לשאלה הבאה</button>
               <button type="button" class="decision-action-tab" data-action="request_group_join" onclick="setDecisionOptionAction(this, 'request_group_join')">&#1513;&#1500;&#1495; &#1489;&#1511;&#1513;&#1514; &#1510;&#1497;&#1512;&#1493;&#1507; &#1500;&#1502;&#1504;&#1492;&#1500;&#1514;</button>
+              <button type="button" class="decision-action-tab" data-action="referral_link" onclick="setDecisionOptionAction(this, 'referral_link')">&#1513;&#1500;&#1495; &#1500;&#1497;&#1504;&#1511; &#1488;&#1497;&#1513;&#1497;</button>
+              <button type="button" class="decision-action-tab" data-action="referral_leaderboard" onclick="setDecisionOptionAction(this, 'referral_leaderboard')">&#1492;&#1510;&#1490; &#1502;&#1493;&#1489;&#1497;&#1500;&#1497;&#1501;</button>
+              <button type="button" class="decision-action-tab" data-action="referral_my_rank" onclick="setDecisionOptionAction(this, 'referral_my_rank')">&#1492;&#1510;&#1490; &#1502;&#1511;&#1493;&#1501; &#1488;&#1497;&#1513;&#1497;</button>
             </div>
             <div class="decision-action-summary" data-option-summary></div>
             <div class="decision-option-label" data-option-next-label>לאיזו שאלה ממשיכים אחרי הבחירה?</div>
@@ -3331,6 +3339,7 @@
       contact_card: 'contact_card',
       referral: 'referral_share',
       referral_share: 'referral_share',
+      referral_hub: 'referral_hub',
     };
     return normalized[type] || 'message';
   }
@@ -3390,6 +3399,14 @@
     }
     if (type === 'wait_reply') {
       addDecisionStep({ id: makeFlowId(), kind: 'wait_reply', text: '', nextStepId: '__NEXT__' });
+      return;
+    }
+    if (type === 'referral_hub') {
+      addDecisionStep({ id: makeFlowId(), kind: 'question', text: '\u05de\u05d4 \u05ea\u05e8\u05e6\u05d9 \u05dc\u05e2\u05e9\u05d5\u05ea?', presentation: 'buttons', options: [
+        { id: makeFlowId('option'), text: '\u05d9\u05e6\u05d9\u05e8\u05ea \u05dc\u05d9\u05e0\u05e7 \u05d0\u05d9\u05e9\u05d9', action: 'referral_link', endText: '\u05d6\u05d4 \u05d4\u05dc\u05d9\u05e0\u05e7 \u05d4\u05d0\u05d9\u05e9\u05d9 \u05e9\u05dc\u05da:\n{referral_link}' },
+        { id: makeFlowId('option'), text: '\u05d4\u05e6\u05d2\u05ea \u05de\u05d5\u05d1\u05d9\u05dc\u05d9\u05dd', action: 'referral_leaderboard', endText: '\u05d4\u05de\u05d5\u05d1\u05d9\u05dc\u05d5\u05ea \u05db\u05e8\u05d2\u05e2:' },
+        { id: makeFlowId('option'), text: '\u05de\u05d4 \u05d4\u05de\u05e7\u05d5\u05dd \u05e9\u05dc\u05d9?', action: 'referral_my_rank', endText: '\u05d0\u05ea \u05d1\u05de\u05e7\u05d5\u05dd {rank} \u05de\u05ea\u05d5\u05da {participants}.\n{referrals} \u05de\u05e9\u05ea\u05ea\u05e4\u05d5\u05ea \u05d4\u05e6\u05d8\u05e8\u05e4\u05d5 \u05d3\u05e8\u05da \u05d4\u05dc\u05d9\u05e0\u05e7 \u05e9\u05dc\u05da.\n{next_gap_text}' },
+      ] });
       return;
     }
     if (type === 'referral_share') {
@@ -3743,6 +3760,10 @@
               const action = option.querySelector('[data-option-action]')?.value || 'end';
               if (action === 'request_group_join') {
                 clean.action = 'request_group_join';
+              } else if (action === 'referral_link' || action === 'referral_leaderboard' || action === 'referral_my_rank') {
+                clean.action = action;
+                const responseText = option.querySelector('[data-option-end-text]').value.trim();
+                if (responseText) clean.endText = responseText;
               } else if (action === 'next') {
                 const nextStepId = option.querySelector('[data-option-next]').value;
                 const nextText = option.querySelector('[data-option-end-text]').value.trim();

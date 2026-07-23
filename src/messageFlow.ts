@@ -1749,6 +1749,11 @@ async function handleDecisionReply(
     await handleGroupJoinRequest(transport, storage, senderJid, flow, step, option, campaignId, campaignResultId, senderPhone, humanHandoff);
     return;
   }
+  if (option.action === 'referral_link' || option.action === 'referral_leaderboard' || option.action === 'referral_my_rank') {
+    rememberRecentDecisionReply(senderPhone, option.id, answer);
+    await handleReferralMenuAction(transport, storage, senderJid, flow, step, option, campaignId, campaignResultId, senderPhone, humanHandoff);
+    return;
+  }
   conversationState.pause(senderJid);
   if (step.kind === 'score_question') {
     const score = scoreForOption(option, step);
@@ -1827,6 +1832,37 @@ async function handleDecisionReply(
   }
   rememberRecentDecisionReply(senderPhone, option.id, answer);
   clearTimedOutDecision(senderPhone || senderJid);
+}
+
+function referralDisplayName(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return parts.length < 2 ? (parts[0] || '\u05de\u05e9\u05ea\u05ea\u05e4\u05ea') : `${parts[0]} ${parts[1].slice(0, 1)}.`;
+}
+
+async function handleReferralMenuAction(transport: WhatsAppTransport, storage: Storage, senderJid: string, flow: DecisionFlowStep[], step: DecisionFlowStep, option: DecisionFlowOption, campaignId?: string, campaignResultId?: string, senderPhone?: string, humanHandoff: CampaignReplyBehavior = {}): Promise<void> {
+  if (!campaignId || !campaignResultId) return;
+  const campaign = storage.getCampaigns().find((item) => item.id === campaignId);
+  if (!campaign) return;
+  let message = '';
+  if (option.action === 'referral_link') {
+    const code = storage.ensureCampaignResultReferralCode(campaignResultId) || senderPhone || '';
+    const link = buildReferralShareLink(storage, campaign.triggerPhrase, code);
+    message = formatReferralShareMessage(option.endText?.trim() || '\u05d6\u05d4 \u05d4\u05dc\u05d9\u05e0\u05e7 \u05d4\u05d0\u05d9\u05e9\u05d9 \u05e9\u05dc\u05da:\n{referral_link}', link, code);
+    storage.recordCampaignEvent({ campaignId, campaignResultId, phone: senderPhone, type: 'referral_link_sent', label: code });
+  } else if (option.action === 'referral_leaderboard') {
+    const rows = storage.getCampaignReferralLeaderboard(campaignId).filter((row) => row.invited > 0).slice(0, 5);
+    const header = option.endText?.trim() || '\u05d4\u05de\u05d5\u05d1\u05d9\u05dc\u05d5\u05ea \u05db\u05e8\u05d2\u05e2:';
+    const lines = rows.map((row, index, all) => { const rank = all.findIndex((candidate) => candidate.invited === row.invited && candidate.saved === row.saved) + 1; return `${rank}. ${referralDisplayName(row.name)} - ${row.invited} \u05de\u05e6\u05d8\u05e8\u05e4\u05d5\u05ea`; });
+    message = rows.length ? `${header}\n\n${lines.join('\n')}` : '\u05e2\u05d3\u05d9\u05d9\u05df \u05d0\u05d9\u05df \u05e0\u05ea\u05d5\u05e0\u05d9 \u05e9\u05d9\u05ea\u05d5\u05e3 \u05d1\u05e7\u05de\u05e4\u05d9\u05d9\u05df.';
+    storage.recordCampaignEvent({ campaignId, campaignResultId, phone: senderPhone, type: 'referral_leaderboard_viewed', label: String(rows.length) });
+  } else {
+    const rank = storage.getCampaignReferralRank(campaignId, senderPhone || senderJid);
+    const template = option.endText?.trim() || '\u05d0\u05ea \u05d1\u05de\u05e7\u05d5\u05dd {rank} \u05de\u05ea\u05d5\u05da {participants}.\n{referrals} \u05de\u05e9\u05ea\u05ea\u05e4\u05d5\u05ea \u05d4\u05e6\u05d8\u05e8\u05e4\u05d5 \u05d3\u05e8\u05da \u05d4\u05dc\u05d9\u05e0\u05e7 \u05e9\u05dc\u05da.\n{next_gap_text}';
+    message = rank ? template.split('{rank}').join(String(rank.rank)).split('{participants}').join(String(rank.participants)).split('{referrals}').join(String(rank.invited)).split('{saved}').join(String(rank.saved)).split('{next_gap}').join(String(rank.nextGap)).split('{next_gap_text}').join(rank.rank === 1 ? '\u05d0\u05ea \u05d1\u05de\u05e7\u05d5\u05dd \u05d4\u05e8\u05d0\u05e9\u05d5\u05df!' : `\u05dc\u05de\u05e7\u05d5\u05dd \u05d4\u05d1\u05d0 \u05d7\u05e1\u05e8\u05d5\u05ea \u05dc\u05da ${rank.nextGap} \u05d4\u05e6\u05d8\u05e8\u05e4\u05d5\u05d9\u05d5\u05ea.`) : '\u05e2\u05d3\u05d9\u05d9\u05df \u05dc\u05d0 \u05e0\u05d5\u05e6\u05e8 \u05dc\u05da \u05d3\u05d9\u05e8\u05d5\u05d2. \u05d0\u05e4\u05e9\u05e8 \u05dc\u05d1\u05e7\u05e9 \u05d0\u05ea \u05d4\u05dc\u05d9\u05e0\u05e7 \u05d4\u05d0\u05d9\u05e9\u05d9 \u05d5\u05dc\u05e9\u05ea\u05e3.';
+    storage.recordCampaignEvent({ campaignId, campaignResultId, phone: senderPhone, type: 'referral_rank_viewed', label: rank ? String(rank.rank) : 'none' });
+  }
+  await sendBotMessage(transport, senderJid, message, 0);
+  await sendDecisionStep(transport, storage, senderJid, flow, step.id, campaignId, campaignResultId, senderPhone, humanHandoff);
 }
 
 async function handleGroupJoinRequest(transport: WhatsAppTransport, storage: Storage, senderJid: string, flow: DecisionFlowStep[], step: DecisionFlowStep, option: DecisionFlowOption, campaignId?: string, campaignResultId?: string, senderPhone?: string, humanHandoff: CampaignReplyBehavior = {}): Promise<void> {
