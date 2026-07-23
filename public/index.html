@@ -2606,6 +2606,21 @@
     const endAt = noEndAt ? null : localDateTimeToIso(endAtLocal);
     const conversation = getCampaignConversation();
 
+    // A group-join button silently fails at runtime when no manager phone is set,
+    // and it never advances the flow, so a question made only of such buttons traps the participant.
+    const groupJoinSteps = (conversation.decisionFlow || [])
+      .filter(step => (step.options || []).some(option => option.action === 'request_group_join'));
+    if (groupJoinSteps.length && !String(conversation.groupJoinManagerPhone || '').trim()) {
+      setFieldError('fGroupJoinManagerPhone', 'חסר מספר WhatsApp של המנהלת. בלעדיו בקשת הצירוף לא תישלח והמשתתפת תקבל הודעת כשל.');
+      errEl.textContent = 'יש כפתור "בקשת צירוף לקבוצה" בלי מספר מנהלת. השלימו את המספר לפני שמירה.';
+      return;
+    }
+    const trappedStep = groupJoinSteps.find(step => (step.options || [])
+      .every(option => option.action === 'request_group_join'));
+    if (trappedStep && !confirm('בשאלה "' + String(trappedStep.text || '').slice(0, 60) + '" כל האפשרויות הן בקשת צירוף לקבוצה.\n\nכפתור כזה לא מקדם את השיחה, ולכן המשתתפת תישאר באותה שאלה עד לפקיעת הזמן.\n\nלשמור בכל זאת?')) {
+      return;
+    }
+
     let body;
     if (triggerType === 1) {
       const phrase = document.getElementById('fPhrase').value.trim();

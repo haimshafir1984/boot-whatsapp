@@ -1871,6 +1871,10 @@ async function handleGroupJoinRequest(transport: WhatsAppTransport, storage: Sto
   const managerPhone = normalizeHumanHandoffPhone(settings?.groupJoinManagerPhone);
   const dedupeKey = `group_join_request:${step.id}:${option.id}`;
   let delivered = Boolean(campaignId && campaignResultId && storage.getCampaignEvents(campaignId).some((event) => event.campaignResultId === campaignResultId && event.dedupeKey === dedupeKey));
+  if (!delivered && !managerPhone) {
+    // Without this the participant just receives the failure text and nothing is logged.
+    console.error(`[GROUP_JOIN_NOT_CONFIGURED] campaign=${campaignId ?? ''} result=${campaignResultId ?? ''} phone=${senderPhone ?? ''} step=${step.id} - groupJoinManagerPhone is empty.`);
+  }
   if (!delivered && managerPhone && campaignId) {
     const participantPhone = normalizeHumanHandoffPhone(senderPhone || senderJid);
     const campaignName = campaign?.name || campaignId;

@@ -1441,6 +1441,12 @@ export class Storage {
       humanHandoffEnabled: campaign.conversation?.humanHandoffEnabled ?? defaults.humanHandoffEnabled,
       humanHandoffText: campaign.conversation?.humanHandoffText ?? defaults.humanHandoffText,
       humanHandoffPhone: campaign.conversation?.humanHandoffPhone ?? defaults.humanHandoffPhone,
+      // Group-join settings are campaign-level only; AdminSettings has no defaults for them.
+      groupJoinManagerPhone: campaign.conversation?.groupJoinManagerPhone ?? '',
+      groupJoinParticipantConfirmationText: campaign.conversation?.groupJoinParticipantConfirmationText ?? '',
+      groupJoinParticipantFailureText: campaign.conversation?.groupJoinParticipantFailureText ?? '',
+      groupJoinMetaTemplateName: campaign.conversation?.groupJoinMetaTemplateName ?? '',
+      groupJoinMetaTemplateLanguage: campaign.conversation?.groupJoinMetaTemplateLanguage ?? 'he',
     };
   }
 
