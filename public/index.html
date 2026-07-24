@@ -3256,7 +3256,7 @@
     `;
   }
   function decisionOptionHtml(option = {}, index = 0) {
-    const action = option.action || (option.fileId ? 'file' : (option.nextStepId ? 'next' : 'end'));
+    const action = option.action || (option.fileId ? 'file' : 'next');
     return `
       <div class="decision-option" data-decision-option data-option-id="${esc(option.id || makeFlowId('option'))}">
         <div class="decision-option-number">${index + 1}</div>
@@ -3282,19 +3282,16 @@
               <option value="end" ${action === 'end' ? 'selected' : ''}>סיום</option>
               <option value="file" ${action === 'file' ? 'selected' : ''}>שליחת קובץ</option>
               <option value="next" ${action === 'next' ? 'selected' : ''}>לעבור לשלב</option>
-              <option value="request_group_join" ${action === 'request_group_join' ? 'selected' : ''}>&#1489;&#1511;&#1513;&#1514; &#1510;&#1497;&#1512;&#1493;&#1507; &#1500;&#1511;&#1489;&#1493;&#1510;&#1492;</option>
-              <option value="referral_link" ${action === 'referral_link' ? 'selected' : ''}>&#1500;&#1497;&#1504;&#1511; &#1488;&#1497;&#1513;&#1497;</option>
-              <option value="referral_leaderboard" ${action === 'referral_leaderboard' ? 'selected' : ''}>&#1492;&#1510;&#1490;&#1514; &#1502;&#1493;&#1489;&#1497;&#1500;&#1497;&#1501;</option>
-              <option value="referral_my_rank" ${action === 'referral_my_rank' ? 'selected' : ''}>&#1502;&#1492; &#1492;&#1502;&#1511;&#1493;&#1501; &#1513;&#1500;&#1497;</option>
+              <option value="request_group_join" ${action === 'request_group_join' ? 'selected' : ''}>&#1513;&#1500;&#1495; &#1500;&#1502;&#1504;&#1492;&#1500;</option>
+              <option value="referral_link" hidden ${action === 'referral_link' ? 'selected' : ''}></option>
+              <option value="referral_leaderboard" hidden ${action === 'referral_leaderboard' ? 'selected' : ''}></option>
+              <option value="referral_my_rank" hidden ${action === 'referral_my_rank' ? 'selected' : ''}></option>
             </select>
             <div class="decision-action-tabs">
               <button type="button" class="decision-action-tab" data-action="end" onclick="setDecisionOptionAction(this, 'end')">שלח הודעה וסיים</button>
               <button type="button" class="decision-action-tab" data-action="file" onclick="setDecisionOptionAction(this, 'file')">שלח קובץ</button>
               <button type="button" class="decision-action-tab" data-action="next" onclick="setDecisionOptionAction(this, 'next')">מעבר לשאלה הבאה</button>
-              <button type="button" class="decision-action-tab" data-action="request_group_join" onclick="setDecisionOptionAction(this, 'request_group_join')">&#1513;&#1500;&#1495; &#1489;&#1511;&#1513;&#1514; &#1510;&#1497;&#1512;&#1493;&#1507; &#1500;&#1502;&#1504;&#1492;&#1500;&#1514;</button>
-              <button type="button" class="decision-action-tab" data-action="referral_link" onclick="setDecisionOptionAction(this, 'referral_link')">&#1513;&#1500;&#1495; &#1500;&#1497;&#1504;&#1511; &#1488;&#1497;&#1513;&#1497;</button>
-              <button type="button" class="decision-action-tab" data-action="referral_leaderboard" onclick="setDecisionOptionAction(this, 'referral_leaderboard')">&#1492;&#1510;&#1490; &#1502;&#1493;&#1489;&#1497;&#1500;&#1497;&#1501;</button>
-              <button type="button" class="decision-action-tab" data-action="referral_my_rank" onclick="setDecisionOptionAction(this, 'referral_my_rank')">&#1492;&#1510;&#1490; &#1502;&#1511;&#1493;&#1501; &#1488;&#1497;&#1513;&#1497;</button>
+              <button type="button" class="decision-action-tab" data-action="request_group_join" onclick="setDecisionOptionAction(this, 'request_group_join')">&#1513;&#1500;&#1495; &#1500;&#1502;&#1504;&#1492;&#1500;</button>
             </div>
             <div class="decision-action-summary" data-option-summary></div>
             <div class="decision-option-label" data-option-next-label>לאיזו שאלה ממשיכים אחרי הבחירה?</div>
@@ -3888,7 +3885,7 @@
     if (!editingId) { out.textContent = 'צריך לשמור את הקמפיין לפני בדיקה.'; return; }
     out.textContent = 'שולח בדיקה...';
     try {
-      const res = await fetch(`/api/campaigns/${editingId}/group-join/test`, { method: 'POST', credentials: 'include' });
+      const res = await fetch(`/api/campaigns/${editingId}/group-join/test`, { method: 'POST', credentials: 'include', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ conversation: getCampaignConversation() }) });
       const data = await res.json();
       out.textContent = res.ok
         ? `✅ נשלח (${data.mode}). ${data.note || ''}`

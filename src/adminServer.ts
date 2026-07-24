@@ -2859,7 +2859,7 @@ export function startAdminServer(storage: Storage): void {
     const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
     if (!campaign) { res.status(404).json({ error: 'Campaign not found' }); return; }
     if (config.WHATSAPP_PROVIDER !== 'META_CLOUD_API') { res.status(409).json({ error: 'זמין רק ללקוח Meta Cloud API.' }); return; }
-    const settings = storage.getCampaignConversationSettings(campaign);
+    const settings = conversationSettings(req.body?.conversation, storage.getCampaignConversationSettings(campaign));
     const managerPhone = String(settings.groupJoinManagerPhone || '').replace(/\D/g, '');
     if (!managerPhone) { res.status(400).json({ error: 'לא הוגדר מספר WhatsApp של המנהלת.' }); return; }
     const templateName = String(settings.groupJoinMetaTemplateName || '').trim();
