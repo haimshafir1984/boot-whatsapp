@@ -1888,7 +1888,10 @@ async function handleGroupJoinRequest(transport: WhatsAppTransport, storage: Sto
       .split('{name}').join(participantName);
     const configuredParams = (settings?.groupJoinMetaTemplateParams ?? []).map((value) => fillPlaceholders(String(value ?? '')).trim());
     const templateParams = configuredParams.length ? configuredParams : [participantPhone, campaignName];
-    try {
+    const botPhone = normalizeHumanHandoffPhone(config.META_DISPLAY_PHONE_NUMBER);
+    if (botPhone && botPhone === managerPhone) {
+      console.error(`[GROUP_JOIN_INVALID_RECIPIENT] campaign=${campaignId} result=${campaignResultId ?? ''} phone=${senderPhone ?? ''} - manager phone matches the Meta business phone.`);
+    } else try {
       const templateName = settings?.groupJoinMetaTemplateName?.trim();
       if (templateName) {
         if (!transport.sendTemplateMessage) throw new Error('Configured Meta template is not supported by this provider.');

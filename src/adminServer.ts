@@ -1248,6 +1248,10 @@ export function startAdminServer(storage: Storage): void {
         matched = true;
         if (rawStatus === 'failed') console.error(`[META_DELIVERY_FAILED] to=${updated.to} wamid=${wamid} error=${errorDetail ?? ''}`);
         else console.log(`[META_DELIVERY] to=${updated.to} wamid=${wamid} status=${rawStatus}`);
+      } else {
+        const recipient = String(status?.recipient_id || '').replace(/\D/g, '');
+        const label = rawStatus === 'failed' ? '[META_DELIVERY_UNTRACKED_FAILED]' : '[META_DELIVERY_UNTRACKED]';
+        console.log(`${label} to=whatsapp:${recipient} wamid=${wamid} status=${rawStatus} error=${errorDetail ?? ''}`);
       }
     }
     return matched;
