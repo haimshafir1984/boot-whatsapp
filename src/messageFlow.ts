@@ -1892,10 +1892,12 @@ async function handleGroupJoinRequest(transport: WhatsAppTransport, storage: Sto
       const templateName = settings?.groupJoinMetaTemplateName?.trim();
       if (templateName) {
         if (!transport.sendTemplateMessage) throw new Error('Configured Meta template is not supported by this provider.');
-        await transport.sendTemplateMessage(`whatsapp:${managerPhone}`, templateName, settings?.groupJoinMetaTemplateLanguage?.trim() || 'he', templateParams);
+        const result = await transport.sendTemplateMessage(`whatsapp:${managerPhone}`, templateName, settings?.groupJoinMetaTemplateLanguage?.trim() || 'he', templateParams);
+        console.log(`[GROUP_JOIN_SENT] campaign=${campaignId} result=${campaignResultId ?? ''} to=${managerPhone} mode=template wamid=${result?.messageId ?? ''}`);
       } else {
         const managerText = `\u05d1\u05e7\u05e9\u05ea \u05e6\u05d9\u05e8\u05d5\u05e3 \u05dc\u05e7\u05d1\u05d5\u05e6\u05d4 \u05e2\u05d1\u05d5\u05e8 \u05d4\u05de\u05e1\u05e4\u05e8 ${participantPhone}, \u05de\u05e7\u05de\u05e4\u05d9\u05d9\u05df ${campaignName}.`;
         await sendBotMessage(transport, `whatsapp:${managerPhone}`, managerText, 0);
+        console.log(`[GROUP_JOIN_SENT] campaign=${campaignId} result=${campaignResultId ?? ''} to=${managerPhone} mode=text`);
       }
       storage.recordCampaignEvent({ campaignId, campaignResultId, phone: senderPhone, type: 'group_join_request', label: `${managerPhone}: ${option.text}`, dedupeKey });
       delivered = true;

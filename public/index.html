@@ -918,7 +918,7 @@
     .decision-action-tabs {
       grid-column: 1 / -1;
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 6px;
     }
     .decision-action-tab {
@@ -936,6 +936,7 @@
     .decision-action-tab[data-action=end].active { border-color: #16a34a; background: #dcfce7; color: #166534; }
     .decision-action-tab[data-action=file].active { border-color: #7c3aed; background: #ede9fe; color: #5b21b6; }
     .decision-action-tab[data-action=next].active { border-color: #2563eb; background: #dbeafe; color: #1e40af; }
+    .decision-action-tab[data-action=request_group_join].active { border-color: #2563eb; background: #dbeafe; color: #1e40af; }
     .decision-action-summary {
       grid-column: 1 / -1;
       border-radius: 8px;
@@ -3536,6 +3537,12 @@
     const select = option?.querySelector('[data-option-action]');
     if (!select) return;
     select.value = action;
+    option.querySelectorAll('[data-action]').forEach((item) => {
+      const active = item.dataset.action === action;
+      item.classList.toggle('active', active);
+      item.setAttribute('aria-pressed', String(active));
+    });
+    select.dispatchEvent(new Event('change', { bubbles: true }));
     updateDecisionStepVisibility();
     updateCampaignConversationPreview();
   }
