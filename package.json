@@ -24,7 +24,8 @@
     "test:dokploy-provisioner": "npm run build && node scripts/test-dokploy-provisioner-postgres.js",
     "test:provider-health": "npm run build && node scripts/test-provider-health.js",
     "test:referral-ranking": "npm run build && node scripts/test-referral-ranking.js",
-    "test:group-join-flow": "npm run build && node scripts/test-group-join-flow.js"
+    "test:group-join-flow": "npm run build && node scripts/test-group-join-flow.js",
+    "test:score-result-preface": "npm run build && node scripts/test-score-result-preface.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc13",

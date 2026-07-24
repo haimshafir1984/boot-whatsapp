@@ -490,7 +490,7 @@ function getClientCapabilities(storage: Storage) {
     whatsappProvider: config.WHATSAPP_PROVIDER,
     twilioConfigured: twilioConfigured(),
     campaignCount,
-    referralContestEnabled: config.CLIENT_REFERRAL_CONTEST_ENABLED || campaignCount === 0,
+    referralContestEnabled: true,
   };
 }
 
@@ -667,7 +667,7 @@ function conversationSettings(
     followupMessages: Array.isArray(input?.followupMessages)
       ? input.followupMessages.filter((message): message is string => typeof message === 'string')
       : defaults.followupMessages,
-    decisionFlow: sanitizeDecisionFlow(input?.decisionFlow, defaults.decisionFlow, config.CLIENT_REFERRAL_CONTEST_ENABLED),
+    decisionFlow: sanitizeDecisionFlow(input?.decisionFlow, defaults.decisionFlow, true),
     decisionTimeoutMinutes: typeof input?.decisionTimeoutMinutes === 'number' && input.decisionTimeoutMinutes > 0
       ? Math.min(Math.max(Math.round(input.decisionTimeoutMinutes), 1), 1440)
       : (defaults.decisionTimeoutMinutes ?? 30),

@@ -3736,7 +3736,7 @@
     const steps = [...document.querySelectorAll('[data-decision-step]')]
       .map(step => {
         const rawKind = step.querySelector('[data-step-kind]').value;
-        const kind = rawKind === 'question' || rawKind === 'score_question' || rawKind === 'score_result' || rawKind === 'wait_reply' || rawKind === 'contact_card' || (appCapabilities.referralContestEnabled && rawKind === 'referral_share') ? rawKind : 'message';
+        const kind = rawKind === 'question' || rawKind === 'score_question' || rawKind === 'score_result' || rawKind === 'wait_reply' || rawKind === 'contact_card' || rawKind === 'referral_share' ? rawKind : 'message';
         const item = {
           id: step.dataset.stepId || makeFlowId(),
           kind,

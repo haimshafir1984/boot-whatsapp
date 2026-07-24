@@ -2284,6 +2284,13 @@ async function handleScoreResultStep(
 ): Promise<void> {
   const answers = storage.getCampaignScoreAnswers(campaignResultId);
   const matchedRule = evaluateScoreResultRule(step.resultRules ?? [], answers);
+  const preface = step.text.trim();
+  // The step text is an optional message shown before the calculated result.
+  if (preface && preface !== '\u05d7\u05d9\u05e9\u05d5\u05d1 \u05ea\u05d5\u05e6\u05d0\u05d4') {
+    const delayMs = Number.isFinite(step.delayMs) ? Math.max(0, step.delayMs ?? BOT_REPLY_DELAY_MS) : BOT_REPLY_DELAY_MS;
+    await sendBotMessage(transport, senderJid, preface, delayMs);
+    console.log('   Score-result preface sent.');
+  }
   if (campaignId) {
     storage.recordCampaignEvent({
       campaignId,
