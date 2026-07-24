@@ -3432,7 +3432,7 @@
       return;
     }
     if (type === 'referral_hub') {
-      addDecisionStep({ id: makeFlowId(), kind: 'question', text: '\u05de\u05d4 \u05ea\u05e8\u05e6\u05d9 \u05dc\u05e2\u05e9\u05d5\u05ea?', presentation: 'buttons', options: [
+      addDecisionStep({ id: makeFlowId(), kind: 'question', referralHub: true, text: '\u05de\u05d4 \u05ea\u05e8\u05e6\u05d9 \u05dc\u05e2\u05e9\u05d5\u05ea?', presentation: 'buttons', options: [
         { id: makeFlowId('option'), text: '\u05d9\u05e6\u05d9\u05e8\u05ea \u05dc\u05d9\u05e0\u05e7 \u05d0\u05d9\u05e9\u05d9', action: 'referral_link', endText: '\u05d6\u05d4 \u05d4\u05dc\u05d9\u05e0\u05e7 \u05d4\u05d0\u05d9\u05e9\u05d9 \u05e9\u05dc\u05da:\n{referral_link}' },
         { id: makeFlowId('option'), text: '\u05d4\u05e6\u05d2\u05ea \u05de\u05d5\u05d1\u05d9\u05dc\u05d9\u05dd', action: 'referral_leaderboard', endText: '\u05d4\u05de\u05d5\u05d1\u05d9\u05dc\u05d5\u05ea \u05db\u05e8\u05d2\u05e2:' },
         { id: makeFlowId('option'), text: '\u05de\u05d4 \u05d4\u05de\u05e7\u05d5\u05dd \u05e9\u05dc\u05d9?', action: 'referral_my_rank', endText: '\u05d0\u05ea \u05d1\u05de\u05e7\u05d5\u05dd {rank} \u05de\u05ea\u05d5\u05da {participants}.\n{referrals} \u05de\u05e9\u05ea\u05ea\u05e4\u05d5\u05ea \u05d4\u05e6\u05d8\u05e8\u05e4\u05d5 \u05d3\u05e8\u05da \u05d4\u05dc\u05d9\u05e0\u05e7 \u05e9\u05dc\u05da.\n{next_gap_text}' },

@@ -749,8 +749,12 @@ function sanitizeCompletionLinks(input: unknown, defaults: CompletionLink[]): Co
     .slice(0, 10);
 }
 
-function inferredReferralAction(option: Partial<DecisionFlowOption>): DecisionFlowOption['action'] | undefined {
+function inferredReferralAction(option: Partial<DecisionFlowOption>, referralHub = false): DecisionFlowOption['action'] | undefined {
   if (option.action) return option.action;
+  const endText = String(option.endText || '');
+  if (endText.includes('{referral_link}')) return 'referral_link';
+  if (endText.includes('{rank}') || endText.includes('{participants}') || endText.includes('{referrals}')) return 'referral_my_rank';
+  if (referralHub) return 'referral_leaderboard';
   const text = String(option.text || '').trim();
   if (text === '\u05d9\u05e6\u05d9\u05e8\u05ea \u05dc\u05d9\u05e0\u05e7 \u05d0\u05d9\u05e9\u05d9') return 'referral_link';
   if (text === '\u05d4\u05e6\u05d2\u05ea \u05de\u05d5\u05d1\u05d9\u05dc\u05d9\u05dd') return 'referral_leaderboard';
@@ -779,6 +783,7 @@ function sanitizeDecisionFlow(
       if (!text && !canSendWithoutText) return null;
 
       const step: DecisionFlowStep = { id, kind, text };
+      if (kind === 'question' && item.referralHub === true) step.referralHub = true;
       if (typeof item.nextStepId === 'string' && item.nextStepId.trim()) {
         step.nextStepId = item.nextStepId.trim().slice(0, 80);
       }
@@ -870,7 +875,7 @@ function sanitizeDecisionFlow(
             if (rawOption.raffleEntry === true) {
               clean.raffleEntry = true;
             }
-            const action = inferredReferralAction(rawOption);
+            const action = inferredReferralAction(rawOption, step.referralHub === true);
             if (action === 'request_group_join' || action === 'referral_link' || action === 'referral_leaderboard' || action === 'referral_my_rank') {
               clean.action = action;
               delete clean.fileId; delete clean.fileAsSticker;

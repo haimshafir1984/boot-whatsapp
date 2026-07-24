@@ -127,6 +127,7 @@ export interface DecisionFlowStep {
   resultRules?: ScoreResultRule[];
   fallbackText?: string;
   fallbackNextStepId?: string;
+  referralHub?: boolean;
 }
 
 export interface ScoreResultRule {
