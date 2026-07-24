@@ -1684,6 +1684,13 @@ async function handleDecisionReply(
   senderPhone?: string,
   humanHandoff: CampaignReplyBehavior = {},
 ): Promise<void> {
+  // A participant can remain on a question while an admin edits the campaign.
+  // Resolve the pending step from the saved campaign so new option actions apply immediately.
+  if (campaignId) {
+    const campaign = storage.getCampaigns().find((item) => item.id === campaignId);
+    const latestFlow = campaign ? storage.getCampaignConversationSettings(campaign).decisionFlow : undefined;
+    if (latestFlow?.some((item) => item.id === stepId)) flow = latestFlow;
+  }
   const step = flow.find((item) => item.id === stepId);
   if (!step || (step.kind !== 'question' && step.kind !== 'score_question')) {
     console.error(`[STATE_INVALID] campaign=${campaignId ?? ''} result=${campaignResultId ?? ''} phone=${senderPhone ?? ''} step=${stepId}`);
