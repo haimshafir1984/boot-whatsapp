@@ -1869,7 +1869,12 @@ async function handleReferralMenuAction(transport: WhatsAppTransport, storage: S
     storage.recordCampaignEvent({ campaignId, campaignResultId, phone: senderPhone, type: 'referral_rank_viewed', label: rank ? String(rank.rank) : 'none' });
   }
   await sendBotMessage(transport, senderJid, message, 0);
-  await sendDecisionStep(transport, storage, senderJid, flow, step.id, campaignId, campaignResultId, senderPhone, humanHandoff);
+  if (option.nextStepId) {
+    await sendDecisionStep(transport, storage, senderJid, flow, option.nextStepId, campaignId, campaignResultId, senderPhone, humanHandoff);
+  } else {
+    storage.recordCampaignEvent({ campaignId, campaignResultId, phone: senderPhone, type: 'completed', label: 'referral menu action' });
+    keepHumanHandoffOpen(senderJid, campaignId, campaignResultId, senderPhone, humanHandoff);
+  }
 }
 
 async function handleGroupJoinRequest(transport: WhatsAppTransport, storage: Storage, senderJid: string, flow: DecisionFlowStep[], step: DecisionFlowStep, option: DecisionFlowOption, campaignId?: string, campaignResultId?: string, senderPhone?: string, humanHandoff: CampaignReplyBehavior = {}): Promise<void> {

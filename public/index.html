@@ -3658,11 +3658,11 @@
         option.querySelectorAll('[data-action]').forEach(button => {
           button.classList.toggle('active', button.dataset.action === action);
         });
-        nextSelect.style.display = action === 'next' || action === 'request_group_join' ? '' : 'none';
+        nextSelect.style.display = action === 'next' || action === 'request_group_join' || action === 'referral_link' || action === 'referral_leaderboard' || action === 'referral_my_rank' ? '' : 'none';
         fileSelect.style.display = action === 'file' ? '' : 'none';
         stickerWrap.style.display = action === 'file' ? '' : 'none';
         endText.style.display = '';
-        option.querySelector('[data-option-next-label]').style.display = action === 'next' || action === 'request_group_join' ? '' : 'none';
+        option.querySelector('[data-option-next-label]').style.display = action === 'next' || action === 'request_group_join' || action === 'referral_link' || action === 'referral_leaderboard' || action === 'referral_my_rank' ? '' : 'none';
         option.querySelector('[data-option-file-label]').style.display = action === 'file' ? '' : 'none';
         option.querySelector('[data-option-end-label]').style.display = '';
         option.querySelector('[data-option-end-text]').placeholder = action === 'file'
@@ -3801,6 +3801,8 @@
                 clean.action = action;
                 const responseText = option.querySelector('[data-option-end-text]').value.trim();
                 if (responseText) clean.endText = responseText;
+                const nextStepId = option.querySelector('[data-option-next]').value;
+                if (nextStepId) clean.nextStepId = nextStepId;
               } else if (action === 'next') {
                 const nextStepId = option.querySelector('[data-option-next]').value;
                 const nextText = option.querySelector('[data-option-end-text]').value.trim();
