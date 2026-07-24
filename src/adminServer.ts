@@ -2910,6 +2910,19 @@ export function startAdminServer(storage: Storage): void {
     res.json({ campaignId: campaign.id, referrals: storage.getCampaignReferralLeaderboard(campaign.id) });
   });
 
+  app.post('/api/campaign-results/:id/referrals/demo', requireWritableClient, (req, res) => {
+    const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
+    if (!campaign) { res.status(404).json({ error: 'Campaign not found' }); return; }
+    const result = storage.seedCampaignReferralDemo(campaign.id);
+    res.json({ ok: true, campaignId: campaign.id, ...result, referrals: storage.getCampaignReferralLeaderboard(campaign.id) });
+  });
+
+  app.delete('/api/campaign-results/:id/referrals/demo', requireWritableClient, (req, res) => {
+    const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
+    if (!campaign) { res.status(404).json({ error: 'Campaign not found' }); return; }
+    const removed = storage.clearCampaignReferralDemo(campaign.id);
+    res.json({ ok: true, campaignId: campaign.id, removed, referrals: storage.getCampaignReferralLeaderboard(campaign.id) });
+  });
   app.get('/api/campaign-results/:id/referrals/export.xls', async (req, res) => {
     const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
     if (!campaign) { res.status(404).json({ error: 'Campaign not found' }); return; }

@@ -282,6 +282,8 @@ export interface CampaignResult {
   updatedAt: string;
   scoreAnswers?: CampaignScoreAnswer[];
   scoreTotal?: number;
+  /** Local preview record, excluded by the demo cleanup action. */
+  isDemo?: boolean;
 }
 
 export interface CampaignScoreAnswer {
@@ -1005,7 +1007,7 @@ export class Storage {
     return `File ${index}`;
   }
   // Campaign results
-  recordCampaignTrigger(campaignId: string, phone: string, whatsappName = '', referredByCode = ''): CampaignResult {
+  recordCampaignTrigger(campaignId: string, phone: string, whatsappName = '', referredByCode = '', isDemo = false): CampaignResult {
     const now = new Date().toISOString();
     const resultBatchId = this.getCurrentCampaignResultBatchId(campaignId);
     const referrer = referredByCode ? this.findCampaignReferral(campaignId, referredByCode) : null;
@@ -1026,12 +1028,51 @@ export class Storage {
       status: 'awaiting_name',
       triggeredAt: now,
       updatedAt: now,
+      isDemo,
     };
     this.data.campaignResults.push(result);
     this.persist();
     return { ...result };
   }
 
+  seedCampaignReferralDemo(campaignId: string): { added: number; removed: number } {
+    const removed = this.clearCampaignReferralDemo(campaignId, false);
+    const leaders = [
+      { name: 'Demo - Noa', phone: '972599100001', invited: 14 },
+      { name: 'Demo - Maya', phone: '972599100002', invited: 10 },
+      { name: 'Demo - Lior', phone: '972599100003', invited: 7 },
+      { name: 'Demo - Yael', phone: '972599100004', invited: 4 },
+      { name: 'Demo - Shira', phone: '972599100005', invited: 2 },
+    ];
+    let added = 0;
+    for (const leader of leaders) {
+      const referrer = this.recordCampaignTrigger(campaignId, leader.phone, leader.name, '', true);
+      const storedReferrer = this.data.campaignResults.find((item) => item.id === referrer.id);
+      if (storedReferrer) storedReferrer.status = 'saved';
+      added += 1;
+      for (let index = 1; index <= leader.invited; index += 1) {
+        const phone = '972598' + String(leader.phone.slice(-3)) + String(index).padStart(3, '0');
+        const invitee = this.recordCampaignTrigger(campaignId, phone, leader.name + ' invite ' + index, referrer.referralCode, true);
+        const storedInvitee = this.data.campaignResults.find((item) => item.id === invitee.id);
+        if (storedInvitee) {
+          storedInvitee.status = index % 3 === 0 ? 'pending' : 'saved';
+          // Invitees should contribute to their leader, not appear as leaders themselves.
+          storedInvitee.referralCode = undefined;
+        }
+        added += 1;
+      }
+    }
+    this.persist();
+    return { added, removed };
+  }
+
+  clearCampaignReferralDemo(campaignId: string, persist = true): number {
+    const before = this.data.campaignResults.length;
+    this.data.campaignResults = this.data.campaignResults.filter((result) => !(result.campaignId === campaignId && result.isDemo));
+    const removed = before - this.data.campaignResults.length;
+    if (persist && removed) this.persist();
+    return removed;
+  }
   ensureCampaignResultReferralCode(resultId: string | undefined): string {
     if (!resultId) return '';
     const result = this.data.campaignResults.find((item) => item.id === resultId);
