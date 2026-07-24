@@ -9,6 +9,7 @@ import ExcelJS from 'exceljs';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { Pool } from 'pg';
 import {
   Storage,
   AdminSettings,
@@ -2823,6 +2824,22 @@ export function startAdminServer(storage: Storage): void {
       ...campaign,
       conversation: storage.getCampaignConversationSettings(campaign),
     })));
+  });
+
+  // Read-only recovery aid: app_state is the immutable import checkpoint, not the live delta store.
+  app.get('/api/campaigns/:id/checkpoint', requireWritableClient, async (req, res) => {
+    if (!config.DATABASE_URL) { res.status(404).json({ error: 'No PostgreSQL checkpoint is configured for this client.' }); return; }
+    const pool = new Pool({ connectionString: config.DATABASE_URL });
+    try {
+      const result = await pool.query<{ data: { campaigns?: Campaign[] } }>('select data from app_state where key = $1', ['storage']);
+      const campaign = result.rows[0]?.data?.campaigns?.find((item) => item.id === req.params.id) ?? null;
+      res.json({ campaign, available: Boolean(campaign) });
+    } catch (err) {
+      console.error('[CAMPAIGN_CHECKPOINT_READ_FAILED]', err);
+      res.status(502).json({ error: 'Could not read the PostgreSQL checkpoint.' });
+    } finally {
+      await pool.end();
+    }
   });
 
   // Preflight: catch the misconfigurations that otherwise fail silently at runtime.
