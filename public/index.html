@@ -2629,8 +2629,7 @@
     const endAt = noEndAt ? null : localDateTimeToIso(endAtLocal);
     const conversation = getCampaignConversation();
 
-    // A group-join button silently fails at runtime when no manager phone is set,
-    // and it never advances the flow, so a question made only of such buttons traps the participant.
+    // A manager number is required before a group-join action can be saved.
     const groupJoinSteps = (conversation.decisionFlow || [])
       .filter(step => (step.options || []).some(option => option.action === 'request_group_join'));
     if (groupJoinSteps.length && !String(conversation.groupJoinManagerPhone || '').trim()) {
@@ -2638,12 +2637,6 @@
       errEl.textContent = 'יש כפתור "בקשת צירוף לקבוצה" בלי מספר מנהלת. השלימו את המספר לפני שמירה.';
       return;
     }
-    const trappedStep = groupJoinSteps.find(step => (step.options || [])
-      .every(option => option.action === 'request_group_join'));
-    if (trappedStep && !confirm('בשאלה "' + String(trappedStep.text || '').slice(0, 60) + '" כל האפשרויות הן בקשת צירוף לקבוצה.\n\nכפתור כזה לא מקדם את השיחה, ולכן המשתתפת תישאר באותה שאלה עד לפקיעת הזמן.\n\nלשמור בכל זאת?')) {
-      return;
-    }
-
     let body;
     if (triggerType === 1) {
       const phrase = document.getElementById('fPhrase').value.trim();
@@ -3658,11 +3651,11 @@
         option.querySelectorAll('[data-action]').forEach(button => {
           button.classList.toggle('active', button.dataset.action === action);
         });
-        nextSelect.style.display = action === 'next' ? '' : 'none';
+        nextSelect.style.display = action === 'next' || action === 'request_group_join' ? '' : 'none';
         fileSelect.style.display = action === 'file' ? '' : 'none';
         stickerWrap.style.display = action === 'file' ? '' : 'none';
         endText.style.display = '';
-        option.querySelector('[data-option-next-label]').style.display = action === 'next' ? '' : 'none';
+        option.querySelector('[data-option-next-label]').style.display = action === 'next' || action === 'request_group_join' ? '' : 'none';
         option.querySelector('[data-option-file-label]').style.display = action === 'file' ? '' : 'none';
         option.querySelector('[data-option-end-label]').style.display = '';
         option.querySelector('[data-option-end-text]').placeholder = action === 'file'
@@ -3796,6 +3789,7 @@
               const action = option.querySelector('[data-option-action]')?.value || 'end';
               if (action === 'request_group_join') {
                 clean.action = 'request_group_join';
+                clean.nextStepId = option.querySelector('[data-option-next]').value || '__NEXT__';
               } else if (action === 'referral_link' || action === 'referral_leaderboard' || action === 'referral_my_rank') {
                 clean.action = action;
                 const responseText = option.querySelector('[data-option-end-text]').value.trim();

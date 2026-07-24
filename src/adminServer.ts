@@ -864,7 +864,7 @@ function sanitizeDecisionFlow(
             }
             if (rawOption.action === 'request_group_join' || rawOption.action === 'referral_link' || rawOption.action === 'referral_leaderboard' || rawOption.action === 'referral_my_rank') {
               clean.action = rawOption.action;
-              delete clean.nextStepId; delete clean.fileId; delete clean.fileAsSticker;
+              delete clean.fileId; delete clean.fileAsSticker;
               if (rawOption.action === 'request_group_join') delete clean.endText;
             }
             if (typeof rawOption.score === 'number' && Number.isFinite(rawOption.score)) {
@@ -2828,8 +2828,6 @@ export function startAdminServer(storage: Storage): void {
           errors.push(`שלב "${step.text?.slice(0, 30) || step.id}": מפנה ליעד שלא קיים.`);
         }
       }
-      const groupJoinOnly = (step.options?.length ?? 0) > 0 && (step.options ?? []).every((option) => option.action === 'request_group_join');
-      if (groupJoinOnly) warnings.push(`שלב "${step.text?.slice(0, 30) || step.id}": כל האפשרויות הן בקשת צירוף; המשתתפת תישאר בשלב עד לפקיעת הזמן.`);
     }
     // Steps nobody reaches (besides the first sendable step) are usually mistakes.
     const firstSendable = flow.find((step) => (step.text?.trim() || step.kind === 'contact_card' || (step.kind === 'message' && step.fileId)));

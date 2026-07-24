@@ -1903,7 +1903,13 @@ async function handleGroupJoinRequest(transport: WhatsAppTransport, storage: Sto
   }
   const participantText = delivered ? (settings?.groupJoinParticipantConfirmationText?.trim() || '\u05d4\u05d1\u05e7\u05e9\u05d4 \u05e0\u05e9\u05dc\u05d7\u05d4 \u05dc\u05de\u05e0\u05d4\u05dc\u05ea. \u05d0\u05e4\u05e9\u05e8 \u05dc\u05d4\u05de\u05e9\u05d9\u05da \u05db\u05d0\u05df \u05d1\u05e7\u05de\u05e4\u05d9\u05d9\u05df.') : (settings?.groupJoinParticipantFailureText?.trim() || '\u05dc\u05d0 \u05d4\u05e6\u05dc\u05d7\u05e0\u05d5 \u05dc\u05e9\u05dc\u05d5\u05d7 \u05d0\u05ea \u05d4\u05d1\u05e7\u05e9\u05d4 \u05db\u05e8\u05d2\u05e2. \u05d0\u05e4\u05e9\u05e8 \u05dc\u05e0\u05e1\u05d5\u05ea \u05e9\u05d5\u05d1.');
   await sendBotMessage(transport, senderJid, participantText, 0);
-  await sendDecisionStep(transport, storage, senderJid, flow, step.id, campaignId, campaignResultId, senderPhone, humanHandoff);
+  if (option.nextStepId) {
+    await sendDecisionStep(transport, storage, senderJid, flow, option.nextStepId, campaignId, campaignResultId, senderPhone, humanHandoff);
+  } else if (campaignId) {
+    storage.recordCampaignEvent({ campaignId, campaignResultId, phone: senderPhone, type: 'completed', label: 'group join request' });
+    keepHumanHandoffOpen(senderJid, campaignId, campaignResultId, senderPhone, humanHandoff);
+  }
+  clearTimedOutDecision(senderPhone || senderJid);
 }
 
 async function handleWaitReply(
