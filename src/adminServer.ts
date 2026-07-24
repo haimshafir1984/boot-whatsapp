@@ -749,6 +749,14 @@ function sanitizeCompletionLinks(input: unknown, defaults: CompletionLink[]): Co
     .slice(0, 10);
 }
 
+function inferredReferralAction(option: Partial<DecisionFlowOption>): DecisionFlowOption['action'] | undefined {
+  if (option.action) return option.action;
+  const text = String(option.text || '').trim();
+  if (text === '\u05d9\u05e6\u05d9\u05e8\u05ea \u05dc\u05d9\u05e0\u05e7 \u05d0\u05d9\u05e9\u05d9') return 'referral_link';
+  if (text === '\u05d4\u05e6\u05d2\u05ea \u05de\u05d5\u05d1\u05d9\u05dc\u05d9\u05dd') return 'referral_leaderboard';
+  if (text === '\u05de\u05d4 \u05d4\u05de\u05e7\u05d5\u05dd \u05e9\u05dc\u05d9?') return 'referral_my_rank';
+  return undefined;
+}
 function sanitizeDecisionFlow(
   input: unknown,
   defaults: DecisionFlowStep[],
@@ -862,10 +870,11 @@ function sanitizeDecisionFlow(
             if (rawOption.raffleEntry === true) {
               clean.raffleEntry = true;
             }
-            if (rawOption.action === 'request_group_join' || rawOption.action === 'referral_link' || rawOption.action === 'referral_leaderboard' || rawOption.action === 'referral_my_rank') {
-              clean.action = rawOption.action;
+            const action = inferredReferralAction(rawOption);
+            if (action === 'request_group_join' || action === 'referral_link' || action === 'referral_leaderboard' || action === 'referral_my_rank') {
+              clean.action = action;
               delete clean.fileId; delete clean.fileAsSticker;
-              if (rawOption.action === 'request_group_join') delete clean.endText;
+              if (action === 'request_group_join') delete clean.endText;
             }
             if (typeof rawOption.score === 'number' && Number.isFinite(rawOption.score)) {
               clean.score = Math.round(rawOption.score);
