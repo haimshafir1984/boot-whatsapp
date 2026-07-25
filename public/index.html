@@ -2450,6 +2450,19 @@
     document.title = normalized + ' | WhatsApp';
   }
 
+  async function loadManagedClientName(directoryUrl) {
+    const directory = String(directoryUrl || '').trim().replace(/\/$/, '');
+    if (!directory || directory === window.location.origin) return;
+    try {
+      const response = await fetch(directory + '/public/client-name');
+      if (!response.ok) return;
+      const identity = await response.json();
+      applyClientName(identity.clientName);
+    } catch (_) {
+      // Keep the local configured name or generic title when the directory is unavailable.
+    }
+  }
+
   function buildCampaignShortLink(campaignId) {
     const id = String(campaignId || '').trim();
     return id ? `${window.location.origin}/c/${encodeURIComponent(id)}` : '';
@@ -4142,6 +4155,7 @@
     const cfg  = await cfgRes.json();
     const list = await campRes.json();
     applyClientName(cfg.clientName);
+    void loadManagedClientName(cfg.clientDirectoryUrl);
     myPhone = normalizeSharePhone(cfg.phone);
     myPhoneStatus = {
       source: cfg.phoneSource || (myPhone ? 'unknown' : 'missing'),

@@ -1709,6 +1709,29 @@ export function startAdminServer(storage: Storage): void {
     }
     res.sendFile(path.resolve(fullPath));
   });
+  app.get('/public/client-name', (req, res) => {
+    const origin = String(req.get('origin') ?? '').trim();
+    if (!origin) {
+      res.status(400).json({ error: 'Origin header is required.' });
+      return;
+    }
+    let normalizedOrigin = '';
+    try {
+      normalizedOrigin = new URL(origin).origin;
+    } catch {
+      res.status(400).json({ error: 'Invalid origin.' });
+      return;
+    }
+    const client = ownerStorage.getClients().find((item) => getClientBaseUrl(item) === normalizedOrigin);
+    if (!client) {
+      res.status(404).json({ error: 'Client is not registered for this origin.' });
+      return;
+    }
+    res.setHeader('Access-Control-Allow-Origin', normalizedOrigin);
+    res.setHeader('Vary', 'Origin');
+    res.json({ clientName: client.name });
+  });
+
   app.post('/auth/client/login', access.clientLogin);
   app.post('/auth/client/logout', access.requireClient, access.clientLogout);
   app.post('/auth/owner/login', access.ownerLogin);
@@ -2547,6 +2570,7 @@ export function startAdminServer(storage: Storage): void {
       const phone = getCampaignSharePhone(storage);
       res.json({
         clientName: config.CLIENT_NAME || undefined,
+        clientDirectoryUrl: config.CLIENT_DIRECTORY_URL || undefined,
         phone,
         phoneSource: twilioPhone ? 'twilio' : (fallbackPhone ? 'profile' : 'missing'),
         missingPhoneReason: phone ? undefined : 'לא הוגדר מספר לקמפיין הפרסומי.',
@@ -2559,6 +2583,7 @@ export function startAdminServer(storage: Storage): void {
     const phone = getCampaignSharePhone(storage);
     res.json({
       clientName: config.CLIENT_NAME || undefined,
+      clientDirectoryUrl: config.CLIENT_DIRECTORY_URL || undefined,
       phone,
       phoneSource: connectedPhone ? 'connected' : (savedPhone ? 'profile' : (fallbackPhone ? 'environment' : 'missing')),
       missingPhoneReason: phone ? undefined : 'אין עדיין מספר WhatsApp מחובר ללקוחה.',
