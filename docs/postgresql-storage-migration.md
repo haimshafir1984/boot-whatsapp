@@ -88,6 +88,6 @@ Verify the exported counts and keep a copy of the existing JSON. Replace the act
 
 New clients created through the owner dashboard get a dedicated Dokploy PostgreSQL service automatically. The provisioner creates PostgreSQL, requests its deployment, stores the generated connection metadata with the managed client record, and saves `DATABASE_URL` into the application environment before the first app deployment.
 
-Existing clients are still migrated manually per client. If an existing Dokploy application has no PostgreSQL metadata in owner storage, provisioning refuses to redeploy it instead of creating a blank database or overwriting a manually configured `DATABASE_URL`. Finish the controlled migration and record the metadata before managing that client through provisioning again.
+Existing clients are still migrated manually per client. If an existing Dokploy application has no PostgreSQL metadata in owner storage, provisioning performs a protected code-only redeploy: it keeps the live Dokploy environment unchanged and does not create a database, volume, domain, or replacement `DATABASE_URL`. Reconcile the PostgreSQL metadata separately before using provisioning to change that client's environment.
 
 Migration scripts do not create Dokploy resources. They only operate against the `DATABASE_URL` supplied to the app/container.

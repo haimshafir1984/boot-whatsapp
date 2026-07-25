@@ -110,11 +110,21 @@ function generateDatabasePassword(): string {
   return crypto.randomBytes(24).toString('base64url').slice(0, 32);
 }
 
+function hasRecordedPostgres(client: ManagedClient): boolean {
+  return Boolean(
+    client.dokployPostgresId
+    && client.dokployPostgresAppName
+    && client.dokployPostgresDatabaseName
+    && client.dokployPostgresDatabaseUser
+    && client.dokployPostgresDatabasePassword,
+  );
+}
+
 function databaseUrl(client: ManagedClient): string {
-  if (!client.dokployPostgresAppName || !client.dokployPostgresDatabaseName || !client.dokployPostgresDatabaseUser || !client.dokployPostgresDatabasePassword) {
+  if (!hasRecordedPostgres(client)) {
     throw new Error('PostgreSQL provisioning is incomplete for this client.');
   }
-  return `postgres://${encodeURIComponent(client.dokployPostgresDatabaseUser)}:${encodeURIComponent(client.dokployPostgresDatabasePassword)}@${client.dokployPostgresAppName}:5432/${encodeURIComponent(client.dokployPostgresDatabaseName)}`;
+  return `postgres://${encodeURIComponent(client.dokployPostgresDatabaseUser!)}:${encodeURIComponent(client.dokployPostgresDatabasePassword!)}@${client.dokployPostgresAppName!}:5432/${encodeURIComponent(client.dokployPostgresDatabaseName!)}`;
 }
 
 function clientBaseUrl(config: DokployProvisioningConfig, service: string): string {
@@ -287,6 +297,9 @@ export class DokployProvisioner {
 
     let current = client;
     const provisionPostgresForNewClient = !current.dokployApplicationId;
+    // Some clients were migrated before PostgreSQL details were recorded in owner storage.
+    // Keep their live Dokploy environment intact until their metadata is reconciled.
+    const preserveExistingEnvironment = Boolean(current.dokployApplicationId && !hasRecordedPostgres(current));
     const name = serviceName(current);
     console.log(`Dokploy provisioning started: ${name}.`);
 
@@ -307,7 +320,7 @@ export class DokployProvisioner {
 
     const applicationId = current.dokployApplicationId!;
 
-    if (!current.dokployMountId) {
+    if (!current.dokployMountId && !preserveExistingEnvironment) {
       const mount = await this.post<DokployMount>('mounts.create', {
         type: 'volume',
         volumeName: `${name}-data`,
@@ -319,10 +332,7 @@ export class DokployProvisioner {
       console.log(`Dokploy provisioning: persistent volume created for ${name}.`);
     }
 
-    if (!current.dokployPostgresId) {
-      if (!provisionPostgresForNewClient) {
-        throw new Error('Existing Dokploy client is missing PostgreSQL metadata. Run the per-client migration before redeploying it through provisioning.');
-      }
+    if (!hasRecordedPostgres(current) && provisionPostgresForNewClient) {
       const postgres = await this.post<DokployPostgres>('postgres.create', {
         name: `${name}-postgres`,
         appName: `${name}-postgres`,
@@ -344,6 +354,9 @@ export class DokployProvisioner {
       console.log(`Dokploy provisioning: PostgreSQL created for ${name}.`);
       await this.post('postgres.deploy', { postgresId: postgres.postgresId });
       console.log(`Dokploy provisioning: PostgreSQL deployment requested for ${name}.`);
+    }
+    if (preserveExistingEnvironment) {
+      console.warn(`Dokploy provisioning: preserving the existing environment for ${name}; PostgreSQL metadata is not recorded in owner storage.`);
     }
 
     await this.post('application.saveBuildType', {
@@ -368,7 +381,8 @@ export class DokployProvisioner {
       enableSubmodules: false,
     });
 
-    const envLines = [
+    if (!preserveExistingEnvironment) {
+      const envLines = [
       `CLIENT_ACCESS_TOKEN=${escapeEnvValue(current.accessCode)}`,
       `OWNER_ACCESS_TOKEN=${escapeEnvValue(current.ownerAccessToken)}`,
       `CLIENT_NAME=${escapeEnvValue(current.name)}`,
@@ -428,16 +442,17 @@ export class DokployProvisioner {
       envLines.push('META_GATEWAY_BASE_URL=' + escapeEnvValue(new URL('/', this.config.metaWebhookUrl!).toString().replace(/\/$/, '')));
     }
 
-    await this.post('application.saveEnvironment', {
-      applicationId,
-      env: envLines.join('\n'),
-      buildArgs: null,
-      buildSecrets: null,
-      createEnvFile: false,
-    });
-    console.log(`Dokploy provisioning: application configured for ${name}.`);
+      await this.post('application.saveEnvironment', {
+        applicationId,
+        env: envLines.join('\n'),
+        buildArgs: null,
+        buildSecrets: null,
+        createEnvFile: false,
+      });
+      console.log(`Dokploy provisioning: application configured for ${name}.`);
+    }
 
-    if (!current.dokployDomainId) {
+    if (!current.dokployDomainId && !preserveExistingEnvironment) {
       const host = `${name}.${this.config.domainSuffix}`;
       const domain = await this.post<DokployDomain>('domain.create', {
         host,

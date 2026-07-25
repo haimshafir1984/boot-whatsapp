@@ -97,5 +97,21 @@ let current = {
     );
   }
 
+  calls.length = 0;
+  const legacyClient = {
+    ...current,
+    dokployPostgresId: undefined,
+    dokployPostgresAppName: undefined,
+    dokployPostgresDatabaseName: undefined,
+    dokployPostgresDatabaseUser: undefined,
+    dokployPostgresDatabasePassword: undefined,
+  };
+  await provisioner.provision(legacyClient, (patch) => ({ ...legacyClient, ...patch }));
+  const legacyRoutes = calls.map((call) => call.route);
+  assert(legacyRoutes.includes('application.redeploy'), 'legacy client should still be redeployed');
+  assert(!legacyRoutes.includes('postgres.create'), 'legacy client must not receive a new PostgreSQL database');
+  assert(!legacyRoutes.includes('application.saveEnvironment'), 'legacy client environment must not be overwritten');
+  assert(!legacyRoutes.includes('mounts.create'), 'legacy client volume must not be replaced');
+
   console.log('Dokploy PostgreSQL provisioning regression passed.');
 })();
