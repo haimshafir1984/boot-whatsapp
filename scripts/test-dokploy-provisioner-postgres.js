@@ -65,19 +65,20 @@ let current = {
   assert(routes.indexOf('postgres.deploy') < routes.indexOf('application.deploy'), 'PostgreSQL deployment should be requested before app deployment');
 
   const postgresCreate = calls.find((call) => call.route === 'postgres.create');
-  assert.strictEqual(postgresCreate.body.name, 'client-test-client-12345678-postgres');
-  assert.strictEqual(postgresCreate.body.appName, 'client-test-client-12345678-pg');
+  assert.strictEqual(postgresCreate.body.name, 'client-test-client-baileys-12345678-postgres');
+  assert.strictEqual(postgresCreate.body.appName, 'client-test-client-baileys-12345678-postgres');
   assert.strictEqual(postgresCreate.body.databaseName, 'postgres');
   assert.strictEqual(postgresCreate.body.databaseUser, 'postgres');
   assert(postgresCreate.body.databasePassword.length >= 24, 'database password should be generated');
 
   const envSave = calls.find((call) => call.route === 'application.saveEnvironment');
+  assert(envSave.body.env.includes('CLIENT_NAME="Test Client"'), 'CLIENT_NAME should be configured');
   assert(envSave.body.env.includes('DATABASE_URL="postgres://postgres:'), 'DATABASE_URL should be configured');
-  assert(envSave.body.env.includes('@client-test-client-12345678-pg-abc123:5432/postgres"'), 'DATABASE_URL should point at the created PostgreSQL service');
+  assert(envSave.body.env.includes('@client-test-client-baileys-12345678-postgres-abc123:5432/postgres"'), 'DATABASE_URL should point at the created PostgreSQL service');
   assert(envSave.body.env.includes('STORAGE_PATH=./data/contacts.json'), 'JSON storage path should remain for uploads/rollback compatibility');
 
   assert.strictEqual(current.dokployPostgresId, 'pg_1');
-  assert.strictEqual(current.dokployPostgresAppName, 'client-test-client-12345678-pg-abc123');
+  assert.strictEqual(current.dokployPostgresAppName, 'client-test-client-baileys-12345678-postgres-abc123');
   assert(current.dokployPostgresDatabasePassword, 'password should be stored in owner storage metadata');
 
   const createCountsBeforeRetry = Object.fromEntries(

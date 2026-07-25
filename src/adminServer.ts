@@ -1857,13 +1857,14 @@ export function startAdminServer(storage: Storage): void {
   app.post('/owner/api/clients', async (req, res) => {
     const name = String(req.body?.name ?? '').trim();
     const accessCode = String(req.body?.accessCode ?? '').trim();
-    const requestedProvider = ['BAILEYS', 'WEB_JS', 'TWILIO_API', 'META_CLOUD_API'].includes(String(req.body?.whatsappProvider))
-      ? String(req.body.whatsappProvider) as ManagedClient['whatsappProvider']
-      : (String(req.body?.plan) === 'advanced' ? 'TWILIO_API' : 'BAILEYS');
-    const plan = ['basic', 'self_service', 'advanced'].includes(String(req.body?.plan))
-      ? String(req.body.plan) as ManagedClient['plan']
-      : 'self_service';
-    const maxCampaigns = Math.max(1, Math.min(Number(req.body?.maxCampaigns) || (plan === 'advanced' ? 5 : plan === 'basic' ? 1 : 7), 50));
+    const providerInput = String(req.body?.whatsappProvider ?? '').trim();
+    if (providerInput && !['BAILEYS', 'META_CLOUD_API'].includes(providerInput)) {
+      res.status(400).json({ error: 'New clients can be created only as Baileys or Meta Cloud API clients.' });
+      return;
+    }
+    const requestedProvider = (providerInput || 'BAILEYS') as Extract<ManagedClient['whatsappProvider'], 'BAILEYS' | 'META_CLOUD_API'>;
+    const plan: ManagedClient['plan'] = 'self_service';
+    const maxCampaigns = Math.max(1, Math.min(Number(req.body?.maxCampaigns) || 7, 50));
     const serviceExpiresAt = typeof req.body?.serviceExpiresAt === 'string' && req.body.serviceExpiresAt.trim()
       ? req.body.serviceExpiresAt.trim()
       : undefined;
@@ -1891,11 +1892,11 @@ export function startAdminServer(storage: Storage): void {
     }
     const client = ownerStorage.addClient(name, accessCode, {
       plan,
-      readonlyDashboard: plan === 'basic',
+      readonlyDashboard: false,
       maxCampaigns,
       serviceExpiresAt,
       whatsappProvider: requestedProvider,
-      twilioFrom: plan === 'advanced' ? twilioFrom : undefined,
+      twilioFrom: undefined,
       botReplyDelayMs,
     });
     if (dokployProvisioner.configurationError) {
@@ -2545,6 +2546,7 @@ export function startAdminServer(storage: Storage): void {
       const fallbackPhone = normalizeSharePhone(profile.whatsappPhone || config.MY_CONTACT.phone);
       const phone = getCampaignSharePhone(storage);
       res.json({
+        clientName: config.CLIENT_NAME || undefined,
         phone,
         phoneSource: twilioPhone ? 'twilio' : (fallbackPhone ? 'profile' : 'missing'),
         missingPhoneReason: phone ? undefined : 'לא הוגדר מספר לקמפיין הפרסומי.',
@@ -2556,6 +2558,7 @@ export function startAdminServer(storage: Storage): void {
     const fallbackPhone = normalizeSharePhone(config.MY_CONTACT.phone);
     const phone = getCampaignSharePhone(storage);
     res.json({
+      clientName: config.CLIENT_NAME || undefined,
       phone,
       phoneSource: connectedPhone ? 'connected' : (savedPhone ? 'profile' : (fallbackPhone ? 'environment' : 'missing')),
       missingPhoneReason: phone ? undefined : 'אין עדיין מספר WhatsApp מחובר ללקוחה.',

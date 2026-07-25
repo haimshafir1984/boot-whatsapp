@@ -25,7 +25,7 @@
     h2 { font-size: 1.38rem; margin: 0 0 5px; }
     .sub { color: #6b7280; font-size: .88rem; }
     .create {
-      display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)) auto;
+      display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)) auto;
       gap: 8px; min-width: min(620px, 100%);
     }
     input, select {
@@ -172,14 +172,10 @@
       <form class="create" id="createForm">
         <input id="clientName" type="text" placeholder="שם הלקוחה" required />
         <input id="clientAccessCode" type="password" minlength="8" placeholder="סיסמת כניסה ללקוחה" autocomplete="new-password" required />
-        <select id="clientPlan" onchange="syncPlanDefaults()">
-          <option value="basic">מוכן להפעלה</option>
-          <option value="self_service" selected>עצמאי</option>
-          <option value="advanced">Twilio מתקדם</option>
+        <select id="clientProvider" aria-label="Client type" title="Client type">
+          <option value="BAILEYS">&#1500;&#1511;&#1493;&#1495; Baileys</option>
+          <option value="META_CLOUD_API">&#1500;&#1511;&#1493;&#1495; Meta</option>
         </select>
-        <select id="clientProvider"><option value="BAILEYS">Baileys</option><option value="TWILIO_API">Twilio API</option><option value="META_CLOUD_API">Meta Cloud API</option></select>
-        <input id="clientTwilioFrom" type="hidden" value="" />
-        <input id="clientBotReplyDelay" type="number" min="0" max="60000" step="100" dir="ltr" placeholder="דיליי הודעות במילישניות, למשל 1000" style="display:none" />
         <input id="clientMaxCampaigns" type="number" min="1" max="50" value="7" placeholder="מקס׳ קמפיינים" />
         <input id="clientExpiresAt" type="date" />
         <button class="primary" type="submit">צור יחידת לקוחה</button>
@@ -300,17 +296,6 @@
       }[status] || status;
     }
 
-    function syncPlanDefaults() {
-      const plan = document.getElementById('clientPlan').value;
-      document.getElementById('clientMaxCampaigns').value =
-        plan === 'advanced' ? '5' : plan === 'basic' ? '1' : '7';
-      const twilioInput = document.getElementById('clientTwilioFrom');
-      twilioInput.value = '';
-      const delayInput = document.getElementById('clientBotReplyDelay');
-      delayInput.style.display = plan === 'advanced' ? '' : 'none';
-      if (plan === 'advanced' && !delayInput.value) delayInput.value = '1000';
-    }
-
     function displayTwilioFrom(value) {
       return value ? String(value).replace(/^whatsapp:/i, '') : '';
     }
@@ -319,6 +304,7 @@
       return {
         TWILIO_API: 'קמפיין פרסומי',
         BAILEYS: 'Baileys',
+        META_CLOUD_API: 'Meta Cloud API',
         WEB_JS: 'WebJS',
       }[value] || value || '-';
     }
@@ -429,10 +415,8 @@
         body: JSON.stringify({
           name: document.getElementById('clientName').value,
           accessCode: document.getElementById('clientAccessCode').value,
-          plan: document.getElementById('clientPlan').value,
+          plan: 'self_service',
           whatsappProvider: document.getElementById('clientProvider').value,
-          twilioFrom: '',
-          botReplyDelayMs: document.getElementById('clientBotReplyDelay').value,
           maxCampaigns: Number(document.getElementById('clientMaxCampaigns').value),
           serviceExpiresAt: document.getElementById('clientExpiresAt').value
             ? new Date(document.getElementById('clientExpiresAt').value + 'T23:59:59').toISOString()
@@ -450,10 +434,7 @@
       document.getElementById('clientName').value = '';
       document.getElementById('clientAccessCode').value = '';
       document.getElementById('clientProvider').value = 'BAILEYS';
-      document.getElementById('clientTwilioFrom').value = '';
-      document.getElementById('clientBotReplyDelay').value = '';
-      document.getElementById('clientPlan').value = 'self_service';
-      syncPlanDefaults();
+      document.getElementById('clientMaxCampaigns').value = '7';
       document.getElementById('clientExpiresAt').value = '';
       button.disabled = false;
       button.textContent = 'צור יחידת לקוחה';
@@ -548,7 +529,6 @@
       window.location.href = '/owner/login';
     }
 
-    syncPlanDefaults();
     loadClients();
   </script>
 </body>

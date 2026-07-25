@@ -16,6 +16,7 @@ function envFlag(value: string | undefined, defaultValue: boolean): boolean {
 }
 
 export const config = {
+  CLIENT_NAME: envValue(process.env.CLIENT_NAME),
   CLIENT_PLAN: envValue(process.env.CLIENT_PLAN, 'self_service'),
   CLIENT_READONLY_DASHBOARD: envFlag(process.env.CLIENT_READONLY_DASHBOARD, false),
   CLIENT_MAX_CAMPAIGNS: Number(envValue(process.env.CLIENT_MAX_CAMPAIGNS)) || 7,

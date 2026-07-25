@@ -72,13 +72,34 @@ interface DokployPostgres {
   databasePassword: string;
 }
 
-function serviceName(client: ManagedClient): string {
+const HEBREW_SERVICE_SLUGS: Record<string, string> = {
+  '\u05d0': 'a', '\u05d1': 'b', '\u05d2': 'g', '\u05d3': 'd', '\u05d4': 'h', '\u05d5': 'v', '\u05d6': 'z', '\u05d7': 'h', '\u05d8': 't', '\u05d9': 'y',
+  '\u05db': 'k', '\u05da': 'k', '\u05dc': 'l', '\u05de': 'm', '\u05dd': 'm', '\u05e0': 'n', '\u05df': 'n', '\u05e1': 's', '\u05e2': 'a', '\u05e4': 'p', '\u05e3': 'p',
+  '\u05e6': 'ts', '\u05e5': 'ts', '\u05e7': 'k', '\u05e8': 'r', '\u05e9': 'sh', '\u05ea': 't',
+};
+
+function legacyServiceName(client: ManagedClient): string {
   const asciiName = client.name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 24);
   return `client-${asciiName || 'account'}-${client.id.slice(0, 8)}`;
+}
+
+function serviceName(client: ManagedClient): string {
+  // Existing services keep their legacy address and persistent resource names.
+  if (client.dokployApplicationId) return legacyServiceName(client);
+  const transliterated = Array.from(client.name.normalize('NFKD'))
+    .map((character) => HEBREW_SERVICE_SLUGS[character] ?? character)
+    .join('');
+  const clientSlug = transliterated
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 20);
+  const provider = client.whatsappProvider === 'META_CLOUD_API' ? 'meta' : 'baileys';
+  return `client-${clientSlug || 'account'}-${provider}-${client.id.slice(0, 8)}`;
 }
 
 function escapeEnvValue(value: string): string {
@@ -271,9 +292,9 @@ export class DokployProvisioner {
 
     if (!current.dokployApplicationId) {
       const application = await this.post<DokployApplication>('application.create', {
-        name,
-        appName: name,
-        description: `Isolated WhatsApp bot for ${current.name}`,
+        name: `${name}-app`,
+        appName: `${name}-app`,
+        description: `Isolated WhatsApp bot for ${current.name} (${current.whatsappProvider})`,
         environmentId: this.config.environmentId,
         serverId: null,
       });
@@ -304,8 +325,8 @@ export class DokployProvisioner {
       }
       const postgres = await this.post<DokployPostgres>('postgres.create', {
         name: `${name}-postgres`,
-        appName: `${name}-pg`,
-        description: `PostgreSQL storage for ${current.name}`,
+        appName: `${name}-postgres`,
+        description: `PostgreSQL storage for ${current.name} (${current.whatsappProvider})`,
         dockerImage: 'postgres:18',
         databaseName: 'postgres',
         databaseUser: 'postgres',
@@ -350,6 +371,7 @@ export class DokployProvisioner {
     const envLines = [
       `CLIENT_ACCESS_TOKEN=${escapeEnvValue(current.accessCode)}`,
       `OWNER_ACCESS_TOKEN=${escapeEnvValue(current.ownerAccessToken)}`,
+      `CLIENT_NAME=${escapeEnvValue(current.name)}`,
       `CLIENT_PLAN=${escapeEnvValue(current.plan)}`,
       `CLIENT_READONLY_DASHBOARD=${current.readonlyDashboard ? 'true' : 'false'}`,
       `CLIENT_MAX_CAMPAIGNS=${String(current.maxCampaigns)}`,

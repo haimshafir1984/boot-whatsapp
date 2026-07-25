@@ -1084,7 +1084,7 @@
         <path d="M16 6C10.477 6 6 10.477 6 16c0 1.85.504 3.58 1.38 5.06L6 26l5.09-1.36A9.95 9.95 0 0016 26c5.523 0 10-4.477 10-10S21.523 6 16 6z" fill="white"/>
       </svg>
       <div>
-        <h1>חיבור WhatsApp</h1>
+        <h1>&#1495;&#1497;&#1489;&#1493;&#1512; WhatsApp</h1>
         <p>סריקת הקוד תחבר את החשבון</p>
       </div>
     </div>
@@ -1151,7 +1151,7 @@
         <path d="M16 6C10.477 6 6 10.477 6 16c0 1.85.504 3.58 1.38 5.06L6 26l5.09-1.36A9.95 9.95 0 0016 26c5.523 0 10-4.477 10-10S21.523 6 16 6z" fill="white"/>
       </svg>
       <div>
-        <h1>ניהול בוט WhatsApp</h1>
+        <h1 id="dashboardTitle">&#1504;&#1497;&#1492;&#1493;&#1500; &#1489;&#1493;&#1496; WhatsApp</h1>
         <p>שינויים נכנסים לתוקף מיד – ללא הפעלה מחדש</p>
       </div>
     </div>
@@ -2440,6 +2440,14 @@
       myPhoneStatus = { source: 'missing', reason: 'לא ניתן לטעון את מספר ה-WhatsApp כרגע.' };
     }
     return normalizeSharePhone(myPhone);
+  }
+
+  function applyClientName(clientName) {
+    const normalized = String(clientName || '').trim();
+    const title = document.getElementById('dashboardTitle');
+    if (!title || !normalized) return;
+    title.textContent = '\u05e0\u05d9\u05d4\u05d5\u05dc \u05d4\u05e7\u05de\u05e4\u05d9\u05d9\u05e0\u05d9\u05dd \u05e9\u05dc ' + normalized;
+    document.title = normalized + ' | WhatsApp';
   }
 
   function buildCampaignShortLink(campaignId) {
@@ -4133,6 +4141,7 @@
     ]);
     const cfg  = await cfgRes.json();
     const list = await campRes.json();
+    applyClientName(cfg.clientName);
     myPhone = normalizeSharePhone(cfg.phone);
     myPhoneStatus = {
       source: cfg.phoneSource || (myPhone ? 'unknown' : 'missing'),
