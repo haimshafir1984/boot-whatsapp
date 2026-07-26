@@ -987,7 +987,10 @@
     }
     .btn-small:hover { background: #eef2f7; }
     #modalOverlay .modal { width: min(1420px, 100%); padding: 22px; background: #f8fafc; }
-    #modalOverlay .wizard-shell { display: none; }
+    #modalOverlay .wizard-shell { display: block; }
+    #modalOverlay .campaign-editor-toolbar { display:flex; align-items:center; gap:8px; margin:14px 0; padding:10px 12px; border:1px solid #dbeafe; border-radius:10px; background:#eff6ff; position:sticky; top:8px; z-index:3; }
+    #modalOverlay .campaign-editor-toolbar .toolbar-spacer { flex:1; }
+    #modalOverlay .campaign-editor-toolbar .btn-confirm, #modalOverlay .campaign-editor-toolbar .btn-cancel { width:auto; min-height:38px; }
     #modalOverlay .campaign-editor-grid { grid-template-columns: minmax(230px, 280px) minmax(420px, 1fr) minmax(285px, 350px); gap: 16px; align-items: start; }
     .campaign-editor-main { min-width: 0; }
     .conversation-map, #modalOverlay .phone-preview, #modalOverlay .editor-section { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 10px 30px rgba(15,23,42,.06); }
@@ -1398,6 +1401,7 @@
       </div>
       <div class="wizard-step-copy" id="wizardStepCopy">קמפיין Twilio בתוך שיחה פתוחה: הלקוח שולח את ההודעה הראשונה, ולכן לא צריך טמפלייט מאושר כדי לשלוח כפתורים, רשימות, קבצים ואיש קשר לשמירה.</div>
     </div>
+    <div class="campaign-editor-toolbar" role="toolbar" aria-label="&#1508;&#1506;&#1493;&#1500;&#1493;&#1514; &#1511;&#1502;&#1508;&#1497;&#1497;&#1503;"><button class="btn-cancel" type="button" onclick="closeModal()">&#1505;&#1490;&#1493;&#1512;</button><span class="toolbar-spacer"></span><button class="btn-cancel" type="button" onclick="saveWizardDraftNow()">&#1513;&#1502;&#1493;&#1512; &#1496;&#1497;&#1493;&#1496;&#1492;</button><button class="btn-confirm" id="wizardTopSaveBtn" type="button" onclick="saveCampaignFromToolbar()">&#1513;&#1502;&#1493;&#1512; &#1511;&#1502;&#1508;&#1497;&#1497;&#1503;</button></div>
     <div class="campaign-editor-grid wizard-grid">
       <aside class="conversation-map" aria-label="מפת השיחה">
         <div class="conversation-map-title">מפת השיחה</div>
@@ -4488,6 +4492,48 @@
   setInterval(loadTwilioLogs, 5000);
   qrInterval = setInterval(checkQR, 2000);
   checkQR();
+  const campaignBuilderStepCopy = {
+    1: '\u05de\u05d2\u05d3\u05d9\u05e8\u05d9\u05dd \u05d0\u05ea \u05d4\u05d1\u05e1\u05d9\u05e1 \u05e9\u05dc \u05d4\u05e7\u05de\u05e4\u05d9\u05d9\u05df: \u05e9\u05dd, \u05d8\u05e8\u05d9\u05d2\u05e8 \u05d5\u05e9\u05d0\u05dc\u05ea \u05e9\u05dd.',
+    2: '\u05db\u05d0\u05df \u05de\u05d2\u05d3\u05d9\u05e8\u05d9\u05dd \u05d0\u05ea \u05d4\u05d2\u05d3\u05e8\u05d5\u05ea \u05d4\u05e1\u05d9\u05d5\u05dd, \u05d4\u05d1\u05d8\u05d9\u05d7\u05d5\u05df, \u05d4\u05de\u05e0\u05d4\u05dc\u05ea \u05d5\u05d4\u05de\u05e2\u05e0\u05d4 \u05d4\u05d0\u05e0\u05d5\u05e9\u05d9.',
+    3: '\u05d1\u05d5\u05e0\u05d9\u05dd \u05d0\u05ea \u05db\u05dc \u05e9\u05dc\u05d1\u05d9 \u05d4\u05e9\u05d9\u05d7\u05d4 \u05d1\u05de\u05e7\u05d5\u05dd \u05d0\u05d7\u05d3.'
+  };
+
+  function configureCampaignBuilderSteps() {
+    const labels = [
+      ['\u05e4\u05e8\u05d8\u05d9 \u05e7\u05de\u05e4\u05d9\u05d9\u05df', '\u05e9\u05dd, \u05d8\u05e8\u05d9\u05d2\u05e8 \u05d5\u05e9\u05d0\u05dc\u05ea \u05e9\u05dd'],
+      ['\u05d4\u05d2\u05d3\u05e8\u05d5\u05ea', '\u05e1\u05d9\u05d5\u05dd, \u05d1\u05d8\u05d9\u05d7\u05d5\u05df \u05d5\u05de\u05e0\u05d4\u05dc\u05ea'],
+      ['\u05d1\u05e0\u05d9\u05d9\u05ea FLOW', '\u05d4\u05d5\u05d3\u05e2\u05d5\u05ea, \u05e9\u05d0\u05dc\u05d5\u05ea \u05d5\u05e4\u05e2\u05d5\u05dc\u05d5\u05ea']
+    ];
+    document.querySelectorAll('[data-wizard-step]').forEach((item, index) => {
+      const label = labels[index]; item.style.display = label ? '' : 'none'; if (!label) return;
+      item.dataset.wizardStep = String(index + 1); item.onclick = () => goWizardStep(index + 1);
+      item.querySelector('span').textContent = String(index + 1); item.querySelector('strong').textContent = label[0]; item.querySelector('small').textContent = label[1];
+    });
+    document.querySelectorAll('.conversation-node').forEach((item, index) => {
+      const label = labels[index]; item.style.display = label ? '' : 'none'; if (!label) return;
+      item.dataset.flowStep = String(index + 1); item.onclick = () => goWizardStep(index + 1);
+      item.querySelector('strong').textContent = label[0]; item.querySelector('small').textContent = label[1]; item.querySelector('.node-status').textContent = index === 0 ? '\u05d1\u05e1\u05d9\u05e1' : '\u05dc\u05e2\u05e8\u05d9\u05db\u05d4';
+    });
+  }
+
+  function goWizardStep(step) {
+    wizardStep = Math.max(1, Math.min(Number(step) || 1, 3));
+    const visiblePanels = { 1: ['1', '2'], 2: ['4'], 3: ['3'] };
+    document.querySelectorAll('[data-wizard-panel]').forEach(panel => panel.classList.toggle('active', visiblePanels[wizardStep].includes(panel.dataset.wizardPanel)));
+    document.querySelectorAll('[data-wizard-step]').forEach(item => { const itemStep = Number(item.dataset.wizardStep); item.classList.toggle('active', itemStep === wizardStep); item.classList.toggle('done', itemStep < wizardStep); });
+    const progress = document.getElementById('wizardProgressFill'); if (progress) progress.style.width = (wizardStep * 100 / 3) + '%';
+    const copy = document.getElementById('wizardStepCopy'); if (copy) copy.textContent = campaignBuilderStepCopy[wizardStep];
+    document.getElementById('wizardCounter').textContent = '\u05e9\u05dc\u05d1 ' + wizardStep + ' \u05de\u05ea\u05d5\u05da 3';
+    document.getElementById('wizardBackBtn').style.visibility = wizardStep === 1 ? 'hidden' : 'visible';
+    const nextBtn = document.getElementById('wizardNextBtn'); if (nextBtn && !nextBtn.disabled) nextBtn.textContent = wizardStep === 3 ? '\u05e9\u05de\u05d9\u05e8\u05ea \u05d4\u05e7\u05de\u05e4\u05d9\u05d9\u05df \u05d5\u05d4\u05e4\u05e2\u05dc\u05ea\u05d5' : '\u05dc\u05d4\u05de\u05e9\u05d9\u05da \u05dc\u05e9\u05dc\u05d1 \u05d4\u05d1\u05d0';
+    updateCampaignConversationPreview(); updateWizardSummary();
+  }
+  function nextWizardStep() { if (!validateWizardStep(wizardStep)) return; if (wizardStep === 3) { submitCampaign(); return; } goWizardStep(wizardStep + 1); }
+  function prevWizardStep() { goWizardStep(wizardStep - 1); }
+  function saveWizardDraftNow() { if (!wizardDraftReady) return; try { localStorage.setItem(wizardDraftKey(), JSON.stringify(captureWizardDraft())); showToast('modalError', 'success', '\u05d4\u05d8\u05d9\u05d5\u05d8\u05d4 \u05e0\u05e9\u05de\u05e8\u05d4 \u05d1\u05d3\u05e4\u05d3\u05e4\u05df.'); } catch (_) {} }
+  async function saveCampaignFromToolbar() { if (!validateWizardStep(1)) { goWizardStep(1); return; } const button = document.getElementById('wizardTopSaveBtn'); if (button) { button.disabled = true; button.textContent = '\u05e9\u05d5\u05de\u05e8...'; } await submitCampaign(); const saved = document.getElementById('wizardSuccess')?.classList.contains('open'); if (button) { button.disabled = Boolean(saved); button.textContent = saved ? '\u05e0\u05e9\u05de\u05e8' : '\u05e9\u05de\u05d5\u05e8 \u05e7\u05de\u05e4\u05d9\u05d9\u05df'; } }
+  configureCampaignBuilderSteps();
+
 </script>
 
   <div id="referralLeaderboardOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;align-items:center;justify-content:center;padding:16px;">
