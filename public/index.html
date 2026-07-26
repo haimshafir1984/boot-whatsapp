@@ -966,6 +966,21 @@
     .decision-option-next { display: none; grid-column: 1 / -1; }
     .decision-option-end { grid-column: 1 / -1; }
     .decision-option textarea { grid-column: 1 / -1; min-height: 52px; margin-bottom: 0; }
+    /* FLOW action layout: keep the choice and its destination together. */
+    .decision-options { margin-right:0; padding:12px; border:1px solid #dbeafe; border-right:1px solid #dbeafe; background:#f8fbff; }
+    .decision-option { padding:14px; border-color:#cbd5e1; box-shadow:none; }
+    .decision-option-text-row { grid-template-columns:88px minmax(0, 1fr) auto; }
+    .decision-action-tabs { grid-template-columns:repeat(4, minmax(0, 1fr)); gap:8px; }
+    .decision-action-tab { min-height:46px; font-size:.82rem; border-color:#cbd5e1; }
+    .decision-option-label[data-option-next-label] { margin-top:6px; color:#334155; }
+    select[data-option-next] { grid-column:1 / -1; min-height:42px; border-color:#bfdbfe; background:#fff; font-weight:700; }
+    .decision-action-summary { display:none; }
+    @media (max-width:820px) {
+      .decision-action-tabs { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+      #modalOverlay .campaign-editor-toolbar { flex-wrap:wrap; }
+      #modalOverlay .campaign-editor-toolbar .toolbar-spacer { display:none; }
+      #modalOverlay .campaign-editor-toolbar .btn-confirm, #modalOverlay .campaign-editor-toolbar .btn-cancel { flex:1 1 130px; }
+    }
     .decision-empty {
       border: 1px dashed #d1d5db;
       border-radius: 10px;
@@ -988,9 +1003,9 @@
     .btn-small:hover { background: #eef2f7; }
     #modalOverlay .modal { width: min(1420px, 100%); padding: 22px; background: #f8fafc; }
     #modalOverlay .wizard-shell { display: block; }
-    #modalOverlay .campaign-editor-toolbar { display:flex; align-items:center; gap:8px; margin:14px 0; padding:10px 12px; border:1px solid #dbeafe; border-radius:10px; background:#eff6ff; position:sticky; top:8px; z-index:3; }
+    #modalOverlay .campaign-editor-toolbar { display:flex; align-items:center; gap:10px; margin:14px 0 18px; padding:10px 12px; border:1px solid #dbeafe; border-radius:10px; background:#eff6ff; position:static; }
     #modalOverlay .campaign-editor-toolbar .toolbar-spacer { flex:1; }
-    #modalOverlay .campaign-editor-toolbar .btn-confirm, #modalOverlay .campaign-editor-toolbar .btn-cancel { width:auto; min-height:38px; }
+    #modalOverlay .campaign-editor-toolbar .btn-confirm, #modalOverlay .campaign-editor-toolbar .btn-cancel { width:auto; min-height:38px; flex:0 0 auto; padding-inline:18px; }
     #modalOverlay .campaign-editor-grid { grid-template-columns: minmax(230px, 280px) minmax(420px, 1fr) minmax(285px, 350px); gap: 16px; align-items: start; }
     .campaign-editor-main { min-width: 0; }
     .conversation-map, #modalOverlay .phone-preview, #modalOverlay .editor-section { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 10px 30px rgba(15,23,42,.06); }
@@ -3307,9 +3322,9 @@
               <option value="referral_my_rank" hidden ${action === 'referral_my_rank' ? 'selected' : ''}></option>
             </select>
             <div class="decision-action-tabs">
-              <button type="button" class="decision-action-tab" data-action="end" onclick="setDecisionOptionAction(this, 'end')">שלח הודעה וסיים</button>
+              <button type="button" class="decision-action-tab" data-action="end" onclick="setDecisionOptionAction(this, 'end')">שלח וסיים</button>
               <button type="button" class="decision-action-tab" data-action="file" onclick="setDecisionOptionAction(this, 'file')">שלח קובץ</button>
-              <button type="button" class="decision-action-tab" data-action="next" onclick="setDecisionOptionAction(this, 'next')">מעבר לשאלה הבאה</button>
+              <button type="button" class="decision-action-tab" data-action="next" onclick="setDecisionOptionAction(this, 'next')">מעבר לשלב הבא</button>
               <button type="button" class="decision-action-tab" data-action="request_group_join" onclick="setDecisionOptionAction(this, 'request_group_join')">&#1513;&#1500;&#1495; &#1500;&#1502;&#1504;&#1492;&#1500;</button>
             </div>
             <div class="decision-action-summary" data-option-summary></div>
