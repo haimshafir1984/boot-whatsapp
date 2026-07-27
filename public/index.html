@@ -980,6 +980,8 @@
       #modalOverlay .campaign-editor-toolbar { flex-wrap:wrap; }
       #modalOverlay .campaign-editor-toolbar .toolbar-spacer { display:none; }
       #modalOverlay .campaign-editor-toolbar .btn-confirm, #modalOverlay .campaign-editor-toolbar .btn-cancel { flex:1 1 130px; }
+      #modalOverlay .campaign-editor-context { align-items:flex-start; flex-wrap:wrap; }
+      #modalOverlay .campaign-editor-save-state { white-space:nowrap; }
     }
     .decision-empty {
       border: 1px dashed #d1d5db;
@@ -1012,6 +1014,13 @@
     #modalOverlay .campaign-editor-toolbar { display:flex; align-items:center; gap:10px; margin:14px 0 18px; padding:10px 12px; border:1px solid #dbeafe; border-radius:10px; background:#eff6ff; position:static; }
     #modalOverlay .campaign-editor-toolbar .toolbar-spacer { flex:1; }
     #modalOverlay .campaign-editor-toolbar .btn-confirm, #modalOverlay .campaign-editor-toolbar .btn-cancel { width:auto; min-height:38px; flex:0 0 auto; padding-inline:18px; }
+    #modalOverlay .campaign-editor-context { position:sticky; top:0; z-index:6; display:flex; align-items:center; justify-content:space-between; gap:12px; margin:-4px 0 16px; padding:10px 12px; border:1px solid #e2e8f0; border-radius:10px; background:rgba(255,255,255,.96); box-shadow:0 6px 16px rgba(15,23,42,.06); backdrop-filter:blur(8px); }
+    #modalOverlay .campaign-editor-context-label { display:grid; gap:2px; min-width:0; }
+    #modalOverlay .campaign-editor-context-label span { color:#64748b; font-size:.72rem; font-weight:700; }
+    #modalOverlay .campaign-editor-context-label strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#0f172a; font-size:.96rem; }
+    #modalOverlay .campaign-editor-save-state { flex:0 0 auto; border-radius:999px; padding:5px 9px; font-size:.72rem; font-weight:800; }
+    #modalOverlay .campaign-editor-save-state.is-saved { background:#dcfce7; color:#166534; }
+    #modalOverlay .campaign-editor-save-state.is-dirty { background:#fef3c7; color:#92400e; }
     #modalOverlay .campaign-editor-grid { grid-template-columns: minmax(230px, 280px) minmax(420px, 1fr) minmax(285px, 350px); gap: 16px; align-items: start; }
     /* The FLOW is a work surface, not a narrow form: give it the screen. */
     #modalOverlay.flow-editor-mode { padding:16px; }
@@ -1435,6 +1444,10 @@
       <div class="wizard-step-copy" id="wizardStepCopy">קמפיין Twilio בתוך שיחה פתוחה: הלקוח שולח את ההודעה הראשונה, ולכן לא צריך טמפלייט מאושר כדי לשלוח כפתורים, רשימות, קבצים ואיש קשר לשמירה.</div>
     </div>
     <div class="campaign-editor-toolbar" role="toolbar" aria-label="&#1508;&#1506;&#1493;&#1500;&#1493;&#1514; &#1511;&#1502;&#1508;&#1497;&#1497;&#1503;"><button class="btn-cancel" type="button" onclick="closeModal()">&#1505;&#1490;&#1493;&#1512;</button><span class="toolbar-spacer"></span><button class="btn-cancel" type="button" onclick="saveWizardDraftNow()">&#1513;&#1502;&#1493;&#1512; &#1496;&#1497;&#1493;&#1496;&#1492;</button><button class="btn-confirm" id="wizardTopSaveBtn" type="button" onclick="saveCampaignFromToolbar()">&#1513;&#1502;&#1493;&#1512; &#1511;&#1502;&#1508;&#1497;&#1497;&#1503;</button></div>
+    <div class="campaign-editor-context" aria-live="polite">
+      <div class="campaign-editor-context-label"><span>&#1506;&#1512;&#1497;&#1499;&#1514; &#1511;&#1502;&#1508;&#1497;&#1497;&#1503;</span><strong id="campaignEditorName">&#1511;&#1502;&#1508;&#1497;&#1497;&#1503; &#1495;&#1491;&#1513;</strong></div>
+      <span class="campaign-editor-save-state is-saved" id="campaignEditorSaveState">&#1499;&#1500; &#1492;&#1513;&#1497;&#1504;&#1493;&#1497;&#1497;&#1501; &#1504;&#1513;&#1502;&#1512;&#1493;</span>
+    </div>
     <div class="campaign-editor-grid wizard-grid">
       <aside class="conversation-map" aria-label="מפת השיחה">
         <div class="conversation-map-title">מפת השיחה</div>
@@ -1792,7 +1805,7 @@
       <button class="btn-cancel" id="wizardBackBtn" onclick="prevWizardStep()" type="button">הקודם</button>
       <span class="wizard-counter" id="wizardCounter">שלב 1 מתוך 4</span>
       <div class="wizard-footer-actions">
-        <button class="btn-cancel" onclick="closeModal()" type="button">ביטול</button>
+        <button class="btn-cancel" onclick="closeModal()" type="button">&#1505;&#1490;&#1493;&#1512;</button>
         <button class="btn-confirm" id="wizardNextBtn" onclick="nextWizardStep()" type="button">להמשיך לשלב הבא</button>
       </div>
     </div>
@@ -4566,6 +4579,25 @@
   function prevWizardStep() { goWizardStep(wizardStep - 1); }
   function saveWizardDraftNow() { if (!wizardDraftReady) return; try { localStorage.setItem(wizardDraftKey(), JSON.stringify(captureWizardDraft())); showToast('modalError', 'success', '\u05d4\u05d8\u05d9\u05d5\u05d8\u05d4 \u05e0\u05e9\u05de\u05e8\u05d4 \u05d1\u05d3\u05e4\u05d3\u05e4\u05df.'); } catch (_) {} }
   async function saveCampaignFromToolbar() { if (!validateWizardStep(1)) { goWizardStep(1); return; } const button = document.getElementById('wizardTopSaveBtn'); if (button) { button.disabled = true; button.textContent = '\u05e9\u05d5\u05de\u05e8...'; } await submitCampaign(); const saved = document.getElementById('wizardSuccess')?.classList.contains('open'); if (button) { button.disabled = Boolean(saved); button.textContent = saved ? '\u05e0\u05e9\u05de\u05e8' : '\u05e9\u05de\u05d5\u05e8 \u05e7\u05de\u05e4\u05d9\u05d9\u05df'; } }
+  function updateCampaignEditorContext() {
+    const name = document.getElementById('fName')?.value.trim();
+    const nameElement = document.getElementById('campaignEditorName');
+    const stateElement = document.getElementById('campaignEditorSaveState');
+    if (nameElement) nameElement.textContent = name || (editingId ? '\u05e7\u05de\u05e4\u05d9\u05d9\u05df \u05dc\u05dc\u05d0 \u05e9\u05dd' : '\u05e7\u05de\u05e4\u05d9\u05d9\u05df \u05d7\u05d3\u05e9');
+    if (!stateElement) return;
+    const dirty = wizardDraftDirty;
+    stateElement.classList.toggle('is-dirty', dirty);
+    stateElement.classList.toggle('is-saved', !dirty);
+    stateElement.textContent = dirty ? '\u05d9\u05e9 \u05e9\u05d9\u05e0\u05d5\u05d9\u05d9\u05dd \u05e9\u05dc\u05d0 \u05e0\u05e9\u05de\u05e8\u05d5' : (editingId ? '\u05db\u05dc \u05d4\u05e9\u05d9\u05e0\u05d5\u05d9\u05d9\u05dd \u05e0\u05e9\u05de\u05e8\u05d5' : '\u05e7\u05de\u05e4\u05d9\u05d9\u05df \u05d7\u05d3\u05e9 \u05d8\u05e8\u05dd \u05e0\u05e9\u05de\u05e8');
+  }
+
+  const baseGoWizardStep = goWizardStep;
+  goWizardStep = function(step) { baseGoWizardStep(step); updateCampaignEditorContext(); };
+  const baseSetWizardSavedState = setWizardSavedState;
+  setWizardSavedState = function(saved, link) { baseSetWizardSavedState(saved, link); updateCampaignEditorContext(); };
+  document.getElementById('modalOverlay')?.addEventListener('input', () => updateCampaignEditorContext());
+  document.getElementById('modalOverlay')?.addEventListener('change', () => updateCampaignEditorContext());
+
   configureCampaignBuilderSteps();
 
 </script>
