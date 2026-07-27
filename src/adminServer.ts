@@ -61,6 +61,52 @@ interface TwilioGatewaySession {
   updatedAt: string;
 }
 
+export interface MetaGatewayRoute extends Campaign {
+  routeKind: 'campaign' | 'service_bot';
+}
+
+const SERVICE_BOT_META_ROUTE_ID = '__service_bot__';
+
+export function preferCampaignMetaRoutes<T extends {
+  clientId: string;
+  triggerText: string;
+  campaign: Pick<MetaGatewayRoute, 'routeKind'>;
+}>(candidates: T[]): T[] {
+  return candidates.filter((candidate) =>
+    candidate.campaign.routeKind !== 'service_bot'
+    || !candidates.some((other) =>
+      other.clientId === candidate.clientId
+      && other.triggerText === candidate.triggerText
+      && other.campaign.routeKind === 'campaign'));
+}
+
+export function campaignsToMetaGatewayRoutes(campaigns: Campaign[]): MetaGatewayRoute[] {
+  return campaigns.map((campaign) => ({ ...campaign, routeKind: 'campaign' }));
+}
+
+export function buildMetaGatewayRoutes(storage: Storage, serviceBotFeatureEnabled = config.CLIENT_SERVICE_BOT_ENABLED): MetaGatewayRoute[] {
+  const routes = campaignsToMetaGatewayRoutes(storage.getCampaigns());
+  const serviceBot = storage.getServiceBot();
+  if (
+    serviceBotFeatureEnabled
+    && serviceBot.enabled
+    && serviceBot.triggerText.trim()
+    && validateServiceBotConfig(serviceBot).ok
+  ) {
+    routes.push({
+      id: SERVICE_BOT_META_ROUTE_ID,
+      name: serviceBot.name || 'Service Bot',
+      triggerType: 1,
+      triggerPhrase: serviceBot.triggerText.trim(),
+      suffix: '',
+      active: true,
+      runtimeStatus: 'active',
+      routeKind: 'service_bot',
+    });
+  }
+  return routes;
+}
+
 interface TwilioGatewaySessionStore {
   get(from: string): TwilioGatewaySession | null;
   set(session: TwilioGatewaySession): void;
@@ -1116,7 +1162,7 @@ export function startAdminServer(storage: Storage): void {
   const metaGatewaySessions = createTwilioGatewaySessionStore(
     path.join(path.dirname(config.OWNER_STORAGE_PATH), 'meta-gateway-sessions.json'),
   );
-  const metaCampaignCache = new AsyncExpiringCache<Campaign[]>(META_CAMPAIGN_CACHE_TTL_MS);
+  const metaCampaignCache = new AsyncExpiringCache<MetaGatewayRoute[]>(META_CAMPAIGN_CACHE_TTL_MS);
   const metaGatewayInbox = new MetaGatewayInbox(path.join(path.dirname(config.OWNER_STORAGE_PATH), 'meta-gateway-inbox.json'));
   const metaClientInbox = new MetaGatewayInbox(path.join(path.dirname(config.STORAGE_PATH), 'meta-client-inbox.json'));
 
@@ -1437,17 +1483,24 @@ export function startAdminServer(storage: Storage): void {
     const fromKey = normalizeGatewayPhone(String(message.from));
     const body = getMetaInboundBody(message);
     const normalizedBody = normalizeGatewayText(body);
-    const campaignsByClient = new Map<string, Campaign[]>();
+    const campaignsByClient = new Map<string, MetaGatewayRoute[]>();
     let lookupFailures = 0;
-    const candidates: Array<{ client: ManagedClient; clientId: string; campaign: Campaign; triggerText: string }> = [];
+    const candidates: Array<{ client: ManagedClient; clientId: string; campaign: MetaGatewayRoute; triggerText: string }> = [];
     await Promise.all(clients.map(async (client) => {
       try {
         const campaigns = await metaCampaignCache.get(client.id, async () => {
-          const result = await fetchClientAsOwner<Campaign[]>(client, '/owner-api/campaigns', {
+          const routeResult = await fetchClientAsOwner<MetaGatewayRoute[]>(client, '/owner-api/meta-routes', {
             signal: AbortSignal.timeout(3_000),
           });
-          if (!result.ok || !Array.isArray(result.body)) throw new Error('Campaign lookup failed with status ' + result.status);
-          return result.body;
+          if (routeResult.ok && Array.isArray(routeResult.body)) return routeResult.body;
+          if (routeResult.status !== 404) throw new Error('Meta route lookup failed with status ' + routeResult.status);
+          const campaignResult = await fetchClientAsOwner<Campaign[]>(client, '/owner-api/campaigns', {
+            signal: AbortSignal.timeout(3_000),
+          });
+          if (!campaignResult.ok || !Array.isArray(campaignResult.body)) {
+            throw new Error('Campaign fallback lookup failed with status ' + campaignResult.status);
+          }
+          return campaignsToMetaGatewayRoutes(campaignResult.body);
         });
         campaignsByClient.set(client.id, campaigns);
         for (const campaign of campaigns) {
@@ -1461,7 +1514,8 @@ export function startAdminServer(storage: Storage): void {
       }
     }));
 
-    const { best, ambiguous } = selectMetaRouteCandidate(candidates);
+    const eligibleCandidates = preferCampaignMetaRoutes(candidates);
+    const { best, ambiguous } = selectMetaRouteCandidate(eligibleCandidates);
     if (ambiguous) {
       console.log('[META_GATEWAY_IGNORED] reason=ambiguous_trigger', message.id, message.from);
       return { handled: true };
@@ -1533,7 +1587,7 @@ export function startAdminServer(storage: Storage): void {
         routedCampaignId ? `campaign=${routedCampaignId}` : 'campaign=unknown',
         routedTriggerText ? `trigger=${routedTriggerText}` : 'trigger=session',
         `clients_checked=${clients.length}`,
-        `candidates=${candidates.length}`,
+        `candidates=${eligibleCandidates.length}`,
       );
     }
     return { handled: true };
@@ -2470,6 +2524,10 @@ export function startAdminServer(storage: Storage): void {
       ...campaign,
       conversation: storage.getCampaignConversationSettings(campaign),
     })));
+  });
+
+  app.get('/owner-api/meta-routes', (_req, res) => {
+    res.json(buildMetaGatewayRoutes(storage));
   });
 
   app.post('/owner-api/campaigns', async (req, res) => {

@@ -8,6 +8,7 @@ process.env.BOT_REPLY_DELAY_MS = '0';
 const { config } = require('../dist/config');
 const { emptyStorageData, Storage } = require('../dist/storage');
 const { tryHandleServiceBotMessage, validateServiceBotConfig } = require('../dist/serviceBot');
+const { buildMetaGatewayRoutes, campaignsToMetaGatewayRoutes, preferCampaignMetaRoutes } = require('../dist/adminServer');
 const { handleIncomingWhatsAppMessage } = require('../dist/messageFlow');
 const { conversationState } = require('../dist/conversationState');
 
@@ -49,6 +50,25 @@ async function run() {
       ],
     };
     storage.updateServiceBot(serviceBot);
+    assert.strictEqual(buildMetaGatewayRoutes(storage, false).some(route => route.routeKind === 'service_bot'), false);
+    const metaRoutes = buildMetaGatewayRoutes(storage, true);
+    assert.strictEqual(metaRoutes.length, 1, 'enabled service bot must be exposed to the Meta gateway');
+    assert.strictEqual(metaRoutes[0].triggerPhrase, serviceBot.triggerText);
+    assert.strictEqual(metaRoutes[0].routeKind, 'service_bot');
+    const legacyCampaignRoutes = campaignsToMetaGatewayRoutes([
+      { id: 'legacy', name: 'Legacy', triggerType: 1, triggerPhrase: 'legacy', suffix: '', active: true },
+    ]);
+    assert.strictEqual(legacyCampaignRoutes[0].routeKind, 'campaign', 'legacy clients must keep campaign-only gateway routing');
+
+    const preferredRoutes = preferCampaignMetaRoutes([
+      { clientId: 'a', triggerText: 'menu', campaign: { routeKind: 'service_bot' } },
+      { clientId: 'a', triggerText: 'menu', campaign: { routeKind: 'campaign' } },
+      { clientId: 'b', triggerText: 'menu', campaign: { routeKind: 'service_bot' } },
+    ]);
+    assert.strictEqual(preferredRoutes.length, 2);
+    assert.strictEqual(preferredRoutes.some(route => route.clientId === 'a' && route.campaign.routeKind === 'service_bot'), false,
+      'campaign route must take priority over a same-client service bot trigger');
+    assert.strictEqual(preferredRoutes.some(route => route.clientId === 'b' && route.campaign.routeKind === 'service_bot'), true);
 
     const sent = [];
     const transport = createTransport(sent);
