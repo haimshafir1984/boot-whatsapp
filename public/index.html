@@ -1136,6 +1136,9 @@
     .service-bot-node span { margin-top:2px; color:#64748b; font-size:.72rem; }
     .service-bot-node-empty { color:#94a3b8; text-align:center; font-size:.8rem; padding:18px 4px; }
     .service-bot-option { display:grid; grid-template-columns:minmax(80px,.75fr) minmax(120px,1.25fr) minmax(120px,1fr) auto; gap:7px; align-items:end; padding:9px; margin-top:8px; border:1px solid #e2e8f0; border-radius:9px; background:#f8fafc; }
+    .service-bot-option.missing-target { border-color:#ef4444; background:#fff7f7; }
+    .service-bot-option.missing-target select { border-color:#ef4444; }
+    .service-bot-target-error { margin-top:4px; color:#b91c1c; font-size:.68rem; font-weight:700; }
     .service-bot-option .field { margin:0; }
     .service-bot-option .field label { font-size:.7rem; }
     .service-bot-delete { border:0; border-radius:7px; padding:9px 10px; background:#fee2e2; color:#b91c1c; cursor:pointer; }
@@ -4888,10 +4891,10 @@
       ${node.type === 'menu' ? `
         <div class="service-bot-panel-head" style="margin:14px -14px 0;border-top:1px solid #e2e8f0"><span>אפשרויות</span><button type="button" class="btn-small" onclick="addServiceBotOption(${serviceBotSelectedNode})">+ אפשרות</button></div>
         <div id="serviceBotOptions">${options.length ? options.map((option, optionIndex) => `
-          <div class="service-bot-option">
+          <div class="service-bot-option ${option.targetNodeId ? '' : 'missing-target'}">
             <div class="field"><label>מזהה</label><input value="${esc(option.id || '')}" oninput="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'id', this.value)" /></div>
             <div class="field"><label>טקסט למשתמש</label><input value="${esc(option.label || '')}" oninput="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'label', this.value)" /></div>
-            <div class="field"><label>יעד</label><select onchange="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'targetNodeId', this.value)"><option value="">בחירת יעד</option>${nodes.map((target, targetIndex) => `<option value="${esc(target.id || '')}" ${target.id === option.targetNodeId ? 'selected' : ''}>${esc(serviceBotNodeLabel(target, targetIndex))}</option>`).join('')}</select></div>
+            <div class="field"><label>יעד <span class="required">*</span></label><select onchange="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'targetNodeId', this.value); renderServiceBotEditor()"><option value="">בחירת יעד</option>${nodes.map((target, targetIndex) => `<option value="${esc(target.id || '')}" ${target.id === option.targetNodeId ? 'selected' : ''}>${esc(serviceBotNodeLabel(target, targetIndex))}</option>`).join('')}</select>${option.targetNodeId ? '' : '<div class="service-bot-target-error">חובה לבחור לאיזה צומת עוברים</div>'}</div>
             <button type="button" class="service-bot-delete" aria-label="מחיקת אפשרות" onclick="deleteServiceBotOption(${serviceBotSelectedNode}, ${optionIndex})">✕</button>
           </div>`).join('') : '<div class="service-bot-node-empty">אין אפשרויות בתפריט.</div>'}</div>` : ''}
       <div class="service-bot-actions"><button type="button" class="service-bot-delete" onclick="deleteServiceBotNode(${serviceBotSelectedNode})">מחיקת הצומת</button></div>`;
@@ -4950,7 +4953,10 @@
     const node = serviceBotDraft?.nodes?.[nodeIndex];
     if (!node) return;
     if (!Array.isArray(node.options)) node.options = [];
-    node.options.push({ id: `option-${node.options.length + 1}`, label: 'אפשרות חדשה', targetNodeId: '' });
+    const defaultTarget = serviceBotDraft.nodes.find(item => item.id && item.id !== node.id)?.id
+      || serviceBotDraft.mainMenuNodeId
+      || node.id;
+    node.options.push({ id: `option-${node.options.length + 1}`, label: 'אפשרות חדשה', targetNodeId: defaultTarget || '' });
     setServiceBotDirty();
     renderServiceBotEditor();
   }
@@ -4992,6 +4998,23 @@
 
   async function validateServiceBotDraft() {
     if (!serviceBotDraft) return false;
+    const missingTargets = [];
+    serviceBotDraft.nodes.forEach((node, nodeIndex) => {
+      (node.options || []).forEach((option, optionIndex) => {
+        if (!String(option.targetNodeId || '').trim()) {
+          missingTargets.push({ node, nodeIndex, optionIndex });
+        }
+      });
+    });
+    if (missingTargets.length) {
+      serviceBotSelectedNode = missingTargets[0].nodeIndex;
+      renderServiceBotEditor();
+      showServiceBotValidation(
+        'error',
+        missingTargets.map(item => `בצומת "${serviceBotNodeLabel(item.node, item.nodeIndex)}", אפשרות ${item.optionIndex + 1}: חובה לבחור יעד.`),
+      );
+      return false;
+    }
     try {
       const response = await fetch('/api/service-bot/validate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(serviceBotDraft) });
       const data = await response.json();
