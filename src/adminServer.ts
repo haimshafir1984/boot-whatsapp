@@ -18,8 +18,10 @@ import {
   CompletionLink,
   DecisionFlowOption,
   DecisionFlowStep,
+  ServiceBotConfig,
   TwilioTemplateDraft,
 } from './storage';
+import { validateServiceBotConfig } from './serviceBot';
 import { config } from './config';
 import { botState } from './botState';
 import { resetWhatsAppSession, startWhatsAppBot, stopWhatsAppBot } from './whatsappLifecycle';
@@ -2727,6 +2729,37 @@ export function startAdminServer(storage: Storage): void {
   });
 
   // ── Settings ──────────────────────────────────────────────────────────────
+
+  app.get('/api/service-bot', (_req, res) => {
+    res.json({
+      featureEnabled: config.CLIENT_SERVICE_BOT_ENABLED,
+      serviceBot: storage.getServiceBot(),
+    });
+  });
+
+  app.post('/api/service-bot/validate', (req, res) => {
+    const result = validateServiceBotConfig(req.body);
+    res.status(result.ok ? 200 : 400).json(result);
+  });
+
+  app.put('/api/service-bot', requireWritableClient, (req, res) => {
+    const candidate = req.body as ServiceBotConfig;
+    const validation = validateServiceBotConfig(candidate);
+    if (!validation.ok) {
+      res.status(400).json(validation);
+      return;
+    }
+    res.json({
+      ok: true,
+      featureEnabled: config.CLIENT_SERVICE_BOT_ENABLED,
+      serviceBot: storage.updateServiceBot(candidate),
+    });
+  });
+
+  app.delete('/api/service-bot/sessions', requireWritableClient, (_req, res) => {
+    const deleted = storage.clearServiceBotSessions();
+    res.json({ ok: true, deleted });
+  });
 
   app.get('/api/settings', (_req, res) => {
     res.json(storage.getAdminSettings());
