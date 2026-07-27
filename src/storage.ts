@@ -422,6 +422,38 @@ export interface TwilioTemplateDraft {
   updatedAt: string;
 }
 
+export type ServiceBotNodeType = 'menu' | 'message' | 'handoff';
+
+export interface ServiceBotOption {
+  id: string;
+  label: string;
+  targetNodeId: string;
+}
+
+export interface ServiceBotNode {
+  id: string;
+  title: string;
+  type: ServiceBotNodeType;
+  text: string;
+  options?: ServiceBotOption[];
+  handoffPhone?: string;
+}
+
+export interface ServiceBotConfig {
+  enabled: boolean;
+  name: string;
+  triggerText: string;
+  mainMenuNodeId: string;
+  fallbackText: string;
+  nodes: ServiceBotNode[];
+}
+
+export interface ServiceBotSession {
+  phone: string;
+  nodeId: string;
+  updatedAt: string;
+}
+
 export interface StorageData {
   savedContacts: string[];
   contactsList: SavedContact[];
@@ -437,6 +469,8 @@ export interface StorageData {
   outboxMessages: OutboxMessage[];
   conversationStateSnapshot?: ConversationStateSnapshot;
   scheduledJobs: ScheduledJobRecord[];
+  serviceBot: ServiceBotConfig;
+  serviceBotSessions: ServiceBotSession[];
 }
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────
@@ -488,6 +522,15 @@ const DEFAULT_TWILIO_ONBOARDING: TwilioOnboardingDetails = {
   notes: '',
 };
 
+export const DEFAULT_SERVICE_BOT: ServiceBotConfig = {
+  enabled: false,
+  name: '',
+  triggerText: '\u05ea\u05e4\u05e8\u05d9\u05d8',
+  mainMenuNodeId: '',
+  fallbackText: '\u05dc\u05d0 \u05d4\u05e6\u05dc\u05d7\u05ea\u05d9 \u05dc\u05d6\u05d4\u05d5\u05ea \u05d0\u05ea \u05d4\u05d1\u05d7\u05d9\u05e8\u05d4. \u05d0\u05e4\u05e9\u05e8 \u05dc\u05d1\u05d7\u05d5\u05e8 \u05d0\u05d7\u05ea \u05de\u05d4\u05d0\u05e4\u05e9\u05e8\u05d5\u05d9\u05d5\u05ea.',
+  nodes: [],
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function generateId(): string {
@@ -515,6 +558,8 @@ export function emptyStorageData(): StorageData {
     twilioTemplates: [],
     outboxMessages: [],
     scheduledJobs: [],
+    serviceBot: { ...DEFAULT_SERVICE_BOT, nodes: [] },
+    serviceBotSessions: [],
   };
 }
 
@@ -541,7 +586,21 @@ export class Storage {
   constructor(filePath: string, options: StorageOptions = {}) {
     this.filePath = filePath;
     this.backend = options.backend;
-    this.data = options.initialData ?? this.load();
+    if (options.initialData) {
+      const initial = options.initialData as Partial<StorageData>;
+      this.data = {
+        ...emptyStorageData(),
+        ...initial,
+        serviceBot: {
+          ...DEFAULT_SERVICE_BOT,
+          ...(initial.serviceBot ?? {}),
+          nodes: Array.isArray(initial.serviceBot?.nodes) ? initial.serviceBot.nodes : [],
+        },
+        serviceBotSessions: Array.isArray(initial.serviceBotSessions) ? initial.serviceBotSessions : [],
+      };
+    } else {
+      this.data = this.load();
+    }
   }
 
   private load(): StorageData {
@@ -610,6 +669,14 @@ export class Storage {
       outboxMessages: (parsed as any).outboxMessages ?? [],
       conversationStateSnapshot: (parsed as any).conversationStateSnapshot,
       scheduledJobs: (parsed as any).scheduledJobs ?? [],
+      serviceBot: {
+        ...DEFAULT_SERVICE_BOT,
+        ...((parsed as any).serviceBot ?? {}),
+        nodes: Array.isArray((parsed as any).serviceBot?.nodes) ? (parsed as any).serviceBot.nodes : [],
+      },
+      serviceBotSessions: Array.isArray((parsed as any).serviceBotSessions)
+        ? (parsed as any).serviceBotSessions
+        : [],
     };
   }
 
@@ -1466,6 +1533,43 @@ export class Storage {
     this.data.adminSettings = { ...this.data.adminSettings, ...patch };
     this.persist();
     return this.getAdminSettings();
+  }
+
+  getServiceBot(): ServiceBotConfig {
+    return JSON.parse(JSON.stringify(this.data.serviceBot)) as ServiceBotConfig;
+  }
+
+  updateServiceBot(serviceBot: ServiceBotConfig): ServiceBotConfig {
+    this.data.serviceBot = JSON.parse(JSON.stringify(serviceBot)) as ServiceBotConfig;
+    this.persist();
+    return this.getServiceBot();
+  }
+
+  getServiceBotSession(phone: string): ServiceBotSession | null {
+    const session = this.data.serviceBotSessions.find((item) => item.phone === phone);
+    return session ? { ...session } : null;
+  }
+
+  saveServiceBotSession(phone: string, nodeId: string): ServiceBotSession {
+    const updatedAt = new Date().toISOString();
+    const existing = this.data.serviceBotSessions.find((item) => item.phone === phone);
+    if (existing) {
+      existing.nodeId = nodeId;
+      existing.updatedAt = updatedAt;
+      this.persist();
+      return { ...existing };
+    }
+    const session = { phone, nodeId, updatedAt };
+    this.data.serviceBotSessions.push(session);
+    this.persist();
+    return { ...session };
+  }
+
+  clearServiceBotSessions(): number {
+    const count = this.data.serviceBotSessions.length;
+    this.data.serviceBotSessions = [];
+    this.persist();
+    return count;
   }
 
   getClientProfile(): ClientProfile {

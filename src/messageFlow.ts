@@ -5,6 +5,7 @@ import path from 'path';
 import { conversationState, PersistablePendingConversation } from './conversationState';
 import { Campaign, CampaignConversationSettings, CampaignResult, CampaignScoreAnswer, CompletionLink, DecisionFlowOption, DecisionFlowStep, OutboxMessage, ScoreResultRule, Storage } from './storage';
 import { detectTrigger } from './triggerDetector';
+import { tryHandleServiceBotMessage } from './serviceBot';
 import {
   IncomingWhatsAppMessage,
   WhatsAppMessageSource,
@@ -1038,6 +1039,7 @@ async function handleMessage(
     }
     if (await tryResumeTimedOutDecision(message, storage, transport, source, senderPhone)) return;
     if (await tryRecoverMissingFlow(message, storage, transport, source, activeCampaigns, senderJid, senderPhone)) return;
+    if (await tryHandleServiceBotMessage(replyBody, senderJid, senderPhone, storage, transport)) return;
     console.log(`[STATE_MISS] via=${source} age=${Math.round(messageAgeMs / 1000)}s phone=${senderPhone} button=${Boolean(message.isButtonReply)} body=${replyBody.slice(0, 80)}`);
     console.log(`[MSG] no trigger match via=${source} age=${Math.round(messageAgeMs / 1000)}s from=${senderJid} active=${activeCampaigns.length}`);
     return;

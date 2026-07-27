@@ -1116,6 +1116,42 @@
       }
       .file-size { white-space: normal; }
     }
+    .dashboard-tabs { display:none; gap:8px; margin:0 0 14px; padding:6px; border:1px solid #dbe3ea; border-radius:12px; background:#fff; }
+    .dashboard-tab { flex:1; border:0; border-radius:9px; padding:11px 16px; background:transparent; color:#64748b; font:inherit; font-weight:800; cursor:pointer; }
+    .dashboard-tab.active { background:#dcfce7; color:#166534; box-shadow:0 1px 3px rgba(15,23,42,.08); }
+    .dashboard-tab-hidden { display:none !important; }
+    .service-bot-intro { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:18px; }
+    .service-bot-intro p { margin:4px 0 0; color:#64748b; font-size:.82rem; line-height:1.6; }
+    .service-bot-feature-note { border-radius:9px; padding:8px 10px; background:#eff6ff; color:#1d4ed8; font-size:.76rem; font-weight:700; }
+    .service-bot-settings { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-bottom:16px; padding:14px; border:1px solid #e2e8f0; border-radius:12px; background:#f8fafc; }
+    .service-bot-settings .full { grid-column:1 / -1; }
+    .service-bot-grid { display:grid; grid-template-columns:minmax(190px,240px) minmax(330px,1fr) minmax(250px,320px); gap:14px; align-items:start; }
+    .service-bot-panel { border:1px solid #e2e8f0; border-radius:12px; background:#fff; overflow:hidden; }
+    .service-bot-panel-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:12px 14px; border-bottom:1px solid #e2e8f0; background:#f8fafc; font-weight:800; }
+    .service-bot-panel-body { padding:14px; }
+    .service-bot-node-list { display:grid; gap:7px; }
+    .service-bot-node { width:100%; border:1px solid #e2e8f0; border-radius:9px; padding:9px 10px; text-align:right; background:#fff; cursor:pointer; font:inherit; }
+    .service-bot-node.active { border-color:#22c55e; background:#f0fdf4; }
+    .service-bot-node strong,.service-bot-node span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .service-bot-node span { margin-top:2px; color:#64748b; font-size:.72rem; }
+    .service-bot-node-empty { color:#94a3b8; text-align:center; font-size:.8rem; padding:18px 4px; }
+    .service-bot-option { display:grid; grid-template-columns:minmax(80px,.75fr) minmax(120px,1.25fr) minmax(120px,1fr) auto; gap:7px; align-items:end; padding:9px; margin-top:8px; border:1px solid #e2e8f0; border-radius:9px; background:#f8fafc; }
+    .service-bot-option .field { margin:0; }
+    .service-bot-option .field label { font-size:.7rem; }
+    .service-bot-delete { border:0; border-radius:7px; padding:9px 10px; background:#fee2e2; color:#b91c1c; cursor:pointer; }
+    .service-bot-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
+    .service-bot-actions .btn-save,.service-bot-actions .btn-small { width:auto; }
+    .service-bot-validation { display:none; margin-top:12px; border-radius:9px; padding:10px 12px; font-size:.8rem; line-height:1.55; }
+    .service-bot-validation.open { display:block; }
+    .service-bot-validation.success { background:#dcfce7; color:#166534; }
+    .service-bot-validation.error { background:#fee2e2; color:#991b1b; }
+    .service-bot-preview { min-height:210px; padding:14px; background:#efeae2; }
+    .service-bot-preview-bubble { max-width:92%; margin-right:auto; border-radius:10px 10px 2px 10px; padding:10px 12px; background:#d9fdd3; color:#111827; white-space:pre-wrap; line-height:1.55; box-shadow:0 1px 2px rgba(15,23,42,.12); }
+    .service-bot-preview-options { display:grid; gap:5px; margin-top:8px; }
+    .service-bot-preview-option { border-top:1px solid rgba(15,23,42,.12); padding-top:6px; color:#166534; font-size:.8rem; font-weight:700; }
+    .service-bot-dirty { color:#b45309; font-size:.75rem; font-weight:700; }
+    @media (max-width: 980px) { .service-bot-grid { grid-template-columns:1fr; } .service-bot-settings { grid-template-columns:1fr; } .service-bot-settings .full { grid-column:auto; } }
+    @media (max-width: 650px) { .service-bot-option { grid-template-columns:1fr; } .service-bot-intro { flex-direction:column; } }
   </style>
 </head>
 <body>
@@ -1199,6 +1235,76 @@
         <h1 id="dashboardTitle">&#1504;&#1497;&#1492;&#1493;&#1500; &#1489;&#1493;&#1496; WhatsApp</h1>
         <p>שינויים נכנסים לתוקף מיד – ללא הפעלה מחדש</p>
       </div>
+    </div>
+  </div>
+
+  <div class="dashboard-tabs" id="dashboardTabs" role="tablist" aria-label="אזור ניהול">
+    <button type="button" class="dashboard-tab active" id="campaignsDashboardTab" role="tab" aria-selected="true" onclick="switchDashboardTab('campaigns')">קמפיינים</button>
+    <button type="button" class="dashboard-tab" id="serviceBotDashboardTab" role="tab" aria-selected="false" onclick="switchDashboardTab('service-bot')">בוט שירות</button>
+  </div>
+
+  <div class="card" id="serviceBotCard" style="display:none">
+    <div class="card-body">
+      <div class="service-bot-intro">
+        <div>
+          <div class="sec-title">בוט שירות קבוע</div>
+          <p>עץ שירות נפרד מקמפיינים. המשתמש נכנס דרך מילת הטריגר ומתקדם בין תפריטים, הודעות ומעבר לנציג.</p>
+        </div>
+        <div class="service-bot-feature-note" id="serviceBotFeatureNote">פעיל רק ביחידת הבדיקות</div>
+      </div>
+
+      <div class="service-bot-settings">
+        <div class="toggle-row full">
+          <div>
+            <div class="toggle-label">הפעלת בוט השירות</div>
+            <div class="toggle-sub">אפשר לכבות מיד בלי למחוק את העץ או את ההגדרות.</div>
+          </div>
+          <label class="switch"><input type="checkbox" id="serviceBotEnabled" onchange="updateServiceBotGlobal('enabled', this.checked)" /><span class="slider"></span></label>
+        </div>
+        <div class="field">
+          <label for="serviceBotName">שם פנימי</label>
+          <input id="serviceBotName" placeholder="לדוגמה: שירות לקוחות" oninput="updateServiceBotGlobal('name', this.value)" />
+        </div>
+        <div class="field">
+          <label for="serviceBotTrigger">מילת או משפט טריגר</label>
+          <input id="serviceBotTrigger" placeholder="תפריט" oninput="updateServiceBotGlobal('triggerText', this.value)" />
+        </div>
+        <div class="field">
+          <label for="serviceBotMainNode">תפריט ראשי</label>
+          <select id="serviceBotMainNode" onchange="updateServiceBotGlobal('mainMenuNodeId', this.value)"></select>
+        </div>
+        <div class="field">
+          <label for="serviceBotFallback">תגובה לבחירה לא מוכרת</label>
+          <input id="serviceBotFallback" oninput="updateServiceBotGlobal('fallbackText', this.value)" />
+        </div>
+      </div>
+
+      <div class="service-bot-grid">
+        <section class="service-bot-panel">
+          <div class="service-bot-panel-head"><span>צמתים</span><button type="button" class="btn-small" onclick="addServiceBotNode()">+ צומת</button></div>
+          <div class="service-bot-panel-body"><div class="service-bot-node-list" id="serviceBotNodeList"></div></div>
+        </section>
+
+        <section class="service-bot-panel">
+          <div class="service-bot-panel-head"><span>עריכת צומת</span><span class="service-bot-dirty" id="serviceBotDirtyState"></span></div>
+          <div class="service-bot-panel-body" id="serviceBotNodeEditor">
+            <div class="service-bot-node-empty">יש לבחור צומת לעריכה.</div>
+          </div>
+        </section>
+
+        <section class="service-bot-panel">
+          <div class="service-bot-panel-head"><span>תצוגה מקדימה</span><span style="font-size:.72rem;color:#64748b">WhatsApp</span></div>
+          <div class="service-bot-preview" id="serviceBotPreview"></div>
+        </section>
+      </div>
+
+      <div class="service-bot-actions">
+        <button type="button" class="btn-save" id="saveServiceBotBtn" onclick="saveServiceBot()">שמירת בוט השירות</button>
+        <button type="button" class="btn-small" onclick="validateServiceBotDraft()">בדיקת תקינות</button>
+        <button type="button" class="btn-small" onclick="loadServiceBotSample()">טעינת עץ לדוגמה</button>
+        <button type="button" class="btn-small" onclick="clearServiceBotSessions()">איפוס שיחות פעילות</button>
+      </div>
+      <div class="service-bot-validation" id="serviceBotValidation" role="status" aria-live="polite"></div>
     </div>
   </div>
 
@@ -4568,6 +4674,7 @@
           _dataLoaded = true;
           loadCampaigns();
           loadSettings();
+          loadServiceBot();
           loadLinks();
           loadContactQueueStats();
         }
@@ -4664,10 +4771,302 @@
     checkQR();
   }
 
+  // ── Service Bot editor ──────────────────────────────────────────────────────
+  let serviceBotDraft = null;
+  let serviceBotSelectedNode = 0;
+  let serviceBotDraftDirty = false;
+
+  function emptyServiceBotDraft() {
+    return {
+      enabled: false,
+      name: '',
+      triggerText: 'תפריט',
+      mainMenuNodeId: 'main',
+      fallbackText: 'לא הצלחתי לזהות את הבחירה. אפשר לבחור אחת מהאפשרויות.',
+      nodes: [{ id: 'main', title: 'תפריט ראשי', type: 'menu', text: 'איך אפשר לעזור?', options: [] }]
+    };
+  }
+
+  async function loadServiceBot() {
+    try {
+      const response = await fetch('/api/service-bot');
+      if (!response.ok) return;
+      const data = await response.json();
+      const tabs = document.getElementById('dashboardTabs');
+      if (!data.featureEnabled) {
+        if (tabs) tabs.style.display = 'none';
+        switchDashboardTab('campaigns');
+        return;
+      }
+      if (tabs) tabs.style.display = 'flex';
+      serviceBotDraft = data.serviceBot && typeof data.serviceBot === 'object'
+        ? JSON.parse(JSON.stringify(data.serviceBot))
+        : emptyServiceBotDraft();
+      if (!Array.isArray(serviceBotDraft.nodes)) serviceBotDraft.nodes = [];
+      if (!serviceBotDraft.nodes.length) serviceBotDraft = { ...serviceBotDraft, ...emptyServiceBotDraft(), enabled: Boolean(serviceBotDraft.enabled), name: serviceBotDraft.name || '' };
+      serviceBotSelectedNode = Math.min(serviceBotSelectedNode, serviceBotDraft.nodes.length - 1);
+      setServiceBotDirty(false);
+      renderServiceBotEditor();
+    } catch (_) {}
+  }
+
+  function switchDashboardTab(tab) {
+    const serviceMode = tab === 'service-bot';
+    document.getElementById('campaignsDashboardTab')?.classList.toggle('active', !serviceMode);
+    document.getElementById('serviceBotDashboardTab')?.classList.toggle('active', serviceMode);
+    document.getElementById('campaignsDashboardTab')?.setAttribute('aria-selected', String(!serviceMode));
+    document.getElementById('serviceBotDashboardTab')?.setAttribute('aria-selected', String(serviceMode));
+    document.querySelectorAll('#main-content > .card').forEach(card => {
+      if (card.id === 'dashboardHeaderCard' || card.id === 'serviceBotCard') return;
+      card.classList.toggle('dashboard-tab-hidden', serviceMode);
+    });
+    const serviceCard = document.getElementById('serviceBotCard');
+    if (serviceCard) serviceCard.style.display = serviceMode ? 'block' : 'none';
+    if (serviceMode && serviceBotDraft) renderServiceBotEditor();
+  }
+
+  function setServiceBotDirty(dirty = true) {
+    serviceBotDraftDirty = dirty;
+    const state = document.getElementById('serviceBotDirtyState');
+    if (state) state.textContent = dirty ? 'יש שינויים שלא נשמרו' : 'כל השינויים נשמרו';
+    if (dirty) {
+      const validation = document.getElementById('serviceBotValidation');
+      if (validation) validation.className = 'service-bot-validation';
+    }
+  }
+
+  function updateServiceBotGlobal(field, value) {
+    if (!serviceBotDraft) return;
+    serviceBotDraft[field] = value;
+    setServiceBotDirty();
+    renderServiceBotPreview();
+  }
+
+  function serviceBotNodeLabel(node, index) {
+    return node.title?.trim() || node.id?.trim() || `צומת ${index + 1}`;
+  }
+
+  function renderServiceBotEditor() {
+    if (!serviceBotDraft) return;
+    document.getElementById('serviceBotEnabled').checked = Boolean(serviceBotDraft.enabled);
+    document.getElementById('serviceBotName').value = serviceBotDraft.name || '';
+    document.getElementById('serviceBotTrigger').value = serviceBotDraft.triggerText || '';
+    document.getElementById('serviceBotFallback').value = serviceBotDraft.fallbackText || '';
+
+    const nodes = serviceBotDraft.nodes || [];
+    const mainSelect = document.getElementById('serviceBotMainNode');
+    mainSelect.innerHTML = nodes.length
+      ? nodes.map((node, index) => `<option value="${esc(node.id || '')}" ${node.id === serviceBotDraft.mainMenuNodeId ? 'selected' : ''}>${esc(serviceBotNodeLabel(node, index))}</option>`).join('')
+      : '<option value="">אין צמתים</option>';
+
+    const list = document.getElementById('serviceBotNodeList');
+    list.innerHTML = nodes.length
+      ? nodes.map((node, index) => `<button type="button" class="service-bot-node ${index === serviceBotSelectedNode ? 'active' : ''}" onclick="selectServiceBotNode(${index})"><strong>${esc(serviceBotNodeLabel(node, index))}</strong><span>${esc(node.id || 'ללא מזהה')} · ${esc(node.type || '')}</span></button>`).join('')
+      : '<div class="service-bot-node-empty">אין צמתים. אפשר להוסיף צומת ראשון.</div>';
+
+    const editor = document.getElementById('serviceBotNodeEditor');
+    const node = nodes[serviceBotSelectedNode];
+    if (!node) {
+      editor.innerHTML = '<div class="service-bot-node-empty">יש להוסיף או לבחור צומת.</div>';
+      renderServiceBotPreview();
+      return;
+    }
+    const targetOptions = nodes.map((target, index) => `<option value="${esc(target.id || '')}">${esc(serviceBotNodeLabel(target, index))}</option>`).join('');
+    const options = Array.isArray(node.options) ? node.options : [];
+    editor.innerHTML = `
+      <div class="two-fields">
+        <div class="field"><label>מזהה צומת</label><input value="${esc(node.id || '')}" onchange="renameServiceBotNode(${serviceBotSelectedNode}, this.value)" /></div>
+        <div class="field"><label>סוג צומת</label><select onchange="updateServiceBotNode(${serviceBotSelectedNode}, 'type', this.value, true)">
+          <option value="menu" ${node.type === 'menu' ? 'selected' : ''}>תפריט</option>
+          <option value="message" ${node.type === 'message' ? 'selected' : ''}>הודעת מידע</option>
+          <option value="handoff" ${node.type === 'handoff' ? 'selected' : ''}>מעבר לנציג</option>
+        </select></div>
+      </div>
+      <div class="field"><label>כותרת</label><input value="${esc(node.title || '')}" oninput="updateServiceBotNode(${serviceBotSelectedNode}, 'title', this.value)" onchange="renderServiceBotEditor()" /></div>
+      <div class="field"><label>טקסט ההודעה</label><textarea oninput="updateServiceBotNode(${serviceBotSelectedNode}, 'text', this.value)">${esc(node.text || '')}</textarea></div>
+      ${node.type === 'handoff' ? `<div class="field"><label>מספר WhatsApp לנציג</label><input value="${esc(node.handoffPhone || '')}" placeholder="0501234567" oninput="updateServiceBotNode(${serviceBotSelectedNode}, 'handoffPhone', this.value)" /></div>` : ''}
+      ${node.type === 'menu' ? `
+        <div class="service-bot-panel-head" style="margin:14px -14px 0;border-top:1px solid #e2e8f0"><span>אפשרויות</span><button type="button" class="btn-small" onclick="addServiceBotOption(${serviceBotSelectedNode})">+ אפשרות</button></div>
+        <div id="serviceBotOptions">${options.length ? options.map((option, optionIndex) => `
+          <div class="service-bot-option">
+            <div class="field"><label>מזהה</label><input value="${esc(option.id || '')}" oninput="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'id', this.value)" /></div>
+            <div class="field"><label>טקסט למשתמש</label><input value="${esc(option.label || '')}" oninput="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'label', this.value)" /></div>
+            <div class="field"><label>יעד</label><select onchange="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'targetNodeId', this.value)"><option value="">בחירת יעד</option>${nodes.map((target, targetIndex) => `<option value="${esc(target.id || '')}" ${target.id === option.targetNodeId ? 'selected' : ''}>${esc(serviceBotNodeLabel(target, targetIndex))}</option>`).join('')}</select></div>
+            <button type="button" class="service-bot-delete" aria-label="מחיקת אפשרות" onclick="deleteServiceBotOption(${serviceBotSelectedNode}, ${optionIndex})">✕</button>
+          </div>`).join('') : '<div class="service-bot-node-empty">אין אפשרויות בתפריט.</div>'}</div>` : ''}
+      <div class="service-bot-actions"><button type="button" class="service-bot-delete" onclick="deleteServiceBotNode(${serviceBotSelectedNode})">מחיקת הצומת</button></div>`;
+    renderServiceBotPreview();
+  }
+
+  function selectServiceBotNode(index) {
+    serviceBotSelectedNode = index;
+    renderServiceBotEditor();
+  }
+
+  function addServiceBotNode() {
+    if (!serviceBotDraft) return;
+    const used = new Set(serviceBotDraft.nodes.map(node => node.id));
+    let number = serviceBotDraft.nodes.length + 1;
+    while (used.has(`node-${number}`)) number += 1;
+    serviceBotDraft.nodes.push({ id: `node-${number}`, title: 'צומת חדש', type: 'message', text: '', options: [] });
+    serviceBotSelectedNode = serviceBotDraft.nodes.length - 1;
+    if (!serviceBotDraft.mainMenuNodeId) serviceBotDraft.mainMenuNodeId = serviceBotDraft.nodes[0].id;
+    setServiceBotDirty();
+    renderServiceBotEditor();
+  }
+
+  function renameServiceBotNode(index, value) {
+    const node = serviceBotDraft?.nodes?.[index];
+    if (!node) return;
+    const previous = node.id;
+    node.id = String(value || '').trim();
+    if (serviceBotDraft.mainMenuNodeId === previous) serviceBotDraft.mainMenuNodeId = node.id;
+    serviceBotDraft.nodes.forEach(item => (item.options || []).forEach(option => { if (option.targetNodeId === previous) option.targetNodeId = node.id; }));
+    setServiceBotDirty();
+    renderServiceBotEditor();
+  }
+
+  function updateServiceBotNode(index, field, value, rerender = false) {
+    const node = serviceBotDraft?.nodes?.[index];
+    if (!node) return;
+    node[field] = value;
+    if (field === 'type' && value !== 'menu') node.options = [];
+    setServiceBotDirty();
+    if (rerender) renderServiceBotEditor(); else renderServiceBotPreview();
+  }
+
+  function deleteServiceBotNode(index) {
+    const node = serviceBotDraft?.nodes?.[index];
+    if (!node || !confirm(`למחוק את הצומת "${serviceBotNodeLabel(node, index)}"?`)) return;
+    serviceBotDraft.nodes.splice(index, 1);
+    serviceBotDraft.nodes.forEach(item => { item.options = (item.options || []).filter(option => option.targetNodeId !== node.id); });
+    if (serviceBotDraft.mainMenuNodeId === node.id) serviceBotDraft.mainMenuNodeId = serviceBotDraft.nodes[0]?.id || '';
+    serviceBotSelectedNode = Math.max(0, Math.min(serviceBotSelectedNode, serviceBotDraft.nodes.length - 1));
+    setServiceBotDirty();
+    renderServiceBotEditor();
+  }
+
+  function addServiceBotOption(nodeIndex) {
+    const node = serviceBotDraft?.nodes?.[nodeIndex];
+    if (!node) return;
+    if (!Array.isArray(node.options)) node.options = [];
+    node.options.push({ id: `option-${node.options.length + 1}`, label: 'אפשרות חדשה', targetNodeId: '' });
+    setServiceBotDirty();
+    renderServiceBotEditor();
+  }
+
+  function updateServiceBotOption(nodeIndex, optionIndex, field, value) {
+    const option = serviceBotDraft?.nodes?.[nodeIndex]?.options?.[optionIndex];
+    if (!option) return;
+    option[field] = value;
+    setServiceBotDirty();
+    renderServiceBotPreview();
+  }
+
+  function deleteServiceBotOption(nodeIndex, optionIndex) {
+    const options = serviceBotDraft?.nodes?.[nodeIndex]?.options;
+    if (!options) return;
+    options.splice(optionIndex, 1);
+    setServiceBotDirty();
+    renderServiceBotEditor();
+  }
+
+  function renderServiceBotPreview() {
+    const preview = document.getElementById('serviceBotPreview');
+    if (!preview) return;
+    const node = serviceBotDraft?.nodes?.[serviceBotSelectedNode];
+    if (!node) { preview.innerHTML = '<div class="service-bot-node-empty">אין צומת להצגה.</div>'; return; }
+    const body = [node.title, node.text].filter(value => String(value || '').trim()).map(value => esc(value)).join('\n\n');
+    const handoff = node.type === 'handoff' && node.handoffPhone ? `\n\nhttps://wa.me/${esc(String(node.handoffPhone).replace(/\D/g, ''))}` : '';
+    const options = (node.options || []).map((option, index) => `<div class="service-bot-preview-option">${index + 1}. ${esc(option.label || 'אפשרות ללא טקסט')}</div>`).join('');
+    preview.innerHTML = `<div class="service-bot-preview-bubble">${body || 'הודעה ריקה'}${handoff}${options ? `<div class="service-bot-preview-options">${options}</div>` : ''}</div>`;
+  }
+
+  function showServiceBotValidation(kind, messages) {
+    const box = document.getElementById('serviceBotValidation');
+    if (!box) return;
+    const list = Array.isArray(messages) ? messages : [messages];
+    box.className = `service-bot-validation open ${kind}`;
+    box.innerHTML = list.map(message => `<div>${esc(message)}</div>`).join('');
+  }
+
+  async function validateServiceBotDraft() {
+    if (!serviceBotDraft) return false;
+    try {
+      const response = await fetch('/api/service-bot/validate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(serviceBotDraft) });
+      const data = await response.json();
+      if (!response.ok || !data.ok) {
+        showServiceBotValidation('error', data.errors?.length ? data.errors : ['העץ אינו תקין.']);
+        return false;
+      }
+      showServiceBotValidation('success', 'העץ תקין ומוכן לשמירה.');
+      return true;
+    } catch (_) {
+      showServiceBotValidation('error', 'לא ניתן לבדוק את העץ כרגע.');
+      return false;
+    }
+  }
+
+  async function saveServiceBot() {
+    if (!await validateServiceBotDraft()) return;
+    const button = document.getElementById('saveServiceBotBtn');
+    if (button) { button.disabled = true; button.textContent = 'שומר...'; }
+    try {
+      const response = await fetch('/api/service-bot', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(serviceBotDraft) });
+      const data = await response.json();
+      if (!response.ok) { showServiceBotValidation('error', data.errors || data.error || 'השמירה נכשלה.'); return; }
+      serviceBotDraft = JSON.parse(JSON.stringify(data.serviceBot));
+      setServiceBotDirty(false);
+      renderServiceBotEditor();
+      showServiceBotValidation('success', 'בוט השירות נשמר בהצלחה.');
+    } catch (_) {
+      showServiceBotValidation('error', 'לא ניתן לשמור את בוט השירות כרגע.');
+    } finally {
+      if (button) { button.disabled = false; button.textContent = 'שמירת בוט השירות'; }
+    }
+  }
+
+  function loadServiceBotSample() {
+    if (serviceBotDraftDirty && !confirm('להחליף את הטיוטה הנוכחית בעץ לדוגמה?')) return;
+    serviceBotDraft = {
+      enabled: false, name: 'בוט שירות לדוגמה', triggerText: 'תפריט', mainMenuNodeId: 'main',
+      fallbackText: 'לא הצלחתי לזהות את הבחירה. אפשר לבחור אחת מהאפשרויות.',
+      nodes: [
+        { id: 'main', title: 'תפריט ראשי', type: 'menu', text: 'איך אפשר לעזור?', options: [
+          { id: 'new-customer', label: 'לקוח חדש', targetNodeId: 'new-info' },
+          { id: 'existing-customer', label: 'לקוח קיים', targetNodeId: 'products' },
+          { id: 'opening-hours', label: 'שעות פתיחה', targetNodeId: 'hours' },
+          { id: 'human-agent', label: 'נציג שירות', targetNodeId: 'handoff' }
+        ] },
+        { id: 'new-info', title: 'לקוח חדש', type: 'message', text: 'כאן אפשר להציג מידע ללקוח חדש.' },
+        { id: 'products', title: 'שירותים ללקוחות קיימים', type: 'menu', text: 'במה תרצו עזרה?', options: [{ id: 'product-info', label: 'מידע על השירות', targetNodeId: 'product-info' }] },
+        { id: 'product-info', title: 'מידע על השירות', type: 'message', text: 'כאן אפשר להציג מידע על השירות או המוצר.' },
+        { id: 'hours', title: 'שעות פתיחה', type: 'message', text: 'ימים א׳–ה׳, 09:00–17:00.' },
+        { id: 'handoff', title: 'נציג שירות', type: 'handoff', text: 'אפשר להמשיך מכאן לשיחה עם נציג.', handoffPhone: '' }
+      ]
+    };
+    serviceBotSelectedNode = 0;
+    setServiceBotDirty();
+    renderServiceBotEditor();
+  }
+
+  async function clearServiceBotSessions() {
+    if (!confirm('לאפס את כל שיחות בוט השירות הפעילות? המשתמשים יידרשו לשלוח שוב את הטריגר.')) return;
+    try {
+      const response = await fetch('/api/service-bot/sessions', { method: 'DELETE' });
+      const data = await response.json();
+      if (!response.ok) { showServiceBotValidation('error', data.error || 'האיפוס נכשל.'); return; }
+      showServiceBotValidation('success', `אופסו ${Number(data.deleted || 0)} שיחות פעילות.`);
+    } catch (_) {
+      showServiceBotValidation('error', 'לא ניתן לאפס שיחות כרגע.');
+    }
+  }
+
   // ── Init ────────────────────────────────────────────────────────────────────
   loadCapabilities();
   loadCampaigns();
   loadSettings();
+  loadServiceBot();
   loadLinks();
   loadCampaignFiles();
   loadTwilioOnboarding();
