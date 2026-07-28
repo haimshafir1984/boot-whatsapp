@@ -420,12 +420,25 @@ export interface ServiceBotConfig {
   triggerText: string;
   mainMenuNodeId: string;
   fallbackText: string;
+  sessionTimeoutMinutes: number;
+  navigationPromptText: string;
+  backLabel: string;
+  mainMenuLabel: string;
+  outsideHoursEnabled: boolean;
+  outsideHoursStart: string;
+  outsideHoursEnd: string;
+  outsideHoursText: string;
+  globalHandoffEnabled: boolean;
+  globalHandoffLabel: string;
+  globalHandoffPhone: string;
+  globalHandoffText: string;
   nodes: ServiceBotNode[];
 }
 
 export interface ServiceBotSession {
   phone: string;
   nodeId: string;
+  path?: string[];
   updatedAt: string;
 }
 
@@ -503,6 +516,18 @@ export const DEFAULT_SERVICE_BOT: ServiceBotConfig = {
   triggerText: '\u05ea\u05e4\u05e8\u05d9\u05d8',
   mainMenuNodeId: '',
   fallbackText: '\u05dc\u05d0 \u05d4\u05e6\u05dc\u05d7\u05ea\u05d9 \u05dc\u05d6\u05d4\u05d5\u05ea \u05d0\u05ea \u05d4\u05d1\u05d7\u05d9\u05e8\u05d4. \u05d0\u05e4\u05e9\u05e8 \u05dc\u05d1\u05d7\u05d5\u05e8 \u05d0\u05d7\u05ea \u05de\u05d4\u05d0\u05e4\u05e9\u05e8\u05d5\u05d9\u05d5\u05ea.',
+  sessionTimeoutMinutes: 60,
+  navigationPromptText: '\u05de\u05d4 \u05ea\u05e8\u05e6\u05d5 \u05dc\u05e9\u05e2\u05d5\u05ea \u05e2\u05db\u05e9\u05d9\u05d5?',
+  backLabel: '\u05d7\u05d6\u05e8\u05d4 \u05dc\u05ea\u05e4\u05e8\u05d9\u05d8 \u05d4\u05e7\u05d5\u05d3\u05dd',
+  mainMenuLabel: '\u05d7\u05d6\u05e8\u05d4 \u05dc\u05ea\u05e4\u05e8\u05d9\u05d8 \u05d4\u05e8\u05d0\u05e9\u05d9',
+  outsideHoursEnabled: false,
+  outsideHoursStart: '09:00',
+  outsideHoursEnd: '17:00',
+  outsideHoursText: '',
+  globalHandoffEnabled: false,
+  globalHandoffLabel: '\u05e9\u05d9\u05d7\u05d4 \u05e2\u05dd \u05e0\u05e6\u05d9\u05d2',
+  globalHandoffPhone: '',
+  globalHandoffText: '\u05d0\u05e4\u05e9\u05e8 \u05dc\u05d4\u05de\u05e9\u05d9\u05da \u05dc\u05e0\u05e6\u05d9\u05d2.',
   nodes: [],
 };
 
@@ -1489,19 +1514,26 @@ export class Storage {
 
   getServiceBotSession(phone: string): ServiceBotSession | null {
     const session = this.data.serviceBotSessions.find((item) => item.phone === phone);
-    return session ? { ...session } : null;
+    const timeoutMinutes = Math.max(1, Number(this.data.serviceBot.sessionTimeoutMinutes) || 60);
+    if (session && Date.now() - new Date(session.updatedAt).getTime() > timeoutMinutes * 60 * 1000) {
+      this.data.serviceBotSessions = this.data.serviceBotSessions.filter((item) => item.phone !== phone);
+      this.persist();
+      return null;
+    }
+    return session ? { ...session, path: [...(session.path ?? [])] } : null;
   }
 
-  saveServiceBotSession(phone: string, nodeId: string): ServiceBotSession {
+  saveServiceBotSession(phone: string, nodeId: string, path: string[] = []): ServiceBotSession {
     const updatedAt = new Date().toISOString();
     const existing = this.data.serviceBotSessions.find((item) => item.phone === phone);
     if (existing) {
       existing.nodeId = nodeId;
+      existing.path = [...path];
       existing.updatedAt = updatedAt;
       this.persist();
       return { ...existing };
     }
-    const session = { phone, nodeId, updatedAt };
+    const session = { phone, nodeId, path: [...path], updatedAt };
     this.data.serviceBotSessions.push(session);
     this.persist();
     return { ...session };

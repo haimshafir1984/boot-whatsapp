@@ -1280,6 +1280,18 @@
           <label for="serviceBotFallback">תגובה לבחירה לא מוכרת</label>
           <input id="serviceBotFallback" oninput="updateServiceBotGlobal('fallbackText', this.value)" />
         </div>
+        <div class="field"><label for="serviceBotSessionTimeout">תוקף סשן (דקות)</label><input id="serviceBotSessionTimeout" type="number" min="1" max="10080" oninput="updateServiceBotGlobal('sessionTimeoutMinutes', Number(this.value))" /></div>
+        <div class="field"><label for="serviceBotNavigationPrompt">שאלת ניווט קבועה</label><input id="serviceBotNavigationPrompt" oninput="updateServiceBotGlobal('navigationPromptText', this.value)" /></div>
+        <div class="field"><label for="serviceBotBackLabel">חזרה לתפריט קודם</label><input id="serviceBotBackLabel" oninput="updateServiceBotGlobal('backLabel', this.value)" /></div>
+        <div class="field"><label for="serviceBotMainLabel">חזרה לתפריט ראשי</label><input id="serviceBotMainLabel" oninput="updateServiceBotGlobal('mainMenuLabel', this.value)" /></div>
+        <div class="toggle-row full"><div><div class="toggle-label">שעות פעילות</div><div class="toggle-sub">שליחת הודעה אחרת מחוץ לשעות הפעילות.</div></div><label class="switch"><input type="checkbox" id="serviceBotOutsideHoursEnabled" onchange="updateServiceBotGlobal('outsideHoursEnabled', this.checked)" /><span class="slider"></span></label></div>
+        <div class="field"><label for="serviceBotOutsideHoursStart">משעה</label><input id="serviceBotOutsideHoursStart" type="time" oninput="updateServiceBotGlobal('outsideHoursStart', this.value)" /></div>
+        <div class="field"><label for="serviceBotOutsideHoursEnd">עד שעה</label><input id="serviceBotOutsideHoursEnd" type="time" oninput="updateServiceBotGlobal('outsideHoursEnd', this.value)" /></div>
+        <div class="field full"><label for="serviceBotOutsideHoursText">הודעה מחוץ לשעות</label><input id="serviceBotOutsideHoursText" oninput="updateServiceBotGlobal('outsideHoursText', this.value)" /></div>
+        <div class="toggle-row full"><div><div class="toggle-label">נציג שירות מכל צומת</div><div class="toggle-sub">מוסיף אפשרות מעבר לנציג בתפריטי הניווט.</div></div><label class="switch"><input type="checkbox" id="serviceBotGlobalHandoffEnabled" onchange="updateServiceBotGlobal('globalHandoffEnabled', this.checked)" /><span class="slider"></span></label></div>
+        <div class="field"><label for="serviceBotGlobalHandoffLabel">טקסט אפשרות נציג</label><input id="serviceBotGlobalHandoffLabel" oninput="updateServiceBotGlobal('globalHandoffLabel', this.value)" /></div>
+        <div class="field"><label for="serviceBotGlobalHandoffPhone">טלפון נציג</label><input id="serviceBotGlobalHandoffPhone" oninput="updateServiceBotGlobal('globalHandoffPhone', this.value)" /></div>
+        <div class="field full"><label for="serviceBotGlobalHandoffText">הודעת נציג</label><input id="serviceBotGlobalHandoffText" oninput="updateServiceBotGlobal('globalHandoffText', this.value)" /></div>
       </div>
 
       <div class="service-bot-grid">
@@ -4646,6 +4658,18 @@
       triggerText: 'תפריט',
       mainMenuNodeId: 'main',
       fallbackText: 'לא הצלחתי לזהות את הבחירה. אפשר לבחור אחת מהאפשרויות.',
+      sessionTimeoutMinutes: 60,
+      navigationPromptText: 'מה תרצו לעשות עכשיו?',
+      backLabel: 'חזרה לתפריט הקודם',
+      mainMenuLabel: 'חזרה לתפריט הראשי',
+      outsideHoursEnabled: false,
+      outsideHoursStart: '09:00',
+      outsideHoursEnd: '17:00',
+      outsideHoursText: '',
+      globalHandoffEnabled: false,
+      globalHandoffLabel: 'שיחה עם נציג',
+      globalHandoffPhone: '',
+      globalHandoffText: 'אפשר להמשיך לשיחה עם נציג.',
       nodes: [{ id: 'main', title: 'תפריט ראשי', type: 'menu', text: 'איך אפשר לעזור?', options: [] }]
     };
   }
@@ -4715,6 +4739,18 @@
     document.getElementById('serviceBotName').value = serviceBotDraft.name || '';
     document.getElementById('serviceBotTrigger').value = serviceBotDraft.triggerText || '';
     document.getElementById('serviceBotFallback').value = serviceBotDraft.fallbackText || '';
+    document.getElementById('serviceBotSessionTimeout').value = Number(serviceBotDraft.sessionTimeoutMinutes || 60);
+    document.getElementById('serviceBotNavigationPrompt').value = serviceBotDraft.navigationPromptText || '';
+    document.getElementById('serviceBotBackLabel').value = serviceBotDraft.backLabel || '';
+    document.getElementById('serviceBotMainLabel').value = serviceBotDraft.mainMenuLabel || '';
+    document.getElementById('serviceBotOutsideHoursEnabled').checked = Boolean(serviceBotDraft.outsideHoursEnabled);
+    document.getElementById('serviceBotOutsideHoursStart').value = serviceBotDraft.outsideHoursStart || '09:00';
+    document.getElementById('serviceBotOutsideHoursEnd').value = serviceBotDraft.outsideHoursEnd || '17:00';
+    document.getElementById('serviceBotOutsideHoursText').value = serviceBotDraft.outsideHoursText || '';
+    document.getElementById('serviceBotGlobalHandoffEnabled').checked = Boolean(serviceBotDraft.globalHandoffEnabled);
+    document.getElementById('serviceBotGlobalHandoffLabel').value = serviceBotDraft.globalHandoffLabel || '';
+    document.getElementById('serviceBotGlobalHandoffPhone').value = serviceBotDraft.globalHandoffPhone || '';
+    document.getElementById('serviceBotGlobalHandoffText').value = serviceBotDraft.globalHandoffText || '';
 
     const nodes = serviceBotDraft.nodes || [];
     const mainSelect = document.getElementById('serviceBotMainNode');

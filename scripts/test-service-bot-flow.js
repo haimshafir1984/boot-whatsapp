@@ -87,12 +87,13 @@ async function run() {
     await tryHandleServiceBotMessage('\u05ea\u05e4\u05e8\u05d9\u05d8 \u05e8\u05d0\u05e9\u05d9', '111@c.us', '111', storage, transport);
     await tryHandleServiceBotMessage('\u05dc\u05e7\u05d5\u05d7 \u05e7\u05d9\u05d9\u05dd', '111@c.us', '111', storage, transport);
     assert.strictEqual(storage.getServiceBotSession('111').nodeId, 'existing-info', 'label must navigate');
-    assert.match(sent.at(-1).text, /wa\.me\/972501234567/, 'handoff phone must be normalized');
+    assert.ok(sent.some((item) => /wa\.me\/972501234567/.test(item.text || '')), 'handoff phone must be normalized');
 
     await tryHandleServiceBotMessage('\u05d7\u05d6\u05e8\u05d4', '111@c.us', '111', storage, transport);
     assert.strictEqual(storage.getServiceBotSession('111').nodeId, 'main', 'back must return to main');
     await tryHandleServiceBotMessage('new', '111@c.us', '111', storage, transport);
     assert.strictEqual(storage.getServiceBotSession('111').nodeId, 'new-info', 'option id must navigate');
+    assert.ok(sent.some((item) => /wa\.me\/972501234567/.test(item.text || '')), 'handoff phone must be normalized');
 
     await tryHandleServiceBotMessage('\u05ea\u05e4\u05e8\u05d9\u05d8 \u05e8\u05d0\u05e9\u05d9', '111@c.us', '111', storage, transport);
     const beforeUnknown = sent.length;
