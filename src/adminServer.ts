@@ -1250,7 +1250,10 @@ export function startAdminServer(storage: Storage): void {
   });
 
   const twilioInboundMeta = (payload: any) => ({
-    body: String(payload?.ButtonPayload ?? payload?.ListId ?? payload?.ButtonText ?? payload?.Body ?? '').trim(),
+    // Twilio's dynamically-created quick replies use numeric ButtonPayload ids;
+    // the visible ButtonText is needed to distinguish navigation buttons from
+    // numbered options in the current Service Bot node.
+    body: String(payload?.ButtonText ?? payload?.ButtonPayload ?? payload?.ListId ?? payload?.Body ?? '').trim(),
     from: String(payload?.From ?? '').trim(),
     to: String(payload?.To ?? '').trim(),
     id: String(payload?.MessageSid ?? payload?.SmsMessageSid ?? (String(payload?.From ?? '') + ':' + Date.now())),
