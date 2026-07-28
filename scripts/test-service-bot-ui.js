@@ -39,7 +39,7 @@ for (const functionName of [
 
 assert.match(html, /if \(!data\.featureEnabled\)/, 'service bot tab must stay hidden when the feature flag is off');
 assert.match(html, /const defaultTarget = serviceBotDraft\.nodes\.find/, 'new options must receive an existing target by default');
-assert.ok(html.includes('חובה לבחור לאיזה צומת עוברים'), 'missing targets must be explained next to the target selector');
+assert.ok(html.includes('צריך לבחור מה המשתמש יראה אחרי הלחיצה'), 'missing targets must be explained next to the continuation selector');
 const inlineScripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)].map(match => match[1]);
 assert.ok(inlineScripts.length, 'dashboard must contain an inline script');
 for (const script of inlineScripts) new Function(script);
