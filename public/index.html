@@ -1152,7 +1152,11 @@
     .service-bot-preview-bubble { max-width:92%; margin-right:auto; border-radius:10px 10px 2px 10px; padding:10px 12px; background:#d9fdd3; color:#111827; white-space:pre-wrap; line-height:1.55; box-shadow:0 1px 2px rgba(15,23,42,.12); }
     .service-bot-preview-options { display:grid; gap:5px; margin-top:8px; }
     .service-bot-preview-option { border-top:1px solid rgba(15,23,42,.12); padding-top:6px; color:#166534; font-size:.8rem; font-weight:700; }
+    .service-bot-preview-nav { max-width:92%; margin:8px 0 0 auto; padding:8px 10px; border-radius:10px; background:#fff; color:#64748b; font-size:.78rem; line-height:1.6; }
+    .service-bot-preview-nav span { color:#166534; font-weight:700; }
     .service-bot-dirty { color:#b45309; font-size:.75rem; font-weight:700; }
+    .service-bot-builder-guide { margin:0 0 14px; padding:12px 14px; border:1px solid #bfdbfe; border-radius:10px; background:#eff6ff; color:#1e3a8a; line-height:1.6; }
+    .service-bot-builder-guide .btn-small { margin-right:8px; }
     @media (max-width: 980px) { .service-bot-grid { grid-template-columns:1fr; } .service-bot-settings { grid-template-columns:1fr; } .service-bot-settings .full { grid-column:auto; } }
     @media (max-width: 650px) { .service-bot-option { grid-template-columns:1fr; } .service-bot-intro { flex-direction:column; } }
   </style>
@@ -1294,9 +1298,10 @@
         <div class="field full"><label for="serviceBotGlobalHandoffText">הודעת נציג</label><input id="serviceBotGlobalHandoffText" oninput="updateServiceBotGlobal('globalHandoffText', this.value)" /></div>
       </div>
 
+      <div class="service-bot-builder-guide"><strong>איך בונים בוט?</strong> יוצרים תפריט, מוסיפים אפשרויות, ובוחרים לכל אפשרות לאן ממשיכים. את המזהים הטכניים המערכת מנהלת לבד. <button type="button" class="btn-small" onclick="loadServiceBotSample()">התחלה מתבנית מוכנה</button></div>
       <div class="service-bot-grid">
         <section class="service-bot-panel">
-          <div class="service-bot-panel-head"><span>צמתים</span><button type="button" class="btn-small" onclick="addServiceBotNode()">+ צומת</button></div>
+          <div class="service-bot-panel-head"><span>1. בונים את העץ</span><span><button type="button" class="btn-small" onclick="addServiceBotNode('menu')">+ תפריט</button> <button type="button" class="btn-small" onclick="addServiceBotNode('message')">+ הודעה</button></span></div>
           <div class="service-bot-panel-body"><div class="service-bot-node-list" id="serviceBotNodeList"></div></div>
         </section>
 
@@ -4760,7 +4765,7 @@
 
     const list = document.getElementById('serviceBotNodeList');
     list.innerHTML = nodes.length
-      ? nodes.map((node, index) => `<button type="button" class="service-bot-node ${index === serviceBotSelectedNode ? 'active' : ''}" onclick="selectServiceBotNode(${index})"><strong>${esc(serviceBotNodeLabel(node, index))}</strong><span>${esc(node.id || 'ללא מזהה')} · ${esc(node.type || '')}</span></button>`).join('')
+      ? nodes.map((node, index) => `<button type="button" class="service-bot-node ${index === serviceBotSelectedNode ? 'active' : ''}" onclick="selectServiceBotNode(${index})"><strong>${esc(serviceBotNodeLabel(node, index))}</strong><span>${node.type === 'menu' ? 'תפריט עם אפשרויות' : node.type === 'handoff' ? 'מעבר לנציג' : 'הודעת מידע'}</span></button>`).join('')
       : '<div class="service-bot-node-empty">אין צמתים. אפשר להוסיף צומת ראשון.</div>';
 
     const editor = document.getElementById('serviceBotNodeEditor');
@@ -4774,23 +4779,23 @@
     const options = Array.isArray(node.options) ? node.options : [];
     editor.innerHTML = `
       <div class="two-fields">
-        <div class="field"><label>מזהה צומת</label><input value="${esc(node.id || '')}" onchange="renameServiceBotNode(${serviceBotSelectedNode}, this.value)" /></div>
+        <div class="field service-bot-technical" style="display:none"><label>מזהה צומת</label><input value="${esc(node.id || '')}" onchange="renameServiceBotNode(${serviceBotSelectedNode}, this.value)" /></div>
         <div class="field"><label>סוג צומת</label><select onchange="updateServiceBotNode(${serviceBotSelectedNode}, 'type', this.value, true)">
           <option value="menu" ${node.type === 'menu' ? 'selected' : ''}>תפריט</option>
           <option value="message" ${node.type === 'message' ? 'selected' : ''}>הודעת מידע</option>
           <option value="handoff" ${node.type === 'handoff' ? 'selected' : ''}>מעבר לנציג</option>
         </select></div>
       </div>
-      <div class="field"><label>כותרת</label><input value="${esc(node.title || '')}" oninput="updateServiceBotNode(${serviceBotSelectedNode}, 'title', this.value)" onchange="renderServiceBotEditor()" /></div>
+      <div class="field"><label>שם שמוצג למשתמש</label><input value="${esc(node.title || '')}" oninput="updateServiceBotNodeTitle(${serviceBotSelectedNode}, this.value)" /></div>
       <div class="field"><label>טקסט ההודעה</label><textarea oninput="updateServiceBotNode(${serviceBotSelectedNode}, 'text', this.value)">${esc(node.text || '')}</textarea></div>
       ${node.type === 'handoff' ? `<div class="field"><label>מספר WhatsApp לנציג</label><input value="${esc(node.handoffPhone || '')}" placeholder="0501234567" oninput="updateServiceBotNode(${serviceBotSelectedNode}, 'handoffPhone', this.value)" /></div>` : ''}
       ${node.type === 'menu' ? `
         <div class="service-bot-panel-head" style="margin:14px -14px 0;border-top:1px solid #e2e8f0"><span>אפשרויות</span><button type="button" class="btn-small" onclick="addServiceBotOption(${serviceBotSelectedNode})">+ אפשרות</button></div>
         <div id="serviceBotOptions">${options.length ? options.map((option, optionIndex) => `
           <div class="service-bot-option ${option.targetNodeId ? '' : 'missing-target'}">
-            <div class="field"><label>מזהה</label><input value="${esc(option.id || '')}" oninput="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'id', this.value)" /></div>
-            <div class="field"><label>טקסט למשתמש</label><input value="${esc(option.label || '')}" oninput="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'label', this.value)" /></div>
-            <div class="field"><label>יעד <span class="required">*</span></label><select onchange="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'targetNodeId', this.value); renderServiceBotEditor()"><option value="">בחירת יעד</option>${nodes.map((target, targetIndex) => `<option value="${esc(target.id || '')}" ${target.id === option.targetNodeId ? 'selected' : ''}>${esc(serviceBotNodeLabel(target, targetIndex))}</option>`).join('')}</select>${option.targetNodeId ? '' : '<div class="service-bot-target-error">חובה לבחור לאיזה צומת עוברים</div>'}</div>
+            <div class="field service-bot-technical" style="display:none"><label>מזהה</label><input value="${esc(option.id || '')}" oninput="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'id', this.value)" /></div>
+            <div class="field"><label>מה המשתמש יראה</label><input value="${esc(option.label || '')}" placeholder="למשל: שעות פתיחה" oninput="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'label', this.value)" /></div>
+            <div class="field"><label>מה קורה אחרי הבחירה? <span class="required">*</span></label><select onchange="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'targetNodeId', this.value); renderServiceBotEditor()"><option value="">בחירת המשך</option>${nodes.map((target, targetIndex) => `<option value="${esc(target.id || '')}" ${target.id === option.targetNodeId ? 'selected' : ''}>${esc(serviceBotNodeLabel(target, targetIndex))}</option>`).join('')}</select>${option.targetNodeId ? '' : '<div class="service-bot-target-error">צריך לבחור מה המשתמש יראה אחרי הלחיצה</div>'}</div>
             <button type="button" class="service-bot-delete" aria-label="מחיקת אפשרות" onclick="deleteServiceBotOption(${serviceBotSelectedNode}, ${optionIndex})">✕</button>
           </div>`).join('') : '<div class="service-bot-node-empty">אין אפשרויות בתפריט.</div>'}</div>` : ''}
       <div class="service-bot-actions"><button type="button" class="service-bot-delete" onclick="deleteServiceBotNode(${serviceBotSelectedNode})">מחיקת הצומת</button></div>`;
@@ -4802,16 +4807,33 @@
     renderServiceBotEditor();
   }
 
-  function addServiceBotNode() {
+  function addServiceBotNode(type = 'message') {
     if (!serviceBotDraft) return;
     const used = new Set(serviceBotDraft.nodes.map(node => node.id));
     let number = serviceBotDraft.nodes.length + 1;
     while (used.has(`node-${number}`)) number += 1;
-    serviceBotDraft.nodes.push({ id: `node-${number}`, title: 'צומת חדש', type: 'message', text: '', options: [] });
+    const isMenu = type === 'menu';
+    serviceBotDraft.nodes.push({ id: `node-${number}`, title: isMenu ? 'תפריט חדש' : 'הודעה חדשה', type: isMenu ? 'menu' : 'message', text: '', options: [] });
     serviceBotSelectedNode = serviceBotDraft.nodes.length - 1;
     if (!serviceBotDraft.mainMenuNodeId) serviceBotDraft.mainMenuNodeId = serviceBotDraft.nodes[0].id;
     setServiceBotDirty();
     renderServiceBotEditor();
+  }
+
+  function updateServiceBotNodeTitle(index, value) {
+    const node = serviceBotDraft?.nodes?.[index];
+    if (!node) return;
+    node.title = value;
+    if (!node.id || /^node-\d+$/.test(node.id)) {
+      const slug = String(value || '').trim().toLowerCase().replace(/[^a-z0-9א-ת]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
+      if (slug) {
+        const previous = node.id;
+        node.id = slug;
+        serviceBotDraft.nodes.forEach(item => (item.options || []).forEach(option => { if (option.targetNodeId === previous) option.targetNodeId = slug; }));
+      }
+    }
+    setServiceBotDirty();
+    renderServiceBotPreview();
   }
 
   function renameServiceBotNode(index, value) {
@@ -4881,7 +4903,8 @@
     const body = [node.title, node.text].filter(value => String(value || '').trim()).map(value => esc(value)).join('\n\n');
     const handoff = node.type === 'handoff' && node.handoffPhone ? `\n\nhttps://wa.me/${esc(String(node.handoffPhone).replace(/\D/g, ''))}` : '';
     const options = (node.options || []).map((option, index) => `<div class="service-bot-preview-option">${index + 1}. ${esc(option.label || 'אפשרות ללא טקסט')}</div>`).join('');
-    preview.innerHTML = `<div class="service-bot-preview-bubble">${body || 'הודעה ריקה'}${handoff}${options ? `<div class="service-bot-preview-options">${options}</div>` : ''}</div>`;
+    const navigation = node.id === serviceBotDraft.mainMenuNodeId ? '' : `<div class="service-bot-preview-nav">${esc(serviceBotDraft.navigationPromptText || 'מה תרצו לעשות עכשיו?')}<br><span>${esc(serviceBotDraft.backLabel || 'חזרה לתפריט הקודם')}</span> · <span>${esc(serviceBotDraft.mainMenuLabel || 'חזרה לתפריט הראשי')}</span></div>`;
+    preview.innerHTML = `<div class="service-bot-preview-bubble">${body || 'הודעה ריקה'}${handoff}${options ? `<div class="service-bot-preview-options">${options}</div>` : ''}</div>${navigation}`;
   }
 
   function showServiceBotValidation(kind, messages) {
