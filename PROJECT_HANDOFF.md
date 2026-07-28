@@ -1,3 +1,7 @@
+## Campaign follow-up status
+
+- Group-access requests to a manager are implemented. Configure the manager number and approved Meta template per campaign.
+- Email opt-in and mailing-list provider selection remain pending. See docs/campaign-group-access-and-email-opt-in-proposal.md.
 # PROJECT_HANDOFF.md
 
 מסמך מעבר עבודה למערכת FlowsBiz / WhatsApp Status Bot.
@@ -1454,3 +1458,17 @@ https://client-meta-test-new-number-ce8e0691.flowsbiz.com/webhooks/meta/whatsapp
 - The first existing inactive client, `client-1-cab55e82`, was migrated under a controlled cutover. JSON counts matched the PostgreSQL export: 1 campaign, 378 contacts, 378 contactQueue rows, 407 campaign results, and 1,640 campaign events.
 - `client-1-cab55e82` finished with `storage.enabled=true`, `storage.ready=true`, `pendingWrites=0`, one disabled campaign, 378 saved contacts, and an empty outbox. Its original JSON remains available for rollback.
 - Active clients `client-account-706d5db8` and `client-account-5ec279a8` were not migrated in this checkpoint. `client-account-fce3d086` (Avia) was not touched.
+
+## PostgreSQL rollout completion - 2026-07-23
+
+- client-account-706d5db8 was migrated with a dedicated PostgreSQL service. JSON counts were 1 campaign, 79 contacts, 79 contactQueue rows, 101 campaign results, and 1,066 campaign events. PostgreSQL export matched these counts. Final health reported storage enabled and ready, zero pending writes, one active campaign, 79 saved contacts, an empty outbox, and WhatsApp ready.
+- client-account-5ec279a8 was migrated with a dedicated PostgreSQL service. JSON counts were 3 campaigns, 87 contacts, 87 contactQueue rows, 88 campaign results, and 176 campaign events. PostgreSQL export matched these counts. Final health reported storage enabled and ready, zero pending writes, two active campaigns, 87 saved contacts, an empty outbox, and WhatsApp ready.
+- Both original JSON files remain in the client volumes; an additional pre-cutover JSON copy was created for client-account-5ec279a8.
+- client-account-fce3d086 (Avia) remains explicitly excluded and has no DATABASE_URL.
+
+
+## Meta campaign operations update - 2026-07-25
+
+The canonical record for the completed Meta campaign, manager-notification, referral-hub, PostgreSQL performance, and Hebrew recovery work is [docs/meta-campaign-operations-update-2026-07-25.md](docs/meta-campaign-operations-update-2026-07-25.md).
+
+Current release head: fce4071 (Let referral actions follow configured flow targets). Customer applications require a manual Dokploy deployment after this commit.

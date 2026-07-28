@@ -33,6 +33,13 @@ const longest = selectMetaRouteCandidate([
 assert.equal(longest.best.clientId, 'b');
 assert.equal(longest.ambiguous, false);
 
+const sameClientCollision = selectMetaRouteCandidate([
+  { client: 'a', clientId: 'a', campaign: campaign('a1'), triggerText: 'טריגר' },
+  { client: 'a', clientId: 'a', campaign: campaign('a2'), triggerText: 'טריגר' },
+]);
+assert.equal(sameClientCollision.best.campaign.id, 'a2');
+assert.equal(sameClientCollision.ambiguous, false);
+
 const crossClientCollision = selectMetaRouteCandidate([
   { client: 'a', clientId: 'a', campaign: campaign('a1'), triggerText: 'טריגר' },
   { client: 'a', clientId: 'a', campaign: campaign('a2'), triggerText: 'טריגר' },

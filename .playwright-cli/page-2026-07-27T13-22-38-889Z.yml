@@ -1,0 +1,7 @@
+- main [ref=e2]:
+  - heading "כניסה לניהול הקמפיינים" [level=1] [ref=e3]
+  - paragraph [ref=e4]: הזיני את קוד הגישה שקיבלת כדי לנהל את החשבון שלך.
+  - generic [ref=e5]:
+    - generic [ref=e6]: קוד גישה
+    - textbox "קוד גישה" [ref=e7]
+    - button "כניסה" [ref=e8] [cursor=pointer]

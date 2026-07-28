@@ -1,0 +1,150 @@
+- generic [ref=f1e1]:
+  - generic [ref=f1e2]:
+    - generic [ref=f1e4]:
+      - generic [ref=f1e5]: ✅ WhatsApp מחובר ופעיל (+972555071008)
+      - generic [ref=f1e6]:
+        - button "כבה עד קמפיין פעיל" [ref=f1e7] [cursor=pointer]
+        - button "🔒 החלף חשבון / התנתק" [ref=f1e8] [cursor=pointer]
+    - generic [ref=f1e9]:
+      - generic [ref=f1e11]:
+        - img [ref=f1e12]
+        - generic [ref=f1e15]:
+          - heading "ניהול בוט WhatsApp" [level=1] [ref=f1e16]
+          - paragraph [ref=f1e17]: שינויים נכנסים לתוקף מיד – ללא הפעלה מחדש
+      - generic [ref=f1e19]:
+        - generic [ref=f1e20]: בניית קמפיינים
+        - generic [ref=f1e21]:
+          - generic [ref=f1e22]: בניית קמפיין WhatsApp חדש
+          - generic [ref=f1e23]: להגדיר משפט שהמשתמש ישלח, הודעת תשובה, ולקבל לינק מוכן לשיתוף.
+          - button "יצירת קמפיין חדש" [ref=f1e24] [cursor=pointer]
+      - generic [ref=f1e26]:
+        - generic [ref=f1e27]: קמפיינים קיימים
+        - paragraph [ref=f1e29]: אין קמפיינים עדיין
+      - generic [ref=f1e31]:
+        - generic [ref=f1e32]: לינקים לקמפיינים
+        - paragraph [ref=f1e33]: אפשר לשלוח את הקישור הרלוונטי ללקוחות — לחיצה תפתח צ'אט עם הטקסט מוכן לשליחה.
+        - paragraph [ref=f1e35]: אין קמפיינים פעילים
+      - group [ref=f1e38]:
+        - generic "פרטים נדרשים לקמפיין פרסומי +" [ref=f1e39] [cursor=pointer]
+        - option "לבחור אפשרות" [selected]
+        - option "צריך לקבל מספר חדש לקמפיין"
+        - option "יש מספר קיים שאפשר לחבר"
+        - option "עדיין לא בטוח"
+      - text: +
+      - generic [ref=f1e41]:
+        - generic [ref=f1e42]: ביצועי קמפיינים
+        - paragraph [ref=f1e43]: "כאן רואים מה קרה בפועל בקמפיין: כמה אנשים התחילו, כמה קיבלו קובץ, כמה התקדמו, כמה סיימו וכמה עברו לשיחה אנושית."
+        - paragraph [ref=f1e162]: אין תוצאות עדיין
+      - generic [ref=f1e47]:
+        - generic [ref=f1e48]: קבצי לקוח
+        - generic [ref=f1e49]:
+          - generic [ref=f1e50]:
+            - generic [ref=f1e51]:
+              - generic [ref=f1e52]: קבצים שאפשר לשלוח בשיחות
+              - generic [ref=f1e53]: אפשר להעלות כאן קטלוגים, תמונות מוצרים, מחירונים או קבצי PDF. הקבצים נשמרים ברמת הלקוח וזמינים לכל הקמפיינים.
+            - button "+ העלאת קובץ" [ref=f1e54] [cursor=pointer]
+          - generic [ref=f1e88]: עדיין לא הועלו קבצים.
+      - generic [ref=f1e58]:
+        - generic [ref=f1e59]: חיבור Google
+        - generic [ref=f1e60]:
+          - generic [ref=f1e61]:
+            - strong [ref=f1e62]: "0"
+            - generic [ref=f1e63]: ממתינים
+          - generic [ref=f1e64]:
+            - strong [ref=f1e65]: "0"
+            - generic [ref=f1e66]: נשמרו
+          - generic [ref=f1e67]:
+            - strong [ref=f1e68]: "0"
+            - generic [ref=f1e69]: נכשלו
+        - generic [ref=f1e70]:
+          - generic [ref=f1e71] [cursor=pointer]: 🟢 Google
+          - generic [ref=f1e72] [cursor=pointer]: 📋 ידני
+        - generic [ref=f1e73]:
+          - generic [ref=f1e74]:
+            - generic [ref=f1e75]: אישורי קריאה / וי כחול
+            - generic [ref=f1e76]: מסמן הודעות נכנסות כנקראו, בהתאם לתמיכת WhatsApp ולהגדרות הפרטיות של המשתמש.
+          - generic [ref=f1e77]:
+            - checkbox [checked]
+        - generic [ref=f1e79]:
+          - generic [ref=f1e80]:
+            - text: אנשי קשר נשמרים
+            - strong [ref=f1e81]: מקומית
+            - text: בלבד.
+            - text: ניתן להוריד קובץ CSV או VCF בכל עת ולייבא אותו ידנית לאנשי הקשר.
+          - link "⬇️ הורד CSV" [ref=f1e82] [cursor=pointer]:
+            - /url: /api/contacts/export
+            - button "⬇️ הורד CSV" [ref=f1e83]
+          - link "⬇️ הורד VCF" [ref=f1e84] [cursor=pointer]:
+            - /url: /api/contacts/export.vcf
+            - button "⬇️ הורד VCF" [ref=f1e85]
+  - generic [ref=f1e90]:
+    - heading "יצירת קמפיין חדש" [level=2] [ref=f1e91]
+    - generic [ref=f1e92]: להגדיר את פרטי הקמפיין ואת כל מה שהמשתמש יקבל בשיחה אחת.
+    - generic [ref=f1e93]:
+      - complementary "מפת השיחה" [ref=f1e94]:
+        - generic [ref=f1e95]: מפת השיחה
+        - generic [ref=f1e96]: לחיצה על צומת פותחת את העריכה שלו. הטריגר ושאלת השם נשארים בסיס קבוע; את ה-vCard אפשר למקם לפני שאלות או בסיום.
+        - button "1 טריגר [משפט הטריגר] חובה" [ref=f1e97] [cursor=pointer]:
+          - generic [ref=f1e98]: "1"
+          - generic [ref=f1e99]:
+            - strong [ref=f1e100]: טריגר
+            - generic [ref=f1e101]: "[משפט הטריגר]"
+          - emphasis [ref=f1e102]: חובה
+        - button "2 שאלת שם כבויה בסיס" [ref=f1e103] [cursor=pointer]:
+          - generic [ref=f1e104]: "2"
+          - generic [ref=f1e105]:
+            - strong [ref=f1e106]: שאלת שם
+            - generic [ref=f1e107]: כבויה
+          - emphasis [ref=f1e108]: בסיס
+        - button "3 איש קשר לשמירה כבוי כבוי" [ref=f1e109] [cursor=pointer]:
+          - generic [ref=f1e110]: "3"
+          - generic [ref=f1e111]:
+            - strong [ref=f1e112]: איש קשר לשמירה
+            - generic [ref=f1e113]: כבוי
+          - emphasis [ref=f1e114]: כבוי
+        - button "4 שאלות והודעות ללא שאלות ניתן להזזה" [active] [ref=f1e115] [cursor=pointer]:
+          - generic [ref=f1e116]: "4"
+          - generic [ref=f1e117]:
+            - strong [ref=f1e118]: שאלות והודעות
+            - generic [ref=f1e119]: ללא שאלות
+          - emphasis [ref=f1e120]: ניתן להזזה
+        - button "5 סיכום ולינק בדיקה לפני שמירה סיום" [ref=f1e121] [cursor=pointer]:
+          - generic [ref=f1e122]: "5"
+          - generic [ref=f1e123]:
+            - strong [ref=f1e124]: סיכום ולינק
+            - generic [ref=f1e125]: בדיקה לפני שמירה
+          - emphasis [ref=f1e126]: סיום
+        - generic [ref=f1e127]: "סדר נוכחי: שם -> שאלות -> סיום -> vCard/קבצים."
+      - generic [ref=f1e163]:
+        - generic [ref=f1e164]: בניית Flow
+        - generic [ref=f1e165]: כל שלב בקמפיין מופיע כבלוק ברשימה. לחץ על בלוק כדי לערוך אותו, והשתמש בהוספת שלב כדי להוסיף הודעה, שאלה, קובץ, סרטון או איש קשר.
+        - generic [ref=f1e166]:
+          - generic [ref=f1e167]:
+            - generic [ref=f1e168]:
+              - strong [ref=f1e169]: ציר השיחה
+              - generic [ref=f1e170]: ברירת המחדל היא לעבור לשלב הבא. בשלב האחרון השיחה תסתיים.
+            - generic [ref=f1e171]:
+              - combobox "סוג שלב להוספה" [ref=f1e172]:
+                - option "הודעת טקסט" [selected]
+                - option "שאלה עם כפתורים"
+                - option "רשימת בחירה"
+                - option "שאלת חישוב"
+                - option "תוצאת חישוב"
+                - option "הודעה שממתינה לתשובה"
+                - option "תמונה / סרטון / קובץ"
+                - option "איש קשר לשמירה"
+                - option "לינק אישי לתחרות"
+              - button "+ הוסף שלב" [ref=f1e173] [cursor=pointer]
+          - generic [ref=f1e175]: אין עדיין שלבי החלטה.
+        - button "להמשיך לסיום ואישור" [ref=f1e176] [cursor=pointer]
+      - generic "תצוגת שיחה לדוגמה" [ref=f1e147]:
+        - generic [ref=f1e148]: תצוגת השיחה בקמפיין
+        - generic [ref=f1e150]: "[משפט הטריגר]"
+        - generic [ref=f1e152]: שמרתי אותך. כדי ליהנות מהסטטוסים שלי, אשמח שתשמרי אותי גם באנשי הקשר.
+        - generic [ref=f1e178]: "אני מענה אוטומטי. לשאלות נוספות אפשר לעבור לשיחה אנושית כאן: [מעבר ל-WhatsApp]"
+    - generic [ref=f1e156]:
+      - button "הקודם" [ref=f1e179] [cursor=pointer]
+      - generic [ref=f1e157]: שלב 3 מתוך 4
+      - generic [ref=f1e158]:
+        - button "ביטול" [ref=f1e159] [cursor=pointer]
+        - button "להמשיך לשלב הבא" [ref=f1e160] [cursor=pointer]

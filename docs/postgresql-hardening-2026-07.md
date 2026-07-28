@@ -103,3 +103,12 @@ The `scheduled_jobs` table exists, but there is not yet a distributed database s
 - No production database access.
 - No multi-replica distributed timer worker.
 - No JSON-primary shadow migration mode.
+
+
+## Operational update - 2026-07-25
+
+Runtime campaign saves now use incremental normalized-table persistence; app_state is intentionally retained as an import/rollback checkpoint rather than rewritten for every save. This removed the full-history snapshot cost from the message path.
+
+A read-only authenticated recovery route, GET /api/campaigns/:id/checkpoint, returns the campaign from that checkpoint when PostgreSQL is enabled. It is for inspection before a deliberate, scoped recovery; it does not automatically overwrite live data. The route was used successfully to restore corrupted Hebrew campaign strings while retaining later flow additions and all operational campaign data.
+
+Direct scripted campaign writes must use UTF-8 JSON. Do not use a Windows PowerShell JSON pipeline for Hebrew payloads. Details: [meta-campaign-operations-update-2026-07-25.md](meta-campaign-operations-update-2026-07-25.md).

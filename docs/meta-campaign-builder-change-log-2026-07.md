@@ -81,3 +81,15 @@
 - Inline JavaScript syntax check for `public/index.html`: passed.
 - Push: not performed, per instruction.
 - Manual browser/WhatsApp checks: pending user-side review before any push/deploy.
+
+### 6. Group join, referral hub, and configurable continuation
+
+- Status: completed and manually deployed where required.
+- Group-join options send an idempotent manager notification with optional approved Meta template, expose delivery status, and continue according to the option target.
+- Referral hubs support personal link, leaderboard, and personal rank actions. The manager can edit button text and response text.
+- Referral actions now follow their configured next-step target: return to the hub, continue to another step, or complete when no target is set.
+- A referralHub marker and server-side action inference protect standard referral options from stale-editor saves.
+- Reversible demo leaderboard data is available through authenticated POST/DELETE API endpoints and is marked isDemo.
+- Calculated-result preface text is delivered before the result output.
+- Verification: build, referral-ranking, group-join flow, and score-result-preface tests passed during implementation.
+- Operational record: [meta-campaign-operations-update-2026-07-25.md](meta-campaign-operations-update-2026-07-25.md).

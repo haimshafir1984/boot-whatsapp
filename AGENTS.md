@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 מסמך הסבר מערכת למפתח/סוכן שעובד על פרויקט FlowsBiz / WhatsApp Status Bot.
 

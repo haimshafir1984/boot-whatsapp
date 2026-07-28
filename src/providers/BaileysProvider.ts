@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 import QRCode from 'qrcode';
 import { config } from '../config';
@@ -258,7 +259,7 @@ export class BaileysProvider implements WhatsAppProvider {
       botState.pairingCode = null;
 
       const statusCode = update.lastDisconnect?.error?.output?.statusCode;
-      const loggedOut = statusCode === baileys.DisconnectReason.loggedOut;
+      const loggedOut = statusCode === baileys.DisconnectReason.loggedOut || statusCode === 401;
       console.warn(`Baileys disconnected. status=${statusCode ?? 'unknown'}`);
       botState.listeningReason = loggedOut
         ? 'connection failed: החיבור ל-WhatsApp התנתק. יש לסרוק QR מחדש.'
@@ -266,6 +267,13 @@ export class BaileysProvider implements WhatsAppProvider {
       if (loggedOut) {
         botState.lifecycle = 'stopped';
         botState.qrDataUrl = null;
+        botState.pairingAttempted = false;
+        try {
+          fs.rmSync(authPath(), { recursive: true, force: true });
+          console.log(`Baileys session cleared after logged-out disconnect: ${authPath()}`);
+        } catch (err) {
+          console.error('Failed to clear Baileys session after logged-out disconnect:', err);
+        }
       }
 
       if (!this.intentionalClose && !loggedOut) {

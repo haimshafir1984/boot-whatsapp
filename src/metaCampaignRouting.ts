@@ -31,8 +31,10 @@ export function selectMetaRouteCandidate<TClient>(candidates: MetaRouteCandidate
   best: MetaRouteCandidate<TClient> | undefined;
   ambiguous: boolean;
 } {
-  candidates.sort((a, b) => b.triggerText.length - a.triggerText.length);
-  const best = candidates[0];
+  const ranked = candidates
+    .map((candidate, index) => ({ candidate, index }))
+    .sort((a, b) => b.candidate.triggerText.length - a.candidate.triggerText.length || b.index - a.index);
+  const best = ranked[0]?.candidate;
   if (!best) return { best: undefined, ambiguous: false };
 
   const topClientIds = new Set(
