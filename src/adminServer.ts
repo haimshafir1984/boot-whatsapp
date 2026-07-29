@@ -800,6 +800,9 @@ function sanitizeDecisionFlow(
       if ((kind === 'wait_reply' || kind === 'referral_share') && typeof item.timeoutMinutes === 'number' && item.timeoutMinutes > 0) {
         step.timeoutMinutes = Math.min(Math.max(Math.round(item.timeoutMinutes), 1), 1440);
       }
+      if ((kind === 'wait_reply' || kind === 'referral_share') && typeof item.timeoutSeconds === 'number' && Number.isFinite(item.timeoutSeconds) && item.timeoutSeconds > 0) {
+        step.timeoutSeconds = Math.min(Math.max(Math.round(item.timeoutSeconds), 1), 86400);
+      }
       if (kind === 'score_result') {
         const rawRules = Array.isArray(item.resultRules) ? item.resultRules : [];
         step.resultRules = rawRules
@@ -839,6 +842,17 @@ function sanitizeDecisionFlow(
         }
         if (typeof item.timeoutMinutes === 'number' && item.timeoutMinutes > 0) {
           step.timeoutMinutes = Math.min(Math.max(Math.round(item.timeoutMinutes), 1), 1440);
+        }
+        if (typeof item.timeoutSeconds === 'number' && Number.isFinite(item.timeoutSeconds) && item.timeoutSeconds > 0) {
+          step.timeoutSeconds = Math.min(Math.max(Math.round(item.timeoutSeconds), 1), 86400);
+        }
+        if (item.timeoutMode === 'continue') {
+          step.timeoutMode = 'continue';
+          if (typeof item.timeoutNextStepId === 'string' && item.timeoutNextStepId.trim()) {
+            step.timeoutNextStepId = item.timeoutNextStepId.trim().slice(0, 80);
+          }
+        } else if (item.timeoutMode === 'stop') {
+          step.timeoutMode = 'stop';
         }
         if (typeof item.timeoutText === 'string' && item.timeoutText.trim()) {
           step.timeoutText = item.timeoutText.trim().slice(0, 2000);

@@ -120,6 +120,9 @@ export interface DecisionFlowStep {
   fileId?: string;
   fileAsSticker?: boolean;
   timeoutMinutes?: number;
+  timeoutSeconds?: number;
+  timeoutMode?: 'stop' | 'continue';
+  timeoutNextStepId?: string;
   timeoutText?: string;
   timeoutFileId?: string;
   timeoutFileAsSticker?: boolean;
@@ -223,7 +226,7 @@ export interface ContactSaveJob {
 }
 
 export type OutboxMessageStatus = 'queued' | 'processing' | 'sent' | 'failed' | 'retry';
-export type OutboxMessageKind = 'text' | 'file';
+export type OutboxMessageKind = 'text' | 'file' | 'interactive_buttons' | 'interactive_list' | 'contacts' | 'template';
 
 export interface OutboxMessage {
   id: string;
@@ -234,6 +237,17 @@ export interface OutboxMessage {
   caption?: string;
   fileOptions?: { asSticker?: boolean };
   label?: string;
+  buttons?: Array<{ id: string; text: string }>;
+  buttonText?: string;
+  items?: Array<{ id: string; text: string }>;
+  contacts?: Array<{ vcard: string; displayName: string }>;
+  displayName?: string;
+  templateName?: string;
+  templateLanguageCode?: string;
+  templateBodyParameters?: string[];
+  campaignId?: string;
+  campaignResultId?: string;
+  stepId?: string;
   idempotencyKey?: string;
   status: OutboxMessageStatus;
   attempts: number;
@@ -723,6 +737,10 @@ export class Storage {
     return {
       ...message,
       fileOptions: message.fileOptions ? { ...message.fileOptions } : undefined,
+      buttons: message.buttons?.map((button) => ({ ...button })),
+      items: message.items?.map((item) => ({ ...item })),
+      contacts: message.contacts?.map((contact) => ({ ...contact })),
+      templateBodyParameters: message.templateBodyParameters ? [...message.templateBodyParameters] : undefined,
     };
   }
 

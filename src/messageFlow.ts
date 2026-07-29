@@ -2,7 +2,7 @@ import { config } from './config';
 import fs from 'fs';
 import path from 'path';
 import { conversationState, PersistablePendingConversation } from './conversationState';
-import { Campaign, CampaignConversationSettings, CampaignResult, CampaignScoreAnswer, CompletionLink, DecisionFlowOption, DecisionFlowStep, ScoreResultRule, Storage } from './storage';
+import { Campaign, CampaignConversationSettings, CampaignResult, CampaignScoreAnswer, CompletionLink, DecisionFlowOption, DecisionFlowStep, OutboxMessage, ScoreResultRule, Storage } from './storage';
 import { detectTrigger } from './triggerDetector';
 import {
   IncomingWhatsAppMessage,
@@ -166,6 +166,16 @@ function clearTimedOutDecision(sender: string | undefined): void {
   timedOutDecisions.delete(senderWorkKey(sender));
 }
 
+function findMatchingDecisionOption(step: DecisionFlowStep, rawAnswer: string): DecisionFlowOption | undefined {
+  if (step.kind !== 'question' && step.kind !== 'score_question') return undefined;
+  const normalized = normalizeDecisionAnswer(rawAnswer);
+  return step.options?.find((item, index) =>
+    rawAnswer.toLowerCase() === String(item.id ?? '').trim().toLowerCase() ||
+    normalized === String(index + 1) ||
+    normalized === normalizeDecisionAnswer(item.text),
+  );
+}
+
 async function tryResumeTimedOutDecision(
   message: IncomingWhatsAppMessage,
   storage: Storage,
@@ -185,12 +195,7 @@ async function tryResumeTimedOutDecision(
   if (!step || (step.kind !== 'question' && step.kind !== 'score_question')) return false;
   const rawAnswer = message.body?.trim() ?? '';
   if (!rawAnswer) return false;
-  const normalized = normalizeDecisionAnswer(rawAnswer);
-  const option = step.options?.find((item, index) =>
-    rawAnswer.toLowerCase() === String(item.id ?? '').trim().toLowerCase() ||
-    normalized === String(index + 1) ||
-    normalized === normalizeDecisionAnswer(item.text),
-  );
+  const option = findMatchingDecisionOption(step, rawAnswer);
   if (!option) return false;
 
   timedOutDecisions.delete(key);
@@ -209,6 +214,43 @@ async function tryResumeTimedOutDecision(
     context.humanHandoff,
   );
   return true;
+}
+
+function keepExpiredDecisionOpen(
+  senderJid: string,
+  senderPhone: string | undefined,
+  campaignId: string | undefined,
+  campaignResultId: string | undefined,
+  flow: DecisionFlowStep[],
+  stepId: string,
+  humanHandoff: CampaignReplyBehavior,
+): void {
+  const timestamp = Date.now();
+  const timeoutHandle = setTimeout(() => {
+    const current = conversationState.get(senderJid);
+    if (current?.kind === 'expired-decision' && current.timestamp === timestamp) {
+      conversationState.remove(senderJid);
+    }
+  }, FLOW_RECOVERY_WINDOW_MS);
+  conversationState.set(senderJid, {
+    kind: 'expired-decision',
+    senderJid,
+    senderPhone,
+    campaignId,
+    campaignResultId,
+    flow,
+    stepId,
+    humanHandoffEnabled: humanHandoff.enabled,
+    humanHandoffText: humanHandoff.text,
+    humanHandoffPhone: humanHandoff.phone,
+    decisionTimeoutMinutes: humanHandoff.decisionTimeoutMinutes,
+    decisionTimeoutText: humanHandoff.decisionTimeoutText,
+    decisionTimeoutMode: humanHandoff.decisionTimeoutMode,
+    decisionTimeoutNextStepId: humanHandoff.decisionTimeoutNextStepId,
+    timeoutFlowStarted: humanHandoff.timeoutFlowStarted,
+    timestamp,
+    timeoutHandle,
+  });
 }
 
 interface CampaignReplyBehavior {
@@ -263,8 +305,7 @@ function restoredConversationTtlMs(state: PersistablePendingConversation): numbe
   }
   if (state.kind === 'decision' || state.kind === 'wait-reply') {
     const step = state.flow.find((item) => item.id === state.stepId);
-    const minutes = step?.timeoutMinutes || state.decisionTimeoutMinutes || 30;
-    return Math.max(1, minutes) * 60 * 1000;
+    return decisionStepTimeoutMs(step, state.decisionTimeoutMinutes || 30);
   }
   return 24 * 60 * 60 * 1000;
 }
@@ -304,11 +345,38 @@ export function scheduleRestoredConversationTimeout(
             state.kind,
             state.flow,
             {
+              enabled: state.humanHandoffEnabled,
+              text: state.humanHandoffText,
+              phone: state.humanHandoffPhone,
+              decisionTimeoutMinutes: state.decisionTimeoutMinutes,
+              decisionTimeoutText: state.decisionTimeoutText,
               decisionTimeoutMode: state.decisionTimeoutMode,
               decisionTimeoutNextStepId: state.decisionTimeoutNextStepId,
               timeoutFlowStarted: state.timeoutFlowStarted,
             },
           ));
+          if (state.kind === 'decision' && step.timeoutMode === 'stop') {
+            keepExpiredDecisionOpen(
+              jid,
+              state.senderPhone,
+              state.campaignId,
+              state.campaignResultId,
+              state.flow,
+              step.id,
+              {
+                enabled: state.humanHandoffEnabled,
+                text: state.humanHandoffText,
+                phone: state.humanHandoffPhone,
+                decisionTimeoutMinutes: state.decisionTimeoutMinutes,
+                decisionTimeoutText: state.decisionTimeoutText,
+                decisionTimeoutMode: state.decisionTimeoutMode,
+                decisionTimeoutNextStepId: state.decisionTimeoutNextStepId,
+                timeoutFlowStarted: state.timeoutFlowStarted,
+              },
+            );
+          } else if (state.kind === 'decision' && step.timeoutMode === 'continue') {
+            clearTimedOutDecision(state.senderPhone || jid);
+          }
           return;
         }
 
@@ -330,8 +398,54 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function decisionStepTimeoutMs(step: DecisionFlowStep | undefined, fallbackMinutes: number): number {
+  if (step?.timeoutSeconds && step.timeoutSeconds > 0) {
+    return Math.min(Math.max(Math.round(step.timeoutSeconds), 1), 86400) * 1000;
+  }
+  const minutes = step?.timeoutMinutes && step.timeoutMinutes > 0 ? step.timeoutMinutes : fallbackMinutes;
+  return Math.min(Math.max(minutes || 30, 0.001), 1440) * 60 * 1000;
+}
+
 async function waitBeforeBotReply(delayMs = BOT_REPLY_DELAY_MS): Promise<void> {
   if (delayMs > 0) await sleep(delayMs);
+}
+
+async function sendTrackedOutboxMessage(
+  storage: Storage,
+  input: Omit<OutboxMessage, 'id' | 'status' | 'attempts' | 'createdAt' | 'updatedAt'>,
+  send: () => Promise<void | WhatsAppSendResult>,
+): Promise<void | WhatsAppSendResult> {
+  const outbox = storage.enqueueOutboxMessage(input);
+  if (outbox.status === 'sent') {
+    return outbox.providerMessageId ? { messageId: outbox.providerMessageId } : undefined;
+  }
+  if (outbox.status === 'failed') {
+    storage.markOutboxRetry(outbox.id, outbox.lastError || 'Retrying idempotent outbox message.');
+  }
+  if (!storage.claimOutboxMessage(outbox.id)) {
+    throw new Error(`Could not claim ${input.kind} outbox message.`);
+  }
+  await storage.flush();
+
+  let result: void | WhatsAppSendResult;
+  try {
+    result = await send();
+  } catch (err) {
+    storage.markOutboxFailed(outbox.id, err);
+    await storage.flush().catch((flushErr) => {
+      console.error(`[OUTBOX_FAILED_PERSIST_FAILED] kind=${input.kind} id=${outbox.id}`, flushErr);
+    });
+    throw err;
+  }
+
+  storage.markOutboxSent(outbox.id, providerMessageId(result));
+  try {
+    await storage.flush();
+  } catch (err) {
+    // The provider already accepted the message. Do not make the flow resend or skip a step.
+    console.error(`[OUTBOX_SENT_PERSIST_FAILED] kind=${input.kind} id=${outbox.id}`, err);
+  }
+  return result;
 }
 
 async function sendBotMessage(transport: WhatsAppTransport, to: string, text: string, delayMs = BOT_REPLY_DELAY_MS): Promise<void> {
@@ -479,6 +593,7 @@ function findFlowRecoveryContext(
   replyBody: string,
   isButtonReply: boolean | undefined,
 ): { campaign: Campaign; result: CampaignResult; settings: CampaignConversationSettings } | null {
+  if (!isButtonReply) return null;
   const phone = normalizedPhoneKey(senderPhone);
   if (!phone) return null;
   const activeById = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
@@ -497,7 +612,7 @@ function findFlowRecoveryContext(
   const campaign = activeById.get(latest.campaignId);
   if (!campaign) return null;
   const settings = storage.getCampaignConversationSettings(campaign);
-  if (!settings.flowRecoveryText?.trim() || !settings.decisionFlow.some(isSendableDecisionStep)) return null;
+  if (!settings.decisionFlow.some(isSendableDecisionStep)) return null;
 
   if (isButtonReply && replyBody.trim()) {
     const optionIds = new Set(settings.decisionFlow
@@ -507,6 +622,10 @@ function findFlowRecoveryContext(
     if (!optionIds.has(replyBody.trim().toLowerCase())) return null;
   }
   return { campaign, result: latest, settings };
+}
+
+function staleFlowReplyText(campaign: Campaign): string {
+  return `הבחירה הזו כבר אינה פעילה. כדי להתחיל מחדש, שלחו שוב:\n${campaign.triggerPhrase}`;
 }
 
 async function tryRecoverMissingFlow(
@@ -540,31 +659,12 @@ async function tryRecoverMissingFlow(
 
     const context = findFlowRecoveryContext(storage, storage.getActiveCampaigns(), senderPhone, message.body?.trim() ?? '', message.isButtonReply);
     if (!context) return false;
-    console.warn(`[FLOW_RECOVERY_RESTART] via=${source} campaign=${context.campaign.id} result=${context.result.id} phone=${senderPhone}`);
+    console.warn(`[STALE_BUTTON_EXPIRED] via=${source} campaign=${context.campaign.id} result=${context.result.id} phone=${senderPhone}`);
     try {
-      await sendBotMessage(transport, senderJid, context.settings.flowRecoveryText?.trim() ?? '', 0);
+      await sendBotMessage(transport, senderJid, staleFlowReplyText(context.campaign), 0);
     } catch (err) {
       console.error(`[FLOW_RECOVERY_NOTICE_FAILED] campaign=${context.campaign.id} phone=${senderPhone}:`, err);
     }
-    storage.markCampaignResultStage(context.result.id, 'flow_restarted');
-    await sendDecisionFlowStart(
-      transport,
-      storage,
-      senderJid,
-      context.settings.decisionFlow,
-      context.campaign.id,
-      context.result.id,
-      senderPhone,
-      {
-        enabled: context.settings.humanHandoffEnabled,
-        text: context.settings.humanHandoffText,
-        phone: context.settings.humanHandoffPhone,
-        decisionTimeoutMinutes: context.settings.decisionTimeoutMinutes,
-        decisionTimeoutText: context.settings.decisionTimeoutText,
-        decisionTimeoutMode: context.settings.decisionTimeoutMode,
-        decisionTimeoutNextStepId: context.settings.decisionTimeoutNextStepId,
-      },
-    );
     return true;
   } finally {
     flowRecoveriesInProgress.delete(recoveryKey);
@@ -662,6 +762,46 @@ async function handleMessage(
           ASK_NAME_RETRY_DELAY_MS,
         );
       }
+      return;
+    }
+
+    if (pending.kind === 'expired-decision') {
+      if (message.isReaction) return;
+      const rawAnswer = message.body?.trim() ?? '';
+      const step = pending.flow.find((item) => item.id === pending.stepId);
+      const option = step && rawAnswer ? findMatchingDecisionOption(step, rawAnswer) : undefined;
+      if (!step || !option) {
+        const campaign = pending.campaignId
+          ? activeCampaigns.find((item) => item.id === pending.campaignId)
+          : undefined;
+        if (campaign) await sendBotMessage(transport, pending.senderJid, staleFlowReplyText(campaign), 0);
+        return;
+      }
+      conversationState.remove(pending.senderJid);
+      clearTimedOutDecision(pending.senderPhone || pending.senderJid);
+      flowHealth.timedOutRepliesResumed += 1;
+      console.warn(`[TIMED_OUT_REPLY_RESUMED] via=${source} campaign=${pending.campaignId ?? ''} result=${pending.campaignResultId ?? ''} phone=${pending.senderPhone ?? senderPhone} step=${pending.stepId} option=${option.id}`);
+      await handleDecisionReply(
+        rawAnswer,
+        pending.flow,
+        pending.stepId,
+        pending.senderJid,
+        storage,
+        transport,
+        pending.campaignId,
+        pending.campaignResultId,
+        pending.senderPhone,
+        {
+          enabled: pending.humanHandoffEnabled,
+          text: pending.humanHandoffText,
+          phone: pending.humanHandoffPhone,
+          decisionTimeoutMinutes: pending.decisionTimeoutMinutes,
+          decisionTimeoutText: pending.decisionTimeoutText,
+          decisionTimeoutMode: pending.decisionTimeoutMode,
+          decisionTimeoutNextStepId: pending.decisionTimeoutNextStepId,
+          timeoutFlowStarted: pending.timeoutFlowStarted,
+        },
+      );
       return;
     }
 
@@ -1556,7 +1696,16 @@ async function sendCompletionContactCards(
     if (combinedContacts.length > 1) {
       try {
         await waitBeforeBotReply();
-        await transport.sendContactCards(senderJid, combinedContacts, combinedContacts.map((contact) => contact.displayName).join(', '));
+        await sendTrackedOutboxMessage(storage, {
+          kind: 'contacts',
+          to: senderJid,
+          contacts: combinedContacts,
+          displayName: combinedContacts.map((contact) => contact.displayName).join(', '),
+          campaignId,
+          campaignResultId,
+          stepId: 'contact-card',
+          idempotencyKey: `contact-cards:${campaignResultId || senderPhone || senderJid}:combined`,
+        }, () => transport.sendContactCards!(senderJid, combinedContacts, combinedContacts.map((contact) => contact.displayName).join(', ')));
         console.log('   Combined native contact card sent.');
         for (const contact of combinedContacts) {
           recordContactCardEvent(storage, campaignId, campaignResultId, senderPhone, `contact card: ${contact.displayName}`);
@@ -1607,7 +1756,16 @@ async function sendCompletionContactCard(
   if (transport.sendContactCard) {
     try {
       await waitBeforeBotReply();
-      await transport.sendContactCard(senderJid, vcard, displayName);
+      await sendTrackedOutboxMessage(storage, {
+        kind: 'contacts',
+        to: senderJid,
+        contacts: [{ vcard, displayName }],
+        displayName,
+        campaignId,
+        campaignResultId,
+        stepId: 'contact-card',
+        idempotencyKey: `contact-card:${campaignResultId || senderPhone || senderJid}:${contactIndex}`,
+      }, () => transport.sendContactCard!(senderJid, vcard, displayName));
       console.log('   Native contact card sent.');
     } catch (err) {
       console.warn('   Native contact card failed, falling back to vCard file:', err);
@@ -1907,7 +2065,18 @@ async function handleGroupJoinRequest(transport: WhatsAppTransport, storage: Sto
       const templateName = settings?.groupJoinMetaTemplateName?.trim();
       if (templateName) {
         if (!transport.sendTemplateMessage) throw new Error('Configured Meta template is not supported by this provider.');
-        const result = await transport.sendTemplateMessage(`whatsapp:${managerPhone}`, templateName, settings?.groupJoinMetaTemplateLanguage?.trim() || 'he', templateParams);
+        const templateLanguageCode = settings?.groupJoinMetaTemplateLanguage?.trim() || 'he';
+        const result = await sendTrackedOutboxMessage(storage, {
+          kind: 'template',
+          to: `whatsapp:${managerPhone}`,
+          templateName,
+          templateLanguageCode,
+          templateBodyParameters: templateParams,
+          campaignId,
+          campaignResultId,
+          stepId: step.id,
+          idempotencyKey: `group-join-template:${campaignResultId || senderPhone || senderJid}:${step.id}:${option.id}`,
+        }, () => transport.sendTemplateMessage!(`whatsapp:${managerPhone}`, templateName, templateLanguageCode, templateParams));
         console.log(`[GROUP_JOIN_SENT] campaign=${campaignId} result=${campaignResultId ?? ''} to=${managerPhone} mode=template wamid=${result?.messageId ?? ''}`);
       } else {
         const managerText = `\u05d1\u05e7\u05e9\u05ea \u05e6\u05d9\u05e8\u05d5\u05e3 \u05dc\u05e7\u05d1\u05d5\u05e6\u05d4 \u05e2\u05d1\u05d5\u05e8 \u05d4\u05de\u05e1\u05e4\u05e8 ${participantPhone}, \u05de\u05e7\u05de\u05e4\u05d9\u05d9\u05df ${campaignName}.`;
@@ -2025,16 +2194,17 @@ async function sendDecisionStep(
         label: step.text.slice(0, 120),
       });
     }
-    const timeoutMinutes = step.timeoutMinutes && step.timeoutMinutes > 0
-      ? step.timeoutMinutes
-      : (humanHandoff.decisionTimeoutMinutes && humanHandoff.decisionTimeoutMinutes > 0
+    const timeoutMs = decisionStepTimeoutMs(
+      step,
+      humanHandoff.decisionTimeoutMinutes && humanHandoff.decisionTimeoutMinutes > 0
         ? humanHandoff.decisionTimeoutMinutes
-        : DECISION_REPLY_TIMEOUT_MS / 60_000);
+        : DECISION_REPLY_TIMEOUT_MS / 60_000,
+    );
     const timestamp = Date.now();
     const timeoutHandle = scheduleSerializedPendingTimeout(
       senderJid,
       senderPhone,
-      timeoutMinutes * 60 * 1000,
+      timeoutMs,
       'wait-reply timeout',
       { kind: 'wait-reply', timestamp, stepId: step.id },
       async () => {
@@ -2198,12 +2368,17 @@ async function sendDecisionStep(
   if (!hasLongOptions && presentation === 'list' && transport.sendInteractiveList && step.options?.length) {
     try {
       await waitBeforeBotReply(stepDelayMs);
-      await transport.sendInteractiveList(
-        senderJid,
-        step.text.trim(),
-        'בחר/י תשובה',
-        step.options.slice(0, 10).map((option) => ({ id: option.id, text: option.text })),
-      );
+      const items = step.options.slice(0, 10).map((option) => ({ id: option.id, text: option.text }));
+      await sendTrackedOutboxMessage(storage, {
+        kind: 'interactive_list',
+        to: senderJid,
+        text: step.text.trim(),
+        buttonText: 'בחר/י תשובה',
+        items,
+        campaignId,
+        campaignResultId,
+        stepId: step.id,
+      }, () => transport.sendInteractiveList!(senderJid, step.text.trim(), 'בחר/י תשובה', items));
       sentInteractive = true;
     } catch (err) {
       console.warn('   Interactive decision list failed, falling back to text:', err);
@@ -2212,11 +2387,16 @@ async function sendDecisionStep(
   if (!hasLongOptions && presentation === 'buttons' && transport.sendInteractiveButtons && step.options?.length) {
     try {
       await waitBeforeBotReply(stepDelayMs);
-      await transport.sendInteractiveButtons(
-        senderJid,
-        step.text.trim(),
-        step.options.slice(0, 3).map((option) => ({ id: option.id, text: option.text })),
-      );
+      const buttons = step.options.slice(0, 3).map((option) => ({ id: option.id, text: option.text }));
+      await sendTrackedOutboxMessage(storage, {
+        kind: 'interactive_buttons',
+        to: senderJid,
+        text: step.text.trim(),
+        buttons,
+        campaignId,
+        campaignResultId,
+        stepId: step.id,
+      }, () => transport.sendInteractiveButtons!(senderJid, step.text.trim(), buttons));
       sentInteractive = true;
     } catch (err) {
       console.warn('   Interactive decision question failed, falling back to text:', err);
@@ -2235,16 +2415,17 @@ async function sendDecisionStep(
       label: step.text.slice(0, 120),
     });
   }
-  const timeoutMinutes = step.timeoutMinutes && step.timeoutMinutes > 0
-    ? step.timeoutMinutes
-    : (humanHandoff.decisionTimeoutMinutes && humanHandoff.decisionTimeoutMinutes > 0
+  const timeoutMs = decisionStepTimeoutMs(
+    step,
+    humanHandoff.decisionTimeoutMinutes && humanHandoff.decisionTimeoutMinutes > 0
       ? humanHandoff.decisionTimeoutMinutes
-      : DECISION_REPLY_TIMEOUT_MS / 60_000);
+      : DECISION_REPLY_TIMEOUT_MS / 60_000,
+  );
   const timestamp = Date.now();
   const timeoutHandle = scheduleSerializedPendingTimeout(
     senderJid,
     senderPhone,
-    timeoutMinutes * 60 * 1000,
+    timeoutMs,
     'decision timeout',
     { kind: 'decision', timestamp, stepId: step.id },
     async () => {
@@ -2260,6 +2441,11 @@ async function sendDecisionStep(
       conversationState.remove(senderJid);
       console.log(`   Decision reply timeout - cleared pending state for ${senderJid}.`);
       await sendDecisionTimeoutAction(transport, storage, senderJid, step, humanHandoff.decisionTimeoutText, campaignId, campaignResultId, senderPhone, flow, humanHandoff);
+      if (step.timeoutMode === 'stop') {
+        keepExpiredDecisionOpen(senderJid, senderPhone, campaignId, campaignResultId, flow, step.id, humanHandoff);
+      } else if (step.timeoutMode === 'continue') {
+        clearTimedOutDecision(senderPhone || senderJid);
+      }
     },
   );
   conversationState.set(senderJid, {
@@ -2556,7 +2742,16 @@ async function sendDecisionTimeoutAction(
   flow: DecisionFlowStep[] = [],
   humanHandoff: CampaignReplyBehavior = {},
 ): Promise<void> {
-  const continuationStepId = humanHandoff.decisionTimeoutNextStepId;
+  const stepContinuationStepId = step.timeoutMode === 'continue' ? step.timeoutNextStepId : undefined;
+  if (stepContinuationStepId && stepContinuationStepId !== step.id && flow.some((item) => item.id === stepContinuationStepId)) {
+    if (campaignId) {
+      storage.recordCampaignEvent({ campaignId, campaignResultId, phone: senderPhone, type: 'timeout_flow_started', label: step.text.slice(0, 120) });
+    }
+    await sendDecisionStep(transport, storage, senderJid, flow, stepContinuationStepId, campaignId, campaignResultId, senderPhone, humanHandoff);
+    console.log('   Step inactivity continuation flow started.');
+    return;
+  }
+  const continuationStepId = step.timeoutMode ? undefined : humanHandoff.decisionTimeoutNextStepId;
   if (humanHandoff.decisionTimeoutMode === 'flow' && !humanHandoff.timeoutFlowStarted && continuationStepId && flow.some((item) => item.id === continuationStepId)) {
     if (campaignId) {
       storage.recordCampaignEvent({ campaignId, campaignResultId, phone: senderPhone, type: 'timeout_flow_started', label: step.text.slice(0, 120) });

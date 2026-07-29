@@ -28,15 +28,46 @@ async function dispatchMessage(storage: Storage, transport: WhatsAppTransport, m
   if (!claimed) return;
   await storage.flush();
   try {
-    const result = claimed.kind === 'file'
-      ? await sendOutboxFile(transport, claimed)
-      : await transport.sendMessage(claimed.to, claimed.text || '');
+    const result = await sendOutboxMessage(transport, claimed);
     storage.markOutboxSent(claimed.id, providerMessageId(result));
     await storage.flush();
   } catch (err) {
     if (claimed.attempts >= OUTBOX_MAX_ATTEMPTS) storage.markOutboxFailed(claimed.id, err);
     else storage.markOutboxRetry(claimed.id, err, nextRetryIso());
     await storage.flush();
+  }
+}
+
+async function sendOutboxMessage(transport: WhatsAppTransport, message: OutboxMessage): Promise<void | WhatsAppSendResult> {
+  switch (message.kind) {
+    case 'file':
+      return await sendOutboxFile(transport, message);
+    case 'interactive_buttons':
+      if (!transport.sendInteractiveButtons) throw new Error('WhatsApp transport does not support interactive buttons.');
+      return await transport.sendInteractiveButtons(message.to, message.text || '', message.buttons ?? []);
+    case 'interactive_list':
+      if (!transport.sendInteractiveList) throw new Error('WhatsApp transport does not support interactive lists.');
+      return await transport.sendInteractiveList(message.to, message.text || '', message.buttonText || '', message.items ?? []);
+    case 'contacts':
+      if (transport.sendContactCards) {
+        return await transport.sendContactCards(message.to, message.contacts ?? [], message.displayName || '');
+      }
+      if (transport.sendContactCard && message.contacts?.length === 1) {
+        const contact = message.contacts[0];
+        return await transport.sendContactCard(message.to, contact.vcard, contact.displayName);
+      }
+      throw new Error('WhatsApp transport does not support contact cards.');
+    case 'template':
+      if (!transport.sendTemplateMessage) throw new Error('WhatsApp transport does not support Meta templates.');
+      return await transport.sendTemplateMessage(
+        message.to,
+        message.templateName || '',
+        message.templateLanguageCode || 'he',
+        message.templateBodyParameters ?? [],
+      );
+    case 'text':
+    default:
+      return await transport.sendMessage(message.to, message.text || '');
   }
 }
 

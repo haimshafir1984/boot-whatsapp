@@ -37,19 +37,19 @@ export class MetaCloudProvider implements WhatsAppProvider {
     return await this.postMessages({ messaging_product: 'whatsapp', to: recipient, type, [type]: media });
   }
 
-  async sendContactCard(to: string, vcard: string, displayName: string): Promise<void> {
-    await this.sendContactCards(to, [{ vcard, displayName }], displayName);
+  async sendContactCard(to: string, vcard: string, displayName: string): Promise<WhatsAppSendResult> {
+    return await this.sendContactCards(to, [{ vcard, displayName }], displayName);
   }
 
-  async sendContactCards(to: string, contacts: Array<{ vcard: string; displayName: string }>, _displayName: string): Promise<void> {
+  async sendContactCards(to: string, contacts: Array<{ vcard: string; displayName: string }>, _displayName: string): Promise<WhatsAppSendResult> {
     const parsed = contacts.slice(0, 2).map((contact) => buildMetaContactFromVCard(contact.vcard, contact.displayName)).filter(Boolean);
-    if (!parsed.length) return;
+    if (!parsed.length) return {};
     console.log('[META_CONTACTS_SEND] count=' + parsed.length);
-    await this.postMessages({ messaging_product: 'whatsapp', to: normalizePhone(to), type: 'contacts', contacts: parsed });
+    return await this.postMessages({ messaging_product: 'whatsapp', to: normalizePhone(to), type: 'contacts', contacts: parsed });
   }
 
-  async sendInteractiveButtons(to: string, text: string, buttons: Array<{ id: string; text: string }>): Promise<void> {
-    await this.postMessages({
+  async sendInteractiveButtons(to: string, text: string, buttons: Array<{ id: string; text: string }>): Promise<WhatsAppSendResult> {
+    return await this.postMessages({
       messaging_product: 'whatsapp', to: normalizePhone(to), type: 'interactive',
       interactive: {
         type: 'button', body: { text },
@@ -58,8 +58,8 @@ export class MetaCloudProvider implements WhatsAppProvider {
     });
   }
 
-  async sendInteractiveList(to: string, text: string, buttonText: string, items: Array<{ id: string; text: string }>): Promise<void> {
-    await this.postMessages({
+  async sendInteractiveList(to: string, text: string, buttonText: string, items: Array<{ id: string; text: string }>): Promise<WhatsAppSendResult> {
+    return await this.postMessages({
       messaging_product: 'whatsapp', to: normalizePhone(to), type: 'interactive',
       interactive: {
         type: 'list', body: { text },

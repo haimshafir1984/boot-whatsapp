@@ -3231,6 +3231,8 @@
     const resultRules = Array.isArray(step.resultRules) && step.resultRules.length
       ? step.resultRules
       : [{ id: makeFlowId('rule'), type: 'majority', value: '' }];
+    const timeoutMode = step.timeoutMode === 'continue' ? 'continue' : 'stop';
+    const timeoutSeconds = Number(step.timeoutSeconds || 0) || (Number(step.timeoutMinutes || 0) > 0 ? Number(step.timeoutMinutes) * 60 : '');
     const titlePreview = (step.text || '').trim();
     return `
       <div class="decision-step ${isActive ? 'active' : ''}" data-decision-step data-step-id="${esc(stepId)}" data-step-number="${index + 1}">
@@ -3281,6 +3283,25 @@
               <option value="list" ${presentation === 'list' ? 'selected' : ''}>רשימה נפתחת</option>
               <option value="text" ${presentation === 'text' ? 'selected' : ''}>טקסט ממוספר</option>
             </select>
+          </div>
+          <div data-question-timeout style="display:none;margin:8px 0 10px;padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc">
+            <div class="decision-next-row">
+              <label>אם לא לחצו בשאלה</label>
+              <select data-step-timeout-mode onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">
+                <option value="stop" ${timeoutMode === 'stop' ? 'selected' : ''}>עוצר תהליך</option>
+                <option value="continue" ${timeoutMode === 'continue' ? 'selected' : ''}>ממשיך אחרי זמן</option>
+              </select>
+            </div>
+            <div class="decision-next-row">
+              <label>אחרי</label>
+              <input data-step-timeout-seconds type="number" min="1" max="86400" step="1" value="${esc(timeoutSeconds)}" oninput="updateCampaignConversationPreview()" placeholder="ברירת מחדל" />
+              <span>שניות</span>
+            </div>
+            <div class="decision-next-row" data-question-timeout-next-row>
+              <label>לעבור אל</label>
+              <select data-step-timeout-next data-selected-next="${esc(step.timeoutNextStepId || '')}" onchange="updateCampaignConversationPreview()"></select>
+            </div>
+            <textarea data-step-timeout-text rows="2" oninput="updateCampaignConversationPreview()" placeholder="הודעה אופציונלית בעצירת תהליך">${esc(step.timeoutText || '')}</textarea>
           </div>
           <div class="decision-next-row" data-message-next>
             <label>אחרי ההודעה לעבור אל</label>
@@ -3567,7 +3588,7 @@
     if (step?.contains(document.getElementById('fContactCardFields'))) parkContactCardEditor();
     step?.remove();
     if (activeDecisionStepId === id) activeDecisionStepId = document.querySelector('[data-decision-step]')?.dataset.stepId || '';
-    document.querySelectorAll('[data-step-next], [data-option-next], [data-rule-next], [data-score-fallback-next]').forEach(select => {
+    document.querySelectorAll('[data-step-next], [data-option-next], [data-rule-next], [data-score-fallback-next], [data-step-timeout-next]').forEach(select => {
       if (select.dataset.selectedNext === id || select.value === id) select.dataset.selectedNext = '';
     });
     refreshDecisionNextOptions();
@@ -3665,6 +3686,7 @@
       const messageNext = step.querySelector('[data-message-next]');
       const scoreResult = step.querySelector('[data-score-result]');
       const questionPresentation = step.querySelector('[data-question-presentation]');
+      const questionTimeout = step.querySelector('[data-question-timeout]');
       const optionsPanel = step.querySelector('[data-options]');
       if (messageNext) messageNext.style.display = (kind === 'message' || kind === 'wait_reply' || kind === 'contact_card' || kind === 'referral_share') ? '' : 'none';
       if (scoreResult) scoreResult.style.display = kind === 'score_result' ? '' : 'none';
@@ -3675,6 +3697,14 @@
       if (referralTokenHelp) referralTokenHelp.style.display = kind === 'referral_share' ? '' : 'none';
       if (messageSticker) messageSticker.style.display = kind === 'message' ? '' : 'none';
       if (questionPresentation) questionPresentation.style.display = isChoice ? '' : 'none';
+      if (questionTimeout) {
+        questionTimeout.style.display = isChoice ? '' : 'none';
+        const timeoutMode = questionTimeout.querySelector('[data-step-timeout-mode]')?.value || 'stop';
+        const nextRow = questionTimeout.querySelector('[data-question-timeout-next-row]');
+        const timeoutText = questionTimeout.querySelector('[data-step-timeout-text]');
+        if (nextRow) nextRow.style.display = timeoutMode === 'continue' ? '' : 'none';
+        if (timeoutText) timeoutText.style.display = timeoutMode === 'stop' ? '' : 'none';
+      }
       if (optionsPanel) {
         optionsPanel.style.display = isChoice ? '' : 'none';
         const maxOptions = presentation === 'buttons' ? 3 : 10;
@@ -3789,12 +3819,17 @@
       label: `שלב ${index + 1}`,
       text: step.querySelector('[data-step-text]')?.value.trim() || '',
     }));
-    document.querySelectorAll('[data-step-next], [data-option-next], [data-rule-next], [data-score-fallback-next]').forEach(select => {
+    document.querySelectorAll('[data-step-next], [data-option-next], [data-rule-next], [data-score-fallback-next], [data-step-timeout-next]').forEach(select => {
       const selected = select.value || select.dataset.selectedNext || '';
       const isStepNextSelect = select.hasAttribute('data-step-next');
-      const emptyLabel = isStepNextSelect ? '\u05e9\u05dc\u05d7 \u05d5\u05e1\u05d9\u05d9\u05dd' : '\u05d4\u05e9\u05dc\u05d1 \u05d4\u05d1\u05d0 \u05d1\u05e8\u05e9\u05d9\u05de\u05d4 / \u05e1\u05d9\u05d5\u05dd \u05d0\u05dd \u05d0\u05d9\u05df';
-      const autoNextOption = isStepNextSelect ? '<option value="__NEXT__">\u05dc\u05e2\u05d1\u05d5\u05e8 \u05dc\u05e9\u05dc\u05d1 \u05d4\u05d1\u05d0 \u05d1\u05e8\u05e9\u05d9\u05de\u05d4</option>' : '<option value="">' + emptyLabel + '</option>';
-      select.innerHTML = (isStepNextSelect ? `<option value="__END__">${emptyLabel}</option>${autoNextOption}` : autoNextOption) + steps
+      const isTimeoutNextSelect = select.hasAttribute('data-step-timeout-next');
+      const emptyLabel = isStepNextSelect
+        ? '\u05e9\u05dc\u05d7 \u05d5\u05e1\u05d9\u05d9\u05dd'
+        : (isTimeoutNextSelect ? '\u05d1\u05d7\u05e8\u05d9 \u05e9\u05dc\u05d1 \u05d4\u05de\u05e9\u05da' : '\u05d4\u05e9\u05dc\u05d1 \u05d4\u05d1\u05d0 \u05d1\u05e8\u05e9\u05d9\u05de\u05d4 / \u05e1\u05d9\u05d5\u05dd \u05d0\u05dd \u05d0\u05d9\u05df');
+      const autoNextOption = (isStepNextSelect || isTimeoutNextSelect)
+        ? '<option value="__NEXT__">\u05dc\u05e2\u05d1\u05d5\u05e8 \u05dc\u05e9\u05dc\u05d1 \u05d4\u05d1\u05d0 \u05d1\u05e8\u05e9\u05d9\u05de\u05d4</option>'
+        : '<option value="">' + emptyLabel + '</option>';
+      select.innerHTML = (isStepNextSelect ? `<option value="__END__">${emptyLabel}</option>${autoNextOption}` : (isTimeoutNextSelect ? `<option value="">${emptyLabel}</option>${autoNextOption}` : autoNextOption)) + steps
         .filter(step => step.id !== select.closest('[data-decision-step]')?.dataset.stepId)
         .map(step => `<option value="${esc(step.id)}">${esc(step.label)}${step.text ? ` - ${esc(step.text.slice(0, 24))}` : ''}</option>`)
         .join('');
@@ -3853,6 +3888,14 @@
           if (!item.text && kind === 'message' && !item.fileId) return null;
           if (!item.text && (kind === 'wait_reply' || kind === 'referral_share')) return null;
         } else {
+          const timeoutMode = step.querySelector('[data-step-timeout-mode]')?.value || 'stop';
+          const timeoutSeconds = Number(step.querySelector('[data-step-timeout-seconds]')?.value || 0);
+          const timeoutText = step.querySelector('[data-step-timeout-text]')?.value.trim() || '';
+          const timeoutNextStepId = step.querySelector('[data-step-timeout-next]')?.value || '';
+          item.timeoutMode = timeoutMode === 'continue' ? 'continue' : 'stop';
+          if (Number.isFinite(timeoutSeconds) && timeoutSeconds > 0) item.timeoutSeconds = Math.min(Math.max(Math.round(timeoutSeconds), 1), 86400);
+          if (timeoutText) item.timeoutText = timeoutText;
+          if (item.timeoutMode === 'continue' && timeoutNextStepId) item.timeoutNextStepId = timeoutNextStepId;
           item.presentation = step.querySelector('[data-step-presentation]')?.value || 'buttons';
           item.options = [...step.querySelectorAll('[data-decision-option]')]
             .map(option => {
@@ -3911,6 +3954,10 @@
           if (!option.nextStepId) delete option.nextStepId;
         }
       });
+      if (step.timeoutNextStepId === '__NEXT__') {
+        step.timeoutNextStepId = steps[index + 1]?.id || '';
+        if (!step.timeoutNextStepId) delete step.timeoutNextStepId;
+      }
     });
     return steps;
   }

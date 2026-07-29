@@ -19,6 +19,15 @@ class FakeTransport {
   async sendInteractiveList(to, text, buttonText, items) { this.sent.push({ type: 'list', to, text, buttonText, items }); }
 }
 
+async function waitFor(predicate, timeoutMs = 3000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error('Timed out waiting for flow condition.');
+}
+
 function conversation(overrides = {}) {
   return {
     askNameEnabled: false,
@@ -142,17 +151,17 @@ async function inbound(storage, transport, phone, body, isButtonReply = false) {
     const beforeRecovery = transport.sent.length;
     await inbound(storage, transport, phone, 'option-shared', true);
     const recoveryMessages = transport.sent.slice(beforeRecovery);
-    assert.strictEqual(recoveryMessages[0].text, 'חוזרים לתחילת הקמפיין השני', 'recovery must use the latest campaign even when cloned option ids are shared');
-    assert.strictEqual(recoveryMessages.at(-1).type, 'buttons', 'recovery should restart at the first flow question');
-    assert.strictEqual(storage.getCampaignResults(second.id).length, 1, 'recovery must reuse the existing participant result');
+    assert.strictEqual(recoveryMessages.length, 1, 'an old button must not restart the campaign');
+    assert.ok(recoveryMessages[0].text.includes('join-second'), 'expired-button notice should identify how to explicitly restart the latest campaign');
+    assert.strictEqual(storage.getCampaignResults(second.id).length, 1, 'an old button must not create another participant result');
     conversationState.remove(`whatsapp:${phone}`);
 
     const beforeEmptyButtonRecovery = transport.sent.length;
     await inbound(storage, transport, phone, '', true);
     const emptyButtonRecoveryMessages = transport.sent.slice(beforeEmptyButtonRecovery);
-    assert.strictEqual(emptyButtonRecoveryMessages[0].text, storage.getCampaignConversationSettings(second).flowRecoveryText, 'an interactive reply without a readable body should still recover the latest flow');
-    assert.strictEqual(emptyButtonRecoveryMessages.at(-1).type, 'buttons', 'empty interactive recovery should restart the first question');
-    assert.strictEqual(storage.getCampaignResults(second.id).length, 1, 'empty interactive recovery must reuse the existing participant result');
+    assert.strictEqual(emptyButtonRecoveryMessages.length, 1, 'an unreadable old button must not restart the flow');
+    assert.ok(emptyButtonRecoveryMessages[0].text.includes('join-second'), 'an unreadable old button should return an explicit restart instruction');
+    assert.strictEqual(storage.getCampaignResults(second.id).length, 1, 'empty interactive recovery must not create another result');
     conversationState.remove(`whatsapp:${phone}`);
 
     const guarded = addCampaign(storage, 'Guarded campaign', 'join-guarded', {
@@ -180,9 +189,61 @@ async function inbound(storage, transport, phone, body, isButtonReply = false) {
     conversationState.remove(`whatsapp:${phone}`);
     const beforeInactive = transport.sent.length;
     await inbound(storage, transport, phone, 'option-shared', true);
-    assert.strictEqual(transport.sent.length, beforeInactive + 2, 'empty recovery fields must use the safe system fallback');
-    assert.strictEqual(transport.sent[beforeInactive].text, storage.getCampaignConversationSettings(inactive).flowRecoveryText);
-    assert.strictEqual(storage.getCampaignResults(inactive.id).length, 1, 'inactive recovery must not create a new participant result');
+    assert.strictEqual(transport.sent.length, beforeInactive + 1, 'old buttons must use the expiry notice without restarting');
+    assert.ok(transport.sent[beforeInactive].text.includes('join-inactive'));
+    assert.strictEqual(storage.getCampaignResults(inactive.id).length, 1, 'expired-button handling must not create a new participant result');
+
+    const latePhone = '972500000004';
+    const late = addCampaign(storage, 'Late answer campaign', 'join-late', {
+      decisionFlow: [
+        {
+          id: 'step-late',
+          kind: 'question',
+          presentation: 'buttons',
+          text: 'Continue later?',
+          timeoutMode: 'stop',
+          timeoutSeconds: 1,
+          options: [{ id: 'option-late', text: 'Continue', nextStepId: 'step-late-done' }],
+        },
+        { id: 'step-late-done', kind: 'message', text: 'continued from the stopped question' },
+      ],
+    });
+    await inbound(storage, transport, latePhone, 'join-late');
+    const latePending = conversationState.findByPhone(latePhone);
+    assert.ok(latePending && latePending.kind === 'decision', 'late-answer test should start on a decision question');
+    const expiryTimer = setTimeout(() => {}, 60_000);
+    conversationState.set(latePending.senderJid, {
+      ...latePending,
+      kind: 'expired-decision',
+      timeoutHandle: expiryTimer,
+    });
+    await inbound(storage, transport, latePhone, 'option-late', true);
+    assert.ok(transport.sent.some((item) => item.text === 'continued from the stopped question'), 'a stopped question should resume from the exact saved step');
+    assert.strictEqual(storage.getCampaignResults(late.id).length, 1, 'late resume must reuse the original result');
+    conversationState.remove(`whatsapp:${latePhone}`);
+
+    const continuePhone = '972500000005';
+    addCampaign(storage, 'Automatic continuation campaign', 'join-continue', {
+      decisionFlow: [
+        {
+          id: 'step-continue',
+          kind: 'question',
+          presentation: 'buttons',
+          text: 'Share?',
+          timeoutMode: 'continue',
+          timeoutSeconds: 1,
+          timeoutNextStepId: 'step-after-timeout',
+          options: [{ id: 'option-continue', text: 'Shared', nextStepId: 'step-after-timeout' }],
+        },
+        { id: 'step-after-timeout', kind: 'message', text: 'continued automatically after one second' },
+      ],
+    });
+    await inbound(storage, transport, continuePhone, 'join-continue');
+    await waitFor(() => transport.sent.some((item) => item.text === 'continued automatically after one second'));
+    const beforeStaleContinueReply = transport.sent.length;
+    await inbound(storage, transport, continuePhone, 'option-continue', true);
+    assert.strictEqual(transport.sent.length, beforeStaleContinueReply, 'an old button must not rewind a flow that already continued');
+    conversationState.remove(`whatsapp:${continuePhone}`);
 
     const legacyPhone = '972500000002';
     const legacy = addCampaign(storage, 'Legacy invalid answer', 'join-legacy', {
