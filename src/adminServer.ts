@@ -3078,6 +3078,22 @@ export function startAdminServer(storage: Storage): void {
       referral_link_sent: 'קישור הפניה נשלח',
       referral_attributed: 'כניסה יוחסה להפניה',
     };
+    Object.assign(eventTypeLabels, {
+      pre_name_prompt_sent: 'נשלחה הודעת פתיחה לפני שם',
+      pre_name_prompt_failed: 'הודעת פתיחה לפני שם נכשלה',
+      pre_name_replied: 'ענו לפתיחה לפני שם',
+      pre_name_auto_continue: 'המשיכו אוטומטית אחרי פתיחה',
+      ask_name_sent: 'נשלחה שאלת שם',
+      group_join_request: 'בקשת צירוף נשלחה למנהלת',
+      timeout_flow_started: 'המשיכו אוטומטית אחרי אי מענה',
+      decision_timeout_sent: 'נשלחה הודעת אי מענה',
+      file_sent: 'קובץ נשלח',
+      file_failed: 'שליחת קובץ נכשלה',
+      completion_file_sent: 'קובץ סיום נשלח',
+      completion_file_failed: 'שליחת קובץ סיום נכשלה',
+      referral_leaderboard_viewed: 'צפו בטבלת מפנות',
+      referral_rank_viewed: 'בדקו דירוג אישי',
+    });
     const reportableEventTypes = new Set(Object.keys(eventTypeLabels));
     const eventDisplayLabel = (event: { type: string; label?: string }): string => {
       const typeLabel = eventTypeLabels[event.type] ?? event.type;
@@ -3096,6 +3112,26 @@ export function startAdminServer(storage: Storage): void {
     const personDisplayName = (result: typeof results[number]): string =>
       contactNames.get(result.phone) || result.fallbackName || result.whatsappName || result.phone;
     const reportableEvents = events.filter((event) => reportableEventTypes.has(event.type));
+    const participantTotal = summary.total || results.length;
+    const eventPersonKey = (event: typeof events[number]): string => event.campaignResultId || event.phone || '';
+    const eventCount = (type: string): number => events.filter((event) => event.type === type).length;
+    const uniqueEventPeople = (predicate: (event: typeof events[number]) => boolean): number => {
+      const people = new Set<string>();
+      events.forEach((event) => {
+        if (!predicate(event)) return;
+        const key = eventPersonKey(event);
+        if (key) people.add(key);
+      });
+      return people.size;
+    };
+    const percentText = (count: number): string => participantTotal ? `${Math.round((count / participantTotal) * 1000) / 10}%` : '0%';
+    const cleanActionLabel = (event: { type: string; label?: string }): string => {
+      const label = String(event.label ?? eventTypeLabels[event.type] ?? event.type).trim();
+      if (event.type === 'group_join_request' && label.includes(':')) {
+        return label.split(':').slice(1).join(':').trim() || label;
+      }
+      return label;
+    };
     const checkpointCounts = new Map<string, { label: string; people: Set<string> }>();
     reportableEvents.forEach((event) => {
       const personKey = event.campaignResultId || event.phone;
@@ -3118,6 +3154,13 @@ export function startAdminServer(storage: Storage): void {
       ['שמירת אנשי קשר שנכשלה', summary.failed],
       ['השלימו את התהליך', summary.completed],
       ['עברו למענה אנושי', summary.humanHandoff],
+      ['ענו או לחצו על שאלת בחירה', uniqueEventPeople((event) => event.type === 'step_answered' || event.type === 'score_answered')],
+      ['בקשות צירוף שנשלחו למנהלת', uniqueEventPeople((event) => event.type === 'group_join_request')],
+      ['נכנסו להגרלה', uniqueEventPeople((event) => event.type === 'raffle_entry')],
+      ['המשיכו אוטומטית אחרי אי מענה', uniqueEventPeople((event) => event.type === 'timeout_flow_started')],
+      ['קיבלו הודעת אי מענה', uniqueEventPeople((event) => event.type === 'decision_timeout_sent')],
+      ['קיבלו קובץ במהלך התהליך', uniqueEventPeople((event) => event.type === 'file_sent')],
+      ['קיבלו קובץ סיום', uniqueEventPeople((event) => event.type === 'completion_file_sent')],
       ['ממוצע ניקוד', summary.scoreAverage],
       ['קישורי הפניה שנשלחו', storage.getCampaignEvents(campaign.id).filter((event) => event.type === 'referral_link_sent').length],
       ['כניסות שיוחסו להפניה', results.filter((result) => result.referredByCode).length],
@@ -3153,6 +3196,46 @@ export function startAdminServer(storage: Storage): void {
         result.scoreTotal ?? '',
       ];
     });
+    const metricsHeaders = ['מדד', 'משתתפים ייחודיים', 'מספר אירועים', 'אחוז מכל המשתתפים', 'פירוט'];
+    const metricDefinitions: Array<{ label: string; types: string[]; note: string }> = [
+      { label: 'התחילו קמפיין', types: [], note: 'כל מי שמופיע בתוצאות הקמפיין' },
+      { label: 'קיבלו שלב או הודעה', types: ['step_sent'], note: 'כל שלב שנשלח מתוך זרימת הקמפיין' },
+      { label: 'לחצו או ענו לשאלה', types: ['step_answered', 'score_answered'], note: 'תשובות רגילות ותשובות ניקוד' },
+      { label: 'ביקשו צירוף דרך כפתור', types: ['group_join_request'], note: 'למשל הכפתור תצרפי אותי' },
+      { label: 'נכנסו להגרלה', types: ['raffle_entry'], note: 'סומן באפשרות התשובה ככניסה להגרלה' },
+      { label: 'קיבלו קובץ באמצע התהליך', types: ['file_sent'], note: 'קובץ שנשלח כתוצאה מבחירה או שלב' },
+      { label: 'קיבלו קובץ סיום', types: ['completion_file_sent'], note: 'קובצי סיום שנשלחו' },
+      { label: 'המשיכו אוטומטית אחרי אי מענה', types: ['timeout_flow_started'], note: 'המשך זרימה לאחר timeout' },
+      { label: 'קיבלו הודעת אי מענה', types: ['decision_timeout_sent'], note: 'הודעת timeout בלי המשך אוטומטי' },
+      { label: 'עברו למענה אנושי', types: ['human_handoff'], note: 'שאלה חופשית או בקשה לנציג' },
+      { label: 'השלימו עד סוף הזרימה', types: ['completed'], note: 'רק מי הגיע לשלב סופי ללא המשך' },
+    ];
+    const metricsRows: Array<Array<string | number>> = metricDefinitions.map((metric) => {
+      if (!metric.types.length) return [metric.label, participantTotal, participantTotal, '100%', metric.note];
+      const typeSet = new Set(metric.types);
+      const people = uniqueEventPeople((event) => typeSet.has(event.type));
+      const count = events.filter((event) => typeSet.has(event.type)).length;
+      return [metric.label, people, count, percentText(people), metric.note];
+    });
+    const eventTypeRows: Array<Array<string | number>> = Array.from(reportableEventTypes).map((type) => {
+      const people = uniqueEventPeople((event) => event.type === type);
+      return [eventTypeLabels[type] ?? type, type, people, eventCount(type), percentText(people)];
+    }).filter((row) => Number(row[2]) > 0 || Number(row[3]) > 0);
+    const actionCounts = new Map<string, { type: string; label: string; people: Set<string>; count: number }>();
+    events
+      .filter((event) => ['step_answered', 'score_answered', 'group_join_request', 'raffle_entry', 'contact_card_confirmed'].includes(event.type))
+      .forEach((event) => {
+        const label = cleanActionLabel(event);
+        const key = `${event.type}\u0000${label}`;
+        const item = actionCounts.get(key) ?? { type: event.type, label, people: new Set<string>(), count: 0 };
+        const personKey = eventPersonKey(event);
+        if (personKey) item.people.add(personKey);
+        item.count += 1;
+        actionCounts.set(key, item);
+      });
+    const actionRows: Array<Array<string | number>> = Array.from(actionCounts.values())
+      .sort((a, b) => b.people.size - a.people.size || b.count - a.count || a.label.localeCompare(b.label))
+      .map((item) => [item.label, eventTypeLabels[item.type] ?? item.type, item.people.size, item.count, percentText(item.people.size)]);
 
     const styleDataSheet = (sheet: ExcelJS.Worksheet, widths: number[], wrappedColumns: number[] = []): void => {
       sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
@@ -3211,6 +3294,18 @@ export function startAdminServer(storage: Storage): void {
     summarySheet.columns = [{ width: 62 }, { width: 22 }, { width: 20 }];
     summarySheet.getColumn(1).alignment = { wrapText: true, vertical: 'middle' };
     summarySheet.views = [{ rightToLeft: true, state: 'frozen', ySplit: 3 }];
+
+    const metricsSheet = workbook.addWorksheet('מדדים');
+    addDataTable(metricsSheet, 'CampaignClearMetrics', metricsHeaders, metricsRows);
+    styleDataSheet(metricsSheet, [36, 18, 16, 18, 46], [1, 5]);
+
+    const actionSheet = workbook.addWorksheet('לחיצות וכפתורים');
+    addDataTable(actionSheet, 'CampaignButtonClicks', ['כפתור או תשובה', 'סוג פעולה', 'משתתפים ייחודיים', 'מספר אירועים', 'אחוז מכל המשתתפים'], actionRows);
+    styleDataSheet(actionSheet, [48, 28, 18, 16, 18], [1, 2]);
+
+    const eventTypeSheet = workbook.addWorksheet('מדדים לפי סוג אירוע');
+    addDataTable(eventTypeSheet, 'CampaignEventTypeMetrics', ['סוג אירוע', 'מזהה טכני', 'משתתפים ייחודיים', 'מספר אירועים', 'אחוז מכל המשתתפים'], eventTypeRows);
+    styleDataSheet(eventTypeSheet, [34, 28, 18, 16, 18], [1]);
 
     const peopleSheet = workbook.addWorksheet('משתתפים ושלבים');
     addDataTable(peopleSheet, 'CampaignPeopleOverview', peopleHeaders, peopleRows);
