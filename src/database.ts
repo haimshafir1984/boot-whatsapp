@@ -564,6 +564,16 @@ async function upsertRow(pool: Pool, table: string, params: unknown[]): Promise<
   const columns = tableColumns(table).split(',').map((column) => column.trim());
   const boundParams = bindJsonbParams(table, params);
   const placeholders = boundParams.map((_, index) => `$${index + 1}`).join(', ');
+  if (table === 'campaign_events' && boundParams[2] && boundParams[6]) {
+    await pool.query(
+      `insert into campaign_events(${columns.join(', ')}) values (${placeholders})
+       on conflict (campaign_id, campaign_result_id, dedupe_key)
+       where dedupe_key is not null and campaign_result_id is not null
+       do nothing`,
+      boundParams,
+    );
+    return;
+  }
   const keyColumn = table === 'saved_contacts' ? 'phone' : 'id';
   const updates = columns
     .filter((column) => column !== keyColumn)

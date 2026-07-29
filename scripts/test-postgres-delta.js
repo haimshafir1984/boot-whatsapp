@@ -138,6 +138,54 @@ async function main() {
       }
     }
 
+    const existingEvent = {
+      id: 'event-dedupe-existing',
+      campaignId: 'campaign-dedupe',
+      campaignResultId: 'result-dedupe',
+      resultBatchId: 'batch-dedupe',
+      phone: '972500000000',
+      type: 'step_answered',
+      label: 'existing reply',
+      dedupeKey: 'step_answered:step-1:option-1',
+      createdAt: new Date().toISOString(),
+    };
+    await pool.query(
+      `insert into campaign_events(
+        id, campaign_id, campaign_result_id, result_batch_id, phone, type, dedupe_key, created_at, data
+      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
+      [
+        existingEvent.id,
+        existingEvent.campaignId,
+        existingEvent.campaignResultId,
+        existingEvent.resultBatchId,
+        existingEvent.phone,
+        existingEvent.type,
+        existingEvent.dedupeKey,
+        existingEvent.createdAt,
+        JSON.stringify(existingEvent),
+      ],
+    );
+    storage.recordCampaignEvent({
+      campaignId: existingEvent.campaignId,
+      campaignResultId: existingEvent.campaignResultId,
+      resultBatchId: existingEvent.resultBatchId,
+      phone: existingEvent.phone,
+      type: existingEvent.type,
+      label: 'replayed reply',
+      dedupeKey: existingEvent.dedupeKey,
+    });
+    await storage.flush();
+    const dedupedEvents = await pool.query(
+      'select id from campaign_events where campaign_id = $1 and campaign_result_id = $2 and dedupe_key = $3',
+      ['campaign-dedupe', 'result-dedupe', 'step_answered:step-1:option-1'],
+    );
+    if (dedupedEvents.rowCount !== 1) {
+      throw new Error(`Expected duplicate campaign events to be persisted once, got ${dedupedEvents.rowCount}.`);
+    }
+    if (dedupedEvents.rows[0].id !== existingEvent.id) {
+      throw new Error('Existing deduplicated campaign event was unexpectedly replaced.');
+    }
+
     const runtimeSnapshot = await loadStorageSnapshot(databaseUrl);
     if (!runtimeSnapshot || runtimeSnapshot.outboxMessages.length !== 6) {
       throw new Error('Runtime snapshot was not reconstructed from normalized tables.');
