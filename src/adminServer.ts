@@ -844,6 +844,12 @@ function sanitizeDecisionFlow(
       }
       if (kind === 'question' || kind === 'score_question') {
         const rawOptions = Array.isArray(item.options) ? item.options : [];
+        const referralActionCount = rawOptions.filter((option) => {
+          if (!option || typeof option !== 'object') return false;
+          const action = inferredReferralAction(option as Partial<DecisionFlowOption>);
+          return action === 'referral_link' || action === 'referral_leaderboard' || action === 'referral_my_rank';
+        }).length;
+        if (kind === 'question' && referralActionCount >= 2) step.referralHub = true;
 
         if (item.presentation === 'text' || item.presentation === 'buttons' || item.presentation === 'list') {
           step.presentation = item.presentation;

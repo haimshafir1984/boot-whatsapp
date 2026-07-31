@@ -3256,6 +3256,8 @@
           { id: makeFlowId('option'), text: '', endText: '', nextStepId: '' },
           { id: makeFlowId('option'), text: '', endText: '', nextStepId: '' },
         ];
+    const isReferralHub = step.referralHub === true || options.filter(option =>
+      option.action === 'referral_link' || option.action === 'referral_leaderboard' || option.action === 'referral_my_rank').length >= 2;
     const resultRules = Array.isArray(step.resultRules) && step.resultRules.length
       ? step.resultRules
       : [{ id: makeFlowId('rule'), type: 'majority', value: '' }];
@@ -3263,7 +3265,7 @@
     const timeoutSeconds = Number(step.timeoutSeconds || 0) || (Number(step.timeoutMinutes || 0) > 0 ? Number(step.timeoutMinutes) * 60 : '');
     const titlePreview = (step.text || '').trim();
     return `
-      <div class="decision-step ${isActive ? 'active' : ''}" data-decision-step data-step-id="${esc(stepId)}" data-step-number="${index + 1}" data-referral-hub="${step.referralHub ? 'true' : 'false'}">
+      <div class="decision-step ${isActive ? 'active' : ''}" data-decision-step data-step-id="${esc(stepId)}" data-step-number="${index + 1}" data-referral-hub="${isReferralHub ? 'true' : 'false'}">
         <div class="decision-step-head" onclick="selectDecisionStep('${esc(stepId)}')">
           <div>
             <div class="decision-step-title">שלב ${index + 1}${titlePreview ? ` · ${esc(titlePreview.slice(0, 34))}` : ''}</div>
@@ -3922,6 +3924,7 @@
           kind,
           text: step.querySelector('[data-step-text]').value.trim(),
         };
+        if (kind === 'question' && step.dataset.referralHub === 'true') item.referralHub = true;
         if (!item.text && kind === 'score_result') item.text = '\u05d7\u05d9\u05e9\u05d5\u05d1 \u05ea\u05d5\u05e6\u05d0\u05d4';
         const delaySeconds = Number(step.querySelector('[data-step-delay]')?.value || 0);
         if (Number.isFinite(delaySeconds) && delaySeconds > 0) item.delayMs = Math.min(Math.round(delaySeconds * 1000), 60000);

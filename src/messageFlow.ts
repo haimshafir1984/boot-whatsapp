@@ -2008,6 +2008,13 @@ function normalizeReferralLeaderboardName(name: string): string {
   return name.normalize('NFKC').trim().toLocaleLowerCase('he').replace(/\s+/g, ' ');
 }
 
+function isReferralHubStep(step: DecisionFlowStep): boolean {
+  if (step.referralHub) return true;
+  const actions = (step.options ?? []).filter((item) =>
+    item.action === 'referral_link' || item.action === 'referral_leaderboard' || item.action === 'referral_my_rank');
+  return actions.length >= 2;
+}
+
 async function handleReferralMenuAction(transport: WhatsAppTransport, storage: Storage, senderJid: string, flow: DecisionFlowStep[], step: DecisionFlowStep, option: DecisionFlowOption, campaignId?: string, campaignResultId?: string, senderPhone?: string, humanHandoff: CampaignReplyBehavior = {}): Promise<void> {
   if (!campaignId || !campaignResultId) return;
   const campaign = storage.getCampaigns().find((item) => item.id === campaignId);
@@ -2053,7 +2060,7 @@ async function handleReferralMenuAction(transport: WhatsAppTransport, storage: S
     storage.recordCampaignEvent({ campaignId, campaignResultId, phone: senderPhone, type: 'referral_rank_viewed', label: rank ? String(rank.rank) : 'none' });
   }
   await sendBotMessage(transport, senderJid, message, 0);
-  if (!step.referralHub && option.nextStepId) {
+  if (!isReferralHubStep(step) && option.nextStepId) {
     await sendDecisionStep(transport, storage, senderJid, flow, option.nextStepId, campaignId, campaignResultId, senderPhone, humanHandoff);
   } else {
     await sendDecisionStep(transport, storage, senderJid, flow, step.id, campaignId, campaignResultId, senderPhone, humanHandoff);
