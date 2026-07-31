@@ -160,6 +160,8 @@ export interface DecisionFlowOption {
   action?: 'request_group_join' | 'referral_link' | 'referral_leaderboard' | 'referral_my_rank';
   /** Controls whether a referral leaderboard exposes each participant's share count. */
   referralLeaderboardDisplay?: 'names_only' | 'names_and_counts';
+  /** Message shown when the referral leaderboard has no participants with shares yet. */
+  referralLeaderboardEmptyText?: string;
   score?: number;
 }
 

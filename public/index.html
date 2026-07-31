@@ -3421,6 +3421,8 @@
                 <option value="names_and_counts" ${option.referralLeaderboardDisplay !== 'names_only' ? 'selected' : ''}>שם + מספר שיתופים</option>
                 <option value="names_only" ${option.referralLeaderboardDisplay === 'names_only' ? 'selected' : ''}>שם בלבד</option>
               </select>
+              <div class="decision-option-label">מה להציג כשאין עדיין שיתופים?</div>
+              <textarea data-option-referral-leaderboard-empty-text rows="2" maxlength="1000" oninput="updateCampaignConversationPreview()" placeholder="עדיין אין נתוני שיתוף בקמפיין.">${esc(option.referralLeaderboardEmptyText || '')}</textarea>
             </div>
             <div class="decision-option-label" data-option-end-label>הודעת פרידה קבועה</div>
             <textarea data-option-end-text oninput="updateCampaignConversationPreview()" placeholder="הודעת סיום / כיתוב לקובץ">${esc(option.endText || '')}</textarea>
@@ -3959,6 +3961,8 @@
                   clean.referralLeaderboardDisplay = option.querySelector('[data-option-referral-leaderboard-display]')?.value === 'names_only'
                     ? 'names_only'
                     : 'names_and_counts';
+                  const emptyText = option.querySelector('[data-option-referral-leaderboard-empty-text]')?.value.trim() || '';
+                  if (emptyText) clean.referralLeaderboardEmptyText = emptyText;
                 }
                 const responseText = option.querySelector('[data-option-end-text]').value.trim();
                 if (responseText) clean.endText = responseText;

@@ -910,6 +910,9 @@ function sanitizeDecisionFlow(
                 clean.referralLeaderboardDisplay = rawOption.referralLeaderboardDisplay === 'names_only'
                   ? 'names_only'
                   : 'names_and_counts';
+                if (typeof rawOption.referralLeaderboardEmptyText === 'string' && rawOption.referralLeaderboardEmptyText.trim()) {
+                  clean.referralLeaderboardEmptyText = rawOption.referralLeaderboardEmptyText.trim().slice(0, 1000);
+                }
               }
             }
             if (typeof rawOption.score === 'number' && Number.isFinite(rawOption.score)) {
