@@ -905,6 +905,9 @@ function sanitizeDecisionFlow(
             if (action === 'request_group_join' || action === 'referral_link' || action === 'referral_leaderboard' || action === 'referral_my_rank') {
               clean.action = action;
               delete clean.fileId; delete clean.fileAsSticker;
+              if (step.referralHub && (action === 'referral_link' || action === 'referral_leaderboard' || action === 'referral_my_rank')) {
+                delete clean.nextStepId;
+              }
               if (action === 'request_group_join') delete clean.endText;
               if (action === 'referral_leaderboard') {
                 clean.referralLeaderboardDisplay = rawOption.referralLeaderboardDisplay === 'names_only'

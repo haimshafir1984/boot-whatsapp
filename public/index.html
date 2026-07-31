@@ -3263,7 +3263,7 @@
     const timeoutSeconds = Number(step.timeoutSeconds || 0) || (Number(step.timeoutMinutes || 0) > 0 ? Number(step.timeoutMinutes) * 60 : '');
     const titlePreview = (step.text || '').trim();
     return `
-      <div class="decision-step ${isActive ? 'active' : ''}" data-decision-step data-step-id="${esc(stepId)}" data-step-number="${index + 1}">
+      <div class="decision-step ${isActive ? 'active' : ''}" data-decision-step data-step-id="${esc(stepId)}" data-step-number="${index + 1}" data-referral-hub="${step.referralHub ? 'true' : 'false'}">
         <div class="decision-step-head" onclick="selectDecisionStep('${esc(stepId)}')">
           <div>
             <div class="decision-step-title">שלב ${index + 1}${titlePreview ? ` · ${esc(titlePreview.slice(0, 34))}` : ''}</div>
@@ -3749,6 +3749,7 @@
     document.querySelectorAll('[data-decision-step]').forEach(step => {
       const kind = step.querySelector('[data-step-kind]').value;
       const isChoice = kind === 'question' || kind === 'score_question';
+      const isReferralHub = step.dataset.referralHub === 'true';
       const presentation = step.querySelector('[data-step-presentation]')?.value || 'buttons';
       const messageNext = step.querySelector('[data-message-next]');
       const scoreResult = step.querySelector('[data-score-result]');
@@ -3825,15 +3826,17 @@
         const stickerWrap = option.querySelector('[data-option-sticker-wrap]');
         const summary = option.querySelector('[data-option-summary]');
         const leaderboardDisplay = option.querySelector('[data-referral-leaderboard-display-wrap]');
+        const isReferralInfoAction = action === 'referral_link' || action === 'referral_leaderboard' || action === 'referral_my_rank';
+        const showOptionNext = action === 'next' || action === 'request_group_join' || (isReferralInfoAction && !isReferralHub);
         const optionText = option.querySelector('[data-option-text]')?.value.trim() || 'התשובה הזו';
         option.querySelectorAll('[data-action]').forEach(button => {
           button.classList.toggle('active', button.dataset.action === action);
         });
-        nextSelect.style.display = action === 'next' || action === 'request_group_join' || action === 'referral_link' || action === 'referral_leaderboard' || action === 'referral_my_rank' ? '' : 'none';
+        nextSelect.style.display = showOptionNext ? '' : 'none';
         fileSelect.style.display = action === 'file' ? '' : 'none';
         stickerWrap.style.display = action === 'file' ? '' : 'none';
         endText.style.display = '';
-        option.querySelector('[data-option-next-label]').style.display = action === 'next' || action === 'request_group_join' || action === 'referral_link' || action === 'referral_leaderboard' || action === 'referral_my_rank' ? '' : 'none';
+        option.querySelector('[data-option-next-label]').style.display = showOptionNext ? '' : 'none';
         option.querySelector('[data-option-file-label]').style.display = action === 'file' ? '' : 'none';
         if (leaderboardDisplay) leaderboardDisplay.style.display = action === 'referral_leaderboard' ? '' : 'none';
         option.querySelector('[data-option-end-label]').style.display = '';
@@ -4003,7 +4006,7 @@
                 const responseText = option.querySelector('[data-option-end-text]').value.trim();
                 if (responseText) clean.endText = responseText;
                 const nextStepId = option.querySelector('[data-option-next]').value;
-                if (nextStepId) clean.nextStepId = nextStepId;
+                if (nextStepId && step.dataset.referralHub !== 'true') clean.nextStepId = nextStepId;
               } else if (action === 'next') {
                 const nextStepId = option.querySelector('[data-option-next]').value;
                 const nextText = option.querySelector('[data-option-end-text]').value.trim();

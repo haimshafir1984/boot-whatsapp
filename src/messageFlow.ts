@@ -2053,7 +2053,7 @@ async function handleReferralMenuAction(transport: WhatsAppTransport, storage: S
     storage.recordCampaignEvent({ campaignId, campaignResultId, phone: senderPhone, type: 'referral_rank_viewed', label: rank ? String(rank.rank) : 'none' });
   }
   await sendBotMessage(transport, senderJid, message, 0);
-  if (option.nextStepId) {
+  if (!step.referralHub && option.nextStepId) {
     await sendDecisionStep(transport, storage, senderJid, flow, option.nextStepId, campaignId, campaignResultId, senderPhone, humanHandoff);
   } else {
     await sendDecisionStep(transport, storage, senderJid, flow, step.id, campaignId, campaignResultId, senderPhone, humanHandoff);
