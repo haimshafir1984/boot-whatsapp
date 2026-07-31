@@ -149,6 +149,7 @@ export interface ScoreResultRule {
 export interface DecisionFlowOption {
   id: string;
   text: string;
+  buttonLabel?: string;
   nextStepId?: string;
   endText?: string;
   fileId?: string;
@@ -241,7 +242,7 @@ export interface OutboxMessage {
   label?: string;
   buttons?: Array<{ id: string; text: string }>;
   buttonText?: string;
-  items?: Array<{ id: string; text: string }>;
+  items?: Array<{ id: string; text: string; description?: string }>;
   contacts?: Array<{ vcard: string; displayName: string }>;
   displayName?: string;
   templateName?: string;

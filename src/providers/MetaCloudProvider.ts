@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { config } from '../config';
-import { IncomingWhatsAppMessage, WhatsAppProvider, WhatsAppSendResult } from '../types/whatsapp';
+import { IncomingWhatsAppMessage, InteractiveListItem, WhatsAppProvider, WhatsAppSendResult } from '../types/whatsapp';
 
 type MetaMessage = Record<string, unknown>;
 
@@ -58,12 +58,22 @@ export class MetaCloudProvider implements WhatsAppProvider {
     });
   }
 
-  async sendInteractiveList(to: string, text: string, buttonText: string, items: Array<{ id: string; text: string }>): Promise<WhatsAppSendResult> {
+  async sendInteractiveList(to: string, text: string, buttonText: string, items: InteractiveListItem[]): Promise<WhatsAppSendResult> {
     return await this.postMessages({
       messaging_product: 'whatsapp', to: normalizePhone(to), type: 'interactive',
       interactive: {
         type: 'list', body: { text },
-        action: { button: buttonText.slice(0, 20), sections: [{ title: 'Options', rows: items.slice(0, 10).map((item, index) => ({ id: item.id || String(index + 1), title: item.text.slice(0, 24) })) }] },
+        action: {
+          button: buttonText.slice(0, 20),
+          sections: [{
+            title: 'Options',
+            rows: items.slice(0, 10).map((item, index) => ({
+              id: item.id || String(index + 1),
+              title: item.text.slice(0, 24),
+              ...(item.description ? { description: item.description.slice(0, 72) } : {}),
+            })),
+          }],
+        },
       },
     });
   }

@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { WhatsAppProvider, WhatsAppSendResult } from '../types/whatsapp';
+import { InteractiveListItem, WhatsAppProvider, WhatsAppSendResult } from '../types/whatsapp';
 import { config } from '../config';
 import { recordTwilioEvent } from '../twilioEvents';
 
@@ -141,7 +141,7 @@ export class TwilioProvider implements WhatsAppProvider {
     to: string,
     text: string,
     buttonText: string,
-    items: Array<{ id: string; text: string }>,
+    items: InteractiveListItem[],
   ): Promise<void> {
     const listItems = items.slice(0, 10);
     if (!listItems.length) {
@@ -161,6 +161,7 @@ export class TwilioProvider implements WhatsAppProvider {
           items: listItems.map((item, index) => ({
             id: String(index + 1),
             item: item.text.slice(0, 24),
+            description: (item.description || item.text).slice(0, 72),
           })),
         },
       },

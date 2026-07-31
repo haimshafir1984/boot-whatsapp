@@ -3389,6 +3389,7 @@
                 <option value="💬">💬</option>
               </select>
               <textarea data-option-text maxlength="500" rows="2" oninput="updateDecisionStepVisibility(); updateCampaignConversationPreview()" placeholder="&#1504;&#1493;&#1505;&#1495; &#1492;&#1514;&#1513;&#1493;&#1489;&#1492;">${esc(option.text || '')}</textarea>
+              <input data-option-button-label maxlength="20" value="${esc(option.buttonLabel || '')}" oninput="updateCampaignConversationPreview()" placeholder="&#1496;&#1511;&#1505;&#1496; &#1511;&#1510;&#1512; &#1506;&#1500; &#1492;&#1499;&#1508;&#1514;&#1493;&#1512;" title="&#1506;&#1491; 20 &#1514;&#1493;&#1493;&#1497;&#1501;" />
               <input data-option-score type="number" min="-99" max="99" step="1" value="${Number.isFinite(Number(option.score)) ? Number(option.score) : index + 1}" oninput="updateCampaignConversationPreview()" title="\u05e2\u05e8\u05da \u05dc\u05d7\u05d9\u05e9\u05d5\u05d1" style="width:82px" />
               <button type="button" class="btn-small" onclick="removeDecisionOption(this)">מחק</button>
             </div>
@@ -3784,6 +3785,8 @@
       step.querySelectorAll('[data-decision-option]').forEach(option => {
         const optionScore = option.querySelector('[data-option-score]');
         if (optionScore) optionScore.style.display = kind === 'score_question' ? '' : 'none';
+        const buttonLabel = option.querySelector('[data-option-button-label]');
+        if (buttonLabel) buttonLabel.style.display = presentation === 'buttons' ? '' : 'none';
         const action = option.querySelector('[data-option-action]')?.value || 'end';
         const nextSelect = option.querySelector('[data-option-next]');
         const fileSelect = option.querySelector('[data-option-file]');
@@ -3942,6 +3945,8 @@
                 id: option.dataset.optionId || makeFlowId('option'),
                 text,
               };
+              const buttonLabel = option.querySelector('[data-option-button-label]')?.value.trim() || '';
+              if (item.presentation === 'buttons' && buttonLabel) clean.buttonLabel = buttonLabel;
               if (kind === 'score_question') clean.score = Number(option.querySelector('[data-option-score]')?.value) || index + 1;
               if (option.querySelector('[data-option-raffle-entry]')?.checked) clean.raffleEntry = true;
               const action = option.querySelector('[data-option-action]')?.value || 'end';

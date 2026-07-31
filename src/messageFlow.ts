@@ -2368,12 +2368,13 @@ async function sendDecisionStep(
   }
 
   const presentation = step.presentation ?? 'buttons';
-  const hasLongOptions = (step.options ?? []).some((option) => Array.from(option.text.trim()).length > (presentation === 'list' ? 24 : 20));
+  const hasLongOptions = presentation === 'list'
+    && (step.options ?? []).some((option) => Array.from(option.text.trim()).length > 96);
   let sentInteractive = false;
   if (!hasLongOptions && presentation === 'list' && transport.sendInteractiveList && step.options?.length) {
     try {
       await waitBeforeBotReply(stepDelayMs);
-      const items = step.options.slice(0, 10).map((option) => ({ id: option.id, text: option.text }));
+      const items = step.options.slice(0, 10).map((option) => buildInteractiveListItem(option));
       await sendTrackedOutboxMessage(storage, {
         kind: 'interactive_list',
         to: senderJid,
@@ -2392,16 +2393,24 @@ async function sendDecisionStep(
   if (!hasLongOptions && presentation === 'buttons' && transport.sendInteractiveButtons && step.options?.length) {
     try {
       await waitBeforeBotReply(stepDelayMs);
-      const buttons = step.options.slice(0, 3).map((option) => ({ id: option.id, text: option.text }));
+      const options = step.options.slice(0, 3);
+      const needsFullOptionText = options.some((option) =>
+        Boolean(option.buttonLabel?.trim()) || Array.from(option.text.trim()).length > 20
+      );
+      const buttons = options.map((option, index) => ({
+        id: option.id,
+        text: buildInteractiveButtonLabel(option, index),
+      }));
+      const buttonBodyText = needsFullOptionText ? formatQuestion(step) : step.text.trim();
       await sendTrackedOutboxMessage(storage, {
         kind: 'interactive_buttons',
         to: senderJid,
-        text: step.text.trim(),
+        text: buttonBodyText,
         buttons,
         campaignId,
         campaignResultId,
         stepId: step.id,
-      }, () => transport.sendInteractiveButtons!(senderJid, step.text.trim(), buttons));
+      }, () => transport.sendInteractiveButtons!(senderJid, buttonBodyText, buttons));
       sentInteractive = true;
     } catch (err) {
       console.warn('   Interactive decision question failed, falling back to text:', err);
@@ -2942,6 +2951,29 @@ function formatQuestion(step: DecisionFlowStep): string {
     .map((option: DecisionFlowOption, index) => `${index + 1}. ${option.text}`)
     .join('\n');
   return options ? `${step.text.trim()}\n\n${options}` : step.text.trim();
+}
+
+function buildInteractiveListItem(option: DecisionFlowOption): { id: string; text: string; description?: string } {
+  const value = option.text.trim();
+  const characters = Array.from(value);
+  if (characters.length <= 24) return { id: option.id, text: value };
+
+  const titleCandidate = characters.slice(0, 24).join('');
+  const lastSpace = titleCandidate.lastIndexOf(' ');
+  const splitAt = lastSpace >= 8 ? lastSpace : 24;
+  const title = characters.slice(0, splitAt).join('').trim();
+  const description = characters.slice(splitAt, splitAt + 72).join('').trim();
+  return { id: option.id, text: title, description };
+}
+
+function buildInteractiveButtonLabel(option: DecisionFlowOption, index: number): string {
+  const configuredLabel = option.buttonLabel?.trim();
+  if (configuredLabel) return Array.from(configuredLabel).slice(0, 20).join('');
+
+  const optionText = option.text.trim();
+  if (Array.from(optionText).length <= 20) return optionText;
+  const prefix = `${index + 1}. `;
+  return prefix + Array.from(optionText).slice(0, 20 - prefix.length).join('').trim();
 }
 
 function normalizeDecisionAnswer(answer: string): string {

@@ -883,6 +883,9 @@ function sanitizeDecisionFlow(
                 : `${id}-option-${optionIndex + 1}`,
               text: optionText,
             };
+            if (typeof rawOption.buttonLabel === 'string' && rawOption.buttonLabel.trim()) {
+              clean.buttonLabel = Array.from(rawOption.buttonLabel.trim()).slice(0, 20).join('');
+            }
             if (typeof rawOption.nextStepId === 'string' && rawOption.nextStepId.trim()) {
               clean.nextStepId = rawOption.nextStepId.trim().slice(0, 80);
             }

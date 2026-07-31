@@ -1,6 +1,6 @@
 import { Client, MessageMedia } from 'whatsapp-web.js';
 import { Storage } from '../storage';
-import { WhatsAppProvider } from '../types/whatsapp';
+import { InteractiveListItem, WhatsAppProvider } from '../types/whatsapp';
 import { createWhatsAppClient } from '../whatsapp';
 
 export class WebJsProvider implements WhatsAppProvider {
@@ -57,10 +57,10 @@ export class WebJsProvider implements WhatsAppProvider {
     to: string,
     text: string,
     _buttonText: string,
-    items: Array<{ id: string; text: string }>,
+    items: InteractiveListItem[],
   ): Promise<void> {
     const listText = items.length
-      ? `${text}\n\n${items.map((item, index) => `${index + 1}. ${item.text}`).join('\n')}`
+      ? `${text}\n\n${items.map((item, index) => `${index + 1}. ${item.text}${item.description ? ` ${item.description}` : ''}`).join('\n')}`
       : text;
     await this.sendMessage(to, listText);
   }

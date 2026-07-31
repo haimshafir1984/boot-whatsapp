@@ -4,6 +4,12 @@ export interface WhatsAppSendResult {
   messageId?: string;
 }
 
+export interface InteractiveListItem {
+  id: string;
+  text: string;
+  description?: string;
+}
+
 export interface IncomingWhatsAppMessage {
   id: string;
   from: string;
@@ -26,7 +32,7 @@ export interface WhatsAppTransport {
   sendContentTemplate?(to: string, contentSid: string, contentVariables?: Record<string, string>): Promise<void | WhatsAppSendResult>;
   sendTemplateMessage?(to: string, templateName: string, languageCode: string, bodyParameters?: string[]): Promise<void | WhatsAppSendResult>;
   sendInteractiveButtons?(to: string, text: string, buttons: Array<{ id: string; text: string }>): Promise<void | WhatsAppSendResult>;
-  sendInteractiveList?(to: string, text: string, buttonText: string, items: Array<{ id: string; text: string }>): Promise<void | WhatsAppSendResult>;
+  sendInteractiveList?(to: string, text: string, buttonText: string, items: InteractiveListItem[]): Promise<void | WhatsAppSendResult>;
   resolvePhone(jid: string): Promise<string>;
   markRead?(message: IncomingWhatsAppMessage): Promise<void>;
 }
@@ -50,7 +56,7 @@ export interface WhatsAppProvider {
     to: string,
     text: string,
     buttonText: string,
-    items: Array<{ id: string; text: string }>,
+    items: InteractiveListItem[],
   ): Promise<void | WhatsAppSendResult>;
   markRead?(message: IncomingWhatsAppMessage): Promise<void>;
 }

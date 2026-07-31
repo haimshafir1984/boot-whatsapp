@@ -5,7 +5,7 @@ import { botState } from '../botState';
 import { handleIncomingWhatsAppMessage } from '../messageFlow';
 import { Storage } from '../storage';
 import { detectTrigger } from '../triggerDetector';
-import { IncomingWhatsAppMessage, WhatsAppProvider, WhatsAppTransport } from '../types/whatsapp';
+import { IncomingWhatsAppMessage, InteractiveListItem, WhatsAppProvider, WhatsAppTransport } from '../types/whatsapp';
 
 type BaileysModule = typeof import('@whiskeysockets/baileys');
 type BaileysSocket = ReturnType<BaileysModule['makeWASocket']>;
@@ -220,10 +220,10 @@ export class BaileysProvider implements WhatsAppProvider {
     to: string,
     text: string,
     _buttonText: string,
-    items: Array<{ id: string; text: string }>,
+    items: InteractiveListItem[],
   ): Promise<void> {
     const listText = items.length
-      ? `${text}\n\n${items.map((item, index) => `${index + 1}. ${item.text}`).join('\n')}`
+      ? `${text}\n\n${items.map((item, index) => `${index + 1}. ${item.text}${item.description ? ` ${item.description}` : ''}`).join('\n')}`
       : text;
     await this.sendMessage(to, listText);
   }
