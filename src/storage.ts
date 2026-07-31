@@ -157,6 +157,8 @@ export interface DecisionFlowOption {
   raffleEntry?: boolean;
   /** Auxiliary action that keeps the participant on the current question. */
   action?: 'request_group_join' | 'referral_link' | 'referral_leaderboard' | 'referral_my_rank';
+  /** Controls whether a referral leaderboard exposes each participant's share count. */
+  referralLeaderboardDisplay?: 'names_only' | 'names_and_counts';
   score?: number;
 }
 

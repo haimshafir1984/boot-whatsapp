@@ -1529,6 +1529,11 @@
 
         <div class="editor-section wizard-panel" data-wizard-panel="2">
           <div class="editor-section-title">שמירת איש קשר</div>
+          <div class="field" id="fContactNameSuffixField">
+            <label>סיומת לשם השמור</label>
+            <input type="text" id="fContactNameSuffix" maxlength="80" placeholder="Bot" oninput="updateContactNameSuffixPreview(); updateCampaignConversationPreview()" />
+            <div class="hint">השם יישמר לדוגמה כך: <strong id="fContactNameSuffixPreview">השם מ־WhatsApp - (Bot)</strong>. אפשר לשנות את הסיומת או להשאיר ריק.</div>
+          </div>
           <div class="toggle-row">
             <div>
               <div class="toggle-label">לשאול באיזה שם לשמור</div>
@@ -2401,6 +2406,7 @@
       phrase: document.getElementById('fPhrase')?.value || '',
       basePhrase: document.getElementById('fBasePhrase')?.value || '',
       referrerName: document.getElementById('fReferrer')?.value || '',
+      contactNameSuffix: document.getElementById('fContactNameSuffix')?.value || '',
       startAt: document.getElementById('fStartAt')?.value || '',
       endAt: document.getElementById('fEndAt')?.value || '',
       noEndAt: Boolean(document.getElementById('fNoEndAt')?.checked),
@@ -2421,6 +2427,10 @@
     document.getElementById('fPhrase').value = draft.phrase || '';
     document.getElementById('fBasePhrase').value = draft.basePhrase || '';
     document.getElementById('fReferrer').value = draft.referrerName || '';
+    if (Object.prototype.hasOwnProperty.call(draft, 'contactNameSuffix')) {
+      document.getElementById('fContactNameSuffix').value = draft.contactNameSuffix || '';
+    }
+    updateContactNameSuffixPreview();
     updatePreview();
     updateCampaignConversationPreview();
     goWizardStep(Number(draft.wizardStep || 1));
@@ -2593,6 +2603,8 @@
     document.getElementById('fPhrase').value    = '';
     document.getElementById('fBasePhrase').value = '';
     document.getElementById('fReferrer').value  = '';
+    document.getElementById('fContactNameSuffix').value = contactSuffixLabel(appSettings.botSuffix);
+    updateContactNameSuffixPreview();
     document.getElementById('fStartAt').value = '';
     document.getElementById('fEndAt').value = defaultCampaignEndLocal();
     document.getElementById('fNoEndAt').checked = false;
@@ -2621,6 +2633,8 @@
     editingId = id;
     document.getElementById('modalTitle').textContent = 'עריכת קמפיין';
     document.getElementById('fName').value = c.name;
+    document.getElementById('fContactNameSuffix').value = contactSuffixLabel(c.suffix);
+    updateContactNameSuffixPreview();
     document.getElementById('fStartAt').value = formatDateTimeLocal(c.startAt);
     document.getElementById('fEndAt').value = formatDateTimeLocal(c.endAt);
     document.getElementById('fNoEndAt').checked = !c.endAt;
@@ -2662,7 +2676,20 @@
     document.querySelector(`input[name=triggerType][value="${t}"]`).checked = true;
     document.getElementById('type1Fields').style.display = t === 1 ? '' : 'none';
     document.getElementById('type2Fields').style.display = t === 2 ? '' : 'none';
+    document.getElementById('fContactNameSuffixField').style.display = t === 1 ? '' : 'none';
     updatePreview();
+  }
+
+  function contactSuffixLabel(value) {
+    const raw = String(value || '').trim();
+    const wrapped = raw.match(/^-\s*\((.*)\)$/);
+    return wrapped ? wrapped[1].trim() : raw;
+  }
+
+  function updateContactNameSuffixPreview() {
+    const suffix = document.getElementById('fContactNameSuffix')?.value.trim() || '';
+    const preview = document.getElementById('fContactNameSuffixPreview');
+    if (preview) preview.textContent = suffix ? `השם מ־WhatsApp - (${suffix})` : 'השם מ־WhatsApp';
   }
 
   function updatePreview() {
@@ -2712,12 +2739,13 @@
     let body;
     if (triggerType === 1) {
       const phrase = document.getElementById('fPhrase').value.trim();
+      const contactNameSuffix = document.getElementById('fContactNameSuffix').value.trim();
       if (!phrase) {
         setFieldError('fPhrase', 'חסר משפט טריגר. זה הטקסט שהמשתמש ישלח ב-WhatsApp.');
         errEl.textContent = 'יש שדה שצריך להשלים לפני שמירה.';
         return;
       }
-      body = { name, triggerType, triggerPhrase: phrase, startAt, endAt, conversation, twilio: { mode: 'link', optInConfirmed: true, audienceNotes: 'הלקוח פתח את שיחת ה-WhatsApp דרך לינק הקמפיין; אין צורך בטמפלייט מאושר.' } };
+      body = { name, triggerType, triggerPhrase: phrase, contactNameSuffix, startAt, endAt, conversation, twilio: { mode: 'link', optInConfirmed: true, audienceNotes: 'הלקוח פתח את שיחת ה-WhatsApp דרך לינק הקמפיין; אין צורך בטמפלייט מאושר.' } };
     } else {
       const basePhrase   = document.getElementById('fBasePhrase').value.trim();
       const referrerName = document.getElementById('fReferrer').value.trim();
@@ -3386,6 +3414,13 @@
             <select data-option-file data-selected-file="${esc(option.fileId || '')}" onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">${fileOptions(option.fileId || '')}</select>
             <label class="decision-inline-check" data-option-sticker-wrap><input data-option-file-sticker type="checkbox" ${option.fileAsSticker ? 'checked' : ''} onchange="updateCampaignConversationPreview()" /> שלח כמדבקה</label>
             <label class="decision-inline-check"><input data-option-raffle-entry type="checkbox" ${option.raffleEntry ? 'checked' : ''} onchange="updateCampaignConversationPreview()" /> &#1499;&#1504;&#1497;&#1505;&#1492; &#1500;&#1492;&#1490;&#1512;&#1500;&#1492;</label>
+            <div data-referral-leaderboard-display-wrap style="display:none">
+              <div class="decision-option-label">מה להציג בדירוג?</div>
+              <select data-option-referral-leaderboard-display onchange="updateCampaignConversationPreview()">
+                <option value="names_and_counts" ${option.referralLeaderboardDisplay !== 'names_only' ? 'selected' : ''}>שם + מספר שיתופים</option>
+                <option value="names_only" ${option.referralLeaderboardDisplay === 'names_only' ? 'selected' : ''}>שם בלבד</option>
+              </select>
+            </div>
             <div class="decision-option-label" data-option-end-label>הודעת פרידה קבועה</div>
             <textarea data-option-end-text oninput="updateCampaignConversationPreview()" placeholder="הודעת סיום / כיתוב לקובץ">${esc(option.endText || '')}</textarea>
           </div>
@@ -3755,6 +3790,7 @@
         const endText = option.querySelector('[data-option-end-text]');
         const stickerWrap = option.querySelector('[data-option-sticker-wrap]');
         const summary = option.querySelector('[data-option-summary]');
+        const leaderboardDisplay = option.querySelector('[data-referral-leaderboard-display-wrap]');
         const optionText = option.querySelector('[data-option-text]')?.value.trim() || 'התשובה הזו';
         option.querySelectorAll('[data-action]').forEach(button => {
           button.classList.toggle('active', button.dataset.action === action);
@@ -3765,6 +3801,7 @@
         endText.style.display = '';
         option.querySelector('[data-option-next-label]').style.display = action === 'next' || action === 'request_group_join' || action === 'referral_link' || action === 'referral_leaderboard' || action === 'referral_my_rank' ? '' : 'none';
         option.querySelector('[data-option-file-label]').style.display = action === 'file' ? '' : 'none';
+        if (leaderboardDisplay) leaderboardDisplay.style.display = action === 'referral_leaderboard' ? '' : 'none';
         option.querySelector('[data-option-end-label]').style.display = '';
         option.querySelector('[data-option-end-text]').placeholder = action === 'file'
           ? 'כיתוב שיופיע עם הקובץ (אופציונלי)'
@@ -3913,6 +3950,11 @@
                 clean.nextStepId = option.querySelector('[data-option-next]').value || '__NEXT__';
               } else if (action === 'referral_link' || action === 'referral_leaderboard' || action === 'referral_my_rank') {
                 clean.action = action;
+                if (action === 'referral_leaderboard') {
+                  clean.referralLeaderboardDisplay = option.querySelector('[data-option-referral-leaderboard-display]')?.value === 'names_only'
+                    ? 'names_only'
+                    : 'names_and_counts';
+                }
                 const responseText = option.querySelector('[data-option-end-text]').value.trim();
                 if (responseText) clean.endText = responseText;
                 const nextStepId = option.querySelector('[data-option-next]').value;

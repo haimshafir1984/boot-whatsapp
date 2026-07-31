@@ -314,6 +314,14 @@ function normalizeBotReplyDelayMs(value: unknown): number | null | undefined {
   return Math.round(delay);
 }
 
+function campaignContactSuffix(value: unknown, fallback: string): string {
+  if (value === undefined) return fallback;
+  const raw = typeof value === 'string' ? value.trim().slice(0, 80) : '';
+  const wrapped = raw.match(/^-\s*\((.*)\)$/);
+  const label = (wrapped ? wrapped[1] : raw).trim();
+  return label ? ` - (${label})` : '';
+}
+
 function buildContactsVCard(contacts: Array<{ name?: string; phone: string }>): string {
   return contacts
     .filter((contact) => contact.phone.trim())
@@ -895,6 +903,11 @@ function sanitizeDecisionFlow(
               clean.action = action;
               delete clean.fileId; delete clean.fileAsSticker;
               if (action === 'request_group_join') delete clean.endText;
+              if (action === 'referral_leaderboard') {
+                clean.referralLeaderboardDisplay = rawOption.referralLeaderboardDisplay === 'names_only'
+                  ? 'names_only'
+                  : 'names_and_counts';
+              }
             }
             if (typeof rawOption.score === 'number' && Number.isFinite(rawOption.score)) {
               clean.score = Math.round(rawOption.score);
@@ -2308,6 +2321,7 @@ export function startAdminServer(storage: Storage): void {
   app.post('/owner-api/campaigns', async (req, res) => {
     const { name, triggerType, triggerPhrase, basePhrase, referrerName, startAt, endAt, conversation, twilio } =
       req.body as Partial<Campaign>;
+    const contactNameSuffix = req.body?.contactNameSuffix;
     const capabilities = getClientCapabilities(storage);
     const explicitNoEnd = req.body?.endAt === null;
     const resolvedEndAt = explicitNoEnd
@@ -2342,7 +2356,7 @@ export function startAdminServer(storage: Storage): void {
     if (triggerType === 1) {
       if (!triggerPhrase?.trim()) { res.status(400).json({ error: 'משפט הטריגר חסר' }); return; }
       phrase = triggerPhrase.trim();
-      suffix = storage.getAdminSettings().botSuffix;
+      suffix = campaignContactSuffix(contactNameSuffix, storage.getAdminSettings().botSuffix);
     } else {
       if (!basePhrase?.trim()) { res.status(400).json({ error: 'משפט הטריגר חסר' }); return; }
       if (!referrerName?.trim()) { res.status(400).json({ error: 'שם הממליץ חובה לטיפוס 2' }); return; }
@@ -3447,6 +3461,7 @@ export function startAdminServer(storage: Storage): void {
   app.post('/api/campaigns', requireWritableClient, async (req, res) => {
     const { name, triggerType, triggerPhrase, basePhrase, referrerName, startAt, endAt, conversation, twilio } =
       req.body as Partial<Campaign>;
+    const contactNameSuffix = req.body?.contactNameSuffix;
     const capabilities = getClientCapabilities(storage);
     const explicitNoEnd = req.body?.endAt === null;
     const resolvedEndAt = explicitNoEnd
@@ -3482,7 +3497,7 @@ export function startAdminServer(storage: Storage): void {
     if (triggerType === 1) {
       if (!triggerPhrase?.trim()) { res.status(400).json({ error: 'משפט הטריגר חסר' }); return; }
       phrase = triggerPhrase.trim();
-      suffix = storage.getAdminSettings().botSuffix;
+      suffix = campaignContactSuffix(contactNameSuffix, storage.getAdminSettings().botSuffix);
     } else {
       if (!basePhrase?.trim()) { res.status(400).json({ error: 'משפט הטריגר חסר' }); return; }
       if (!referrerName?.trim()) { res.status(400).json({ error: 'שם הממליץ חובה לטיפוס 2' }); return; }
@@ -3541,6 +3556,7 @@ export function startAdminServer(storage: Storage): void {
   app.put('/api/campaigns/:id', requireWritableClient, async (req, res) => {
     const { name, triggerType, triggerPhrase, basePhrase, referrerName, active, startAt, endAt, conversation, twilio } =
       req.body as Partial<Campaign>;
+    const contactNameSuffix = req.body?.contactNameSuffix;
     const existing = storage.getCampaigns().find((campaign) => campaign.id === String(req.params.id));
     if (!existing) {
       res.status(404).json({ error: 'קמפיין לא נמצא' });
@@ -3578,7 +3594,10 @@ export function startAdminServer(storage: Storage): void {
       patch.triggerType = 1;
       if (triggerPhrase?.trim()) {
         patch.triggerPhrase = triggerPhrase.trim();
-        patch.suffix = storage.getAdminSettings().botSuffix;
+        patch.suffix = campaignContactSuffix(
+          contactNameSuffix,
+          existing.triggerType === 1 ? existing.suffix : storage.getAdminSettings().botSuffix,
+        );
         patch.basePhrase = undefined;
         patch.referrerName = undefined;
       }

@@ -2017,7 +2017,12 @@ async function handleReferralMenuAction(transport: WhatsAppTransport, storage: S
   } else if (option.action === 'referral_leaderboard') {
     const rows = storage.getCampaignReferralLeaderboard(campaignId).filter((row) => row.invited > 0).slice(0, 5);
     const header = option.endText?.trim() || '\u05d4\u05de\u05d5\u05d1\u05d9\u05dc\u05d5\u05ea \u05db\u05e8\u05d2\u05e2:';
-    const lines = rows.map((row, index, all) => { const rank = all.findIndex((candidate) => candidate.invited === row.invited && candidate.saved === row.saved) + 1; return `${rank}. ${referralDisplayName(row.name)} - ${row.invited} \u05de\u05e6\u05d8\u05e8\u05e4\u05d5\u05ea`; });
+    const showCounts = option.referralLeaderboardDisplay !== 'names_only';
+    const lines = rows.map((row, index, all) => {
+      const rank = all.findIndex((candidate) => candidate.invited === row.invited && candidate.saved === row.saved) + 1;
+      const name = `${rank}. ${referralDisplayName(row.name)}`;
+      return showCounts ? `${name} - ${row.invited} \u05de\u05e6\u05d8\u05e8\u05e4\u05d5\u05ea` : name;
+    });
     message = rows.length ? `${header}\n\n${lines.join('\n')}` : '\u05e2\u05d3\u05d9\u05d9\u05df \u05d0\u05d9\u05df \u05e0\u05ea\u05d5\u05e0\u05d9 \u05e9\u05d9\u05ea\u05d5\u05e3 \u05d1\u05e7\u05de\u05e4\u05d9\u05d9\u05df.';
     storage.recordCampaignEvent({ campaignId, campaignResultId, phone: senderPhone, type: 'referral_leaderboard_viewed', label: String(rows.length) });
   } else {
