@@ -162,6 +162,8 @@ export interface DecisionFlowOption {
   referralLeaderboardDisplay?: 'names_only' | 'names_and_counts';
   /** Message shown when the referral leaderboard has no participants with shares yet. */
   referralLeaderboardEmptyText?: string;
+  /** Optional display-only starting rows, merged with live referral totals. */
+  referralLeaderboardSeeds?: Array<{ name: string; invited: number }>;
   score?: number;
 }
 

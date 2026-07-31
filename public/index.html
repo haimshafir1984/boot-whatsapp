@@ -3369,6 +3369,30 @@
       </div>
     `;
   }
+  function referralLeaderboardSeedRowHtml(seed = {}) {
+    const invited = Number.isFinite(Number(seed.invited)) ? Math.max(0, Math.round(Number(seed.invited))) : 3;
+    return `
+      <div class="followup-row" data-referral-leaderboard-seed>
+        <input data-referral-seed-name maxlength="80" value="${esc(seed.name || '')}" oninput="updateCampaignConversationPreview()" placeholder="שם" style="flex:1" />
+        <input data-referral-seed-count type="number" min="0" max="1000000" step="1" value="${invited}" oninput="updateCampaignConversationPreview()" title="כמות שיתופים התחלתית" style="width:120px" />
+        <button type="button" class="btn-small" onclick="removeReferralLeaderboardSeed(this)">מחק</button>
+      </div>
+    `;
+  }
+
+  function addReferralLeaderboardSeed(btn) {
+    const list = btn.closest('[data-referral-leaderboard-display-wrap]')?.querySelector('[data-referral-leaderboard-seeds]');
+    if (!list) return;
+    list.insertAdjacentHTML('beforeend', referralLeaderboardSeedRowHtml({ invited: 3 }));
+    list.querySelector('.followup-row:last-child [data-referral-seed-name]')?.focus();
+    updateCampaignConversationPreview();
+  }
+
+  function removeReferralLeaderboardSeed(btn) {
+    btn.closest('[data-referral-leaderboard-seed]')?.remove();
+    updateCampaignConversationPreview();
+  }
+
   function decisionOptionHtml(option = {}, index = 0) {
     const action = option.action || (option.fileId ? 'file' : 'next');
     return `
@@ -3421,6 +3445,11 @@
                 <option value="names_and_counts" ${option.referralLeaderboardDisplay !== 'names_only' ? 'selected' : ''}>שם + מספר שיתופים</option>
                 <option value="names_only" ${option.referralLeaderboardDisplay === 'names_only' ? 'selected' : ''}>שם בלבד</option>
               </select>
+              <div class="decision-option-label">שמות התחלתיים בטבלת המובילים</div>
+              <div data-referral-leaderboard-seeds>
+                ${(option.referralLeaderboardSeeds || []).map(seed => referralLeaderboardSeedRowHtml(seed)).join('')}
+              </div>
+              <button type="button" class="btn-small" onclick="addReferralLeaderboardSeed(this)">+ הוסף שם</button>
               <div class="decision-option-label">מה להציג כשאין עדיין שיתופים?</div>
               <textarea data-option-referral-leaderboard-empty-text rows="2" maxlength="1000" oninput="updateCampaignConversationPreview()" placeholder="עדיין אין נתוני שיתוף בקמפיין.">${esc(option.referralLeaderboardEmptyText || '')}</textarea>
             </div>
@@ -3963,6 +3992,13 @@
                     : 'names_and_counts';
                   const emptyText = option.querySelector('[data-option-referral-leaderboard-empty-text]')?.value.trim() || '';
                   if (emptyText) clean.referralLeaderboardEmptyText = emptyText;
+                  const seeds = [...option.querySelectorAll('[data-referral-leaderboard-seed]')]
+                    .map(row => ({
+                      name: row.querySelector('[data-referral-seed-name]')?.value.trim() || '',
+                      invited: Math.max(0, Math.round(Number(row.querySelector('[data-referral-seed-count]')?.value) || 0)),
+                    }))
+                    .filter(seed => seed.name);
+                  if (seeds.length) clean.referralLeaderboardSeeds = seeds;
                 }
                 const responseText = option.querySelector('[data-option-end-text]').value.trim();
                 if (responseText) clean.endText = responseText;

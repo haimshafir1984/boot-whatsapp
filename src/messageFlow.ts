@@ -2004,6 +2004,10 @@ function referralDisplayName(name: string): string {
   return parts.length < 2 ? (parts[0] || '\u05de\u05e9\u05ea\u05ea\u05e4\u05ea') : `${parts[0]} ${parts[1].slice(0, 1)}.`;
 }
 
+function normalizeReferralLeaderboardName(name: string): string {
+  return name.normalize('NFKC').trim().toLocaleLowerCase('he').replace(/\s+/g, ' ');
+}
+
 async function handleReferralMenuAction(transport: WhatsAppTransport, storage: Storage, senderJid: string, flow: DecisionFlowStep[], step: DecisionFlowStep, option: DecisionFlowOption, campaignId?: string, campaignResultId?: string, senderPhone?: string, humanHandoff: CampaignReplyBehavior = {}): Promise<void> {
   if (!campaignId || !campaignResultId) return;
   const campaign = storage.getCampaigns().find((item) => item.id === campaignId);
@@ -2015,7 +2019,22 @@ async function handleReferralMenuAction(transport: WhatsAppTransport, storage: S
     message = formatReferralShareMessage(option.endText?.trim() || '\u05d6\u05d4 \u05d4\u05dc\u05d9\u05e0\u05e7 \u05d4\u05d0\u05d9\u05e9\u05d9 \u05e9\u05dc\u05da:\n{referral_link}', link, code);
     storage.recordCampaignEvent({ campaignId, campaignResultId, phone: senderPhone, type: 'referral_link_sent', label: code });
   } else if (option.action === 'referral_leaderboard') {
-    const rows = storage.getCampaignReferralLeaderboard(campaignId).filter((row) => row.invited > 0).slice(0, 5);
+    const liveRows = storage.getCampaignReferralLeaderboard(campaignId).filter((row) => row.invited > 0);
+    const rowsByName = new Map(liveRows.map((row) => [normalizeReferralLeaderboardName(row.name), { ...row }]));
+    for (const seed of option.referralLeaderboardSeeds ?? []) {
+      const name = seed.name.trim();
+      const key = normalizeReferralLeaderboardName(name);
+      if (!key) continue;
+      const existing = rowsByName.get(key);
+      if (existing) {
+        existing.invited = Math.max(existing.invited, seed.invited);
+      } else {
+        rowsByName.set(key, { referralCode: '', name, phone: '', invited: seed.invited, saved: 0 });
+      }
+    }
+    const rows = [...rowsByName.values()]
+      .sort((a, b) => b.invited - a.invited || b.saved - a.saved || a.name.localeCompare(b.name, 'he'))
+      .slice(0, 5);
     const header = option.endText?.trim() || '\u05d4\u05de\u05d5\u05d1\u05d9\u05dc\u05d5\u05ea \u05db\u05e8\u05d2\u05e2:';
     const showCounts = option.referralLeaderboardDisplay !== 'names_only';
     const lines = rows.map((row, index, all) => {

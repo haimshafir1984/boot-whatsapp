@@ -913,6 +913,17 @@ function sanitizeDecisionFlow(
                 if (typeof rawOption.referralLeaderboardEmptyText === 'string' && rawOption.referralLeaderboardEmptyText.trim()) {
                   clean.referralLeaderboardEmptyText = rawOption.referralLeaderboardEmptyText.trim().slice(0, 1000);
                 }
+                if (Array.isArray(rawOption.referralLeaderboardSeeds)) {
+                  clean.referralLeaderboardSeeds = rawOption.referralLeaderboardSeeds
+                    .map((entry) => ({
+                      name: typeof entry?.name === 'string' ? entry.name.trim().slice(0, 80) : '',
+                      invited: Number.isFinite(Number(entry?.invited))
+                        ? Math.min(Math.max(Math.round(Number(entry.invited)), 0), 1_000_000)
+                        : 3,
+                    }))
+                    .filter((entry) => Boolean(entry.name))
+                    .slice(0, 20);
+                }
               }
             }
             if (typeof rawOption.score === 'number' && Number.isFinite(rawOption.score)) {
