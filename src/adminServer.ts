@@ -257,6 +257,28 @@ function safeUploadName(name: string): string {
   return `${base}${ext}`;
 }
 
+function downloadDateStamp(value?: string): string {
+  const parsed = value ? new Date(value) : new Date();
+  const date = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Jerusalem',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
+function safeDownloadBaseName(name: string): string {
+  return name
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-')
+    .replace(/\s+/g, ' ')
+    .replace(/[. ]+$/g, '')
+    .trim()
+    .slice(0, 120) || 'campaign';
+}
+
 function deleteUploadedFileFromDisk(filename: string): void {
   const safeName = path.basename(filename);
   if (!safeName || safeName !== filename) return;
@@ -3399,8 +3421,14 @@ export function startAdminServer(storage: Storage): void {
     styleDataSheet(eventsSheet, [24, 24, 28, 18, 26, 42, 22, 65], [6, 8]);
 
     const xlsx = await workbook.xlsx.writeBuffer();
+    const resultBatch = storage.getCampaignResultBatches(campaign.id).find((batch) => batch.id === resultBatchId);
+    const dateStamp = downloadDateStamp(resultBatch?.startedAt || campaign.currentResultBatchStartedAt);
+    const downloadName = `${safeDownloadBaseName(campaign.name)} - ${dateStamp}.xlsx`;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="campaign-${campaign.id}-detailed.xlsx"`);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="campaign-${dateStamp}.xlsx"; filename*=UTF-8''${encodeURIComponent(downloadName)}`,
+    );
     res.send(Buffer.from(xlsx));
   });
   app.post('/api/campaign-results/:id/reset', requireWritableClient, (req, res) => {
