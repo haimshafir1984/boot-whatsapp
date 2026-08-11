@@ -16,6 +16,8 @@ export interface TriggerResult {
 
 // Strip invisible Unicode direction/zero-width chars that WhatsApp sometimes injects
 export function extractReferralCode(messageBody: string): string {
+  const statusMatch = messageBody.match(/הגעתי\s+דרך\s+הסטטוס\s+של\s+([A-Z]{1,2}\d{4})\b/i);
+  if (statusMatch?.[1]) return statusMatch[1].toUpperCase();
   const tokenMatch = messageBody.match(/\bref\s*:\s*([A-Z0-9]{4,32})\b/i);
   if (tokenMatch?.[1]) return tokenMatch[1].toUpperCase();
   const legacyPhoneMatch = messageBody.match(/הגעתי דרך ([+\d][\d\s().-]{6,20})/);

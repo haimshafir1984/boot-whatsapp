@@ -294,6 +294,8 @@ export interface CampaignResult {
   phone: string;
   whatsappName?: string;
   referralCode?: string;
+  /** Previous codes remain valid after switching to the phone-suffix format. */
+  referralCodeAliases?: string[];
   referredByCode?: string;
   referredByResultId?: string;
   referredByName?: string;
@@ -1045,7 +1047,7 @@ export class Storage {
       resultBatchId,
       phone,
       whatsappName,
-      referralCode: this.generateUniqueReferralCode(campaignId),
+      referralCode: this.generateUniqueReferralCode(campaignId, phone),
       referredByCode: referrer?.referralCode,
       referredByResultId: referrer?.id,
       referredByName: referrer ? this.resultDisplayName(referrer) : undefined,
@@ -1105,17 +1107,31 @@ export class Storage {
     if (!resultId) return '';
     const result = this.data.campaignResults.find((item) => item.id === resultId);
     if (!result) return '';
-    if (!result.referralCode) {
-      result.referralCode = this.generateUniqueReferralCode(result.campaignId);
+    const currentCode = normalizeReferralCode(result.referralCode);
+    if (!/^[A-Z]{1,2}\d{4}$/.test(currentCode)) {
+      const nextCode = this.generateUniqueReferralCode(result.campaignId, result.phone);
+      if (currentCode) {
+        result.referralCodeAliases = [...new Set([...(result.referralCodeAliases || []), currentCode])];
+        for (const invitee of this.data.campaignResults) {
+          if (invitee.campaignId !== result.campaignId) continue;
+          if (invitee.referredByResultId === result.id || normalizeReferralCode(invitee.referredByCode) === currentCode) {
+            invitee.referredByCode = nextCode;
+          }
+        }
+      }
+      result.referralCode = nextCode;
       this.persist();
     }
-    return result.referralCode;
+    return result.referralCode || '';
   }
 
   findCampaignReferral(campaignId: string, code: string): CampaignResult | null {
     const cleanCode = normalizeReferralCode(code);
     if (!cleanCode) return null;
-    const result = this.data.campaignResults.find((item) => item.campaignId === campaignId && normalizeReferralCode(item.referralCode) === cleanCode);
+    const result = this.data.campaignResults.find((item) => item.campaignId === campaignId && (
+      normalizeReferralCode(item.referralCode) === cleanCode
+      || (item.referralCodeAliases || []).some((alias) => normalizeReferralCode(alias) === cleanCode)
+    ));
     return result ? { ...result } : null;
   }
 
@@ -1130,6 +1146,10 @@ export class Storage {
       if (!phoneKey || !code) continue;
       if (!referrerByPhone.has(phoneKey)) referrerByPhone.set(phoneKey, result);
       referrerPhoneByCode.set(code, phoneKey);
+      for (const alias of result.referralCodeAliases || []) {
+        const aliasCode = normalizeReferralCode(alias);
+        if (aliasCode) referrerPhoneByCode.set(aliasCode, phoneKey);
+      }
     }
     const invitedByReferrer = new Map<string, Map<string, CampaignResult>>();
     for (const result of results) {
@@ -1400,14 +1420,24 @@ export class Storage {
     return stats;
   }
 
-  private generateUniqueReferralCode(campaignId: string): string {
-    const alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      let code = '';
-      for (let i = 0; i < 6; i += 1) code += alphabet[Math.floor(Math.random() * alphabet.length)];
-      if (!this.data.campaignResults.some((result) => result.campaignId === campaignId && normalizeReferralCode(result.referralCode) === code)) return code;
+  private generateUniqueReferralCode(campaignId: string, phone: string): string {
+    const phoneDigits = normalizeCampaignPhone(phone);
+    const phoneSuffix = phoneDigits.length >= 4
+      ? phoneDigits.slice(-4)
+      : String(Math.floor(Math.random() * 10_000)).padStart(4, '0');
+    const usedCodes = new Set(this.data.campaignResults
+      .filter((result) => result.campaignId === campaignId)
+      .flatMap((result) => [result.referralCode, ...(result.referralCodeAliases || [])])
+      .map((code) => normalizeReferralCode(code))
+      .filter(Boolean));
+
+    // A4821 is the first owner of the suffix, B4821 the second, then C4821, etc.
+    for (let index = 0; index < 26 * 26; index += 1) {
+      const code = referralLetter(index) + phoneSuffix;
+      if (!usedCodes.has(code)) return code;
     }
-    return `${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+
+    return `${Date.now().toString(36).toUpperCase()}${phoneSuffix}`;
   }
 
   private resultDisplayName(result: CampaignResult): string {
@@ -1666,6 +1696,16 @@ export class Storage {
 
 function normalizeCampaignPhone(value: string | undefined): string {
   return String(value || '').replace(/^whatsapp:/i, '').split('@')[0].replace(/\D/g, '');
+}
+
+function referralLetter(index: number): string {
+  let value = index;
+  let letters = '';
+  do {
+    letters = String.fromCharCode(65 + (value % 26)) + letters;
+    value = Math.floor(value / 26) - 1;
+  } while (value >= 0);
+  return letters;
 }
 
 function normalizeReferralCode(code: string | undefined): string {
