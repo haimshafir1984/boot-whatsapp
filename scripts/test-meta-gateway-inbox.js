@@ -28,6 +28,14 @@ try {
   afterRestart.markCompleted('wamid.1');
   assert.equal(afterRestart.counts().completed, 1);
   assert.equal(afterRestart.claimNext(), null);
+
+  const prunePath = path.join(directory, 'prune.json');
+  const pruneInbox = new MetaGatewayInbox(prunePath);
+  pruneInbox.enqueue('old-completed', {}, new Date('2026-01-01T00:00:00.000Z'));
+  pruneInbox.claimNext(new Date('2026-01-01T00:00:00.000Z'));
+  pruneInbox.markCompleted('old-completed', new Date('2026-01-01T00:00:01.000Z'));
+  pruneInbox.enqueue('new-message', {}, new Date('2026-01-03T00:00:00.000Z'));
+  assert.equal(pruneInbox.counts().completed, 0, 'old completed inbox entries should be pruned');
   console.log('Meta gateway inbox tests passed.');
 } finally {
   fs.rmSync(directory, { recursive: true, force: true });

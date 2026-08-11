@@ -1,4 +1,4 @@
-import { saveContactToGoogle } from './googleContacts';
+import { isGoogleConnected, saveContactToGoogle } from './googleContacts';
 import { Storage, ContactSaveJob } from './storage';
 
 const MAX_ATTEMPTS = 3;
@@ -59,7 +59,7 @@ export function startContactSaveQueue(storage: Storage): void {
   void (async () => {
     console.log('   Contact queue worker started.');
     while (true) {
-      const job = storage.getDueContactSaveJob();
+      const job = storage.getDueContactSaveJob(new Date(), { includeGoogle: isGoogleConnected() });
       if (!job) {
         await sleep(IDLE_DELAY_MS);
         continue;

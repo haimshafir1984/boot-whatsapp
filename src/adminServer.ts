@@ -46,6 +46,7 @@ import {
 } from './metaCampaignRouting';
 import {
   AsyncExpiringCache,
+  groupMetaItemsBySender,
   META_CAMPAIGN_CACHE_TTL_MS,
   retryTransientMetaOperation,
 } from './metaGatewayReliability';
@@ -1115,6 +1116,7 @@ export function startAdminServer(storage: Storage): void {
   );
   const metaCampaignCache = new AsyncExpiringCache<Campaign[]>(META_CAMPAIGN_CACHE_TTL_MS);
   const metaGatewayInbox = new MetaGatewayInbox(path.join(path.dirname(config.OWNER_STORAGE_PATH), 'meta-gateway-inbox.json'));
+  const metaClientInbox = new MetaGatewayInbox(path.join(path.dirname(config.STORAGE_PATH), 'meta-client-inbox.json'));
 
   app.set('trust proxy', 1);
   app.use(express.json({ limit: '24mb' }));
@@ -1540,23 +1542,32 @@ export function startAdminServer(storage: Storage): void {
     if (metaGatewayInboxRunning) return;
     metaGatewayInboxRunning = true;
     try {
-      for (let processed = 0; processed < 20; processed += 1) {
-        const item = metaGatewayInbox.claimNext();
-        if (!item) break;
-        try {
-          const gateway = await routeMetaGatewayInbound(item.payload);
-          if (!gateway.handled) await handleMetaInboundForStorage(item.payload);
-          metaGatewayInbox.markCompleted(item.id);
-        } catch (err) {
-          if (item.attempts >= 10) {
-            metaGatewayInbox.markFailed(item.id, err);
-            console.error('[META_GATEWAY_INBOX_FAILED]', item.id, err);
-          } else {
-            const retryDelayMs = Math.min(15_000 * (2 ** Math.max(0, item.attempts - 1)), 5 * 60_000);
-            metaGatewayInbox.markRetry(item.id, err, new Date(Date.now() + retryDelayMs));
-            console.warn('[META_GATEWAY_INBOX_RETRY]', item.id, `attempt=${item.attempts}`, err);
-          }
+      while (true) {
+        const batch = [];
+        for (let processed = 0; processed < 20; processed += 1) {
+          const item = metaGatewayInbox.claimNext();
+          if (!item) break;
+          batch.push(item);
         }
+        if (!batch.length) break;
+        await Promise.all(groupMetaItemsBySender(batch).map(async (items) => {
+          for (const item of items) {
+            try {
+              const gateway = await routeMetaGatewayInbound(item.payload);
+              if (!gateway.handled) await handleMetaInboundForStorage(item.payload);
+              metaGatewayInbox.markCompleted(item.id);
+            } catch (err) {
+              if (item.attempts >= 10) {
+                metaGatewayInbox.markFailed(item.id, err);
+                console.error('[META_GATEWAY_INBOX_FAILED]', item.id, err);
+              } else {
+                const retryDelayMs = Math.min(15_000 * (2 ** Math.max(0, item.attempts - 1)), 5 * 60_000);
+                metaGatewayInbox.markRetry(item.id, err, new Date(Date.now() + retryDelayMs));
+                console.warn('[META_GATEWAY_INBOX_RETRY]', item.id, `attempt=${item.attempts}`, err);
+              }
+            }
+          }
+        }));
       }
     } finally {
       metaGatewayInboxRunning = false;
@@ -1564,6 +1575,44 @@ export function startAdminServer(storage: Storage): void {
   };
   setInterval(() => { void processMetaGatewayInbox(); }, 15_000);
   void processMetaGatewayInbox();
+
+  let metaClientInboxRunning = false;
+  const processMetaClientInbox = async (): Promise<void> => {
+    if (metaClientInboxRunning) return;
+    metaClientInboxRunning = true;
+    try {
+      while (true) {
+        const batch = [];
+        for (let processed = 0; processed < 20; processed += 1) {
+          const item = metaClientInbox.claimNext();
+          if (!item) break;
+          batch.push(item);
+        }
+        if (!batch.length) break;
+        await Promise.all(groupMetaItemsBySender(batch).map(async (items) => {
+          for (const item of items) {
+            try {
+              await handleMetaInboundForStorage(item.payload);
+              metaClientInbox.markCompleted(item.id);
+            } catch (err) {
+              if (item.attempts >= 10) {
+                metaClientInbox.markFailed(item.id, err);
+                console.error('[META_CLIENT_INBOX_FAILED]', item.id, err);
+              } else {
+                const retryDelayMs = Math.min(5_000 * (2 ** Math.max(0, item.attempts - 1)), 5 * 60_000);
+                metaClientInbox.markRetry(item.id, err, new Date(Date.now() + retryDelayMs));
+                console.warn('[META_CLIENT_INBOX_RETRY]', item.id, `attempt=${item.attempts}`, err);
+              }
+            }
+          }
+        }));
+      }
+    } finally {
+      metaClientInboxRunning = false;
+    }
+  };
+  setInterval(() => { void processMetaClientInbox(); }, 2_000);
+  void processMetaClientInbox();
 
   // Broadcast a delivery-status webhook to every managed Meta client; each ignores wamids it
   // does not own. Fire-and-forget: statuses are high-volume and self-superseding, so a missed
@@ -2334,12 +2383,23 @@ export function startAdminServer(storage: Storage): void {
       res.status(409).json({ error: 'Meta Cloud API provider is not enabled for this client' });
       return;
     }
-    try {
-      await handleMetaInboundForStorage(req.body);
+    if (isMetaStatusPayload(req.body)) {
+      handleMetaStatusesForStorage(req.body);
       res.json({ ok: true });
+      return;
+    }
+    const messageId = String(req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.id || '').trim();
+    if (!messageId) {
+      res.json({ ok: true, ignored: true });
+      return;
+    }
+    try {
+      metaClientInbox.enqueue(messageId, req.body);
+      res.status(202).json({ ok: true, queued: true });
+      void processMetaClientInbox();
     } catch (err) {
-      console.error('Internal Meta dispatch failed:', err);
-      res.status(503).json({ error: 'Meta message processing failed' });
+      console.error('[META_CLIENT_INBOX_PERSIST_FAILED]', messageId, err);
+      res.status(503).json({ error: 'Meta message could not be queued' });
     }
   });
 

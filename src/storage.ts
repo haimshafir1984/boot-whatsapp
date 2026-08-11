@@ -874,10 +874,11 @@ export class Storage {
     return { ...job };
   }
 
-  getDueContactSaveJob(now = new Date()): ContactSaveJob | null {
+  getDueContactSaveJob(now = new Date(), options: { includeGoogle?: boolean } = {}): ContactSaveJob | null {
     const due = this.data.contactQueue
       .filter((job) => {
         if (job.status !== 'pending') return false;
+        if (job.provider === 'google' && options.includeGoogle === false) return false;
         if (!job.nextAttemptAt) return true;
         return new Date(job.nextAttemptAt).getTime() <= now.getTime();
       })

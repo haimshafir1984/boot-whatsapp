@@ -4,6 +4,11 @@ import { config } from '../config';
 import { IncomingWhatsAppMessage, InteractiveListItem, WhatsAppProvider, WhatsAppSendResult } from '../types/whatsapp';
 
 type MetaMessage = Record<string, unknown>;
+type CachedMetaMedia = { id: string; expiresAt: number };
+
+const META_MEDIA_CACHE_MS = 29 * 24 * 60 * 60 * 1000;
+const metaMediaCache = new Map<string, CachedMetaMedia>();
+const metaMediaUploads = new Map<string, Promise<string>>();
 
 export class MetaCloudProvider implements WhatsAppProvider {
   async initialize(): Promise<void> { this.assertConfigured(); }
@@ -25,16 +30,28 @@ export class MetaCloudProvider implements WhatsAppProvider {
     this.assertConfigured();
     const fileName = path.basename(filePath);
     const mimeType = mimeTypeForFile(fileName);
-    const mediaId = await this.uploadMedia(filePath, mimeType, fileName);
     const recipient = normalizePhone(to);
-    if (options.asSticker && mimeType === 'image/webp') {
-      return await this.postMessages({ messaging_product: 'whatsapp', to: recipient, type: 'sticker', sticker: { id: mediaId } });
-    }
     const type = mimeType.startsWith('image/') ? 'image' : mimeType.startsWith('video/') ? 'video' : mimeType.startsWith('audio/') ? 'audio' : 'document';
-    const media: Record<string, string> = { id: mediaId };
-    if (caption && (type === 'image' || type === 'video' || type === 'document')) media.caption = caption;
-    if (type === 'document') media.filename = fileName;
-    return await this.postMessages({ messaging_product: 'whatsapp', to: recipient, type, [type]: media });
+    const cacheKey = metaMediaCacheKey(filePath);
+    const cached = getCachedMetaMedia(cacheKey);
+    let mediaId = cached?.id || await this.uploadAndCacheMedia(cacheKey, filePath, mimeType, fileName);
+    const send = async (): Promise<WhatsAppSendResult> => {
+      if (options.asSticker && mimeType === 'image/webp') {
+        return await this.postMessages({ messaging_product: 'whatsapp', to: recipient, type: 'sticker', sticker: { id: mediaId } });
+      }
+      const media: Record<string, string> = { id: mediaId };
+      if (caption && (type === 'image' || type === 'video' || type === 'document')) media.caption = caption;
+      if (type === 'document') media.filename = fileName;
+      return await this.postMessages({ messaging_product: 'whatsapp', to: recipient, type, [type]: media });
+    };
+    try {
+      return await send();
+    } catch (err) {
+      if (!cached) throw err;
+      metaMediaCache.delete(cacheKey);
+      mediaId = await this.uploadAndCacheMedia(cacheKey, filePath, mimeType, fileName);
+      return await send();
+    }
   }
 
   async sendContactCard(to: string, vcard: string, displayName: string): Promise<WhatsAppSendResult> {
@@ -103,6 +120,20 @@ export class MetaCloudProvider implements WhatsAppProvider {
     return body.id;
   }
 
+  private async uploadAndCacheMedia(cacheKey: string, filePath: string, mimeType: string, fileName: string): Promise<string> {
+    const pending = metaMediaUploads.get(cacheKey);
+    if (pending) return await pending;
+    const upload = this.uploadMedia(filePath, mimeType, fileName).then((id) => {
+      if (metaMediaCache.size >= 500) metaMediaCache.delete(metaMediaCache.keys().next().value as string);
+      metaMediaCache.set(cacheKey, { id, expiresAt: Date.now() + META_MEDIA_CACHE_MS });
+      return id;
+    }).finally(() => {
+      metaMediaUploads.delete(cacheKey);
+    });
+    metaMediaUploads.set(cacheKey, upload);
+    return await upload;
+  }
+
   private async postMessages(payload: MetaMessage): Promise<WhatsAppSendResult> {
     this.assertConfigured();
     const response = await fetch(this.graphUrl('messages'), {
@@ -115,6 +146,21 @@ export class MetaCloudProvider implements WhatsAppProvider {
     const messageId = Array.isArray((body as any).messages) ? (body as any).messages[0]?.id : undefined;
     return typeof messageId === 'string' ? { messageId } : {};
   }
+}
+
+function metaMediaCacheKey(filePath: string): string {
+  const stat = fs.statSync(filePath);
+  return `${config.META_PHONE_NUMBER_ID}:${path.resolve(filePath)}:${stat.size}:${stat.mtimeMs}`;
+}
+
+function getCachedMetaMedia(key: string): CachedMetaMedia | undefined {
+  const cached = metaMediaCache.get(key);
+  if (!cached) return undefined;
+  if (cached.expiresAt <= Date.now()) {
+    metaMediaCache.delete(key);
+    return undefined;
+  }
+  return cached;
 }
 
 function normalizePhone(value: string): string {

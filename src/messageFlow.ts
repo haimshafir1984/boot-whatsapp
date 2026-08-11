@@ -1,4 +1,5 @@
 import { config } from './config';
+import { AsyncLocalStorage } from 'async_hooks';
 import fs from 'fs';
 import path from 'path';
 import { conversationState, PersistablePendingConversation } from './conversationState';
@@ -31,6 +32,11 @@ const FLOW_RECOVERY_SETTLE_MS = 0;
 const recentDecisionReplies = new Map<string, number>();
 const flowRecoveriesInProgress = new Set<string>();
 const senderWorkQueues = new Map<string, Promise<void>>();
+const senderInboundVersions = new Map<string, number>();
+const pendingSenderInbounds = new Map<string, number>();
+const timeoutContinuationScope = new AsyncLocalStorage<{ senderKey: string; inboundVersion: number }>();
+
+class TimeoutContinuationCancelledError extends Error {}
 
 interface TimedOutDecisionContext {
   senderJid: string;
@@ -91,6 +97,31 @@ function senderWorkKey(value: string | undefined): string {
   return digits || raw || 'unknown';
 }
 
+function noteInboundQueued(sender: string | undefined): string {
+  const key = senderWorkKey(sender);
+  senderInboundVersions.set(key, (senderInboundVersions.get(key) ?? 0) + 1);
+  pendingSenderInbounds.set(key, (pendingSenderInbounds.get(key) ?? 0) + 1);
+  if (senderInboundVersions.size > 5_000) {
+    const oldest = senderInboundVersions.keys().next().value;
+    if (oldest && !pendingSenderInbounds.has(oldest)) senderInboundVersions.delete(oldest);
+  }
+  return key;
+}
+
+function noteInboundCompleted(key: string): void {
+  const remaining = Math.max(0, (pendingSenderInbounds.get(key) ?? 1) - 1);
+  if (remaining) pendingSenderInbounds.set(key, remaining);
+  else pendingSenderInbounds.delete(key);
+}
+
+function assertTimeoutContinuationActive(): void {
+  const context = timeoutContinuationScope.getStore();
+  if (!context) return;
+  if ((senderInboundVersions.get(context.senderKey) ?? 0) !== context.inboundVersion) {
+    throw new TimeoutContinuationCancelledError('A newer inbound message superseded the timeout continuation.');
+  }
+}
+
 async function runSerializedForSender<T>(sender: string | undefined, label: string, action: () => Promise<T>): Promise<T> {
   const key = senderWorkKey(sender);
   const previous = senderWorkQueues.get(key) ?? Promise.resolve();
@@ -134,6 +165,12 @@ function scheduleSerializedPendingTimeout(
 ): NodeJS.Timeout {
   return setTimeout(() => {
     void runSerializedForSender(senderPhone || senderJid, `timeout:${label}`, async () => {
+      const senderKey = senderWorkKey(senderPhone || senderJid);
+      if ((pendingSenderInbounds.get(senderKey) ?? 0) > 0) {
+        flowHealth.staleTimeoutsIgnored += 1;
+        console.warn(`[STALE_TIMEOUT_IGNORED] sender=${senderKey} reason=inbound_pending`);
+        return;
+      }
       const current = conversationState.get(senderJid);
       const sameState = Boolean(current &&
         current.kind === expected.kind &&
@@ -144,7 +181,17 @@ function scheduleSerializedPendingTimeout(
         console.warn(`[STALE_TIMEOUT_IGNORED] sender=${senderWorkKey(senderPhone || senderJid)} kind=${expected.kind} step=${expected.stepId ?? ''}`);
         return;
       }
-      await action();
+      const inboundVersion = senderInboundVersions.get(senderKey) ?? 0;
+      try {
+        await timeoutContinuationScope.run({ senderKey, inboundVersion }, action);
+      } catch (err) {
+        if (err instanceof TimeoutContinuationCancelledError) {
+          flowHealth.staleTimeoutsIgnored += 1;
+          console.warn(`[TIMEOUT_CONTINUATION_CANCELLED] sender=${senderKey} reason=new_inbound`);
+          return;
+        }
+        throw err;
+      }
     }).catch((err) => logTimerError(label, err));
   }, delayMs);
 }
@@ -407,7 +454,9 @@ function decisionStepTimeoutMs(step: DecisionFlowStep | undefined, fallbackMinut
 }
 
 async function waitBeforeBotReply(delayMs = BOT_REPLY_DELAY_MS): Promise<void> {
+  assertTimeoutContinuationActive();
   if (delayMs > 0) await sleep(delayMs);
+  assertTimeoutContinuationActive();
 }
 
 async function sendTrackedOutboxMessage(
@@ -500,14 +549,19 @@ export async function handleIncomingWhatsAppMessage(
   if (!rememberMessage(message)) return;
 
   flowHealth.inboundQueued += 1;
-  await withDurableMessaging(storage, () => runSerializedForSender(message.senderPhone || message.from, `inbound:${source}`, async () => {
-    await markIncomingMessageReadIfEnabled(message, storage, transport, source);
-    try {
-      await handleMessage(message, storage, transport, source);
-    } catch (err) {
-      console.error(`[MSG] handler failed via ${source}:`, err);
-    }
-  }));
+  const inboundKey = noteInboundQueued(message.senderPhone || message.from);
+  try {
+    await withDurableMessaging(storage, () => runSerializedForSender(message.senderPhone || message.from, `inbound:${source}`, async () => {
+      await markIncomingMessageReadIfEnabled(message, storage, transport, source);
+      try {
+        await handleMessage(message, storage, transport, source);
+      } catch (err) {
+        console.error(`[MSG] handler failed via ${source}:`, err);
+      }
+    }));
+  } finally {
+    noteInboundCompleted(inboundKey);
+  }
 }
 
 async function markIncomingMessageReadIfEnabled(
@@ -2295,6 +2349,7 @@ async function sendDecisionStep(
       const settings = campaign ? storage.getCampaignConversationSettings(campaign) : storage.getAdminSettings();
       await sendCompletionContactCards(transport, storage, senderJid, contactCardsFromSettings(settings), campaignId, campaignResultId, senderPhone, settings.contactCardSendMode);
     } catch (err) {
+      if (err instanceof TimeoutContinuationCancelledError) throw err;
       failed = true;
       console.error('   Contact-card step failed, continuing to next step after delay:', err);
       if (campaignId) {
@@ -2362,6 +2417,7 @@ async function sendDecisionStep(
         }
       }
     } catch (err) {
+      if (err instanceof TimeoutContinuationCancelledError) throw err;
       failed = true;
       console.error('   Decision message failed, continuing to next step after delay:', err);
       if (campaignId) {
@@ -2414,6 +2470,7 @@ async function sendDecisionStep(
       }, () => transport.sendInteractiveList!(senderJid, step.text.trim(), 'בחר/י תשובה', items));
       sentInteractive = true;
     } catch (err) {
+      if (err instanceof TimeoutContinuationCancelledError) throw err;
       console.warn('   Interactive decision list failed, falling back to text:', err);
     }
   }
@@ -2440,6 +2497,7 @@ async function sendDecisionStep(
       }, () => transport.sendInteractiveButtons!(senderJid, buttonBodyText, buttons));
       sentInteractive = true;
     } catch (err) {
+      if (err instanceof TimeoutContinuationCancelledError) throw err;
       console.warn('   Interactive decision question failed, falling back to text:', err);
     }
   }

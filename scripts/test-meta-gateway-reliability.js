@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const {
   AsyncExpiringCache,
+  groupMetaItemsBySender,
   isRetryableMetaStatus,
   retryTransientMetaOperation,
 } = require('../dist/metaGatewayReliability');
@@ -70,6 +71,14 @@ async function main() {
   }, { delaysMs: [0, 0] });
   assert.equal(permanent.status, 409);
   assert.equal(permanentAttempts, 1, 'permanent failures should not be retried');
+
+  const payload = (from, id) => ({ entry: [{ changes: [{ value: { metadata: { phone_number_id: 'phone-1' }, messages: [{ from, id }] } }] }] });
+  const grouped = groupMetaItemsBySender([
+    { id: 'a1', payload: payload('111', 'a1') },
+    { id: 'b1', payload: payload('222', 'b1') },
+    { id: 'a2', payload: payload('111', 'a2') },
+  ]);
+  assert.deepEqual(grouped.map((group) => group.map((item) => item.id)), [['a1', 'a2'], ['b1']], 'gateway batches must preserve order per sender while separating different senders');
 
   console.log('Meta gateway reliability tests passed.');
 }

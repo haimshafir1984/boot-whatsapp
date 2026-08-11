@@ -2,6 +2,24 @@ export const META_CAMPAIGN_CACHE_TTL_MS = 5_000;
 export const META_FORWARD_ATTEMPTS = 3;
 export const META_FORWARD_RETRY_DELAYS_MS = [500, 1_500];
 
+export function metaPayloadSenderKey(payload: any): string {
+  const value = payload?.entry?.[0]?.changes?.[0]?.value;
+  const from = String(value?.messages?.[0]?.from || '').trim();
+  const destination = String(value?.metadata?.phone_number_id || value?.metadata?.display_phone_number || '').trim();
+  return `${destination}:${from}` || 'unknown';
+}
+
+export function groupMetaItemsBySender<T extends { payload: unknown }>(items: T[]): T[][] {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const key = metaPayloadSenderKey(item.payload);
+    const group = groups.get(key) || [];
+    group.push(item);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
+}
+
 interface CacheEntry<T> {
   value?: T;
   expiresAt?: number;

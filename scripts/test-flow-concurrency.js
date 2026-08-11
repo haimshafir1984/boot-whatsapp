@@ -192,6 +192,28 @@ function inbound(storage, transport, phone, body, isButtonReply = false) {
     assert.strictEqual(storage.getCampaignResults(raceCampaign.id).length, 1, 'timeout race must keep one participant result');
     transport.delayMs = 35;
 
+    addCampaign(storage, 'Timeout continuation cancellation', 'join-timeout-cancel', {
+      decisionFlow: [
+        {
+          id: 'cancel-timeout-step',
+          kind: 'question',
+          presentation: 'buttons',
+          text: 'Cancellation question',
+          timeoutMinutes: 0.001,
+          timeoutMode: 'continue',
+          timeoutNextStepId: 'delayed-timeout-message',
+          options: [{ id: 'cancel-option', text: 'Answer' }],
+        },
+        { id: 'delayed-timeout-message', kind: 'message', text: 'should-not-send-after-new-inbound', delayMs: 180 },
+      ],
+    });
+    const cancelPhone = '972500000107';
+    usedPhones.add(cancelPhone);
+    await inbound(storage, transport, cancelPhone, 'join-timeout-cancel');
+    await wait(100);
+    await inbound(storage, transport, cancelPhone, 'join-timeout-cancel');
+    assert.ok(!transport.sent.some((item) => item.to === `whatsapp:${cancelPhone}` && item.text === 'should-not-send-after-new-inbound'), 'new inbound must cancel a delayed timeout continuation before it sends');
+
     const parallelCampaign = addCampaign(storage, 'Parallel users campaign', 'join-parallel');
     const phoneA = '972500000104';
     const phoneB = '972500000105';

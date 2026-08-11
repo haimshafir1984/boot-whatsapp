@@ -22,6 +22,8 @@ interface MetaGatewayInboxFile {
 
 export class MetaGatewayInbox {
   private data: MetaGatewayInboxFile;
+  private static readonly COMPLETED_RETENTION_MS = 24 * 60 * 60 * 1000;
+  private static readonly MAX_COMPLETED_ITEMS = 5_000;
 
   constructor(private readonly filePath: string, private readonly processingStaleMs = 2 * 60 * 1000) {
     this.data = this.load();
@@ -30,6 +32,7 @@ export class MetaGatewayInbox {
   enqueue(id: string, payload: unknown, now = new Date()): MetaGatewayInboxItem {
     const existing = this.data.items.find((item) => item.id === id);
     if (existing) return { ...existing };
+    this.pruneCompleted(now);
     const timestamp = now.toISOString();
     const item: MetaGatewayInboxItem = { id, payload, status: 'queued', attempts: 0, createdAt: timestamp, updatedAt: timestamp };
     this.data.items.push(item);
@@ -82,6 +85,16 @@ export class MetaGatewayInbox {
     if (!item) return;
     Object.assign(item, patch);
     this.persist();
+  }
+
+  private pruneCompleted(now: Date): void {
+    const cutoff = now.getTime() - MetaGatewayInbox.COMPLETED_RETENTION_MS;
+    const active = this.data.items.filter((item) => item.status !== 'completed');
+    const completed = this.data.items
+      .filter((item) => item.status === 'completed' && Date.parse(item.updatedAt) >= cutoff)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .slice(0, MetaGatewayInbox.MAX_COMPLETED_ITEMS);
+    this.data.items = [...active, ...completed];
   }
 
   private load(): MetaGatewayInboxFile {
