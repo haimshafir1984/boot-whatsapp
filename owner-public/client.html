@@ -29,6 +29,9 @@
     .line:last-child { border-bottom: 0; }
     .label { color: #6b7280; }
     .value { font-weight: 600; text-align: left; direction: ltr; }
+    .limit-editor { display: flex; align-items: center; justify-content: flex-end; gap: 7px; flex-wrap: wrap; }
+    .limit-editor input { width: 78px; border: 1px solid #d1d5db; border-radius: 7px; padding: 7px 8px; font: inherit; text-align: center; }
+    .limit-state { width: 100%; min-height: 16px; color: #6b7280; font-size: .72rem; text-align: left; }
     .code { font-family: Consolas, monospace; }
     .copy { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; padding: 5px 8px; cursor: pointer; margin-right: 8px; }
     .url { color: #1d4ed8; font-size: .8rem; text-decoration: none; word-break: break-all; }
@@ -183,7 +186,14 @@
           <h2>פרטי יחידה</h2>
           <div class="line"><span class="label">נוצרה</span><span class="value" id="createdAt"></span></div>
           <div class="line"><span class="label">מסלול</span><span class="value"><span class="plan-pill" id="planLabel">-</span></span></div>
-          <div class="line"><span class="label">מגבלת קמפיינים</span><span class="value" id="maxCampaigns">-</span></div>
+          <div class="line">
+            <span class="label">מגבלת קמפיינים</span>
+            <span class="limit-editor">
+              <input id="clientMaxCampaignsEdit" type="number" min="1" max="50" step="1" inputmode="numeric" aria-label="מגבלת קמפיינים" />
+              <button class="mini" type="button" onclick="saveCampaignLimit()">שמור</button>
+              <span class="limit-state" id="campaignLimitSaveState"></span>
+            </span>
+          </div>
           <div class="line"><span class="label">תוקף פעילות</span><span class="value" id="serviceExpiresAt">-</span></div>
           <div class="line"><span class="label">חיבור WhatsApp</span><span class="value" id="whatsappProvider">-</span></div>
           <div class="line" id="twilioFromLine" style="display:none"><span class="label">מספר Twilio</span><span class="value code" id="twilioFromValue">-</span></div>
@@ -789,7 +799,7 @@
       document.getElementById('status').className = `badge ${currentClient.provisioningStatus}`;
       document.getElementById('createdAt').textContent = new Date(currentClient.createdAt).toLocaleString('he-IL');
       document.getElementById('planLabel').textContent = planLabel(currentClient.plan);
-      document.getElementById('maxCampaigns').textContent = currentClient.maxCampaigns ?? '-';
+      document.getElementById('clientMaxCampaignsEdit').value = currentClient.maxCampaigns ?? 7;
       document.getElementById('serviceExpiresAt').textContent = formatDate(currentClient.serviceExpiresAt);
       document.getElementById('whatsappProvider').textContent =
         currentClient.whatsappProvider === 'TWILIO_API' ? 'Twilio' :
@@ -881,6 +891,35 @@
       }
       state.textContent = 'נשמר. הפריסה עודכנה.';
       loadClient();
+    }
+
+    async function saveCampaignLimit() {
+      if (!currentClient) return;
+      const input = document.getElementById('clientMaxCampaignsEdit');
+      const state = document.getElementById('campaignLimitSaveState');
+      const error = document.getElementById('error');
+      const maxCampaigns = Number(input.value);
+      if (!Number.isInteger(maxCampaigns) || maxCampaigns < 1 || maxCampaigns > 50) {
+        state.textContent = '';
+        error.textContent = 'יש להזין מספר שלם בין 1 ל-50.';
+        return;
+      }
+      state.textContent = 'שומר...';
+      error.textContent = '';
+      const response = await fetch(`/owner/api/clients/${encodeURIComponent(currentClient.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ maxCampaigns }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        state.textContent = '';
+        error.textContent = body.error || 'שמירת מגבלת הקמפיינים נכשלה.';
+        return;
+      }
+      currentClient = body;
+      input.value = currentClient.maxCampaigns;
+      state.textContent = 'נשמר ועודכן מיד.';
     }
 
     async function migrateToMeta() {

@@ -168,6 +168,8 @@ export interface DecisionFlowOption {
 }
 
 export interface AdminSettings {
+  /** Runtime override managed by the owner dashboard. Falls back to CLIENT_MAX_CAMPAIGNS. */
+  maxCampaignsOverride?: number;
   askNameEnabled: boolean;
   nameTimeoutMinutes: number;
   contactsProvider: 'google' | 'manual';

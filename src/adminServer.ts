@@ -336,6 +336,11 @@ function normalizeBotReplyDelayMs(value: unknown): number | null | undefined {
   return Math.round(delay);
 }
 
+function normalizeCampaignLimit(value: unknown): number | null {
+  const limit = Number(String(value ?? '').trim());
+  return Number.isInteger(limit) && limit >= 1 && limit <= 50 ? limit : null;
+}
+
 function campaignContactSuffix(value: unknown, fallback: string): string {
   if (value === undefined) return fallback;
   const raw = typeof value === 'string' ? value.trim().slice(0, 80) : '';
@@ -512,10 +517,12 @@ function getClientCapabilities(storage: Storage) {
   const expiresTime = expiresAt ? new Date(expiresAt).getTime() : Number.POSITIVE_INFINITY;
   const serviceExpired = Number.isFinite(expiresTime) && Date.now() > expiresTime;
   const campaignCount = storage.getCampaigns().length;
+  const storedCampaignLimit = storage.getAdminSettings().maxCampaignsOverride;
+  const maxCampaigns = normalizeCampaignLimit(storedCampaignLimit) ?? config.CLIENT_MAX_CAMPAIGNS;
   return {
     plan: config.CLIENT_PLAN,
     readonlyDashboard: config.CLIENT_READONLY_DASHBOARD,
-    maxCampaigns: config.CLIENT_MAX_CAMPAIGNS,
+    maxCampaigns,
     serviceExpiresAt: expiresAt,
     serviceExpired,
     whatsappProvider: config.WHATSAPP_PROVIDER,
@@ -2018,13 +2025,21 @@ export function startAdminServer(storage: Storage): void {
     }
   });
 
-  app.patch('/owner/api/clients/:id', (req, res) => {
+  app.patch('/owner/api/clients/:id', async (req, res) => {
     const client = ownerStorage.getClient(req.params.id);
     if (!client) {
       res.status(404).json({ error: 'לקוחה לא נמצאה' });
       return;
     }
     const patch: Partial<ManagedClient> = {};
+    if ('maxCampaigns' in req.body) {
+      const maxCampaigns = normalizeCampaignLimit(req.body?.maxCampaigns);
+      if (maxCampaigns === null) {
+        res.status(400).json({ error: 'מגבלת הקמפיינים חייבת להיות מספר שלם בין 1 ל-50.' });
+        return;
+      }
+      patch.maxCampaigns = maxCampaigns;
+    }
     if ('twilioFrom' in req.body) {
       const twilioFrom = normalizeTwilioFrom(req.body?.twilioFrom);
       if (twilioFrom === null) {
@@ -2040,6 +2055,25 @@ export function startAdminServer(storage: Storage): void {
         return;
       }
       patch.botReplyDelayMs = botReplyDelayMs;
+    }
+    if (patch.maxCampaigns !== undefined && client.managementUrl && client.provisioningStatus !== 'disabled') {
+      try {
+        const synced = await fetchClientAsOwner(client, '/owner-api/settings/campaign-limit', {
+          method: 'PATCH',
+          body: JSON.stringify({ maxCampaigns: patch.maxCampaigns }),
+        });
+        if (!synced.ok) {
+          res.status(502).json({
+            error: synced.body?.error || 'שמירת המגבלה ביחידת הלקוח נכשלה. יש לעדכן את היחידה לגרסה האחרונה ולנסות שוב.',
+          });
+          return;
+        }
+      } catch (err) {
+        res.status(502).json({
+          error: err instanceof Error ? err.message : 'לא ניתן לעדכן כרגע את יחידת הלקוח.',
+        });
+        return;
+      }
     }
     const updated = ownerStorage.updateClient(client.id, patch);
     res.json(updated ? exposeOwnerClient(updated) : null);
@@ -2344,6 +2378,16 @@ export function startAdminServer(storage: Storage): void {
   });
 
   app.use('/owner-api', requireOwnerApiToken);
+
+  app.patch('/owner-api/settings/campaign-limit', (req, res) => {
+    const maxCampaigns = normalizeCampaignLimit(req.body?.maxCampaigns);
+    if (maxCampaigns === null) {
+      res.status(400).json({ error: 'Campaign limit must be an integer between 1 and 50.' });
+      return;
+    }
+    storage.updateAdminSettings({ maxCampaignsOverride: maxCampaigns });
+    res.json({ ok: true, maxCampaigns });
+  });
 
   app.get('/owner-api/files', (_req, res) => {
     res.json(storage.getUploadedFiles());
