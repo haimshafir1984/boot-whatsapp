@@ -8,7 +8,7 @@ delete process.env.CLIENT_SERVICE_BOT_ENABLED;
 
 const { config } = require('../dist/config');
 const { emptyStorageData, Storage } = require('../dist/storage');
-const { tryHandleServiceBotMessage, validateServiceBotConfig } = require('../dist/serviceBot');
+const { deliverServiceBotFollowUp, tryHandleServiceBotMessage, validateServiceBotConfig } = require('../dist/serviceBot');
 const { buildMetaGatewayRoutes, campaignsToMetaGatewayRoutes, preferCampaignMetaRoutes } = require('../dist/adminServer');
 const { handleIncomingWhatsAppMessage } = require('../dist/messageFlow');
 const { conversationState } = require('../dist/conversationState');
@@ -108,6 +108,58 @@ async function run() {
     await tryHandleServiceBotMessage('2', '222@c.us', '222', storage, transport);
     assert.strictEqual(storage.getServiceBotSession('222').nodeId, 'existing-info');
     assert.strictEqual(storage.getServiceBotSession('111').nodeId, 'main', 'sessions must be isolated by phone');
+
+    const advancedStorage = new Storage(path.join(tempDir, 'advanced.json'), { initialData: emptyStorageData() });
+    const advancedBot = {
+      ...serviceBot,
+      nodes: [
+        { id: 'main', title: 'Main', type: 'menu', text: 'Choose', options: [
+          { id: 'recommend', label: 'Recommend', targetNodeId: 'decision', variableKey: 'need', variableValue: 'fit' },
+          { id: 'return', label: 'Return', targetNodeId: 'order-input' },
+          { id: 'purchase', label: 'Purchase', targetNodeId: 'purchase-info' },
+        ] },
+        { id: 'decision', title: 'Decision', type: 'condition', text: '', conditionRules: [
+          { id: 'fit-rule', label: 'Fit', conditions: [{ variableKey: 'need', operator: 'equals', value: 'fit' }], targetNodeId: 'fit-result' },
+        ], defaultTargetNodeId: 'other-result' },
+        { id: 'fit-result', title: 'Fit', type: 'message', text: 'Recommended {{need}}' },
+        { id: 'other-result', title: 'Other', type: 'message', text: 'Other' },
+        { id: 'order-input', title: 'Order', type: 'input', text: 'Order number?', inputType: 'text', variableKey: 'order_number', nextNodeId: 'photo-input', inputErrorText: 'Order required' },
+        { id: 'photo-input', title: 'Photo', type: 'input', text: 'Photo?', inputType: 'image', variableKey: 'product_photo', nextNodeId: 'return-done', inputErrorText: 'Photo required' },
+        { id: 'return-done', title: 'Done', type: 'message', text: 'Saved {{order_number}}' },
+        { id: 'purchase-info', title: 'Purchase', type: 'message', text: 'Purchase link', followUpDelayMinutes: 10, followUpTargetNodeId: 'purchase-check' },
+        { id: 'purchase-check', title: 'Check', type: 'menu', text: 'Did you purchase?', options: [{ id: 'yes', label: 'Yes', targetNodeId: 'fit-result' }] },
+      ],
+    };
+    assert.strictEqual(validateServiceBotConfig(advancedBot).ok, true, 'advanced service bot must validate');
+    advancedStorage.updateServiceBot(advancedBot);
+    const advancedSent = [];
+    const advancedTransport = createTransport(advancedSent);
+
+    await tryHandleServiceBotMessage(advancedBot.triggerText, '444@c.us', '444', advancedStorage, advancedTransport);
+    await tryHandleServiceBotMessage('recommend', '444@c.us', '444', advancedStorage, advancedTransport);
+    assert.strictEqual(advancedStorage.getServiceBotSession('444').nodeId, 'fit-result', 'condition must route from a saved option variable');
+    assert.ok(advancedSent.some(item => /Recommended fit/.test(item.text || '')), 'saved variables must render in messages');
+
+    await tryHandleServiceBotMessage(advancedBot.triggerText, '555@c.us', '555', advancedStorage, advancedTransport);
+    await tryHandleServiceBotMessage('return', '555@c.us', '555', advancedStorage, advancedTransport);
+    await tryHandleServiceBotMessage('ABC-123', '555@c.us', '555', advancedStorage, advancedTransport);
+    assert.strictEqual(advancedStorage.getServiceBotSession('555').nodeId, 'photo-input');
+    await tryHandleServiceBotMessage('', '555@c.us', '555', advancedStorage, advancedTransport, {
+      messageId: 'photo-1', media: { kind: 'image', mimeType: 'image/jpeg', providerMediaId: 'meta-photo-1' },
+    });
+    assert.strictEqual(advancedStorage.getServiceBotSession('555').nodeId, 'return-done', 'image input must continue the flow');
+    const capturedRecord = advancedStorage.getServiceBotRecords().find(item => item.phone === '555');
+    assert.strictEqual(capturedRecord.variables.order_number, 'ABC-123');
+    assert.strictEqual(capturedRecord.attachments.length, 1, 'captured media metadata must be retained');
+
+    await tryHandleServiceBotMessage(advancedBot.triggerText, '666@c.us', '666', advancedStorage, advancedTransport);
+    await tryHandleServiceBotMessage('purchase', '666@c.us', '666', advancedStorage, advancedTransport);
+    const due = advancedStorage.getDueServiceBotFollowUps(10, new Date(Date.now() + 11 * 60 * 1000));
+    assert.strictEqual(due.length, 1, 'node follow-up must be scheduled durably');
+    const claimed = advancedStorage.claimServiceBotFollowUp(due[0].id);
+    await deliverServiceBotFollowUp(claimed, advancedStorage, advancedTransport);
+    advancedStorage.completeServiceBotFollowUp(claimed.id);
+    assert.strictEqual(advancedStorage.getServiceBotSession('666').nodeId, 'purchase-check', 'scheduled follow-up must enter its target node');
 
     const invalid = JSON.parse(JSON.stringify(serviceBot));
     invalid.nodes[0].options[0].targetNodeId = 'missing';

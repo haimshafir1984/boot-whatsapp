@@ -11,6 +11,7 @@ import { startAdminServer } from './adminServer';
 import { config } from './config';
 import { startContactSaveQueue } from './contactQueue';
 import { startOutboxDispatcher } from './outboxDispatcher';
+import { startServiceBotFollowUpDispatcher } from './serviceBotFollowUpDispatcher';
 import { startWhatsAppScheduler } from './whatsappLifecycle';
 import { conversationState } from './conversationState';
 import { scheduleRestoredConversationTimeout } from './messageFlow';
@@ -77,6 +78,7 @@ async function main(): Promise<void> {
 
   startContactSaveQueue(storage);
   startOutboxDispatcher(storage, currentOutboundTransport);
+  startServiceBotFollowUpDispatcher(storage, currentOutboundTransport);
 
   startAdminServer(storage);
 

@@ -422,12 +422,29 @@ export interface TwilioTemplateDraft {
   updatedAt: string;
 }
 
-export type ServiceBotNodeType = 'menu' | 'message' | 'handoff';
+export type ServiceBotNodeType = 'menu' | 'message' | 'handoff' | 'input' | 'condition';
+export type ServiceBotInputType = 'text' | 'number' | 'image' | 'document' | 'media';
+export type ServiceBotConditionOperator = 'equals' | 'not_equals' | 'contains' | 'exists';
+
+export interface ServiceBotCondition {
+  variableKey: string;
+  operator: ServiceBotConditionOperator;
+  value?: string;
+}
+
+export interface ServiceBotConditionRule {
+  id: string;
+  label?: string;
+  conditions: ServiceBotCondition[];
+  targetNodeId: string;
+}
 
 export interface ServiceBotOption {
   id: string;
   label: string;
   targetNodeId: string;
+  variableKey?: string;
+  variableValue?: string;
 }
 
 export interface ServiceBotNode {
@@ -437,6 +454,15 @@ export interface ServiceBotNode {
   text: string;
   options?: ServiceBotOption[];
   handoffPhone?: string;
+  inputType?: ServiceBotInputType;
+  variableKey?: string;
+  nextNodeId?: string;
+  inputErrorText?: string;
+  conditionRules?: ServiceBotConditionRule[];
+  defaultTargetNodeId?: string;
+  followUpDelayMinutes?: number;
+  followUpText?: string;
+  followUpTargetNodeId?: string;
 }
 
 export interface ServiceBotConfig {
@@ -464,7 +490,44 @@ export interface ServiceBotSession {
   phone: string;
   nodeId: string;
   path?: string[];
+  variables?: Record<string, string>;
+  startedAt?: string;
   updatedAt: string;
+}
+
+export interface ServiceBotAttachment {
+  messageId: string;
+  variableKey: string;
+  kind: string;
+  mimeType?: string;
+  fileName?: string;
+  providerMediaId?: string;
+  providerUrl?: string;
+  capturedAt: string;
+}
+
+export interface ServiceBotRecord {
+  phone: string;
+  variables: Record<string, string>;
+  attachments: ServiceBotAttachment[];
+  currentNodeId: string;
+  startedAt: string;
+  updatedAt: string;
+}
+
+export interface ServiceBotFollowUp {
+  id: string;
+  phone: string;
+  to: string;
+  nodeId: string;
+  targetNodeId?: string;
+  text?: string;
+  runAt: string;
+  status: 'scheduled' | 'processing' | 'sent' | 'cancelled' | 'failed';
+  attempts: number;
+  createdAt: string;
+  updatedAt: string;
+  lastError?: string;
 }
 
 export interface StorageData {
@@ -484,6 +547,8 @@ export interface StorageData {
   scheduledJobs: ScheduledJobRecord[];
   serviceBot: ServiceBotConfig;
   serviceBotSessions: ServiceBotSession[];
+  serviceBotRecords: ServiceBotRecord[];
+  serviceBotFollowUps: ServiceBotFollowUp[];
 }
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────
@@ -585,6 +650,8 @@ export function emptyStorageData(): StorageData {
     scheduledJobs: [],
     serviceBot: { ...DEFAULT_SERVICE_BOT, nodes: [] },
     serviceBotSessions: [],
+    serviceBotRecords: [],
+    serviceBotFollowUps: [],
   };
 }
 
@@ -622,6 +689,8 @@ export class Storage {
           nodes: Array.isArray(initial.serviceBot?.nodes) ? initial.serviceBot.nodes : [],
         },
         serviceBotSessions: Array.isArray(initial.serviceBotSessions) ? initial.serviceBotSessions : [],
+        serviceBotRecords: Array.isArray(initial.serviceBotRecords) ? initial.serviceBotRecords : [],
+        serviceBotFollowUps: Array.isArray(initial.serviceBotFollowUps) ? initial.serviceBotFollowUps : [],
       };
     } else {
       this.data = this.load();
@@ -701,6 +770,12 @@ export class Storage {
       },
       serviceBotSessions: Array.isArray((parsed as any).serviceBotSessions)
         ? (parsed as any).serviceBotSessions
+        : [],
+      serviceBotRecords: Array.isArray((parsed as any).serviceBotRecords)
+        ? (parsed as any).serviceBotRecords
+        : [],
+      serviceBotFollowUps: Array.isArray((parsed as any).serviceBotFollowUps)
+        ? (parsed as any).serviceBotFollowUps
         : [],
     };
   }
@@ -1578,28 +1653,127 @@ export class Storage {
       this.persist();
       return null;
     }
-    return session ? { ...session, path: [...(session.path ?? [])] } : null;
+    return session ? { ...session, path: [...(session.path ?? [])], variables: { ...(session.variables ?? {}) } } : null;
   }
 
-  saveServiceBotSession(phone: string, nodeId: string, path: string[] = []): ServiceBotSession {
+  saveServiceBotSession(phone: string, nodeId: string, path: string[] = [], variables?: Record<string, string>): ServiceBotSession {
     const updatedAt = new Date().toISOString();
     const existing = this.data.serviceBotSessions.find((item) => item.phone === phone);
     if (existing) {
       existing.nodeId = nodeId;
       existing.path = [...path];
+      if (variables) existing.variables = { ...variables };
       existing.updatedAt = updatedAt;
       this.persist();
-      return { ...existing };
+      return { ...existing, path: [...(existing.path ?? [])], variables: { ...(existing.variables ?? {}) } };
     }
-    const session = { phone, nodeId, path: [...path], updatedAt };
+    const session = { phone, nodeId, path: [...path], variables: { ...(variables ?? {}) }, startedAt: updatedAt, updatedAt };
     this.data.serviceBotSessions.push(session);
     this.persist();
-    return { ...session };
+    return { ...session, path: [...session.path], variables: { ...session.variables } };
+  }
+
+  recordServiceBotProgress(
+    phone: string,
+    nodeId: string,
+    variables: Record<string, string>,
+    attachment?: Omit<ServiceBotAttachment, 'capturedAt'>,
+  ): ServiceBotRecord {
+    const now = new Date().toISOString();
+    let record = this.data.serviceBotRecords.find((item) => item.phone === phone);
+    if (!record) {
+      record = { phone, variables: {}, attachments: [], currentNodeId: nodeId, startedAt: now, updatedAt: now };
+      this.data.serviceBotRecords.push(record);
+    }
+    record.variables = { ...variables };
+    record.currentNodeId = nodeId;
+    record.updatedAt = now;
+    if (attachment && !record.attachments.some((item) => item.messageId === attachment.messageId)) {
+      record.attachments.push({ ...attachment, capturedAt: now });
+    }
+    this.persist();
+    return JSON.parse(JSON.stringify(record)) as ServiceBotRecord;
+  }
+
+  getServiceBotRecords(limit = 100): ServiceBotRecord[] {
+    return this.data.serviceBotRecords
+      .slice()
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .slice(0, Math.max(1, limit))
+      .map((record) => JSON.parse(JSON.stringify(record)) as ServiceBotRecord);
+  }
+
+  scheduleServiceBotFollowUp(input: Omit<ServiceBotFollowUp, 'id' | 'status' | 'attempts' | 'createdAt' | 'updatedAt'>): ServiceBotFollowUp {
+    const now = new Date().toISOString();
+    const followUp: ServiceBotFollowUp = {
+      id: generateId(),
+      status: 'scheduled',
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+      ...input,
+    };
+    this.data.serviceBotFollowUps.push(followUp);
+    this.persist();
+    return { ...followUp };
+  }
+
+  cancelServiceBotFollowUps(phone: string): number {
+    let cancelled = 0;
+    const now = new Date().toISOString();
+    for (const followUp of this.data.serviceBotFollowUps) {
+      if (followUp.phone !== phone || followUp.status !== 'scheduled') continue;
+      followUp.status = 'cancelled';
+      followUp.updatedAt = now;
+      cancelled += 1;
+    }
+    if (cancelled) this.persist();
+    return cancelled;
+  }
+
+  getDueServiceBotFollowUps(limit = 20, now = new Date()): ServiceBotFollowUp[] {
+    return this.data.serviceBotFollowUps
+      .filter((item) => item.status === 'scheduled' && Date.parse(item.runAt) <= now.getTime())
+      .sort((a, b) => a.runAt.localeCompare(b.runAt))
+      .slice(0, limit)
+      .map((item) => ({ ...item }));
+  }
+
+  claimServiceBotFollowUp(id: string): ServiceBotFollowUp | null {
+    const followUp = this.data.serviceBotFollowUps.find((item) => item.id === id);
+    if (!followUp || followUp.status !== 'scheduled') return null;
+    followUp.status = 'processing';
+    followUp.attempts += 1;
+    followUp.updatedAt = new Date().toISOString();
+    this.persist();
+    return { ...followUp };
+  }
+
+  completeServiceBotFollowUp(id: string): void {
+    const followUp = this.data.serviceBotFollowUps.find((item) => item.id === id);
+    if (!followUp) return;
+    followUp.status = 'sent';
+    followUp.updatedAt = new Date().toISOString();
+    followUp.lastError = undefined;
+    this.persist();
+  }
+
+  failServiceBotFollowUp(id: string, error: unknown): void {
+    const followUp = this.data.serviceBotFollowUps.find((item) => item.id === id);
+    if (!followUp) return;
+    followUp.status = followUp.attempts < 3 ? 'scheduled' : 'failed';
+    if (followUp.status === 'scheduled') followUp.runAt = new Date(Date.now() + 60_000).toISOString();
+    followUp.updatedAt = new Date().toISOString();
+    followUp.lastError = error instanceof Error ? error.message : String(error);
+    this.persist();
   }
 
   clearServiceBotSessions(): number {
     const count = this.data.serviceBotSessions.length;
     this.data.serviceBotSessions = [];
+    for (const followUp of this.data.serviceBotFollowUps) {
+      if (followUp.status === 'scheduled') followUp.status = 'cancelled';
+    }
     this.persist();
     return count;
   }

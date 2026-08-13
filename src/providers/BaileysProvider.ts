@@ -46,7 +46,7 @@ function normalizeJid(value: string): string {
   return `${phone}@s.whatsapp.net`;
 }
 
-function getMessageContent(message: any): { body: string; isReaction: boolean; hasUserSignal: boolean } {
+function getMessageContent(message: any): { body: string; isReaction: boolean; hasUserSignal: boolean; media?: IncomingWhatsAppMessage['media'] } {
   const content = message?.message;
   if (!content) return { body: '', isReaction: false, hasUserSignal: false };
 
@@ -71,7 +71,24 @@ function getMessageContent(message: any): { body: string; isReaction: boolean; h
     content.audioMessage ||
     content.stickerMessage,
   );
-  return { body, isReaction: false, hasUserSignal };
+  const mediaMessage = content.imageMessage || content.videoMessage || content.audioMessage || content.documentMessage || content.stickerMessage;
+  const mediaKind = content.imageMessage ? 'image'
+    : content.videoMessage ? 'video'
+      : content.audioMessage ? 'audio'
+        : content.documentMessage ? 'document'
+          : content.stickerMessage ? 'sticker'
+            : undefined;
+  return {
+    body,
+    isReaction: false,
+    hasUserSignal,
+    media: mediaKind ? {
+      kind: mediaKind,
+      mimeType: String(mediaMessage?.mimetype || '') || undefined,
+      fileName: String(mediaMessage?.fileName || '') || undefined,
+      providerMediaId: String(mediaMessage?.directPath || mediaMessage?.url || '') || undefined,
+    } : undefined,
+  };
 }
 
 function getMimeType(filePath: string): string {
@@ -299,6 +316,7 @@ export class BaileysProvider implements WhatsAppProvider {
         body,
         isReaction: content.isReaction,
         hasUserSignal: content.hasUserSignal,
+        media: content.media,
         timestamp: Number(raw.messageTimestamp || Math.floor(Date.now() / 1000)),
         async getDisplayName() {
           return raw.pushName?.trim() || (fromMe ? 'המספר המחובר' : '');

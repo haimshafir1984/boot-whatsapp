@@ -39,6 +39,7 @@ import { conversationState } from './conversationState';
 import { getFlowHealthSnapshot, handleIncomingWhatsAppMessage } from './messageFlow';
 import { TwilioProvider } from './providers/TwilioProvider';
 import { MetaCloudProvider } from './providers/MetaCloudProvider';
+import { IncomingWhatsAppMessage } from './types/whatsapp';
 import { getTwilioEvents, recordTwilioEvent } from './twilioEvents';
 import {
   defaultMetaCampaignEndAt,
@@ -1342,6 +1343,14 @@ export function startAdminServer(storage: Storage): void {
     to: String(payload?.To ?? '').trim(),
     id: String(payload?.MessageSid ?? payload?.SmsMessageSid ?? (String(payload?.From ?? '') + ':' + Date.now())),
     profileName: String(payload?.ProfileName ?? '').trim(),
+    media: Number(payload?.NumMedia || 0) > 0 ? {
+      kind: String(payload?.MediaContentType0 || '').startsWith('image/') ? 'image'
+        : String(payload?.MediaContentType0 || '').startsWith('video/') ? 'video'
+          : String(payload?.MediaContentType0 || '').startsWith('audio/') ? 'audio'
+            : 'document',
+      mimeType: String(payload?.MediaContentType0 || '').trim() || undefined,
+      providerUrl: String(payload?.MediaUrl0 || '').trim() || undefined,
+    } as IncomingWhatsAppMessage['media'] : undefined,
   });
 
   const handleTwilioInboundForStorage = async (payload: any): Promise<void> => {
@@ -1361,6 +1370,8 @@ export function startAdminServer(storage: Storage): void {
       from: meta.from,
       to: meta.to,
       body: meta.body,
+      media: meta.media,
+      hasUserSignal: Boolean(meta.body || meta.media),
       timestamp: Math.floor(Date.now() / 1000),
       async getDisplayName() {
         return meta.profileName;
@@ -1421,6 +1432,10 @@ export function startAdminServer(storage: Storage): void {
     const contact = value?.contacts?.[0];
     const body = getMetaInboundBody(message);
     const isButtonReply = isMetaButtonReply(message);
+    const mediaPayload = message?.image || message?.video || message?.audio || message?.document || message?.sticker;
+    const mediaKind = ['image', 'video', 'audio', 'document', 'sticker'].includes(String(message?.type || ''))
+      ? String(message.type) as NonNullable<IncomingWhatsAppMessage['media']>['kind']
+      : undefined;
     const provider = new MetaCloudProvider();
     console.log('[META_INBOUND]', message.id, message.from, body.slice(0, 120), `type=${String(message?.type || 'unknown')}`);
     await handleIncomingWhatsAppMessage({
@@ -1428,8 +1443,14 @@ export function startAdminServer(storage: Storage): void {
       from: 'whatsapp:' + String(message.from),
       to: 'whatsapp:' + normalizeSharePhone(config.META_DISPLAY_PHONE_NUMBER),
       body,
-      hasUserSignal: Boolean(body || isButtonReply),
+      hasUserSignal: Boolean(body || isButtonReply || mediaPayload),
       isButtonReply,
+      media: mediaKind && mediaPayload ? {
+        kind: mediaKind,
+        mimeType: String(mediaPayload?.mime_type || '').trim() || undefined,
+        fileName: String(mediaPayload?.filename || '').trim() || undefined,
+        providerMediaId: String(mediaPayload?.id || '').trim() || undefined,
+      } : undefined,
       timestamp: Number(message.timestamp) || Math.floor(Date.now() / 1000),
       async getDisplayName() { return String(contact?.profile?.name || '').trim(); },
     }, storage, provider, 'webhook');
@@ -2995,6 +3016,10 @@ export function startAdminServer(storage: Storage): void {
       featureEnabled: config.CLIENT_SERVICE_BOT_ENABLED,
       serviceBot: storage.updateServiceBot(candidate),
     });
+  });
+
+  app.get('/api/service-bot/records', (_req, res) => {
+    res.json({ records: storage.getServiceBotRecords(100) });
   });
 
   app.delete('/api/service-bot/sessions', requireWritableClient, (_req, res) => {

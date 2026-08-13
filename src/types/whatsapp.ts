@@ -20,6 +20,13 @@ export interface IncomingWhatsAppMessage {
   /** Meta reported a reply-button interaction, even if its reply id was omitted. */
   isButtonReply?: boolean;
   isReaction?: boolean;
+  media?: {
+    kind: 'image' | 'video' | 'audio' | 'document' | 'sticker' | 'media';
+    mimeType?: string;
+    fileName?: string;
+    providerMediaId?: string;
+    providerUrl?: string;
+  };
   timestamp?: number;
   getDisplayName(): Promise<string>;
 }

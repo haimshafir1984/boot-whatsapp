@@ -1029,7 +1029,7 @@ async function handleMessage(
   }
 
   if (message.isReaction) return;
-  if (!message.body?.trim() && !message.isButtonReply) return;
+  if (!message.body?.trim() && !message.isButtonReply && !message.media) return;
 
   if (!trigger.matched) {
     const replyBody = message.body?.trim() ?? '';
@@ -1039,7 +1039,10 @@ async function handleMessage(
     }
     if (await tryResumeTimedOutDecision(message, storage, transport, source, senderPhone)) return;
     if (await tryRecoverMissingFlow(message, storage, transport, source, activeCampaigns, senderJid, senderPhone)) return;
-    if (await tryHandleServiceBotMessage(replyBody, senderJid, senderPhone, storage, transport)) return;
+    if (await tryHandleServiceBotMessage(replyBody, senderJid, senderPhone, storage, transport, {
+      messageId: message.id,
+      media: message.media,
+    })) return;
     console.log(`[STATE_MISS] via=${source} age=${Math.round(messageAgeMs / 1000)}s phone=${senderPhone} button=${Boolean(message.isButtonReply)} body=${replyBody.slice(0, 80)}`);
     console.log(`[MSG] no trigger match via=${source} age=${Math.round(messageAgeMs / 1000)}s from=${senderJid} active=${activeCampaigns.length}`);
     return;

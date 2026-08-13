@@ -190,6 +190,13 @@ function toIncomingMessage(message: Message): IncomingWhatsAppMessage {
     to: message.to,
     body: message.body || (hasMedia ? '[media]' : ''),
     hasUserSignal: Boolean(message.body?.trim() || hasMedia),
+    media: hasMedia ? {
+      kind: ['image', 'video', 'audio', 'document', 'sticker'].includes(String((message as any).type))
+        ? (message as any).type
+        : 'media',
+      mimeType: String((message as any).mimetype || '') || undefined,
+      fileName: String((message as any).filename || '') || undefined,
+    } : undefined,
     timestamp: message.timestamp,
     async getDisplayName() {
       const contact = await message.getContact();
