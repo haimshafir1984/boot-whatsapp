@@ -4,6 +4,7 @@ const os = require('os');
 const path = require('path');
 
 process.env.BOT_REPLY_DELAY_MS = '0';
+delete process.env.CLIENT_SERVICE_BOT_ENABLED;
 
 const { config } = require('../dist/config');
 const { emptyStorageData, Storage } = require('../dist/storage');
@@ -11,6 +12,8 @@ const { tryHandleServiceBotMessage, validateServiceBotConfig } = require('../dis
 const { buildMetaGatewayRoutes, campaignsToMetaGatewayRoutes, preferCampaignMetaRoutes } = require('../dist/adminServer');
 const { handleIncomingWhatsAppMessage } = require('../dist/messageFlow');
 const { conversationState } = require('../dist/conversationState');
+
+assert.strictEqual(config.CLIENT_SERVICE_BOT_ENABLED, true, 'service bot feature must be available by default');
 
 function createTransport(sent) {
   return {
