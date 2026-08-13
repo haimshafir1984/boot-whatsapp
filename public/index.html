@@ -4795,6 +4795,7 @@
   let serviceBotDraft = null;
   let serviceBotSelectedNode = 0;
   let serviceBotDraftDirty = false;
+  let serviceBotFeatureEnabled = false;
 
   function emptyServiceBotDraft() {
     return {
@@ -4825,12 +4826,15 @@
       if (!response.ok) return;
       const data = await response.json();
       const tabs = document.getElementById('dashboardTabs');
-      if (!data.featureEnabled) {
-        if (tabs) tabs.style.display = 'none';
-        switchDashboardTab('campaigns');
-        return;
-      }
+      serviceBotFeatureEnabled = Boolean(data.featureEnabled);
       if (tabs) tabs.style.display = 'flex';
+      const featureNote = document.getElementById('serviceBotFeatureNote');
+      if (featureNote) {
+        featureNote.textContent = serviceBotFeatureEnabled
+          ? 'פעיל ביחידה זו'
+          : 'הלשונית זמינה להכנה; ההפעלה תתבצע לאחר אישור מנהל המערכת';
+        featureNote.classList.toggle('is-disabled', !serviceBotFeatureEnabled);
+      }
       serviceBotDraft = data.serviceBot && typeof data.serviceBot === 'object'
         ? JSON.parse(JSON.stringify(data.serviceBot))
         : emptyServiceBotDraft();
@@ -4880,7 +4884,10 @@
 
   function renderServiceBotEditor() {
     if (!serviceBotDraft) return;
-    document.getElementById('serviceBotEnabled').checked = Boolean(serviceBotDraft.enabled);
+    const enabledToggle = document.getElementById('serviceBotEnabled');
+    enabledToggle.checked = Boolean(serviceBotDraft.enabled);
+    enabledToggle.disabled = !serviceBotFeatureEnabled;
+    enabledToggle.title = serviceBotFeatureEnabled ? '' : 'הפעלה תתאפשר לאחר אישור מנהל המערכת';
     document.getElementById('serviceBotName').value = serviceBotDraft.name || '';
     document.getElementById('serviceBotTrigger').value = serviceBotDraft.triggerText || '';
     document.getElementById('serviceBotFallback').value = serviceBotDraft.fallbackText || '';
