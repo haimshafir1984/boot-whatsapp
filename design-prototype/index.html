@@ -1,0 +1,763 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23147a4a'/%3E%3Cpath d='M9 10h14v9H13l-4 4V10Z' fill='none' stroke='white' stroke-width='2'/%3E%3C/svg%3E">
+  <title>אב־טיפוס — בוט שירות</title>
+  <style>
+    :root {
+      --bg: #f4f7f5;
+      --surface: #ffffff;
+      --surface-soft: #f8faf9;
+      --ink: #18231e;
+      --muted: #66756d;
+      --line: #dce5df;
+      --brand: #147a4a;
+      --brand-strong: #0d633a;
+      --brand-soft: #e9f6ef;
+      --blue: #235cb5;
+      --blue-soft: #eef4ff;
+      --warning: #a55f07;
+      --warning-soft: #fff7e7;
+      --danger: #b4232d;
+      --danger-soft: #fff0f1;
+      --shadow: 0 12px 36px rgba(29, 54, 41, .08);
+      --radius: 14px;
+      --focus: 0 0 0 3px rgba(35, 92, 181, .22);
+    }
+
+    * { box-sizing: border-box; }
+    html { background: var(--bg); }
+    body {
+      margin: 0;
+      min-width: 320px;
+      color: var(--ink);
+      background: var(--bg);
+      font-family: Arial, "Segoe UI", sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    button, input, textarea, select { font: inherit; }
+    button, summary, select { cursor: pointer; }
+    button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible {
+      outline: none;
+      box-shadow: var(--focus);
+    }
+    svg { display: block; }
+
+    .prototype-note {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 6px 16px;
+      color: #526159;
+      background: #e8edea;
+      border-bottom: 1px solid #d7dfda;
+      font-size: 12px;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .app-shell { max-width: 1560px; margin: 0 auto; padding: 24px 28px 48px; }
+    .topbar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 20px;
+    }
+    .title-wrap { display: flex; align-items: flex-start; gap: 14px; min-width: 0; }
+    .app-mark {
+      display: grid;
+      place-items: center;
+      width: 44px;
+      height: 44px;
+      flex: 0 0 auto;
+      color: #fff;
+      background: var(--brand);
+      border-radius: 12px;
+    }
+    .eyebrow { margin: 0 0 2px; color: var(--brand-strong); font-size: 12px; font-weight: 800; }
+    h1 { margin: 0; font-size: clamp(24px, 3vw, 32px); line-height: 1.2; letter-spacing: -.02em; }
+    .subtitle { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+
+    .status-cluster { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 36px;
+      padding: 7px 11px;
+      border: 1px solid #bfe0cd;
+      border-radius: 999px;
+      color: var(--brand-strong);
+      background: var(--brand-soft);
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #18a05d; box-shadow: 0 0 0 3px #cdebd9; }
+    .save-state { display: flex; align-items: center; gap: 6px; color: var(--warning); font-size: 13px; font-weight: 700; }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 40px;
+      padding: 9px 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: #304039;
+      background: var(--surface);
+      font-weight: 750;
+      transition: background .15s, border-color .15s, transform .15s;
+    }
+    .button:hover { border-color: #b9c8bf; background: #f9fbfa; }
+    .button:active { transform: translateY(1px); }
+    .button.primary { color: #fff; border-color: var(--brand); background: var(--brand); }
+    .button.primary:hover { background: var(--brand-strong); }
+    .button.ghost { background: transparent; }
+    .button.soft { color: var(--brand-strong); border-color: #cbe5d6; background: var(--brand-soft); }
+    .button.danger { color: var(--danger); border-color: #f0cbd0; background: var(--danger-soft); }
+    .button.small { min-height: 34px; padding: 6px 10px; font-size: 13px; }
+    .button.icon-only { width: 36px; min-height: 36px; padding: 0; }
+    .button[disabled] { cursor: not-allowed; opacity: .55; transform: none; }
+    .icon { width: 18px; height: 18px; flex: 0 0 auto; }
+
+    .overview-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1.5fr) minmax(340px, .8fr);
+      gap: 18px;
+      padding: 18px;
+      margin-bottom: 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .activation-box { display: flex; align-items: center; gap: 15px; min-width: 0; }
+    .switch { position: relative; width: 48px; height: 28px; flex: 0 0 auto; }
+    .switch input { position: absolute; opacity: 0; }
+    .switch-track { position: absolute; inset: 0; border-radius: 999px; background: #b8c3bd; transition: .2s; }
+    .switch-track::after { content: ""; position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); transition: .2s; }
+    .switch input:checked + .switch-track { background: var(--brand); }
+    .switch input:checked + .switch-track::after { transform: translateX(-20px); }
+    .switch input:focus-visible + .switch-track { box-shadow: var(--focus); }
+    .activation-copy strong { display: block; font-size: 16px; }
+    .activation-copy span { color: var(--muted); font-size: 13px; }
+    .quick-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .fact { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
+    .fact span { display: block; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .fact strong { display: block; margin-top: 2px; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+
+    .command-row {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+      padding: 10px 0;
+      background: rgba(244, 247, 245, .94);
+      backdrop-filter: blur(10px);
+    }
+    .command-group { display: flex; flex-wrap: wrap; gap: 8px; }
+    .mode-control { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; font-weight: 700; }
+    .mode-control select { min-height: 36px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: #fff; }
+
+    .mobile-tabs { display: none; margin-bottom: 12px; padding: 4px; border: 1px solid var(--line); border-radius: 11px; background: #e8eeea; }
+    .mobile-tab { flex: 1; min-height: 38px; border: 0; border-radius: 8px; color: var(--muted); background: transparent; font-weight: 800; }
+    .mobile-tab.active { color: var(--brand-strong); background: #fff; box-shadow: 0 1px 5px rgba(20, 45, 31, .09); }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(230px, 270px) minmax(430px, 1fr) minmax(300px, 350px);
+      gap: 14px;
+      align-items: start;
+    }
+    .panel { min-width: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: 0 4px 18px rgba(29, 54, 41, .045); overflow: hidden; }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 58px; padding: 12px 14px; border-bottom: 1px solid var(--line); background: #fbfcfb; }
+    .panel-title { display: flex; align-items: center; gap: 9px; min-width: 0; }
+    .step-number { display: grid; place-items: center; width: 25px; height: 25px; flex: 0 0 auto; border-radius: 7px; color: var(--brand-strong); background: var(--brand-soft); font-size: 12px; font-weight: 900; }
+    .panel-title h2 { margin: 0; font-size: 15px; }
+    .panel-title small { display: block; margin-top: 1px; color: var(--muted); font-size: 11px; font-weight: 400; }
+    .panel-body { padding: 14px; }
+
+    .tree-panel { position: sticky; top: 74px; }
+    .node-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 12px; }
+    .node-list { display: grid; gap: 7px; }
+    .node {
+      position: relative;
+      display: grid;
+      grid-template-columns: 34px 1fr auto;
+      align-items: center;
+      gap: 9px;
+      width: 100%;
+      min-height: 58px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--ink);
+      background: #fff;
+      text-align: right;
+    }
+    .node:hover { border-color: #aec3b6; background: #fbfdfc; }
+    .node.active { border-color: var(--brand); background: var(--brand-soft); box-shadow: inset -3px 0 var(--brand); }
+    .node-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; color: #3d6d54; background: #edf3ef; }
+    .node.active .node-icon { color: #fff; background: var(--brand); }
+    .node-copy { min-width: 0; }
+    .node-copy strong, .node-copy span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .node-copy strong { font-size: 13px; }
+    .node-copy span { margin-top: 1px; color: var(--muted); font-size: 11px; }
+    .node-badge { padding: 2px 6px; border-radius: 6px; color: #65736b; background: #edf1ef; font-size: 10px; font-weight: 800; }
+    .main-tag { margin-top: 10px; padding: 9px 10px; border-radius: 9px; color: var(--blue); background: var(--blue-soft); font-size: 12px; }
+
+    .editor-panel .panel-body { padding: 18px; }
+    .editor-status { display: inline-flex; align-items: center; gap: 6px; color: var(--warning); font-size: 11px; font-weight: 800; }
+    .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
+    .field { min-width: 0; }
+    .field.full { grid-column: 1 / -1; }
+    .field label { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; color: #33423a; font-size: 12px; font-weight: 800; }
+    .field label small { color: #87938c; font-weight: 400; }
+    .field input, .field textarea, .field select {
+      width: 100%;
+      border: 1px solid #cbd6d0;
+      border-radius: 9px;
+      color: var(--ink);
+      background: #fff;
+    }
+    .field input, .field select { min-height: 42px; padding: 9px 11px; }
+    .field textarea { min-height: 108px; padding: 10px 11px; resize: vertical; line-height: 1.55; }
+    .field input:hover, .field textarea:hover, .field select:hover { border-color: #aebdb5; }
+    .field input:focus, .field textarea:focus, .field select:focus { outline: none; border-color: var(--blue); box-shadow: var(--focus); }
+    .hint { margin: 5px 0 0; color: var(--muted); font-size: 11px; }
+
+    .section-divider { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 22px -18px 12px; padding: 13px 18px 0; border-top: 1px solid var(--line); }
+    .section-divider h3 { margin: 0; font-size: 14px; }
+    .section-divider span { color: var(--muted); font-size: 11px; }
+    .option-list { display: grid; gap: 9px; }
+    .option-card { display: grid; grid-template-columns: 28px minmax(120px, 1fr) 24px minmax(140px, 1fr) 36px; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
+    .option-index { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; color: var(--brand-strong); background: #dff1e7; font-size: 11px; font-weight: 900; }
+    .option-card input, .option-card select { width: 100%; min-width: 0; min-height: 38px; padding: 7px 9px; border: 1px solid #cbd6d0; border-radius: 8px; color: var(--ink); background: #fff; }
+    .route-arrow { color: #819087; text-align: center; }
+    .editor-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+
+    .preview-panel { position: sticky; top: 74px; }
+    .preview-toolbar { display: flex; gap: 4px; padding: 4px; border-radius: 8px; background: #edf1ef; }
+    .preview-toolbar button { min-width: 32px; min-height: 28px; border: 0; border-radius: 6px; color: var(--muted); background: transparent; font-size: 11px; font-weight: 800; }
+    .preview-toolbar button.active { color: var(--brand-strong); background: #fff; }
+    .phone { margin: 14px; overflow: hidden; border: 7px solid #29342e; border-radius: 28px; background: #efeae2; box-shadow: 0 14px 32px rgba(24, 35, 30, .15); }
+    .phone-head { display: flex; align-items: center; gap: 9px; min-height: 52px; padding: 8px 10px; color: #fff; background: #075e54; }
+    .avatar { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; color: #075e54; background: #d7eee7; font-size: 12px; font-weight: 900; }
+    .phone-head-copy strong { display: block; font-size: 12px; }
+    .phone-head-copy span { display: block; opacity: .8; font-size: 9px; }
+    .chat { min-height: 420px; padding: 18px 10px 24px; background-color: #efeae2; background-image: radial-gradient(rgba(87, 99, 91, .08) .7px, transparent .7px); background-size: 13px 13px; }
+    .bubble { max-width: 93%; margin-right: auto; padding: 9px 10px 5px; border-radius: 10px 10px 2px 10px; color: #202b25; background: #d9fdd3; box-shadow: 0 1px 2px rgba(0,0,0,.12); font-size: 12px; white-space: pre-line; }
+    .bubble strong { display: block; margin-bottom: 6px; }
+    .bubble-time { display: block; margin-top: 4px; color: #6f7c75; font-size: 8px; text-align: left; }
+    .chat-options { display: grid; gap: 5px; margin-top: 8px; }
+    .chat-option { width: 100%; padding: 7px 8px; border: 1px solid #b8dfc5; border-radius: 8px; color: #086b3d; background: #fff; font-size: 11px; font-weight: 800; text-align: center; }
+    .chat-option:hover { background: #f2fff6; }
+    .nav-bubble { max-width: 93%; margin: 7px 0 0 auto; padding: 8px 10px; border-radius: 10px; color: var(--muted); background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.08); font-size: 10px; }
+    .preview-help { margin: 0 14px 14px; color: var(--muted); font-size: 11px; text-align: center; }
+
+    .settings-panel { margin-top: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+    .settings-panel summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 62px; padding: 14px 18px; list-style: none; }
+    .settings-panel summary::-webkit-details-marker { display: none; }
+    .settings-title { display: flex; align-items: center; gap: 10px; }
+    .settings-title strong { display: block; }
+    .settings-title span { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }
+    .chevron { transition: transform .2s; }
+    .settings-panel[open] .chevron { transform: rotate(180deg); }
+    .settings-content { padding: 18px; border-top: 1px solid var(--line); background: #fbfcfb; }
+    .settings-group { padding: 16px; border: 1px solid var(--line); border-radius: 11px; background: #fff; }
+    .settings-group + .settings-group { margin-top: 12px; }
+    .settings-group-head { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 13px; }
+    .settings-group-head h3 { margin: 0; font-size: 14px; }
+    .settings-group-head p { margin: 2px 0 0; color: var(--muted); font-size: 11px; }
+    .settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+
+    .danger-zone { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 16px; padding: 14px 16px; border: 1px solid #f0d1d4; border-radius: 11px; background: #fffafa; }
+    .danger-zone strong { display: block; color: #81212a; font-size: 13px; }
+    .danger-zone span { display: block; margin-top: 2px; color: #8c6569; font-size: 11px; }
+
+    .state-layer { display: none; min-height: 500px; place-items: center; padding: 24px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); text-align: center; }
+    .state-layer.active { display: grid; }
+    .state-illustration { display: grid; place-items: center; width: 58px; height: 58px; margin: 0 auto 14px; border-radius: 16px; color: var(--brand); background: var(--brand-soft); }
+    .state-layer h2 { margin: 0; font-size: 18px; }
+    .state-layer p { max-width: 430px; margin: 6px auto 18px; color: var(--muted); }
+    .state-layer.error .state-illustration { color: var(--danger); background: var(--danger-soft); }
+    .skeleton-wrap { width: min(620px, 100%); }
+    .skeleton { height: 14px; margin: 12px 0; border-radius: 7px; background: linear-gradient(90deg, #edf1ef 25%, #f7f9f8 50%, #edf1ef 75%); background-size: 200% 100%; animation: shimmer 1.3s infinite; }
+    .skeleton:nth-child(2) { width: 72%; }
+    .skeleton:nth-child(3) { width: 88%; }
+    @keyframes shimmer { to { background-position: -200% 0; } }
+
+    .toast { position: fixed; left: 24px; bottom: 24px; z-index: 50; display: flex; align-items: center; gap: 9px; max-width: 360px; padding: 12px 14px; border-radius: 11px; color: #fff; background: #183e2b; box-shadow: 0 16px 42px rgba(0,0,0,.2); opacity: 0; pointer-events: none; transform: translateY(12px); transition: .2s; }
+    .toast.show { opacity: 1; transform: translateY(0); }
+
+    @media (max-width: 1180px) {
+      .workspace { grid-template-columns: 240px minmax(410px, 1fr); }
+      .preview-panel { position: static; grid-column: 1 / -1; }
+      .preview-panel .phone { max-width: 340px; margin-inline: auto; }
+      .preview-help { margin-bottom: 18px; }
+      .settings-grid { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 760px) {
+      .app-shell { padding: 18px 12px 36px; }
+      .topbar { display: block; }
+      .status-cluster { justify-content: flex-start; margin-top: 14px; }
+      .subtitle { max-width: 38ch; }
+      .overview-card { grid-template-columns: 1fr; padding: 14px; }
+      .quick-facts { grid-template-columns: 1fr 1fr; }
+      .fact:last-child { grid-column: 1 / -1; }
+      .command-row { align-items: flex-start; flex-direction: column; top: 0; }
+      .command-group { width: 100%; }
+      .command-group .button.primary { flex: 1; }
+      .mode-control { width: 100%; justify-content: space-between; }
+      .mode-control select { flex: 1; }
+      .mobile-tabs { display: flex; }
+      .workspace { display: block; }
+      .panel { display: none; }
+      .panel.mobile-active { display: block; }
+      .tree-panel, .preview-panel { position: static; }
+      .field-grid, .settings-grid { grid-template-columns: 1fr; }
+      .field.full { grid-column: auto; }
+      .option-card { grid-template-columns: 28px 1fr 36px; }
+      .option-card .route-arrow { display: none; }
+      .option-card select { grid-column: 2 / 3; }
+      .option-card .delete-option { grid-column: 3; grid-row: 1 / 3; }
+      .settings-content { padding: 12px; }
+      .settings-group { padding: 13px; }
+      .danger-zone, .settings-group-head { align-items: stretch; flex-direction: column; }
+      .danger-zone .button { width: 100%; }
+      .toast { right: 12px; left: 12px; bottom: 12px; max-width: none; }
+    }
+
+    @media (max-width: 420px) {
+      .prototype-note { font-size: 11px; }
+      .app-mark { width: 40px; height: 40px; }
+      h1 { font-size: 23px; }
+      .quick-facts { grid-template-columns: 1fr; }
+      .fact:last-child { grid-column: auto; }
+      .node-actions { grid-template-columns: 1fr; }
+      .editor-panel .panel-body { padding: 14px; }
+      .section-divider { margin-inline: -14px; padding-inline: 14px; }
+      .editor-footer { align-items: stretch; flex-direction: column-reverse; }
+      .editor-footer .button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="prototype-note">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.3 3.8 2.7 17a2 2 0 0 0 1.7 3h15.2a2 2 0 0 0 1.7-3L13.7 3.8a2 2 0 0 0-3.4 0Z"/></svg>
+    אב־טיפוס להמחשה בלבד — הפעולות במסך אינן מחוברות לבוט אמיתי
+  </div>
+
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="title-wrap">
+        <div class="app-mark" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 8h10M7 12h7m-9 8 2.7-3H18a3 3 0 0 0 3-3V6a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v8a3 3 0 0 0 3 3h1.7L5 20Z"/></svg>
+        </div>
+        <div>
+          <p class="eyebrow">ניהול WhatsApp / בוט שירות</p>
+          <h1>בוט שירות</h1>
+          <p class="subtitle">בנו מסלול שירות ברור, בדקו אותו בתצוגה המקדימה ופרסמו כשמוכן.</p>
+        </div>
+      </div>
+      <div class="status-cluster">
+        <span class="status-pill"><span class="status-dot"></span> זמין ביחידה זו</span>
+        <span class="save-state" id="saveState">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 8v4l2.5 1.5M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v6h-6"/></svg>
+          3 שינויים שלא נשמרו
+        </span>
+      </div>
+    </header>
+
+    <section class="overview-card" aria-label="מצב הבוט">
+      <div class="activation-box">
+        <label class="switch" aria-label="הפעלת בוט השירות">
+          <input id="botEnabled" type="checkbox" checked>
+          <span class="switch-track"></span>
+        </label>
+        <div class="activation-copy">
+          <strong id="activationTitle">הבוט פעיל ומגיב ללקוחות</strong>
+          <span id="activationText">כיבוי יעצור תגובות חדשות, בלי למחוק את המבנה וההגדרות.</span>
+        </div>
+      </div>
+      <div class="quick-facts">
+        <div class="fact"><span>טריגר</span><strong>„תפריט”</strong></div>
+        <div class="fact"><span>תפריט ראשי</span><strong>תפריט ראשי</strong></div>
+        <div class="fact"><span>מבנה</span><strong>6 שלבים · תקין</strong></div>
+      </div>
+    </section>
+
+    <div class="command-row">
+      <div class="command-group">
+        <button class="button primary" id="saveButton" type="button">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 3h12l2 2v16H5V3Z"/><path d="M8 3v6h8V3M8 21v-7h8v7"/></svg>
+          שמירת הבוט
+        </button>
+        <button class="button" id="validateButton" type="button">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>
+          בדיקת תקינות
+        </button>
+        <button class="button ghost" id="templateButton" type="button">טעינה מתבנית</button>
+      </div>
+      <label class="mode-control">מצב להדגמה
+        <select id="demoState" aria-label="בחירת מצב להדגמה">
+          <option value="ready">מסך מלא</option>
+          <option value="loading">טעינה</option>
+          <option value="empty">בוט חדש וריק</option>
+          <option value="error">שגיאת טעינה</option>
+        </select>
+      </label>
+    </div>
+
+    <nav class="mobile-tabs" aria-label="חלקי עורך הבוט">
+      <button class="mobile-tab active" data-mobile-panel="tree" type="button">מבנה</button>
+      <button class="mobile-tab" data-mobile-panel="editor" type="button">עריכה</button>
+      <button class="mobile-tab" data-mobile-panel="preview" type="button">תצוגה</button>
+    </nav>
+
+    <section id="readyState">
+      <div class="workspace">
+        <aside class="panel tree-panel mobile-active" data-panel="tree" aria-label="מבנה הבוט">
+          <div class="panel-head">
+            <div class="panel-title"><span class="step-number">1</span><div><h2>מבנה הבוט</h2><small>בחרו שלב כדי לערוך אותו</small></div></div>
+          </div>
+          <div class="panel-body">
+            <div class="node-actions">
+              <button class="button soft small add-node" data-type="menu" type="button">+ תפריט</button>
+              <button class="button small add-node" data-type="message" type="button">+ הודעה</button>
+            </div>
+            <div class="node-list" id="nodeList"></div>
+            <div class="main-tag">התפריט הראשי מסומן ראשון ונפתח עם שליחת הטריגר.</div>
+          </div>
+        </aside>
+
+        <section class="panel editor-panel" data-panel="editor" aria-label="עריכת שלב">
+          <div class="panel-head">
+            <div class="panel-title"><span class="step-number">2</span><div><h2>עריכת השלב</h2><small id="editorBreadcrumb">תפריט ראשי</small></div></div>
+            <span class="editor-status"><span class="status-dot" style="background:#db8414;box-shadow:none"></span> טיוטה</span>
+          </div>
+          <div class="panel-body">
+            <div class="field-grid">
+              <div class="field">
+                <label for="nodeType">סוג השלב</label>
+                <select id="nodeType"><option value="menu">תפריט עם בחירות</option><option value="message">הודעת מידע</option><option value="handoff">מעבר לנציג</option></select>
+              </div>
+              <div class="field">
+                <label for="nodeTitle">כותרת ללקוח</label>
+                <input id="nodeTitle" value="תפריט ראשי">
+              </div>
+              <div class="field full">
+                <label for="nodeText">תוכן ההודעה <small id="charCount">16 תווים</small></label>
+                <textarea id="nodeText">היי, איך אפשר לעזור?</textarea>
+                <p class="hint">התצוגה משמאל מתעדכנת בזמן אמת.</p>
+              </div>
+            </div>
+
+            <div id="handoffField" class="field full" hidden style="margin-top:13px">
+              <label for="handoffPhone">מספר WhatsApp לנציג</label>
+              <input id="handoffPhone" type="tel" value="050-123-4567">
+            </div>
+
+            <div id="optionsSection">
+              <div class="section-divider">
+                <div><h3>אפשרויות בחירה</h3><span>כל בחירה מובילה לשלב הבא</span></div>
+                <button class="button small" id="addOption" type="button">+ אפשרות</button>
+              </div>
+              <div class="option-list" id="optionList"></div>
+            </div>
+
+            <div class="editor-footer">
+              <button class="button danger small" id="deleteNode" type="button">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5"/></svg>
+                מחיקת השלב
+              </button>
+              <span class="hint">השינויים יישמרו רק בלחיצה על „שמירת הבוט”.</span>
+            </div>
+          </div>
+        </section>
+
+        <aside class="panel preview-panel" data-panel="preview" aria-label="תצוגה מקדימה">
+          <div class="panel-head">
+            <div class="panel-title"><span class="step-number">3</span><div><h2>בדיקה ב־WhatsApp</h2><small>הדמיה בלבד</small></div></div>
+            <div class="preview-toolbar" aria-label="גודל תצוגה"><button class="active" type="button">נייד</button></div>
+          </div>
+          <div class="phone">
+            <div class="phone-head"><div class="avatar">PS</div><div class="phone-head-copy"><strong>שירות לקוחות</strong><span>מחובר</span></div></div>
+            <div class="chat">
+              <div class="bubble" id="previewBubble"><strong id="previewTitle">תפריט ראשי</strong><span id="previewText">היי, איך אפשר לעזור?</span><div class="chat-options" id="previewOptions"></div><span class="bubble-time">10:42 ✓✓</span></div>
+              <div class="nav-bubble" id="previewNav" hidden>מה תרצו לעשות עכשיו?<br><strong>חזרה</strong> · <strong>תפריט ראשי</strong></div>
+            </div>
+          </div>
+          <p class="preview-help">לחיצה על אפשרות בהדמיה תעביר לשלב הבא ותאפשר לבדוק את הזרימה.</p>
+        </aside>
+      </div>
+
+      <details class="settings-panel" id="settingsPanel">
+        <summary>
+          <span class="settings-title">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>
+            <span><strong>הגדרות והתנהגות</strong><span>טריגר, ניווט, שעות פעילות ומעבר לנציג</span></span>
+          </span>
+          <svg class="icon chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </summary>
+        <div class="settings-content">
+          <section class="settings-group">
+            <div class="settings-group-head"><div><h3>הגדרות בסיס</h3><p>איך הבוט מזוהה ואיך הלקוח נכנס אליו.</p></div></div>
+            <div class="settings-grid">
+              <div class="field"><label for="botName">שם פנימי</label><input id="botName" value="שירות לקוחות"></div>
+              <div class="field"><label for="triggerText">מילת או משפט טריגר</label><input id="triggerText" value="תפריט"></div>
+              <div class="field"><label for="mainNode">תפריט ראשי</label><select id="mainNode"><option>תפריט ראשי</option><option>שירותים ללקוחות</option></select></div>
+              <div class="field"><label for="fallbackText">תגובה לבחירה לא מוכרת</label><input id="fallbackText" value="לא הצלחתי לזהות את הבחירה. אפשר לבחור אחת מהאפשרויות."></div>
+              <div class="field"><label for="sessionTimeout">תוקף שיחה בדקות</label><input id="sessionTimeout" type="number" min="1" max="10080" value="60"></div>
+            </div>
+          </section>
+
+          <section class="settings-group">
+            <div class="settings-group-head"><div><h3>ניווט קבוע</h3><p>האפשרויות שמוחזרות ללקוח לאחר צפייה בשלב שאינו ראשי.</p></div></div>
+            <div class="settings-grid">
+              <div class="field"><label for="navigationPrompt">שאלת ניווט</label><input id="navigationPrompt" value="מה תרצו לעשות עכשיו?"></div>
+              <div class="field"><label for="backLabel">חזרה לתפריט קודם</label><input id="backLabel" value="חזרה"></div>
+              <div class="field"><label for="mainLabel">חזרה לתפריט ראשי</label><input id="mainLabel" value="תפריט ראשי"></div>
+            </div>
+          </section>
+
+          <section class="settings-group">
+            <div class="settings-group-head">
+              <div><h3>שעות פעילות</h3><p>שליחת הודעה אחרת כאשר לקוח פונה מחוץ לשעות.</p></div>
+              <label class="switch" aria-label="הפעלת שעות פעילות"><input id="hoursEnabled" type="checkbox" checked><span class="switch-track"></span></label>
+            </div>
+            <div class="settings-grid" id="hoursFields">
+              <div class="field"><label for="hoursStart">משעה</label><input id="hoursStart" type="time" value="09:00"></div>
+              <div class="field"><label for="hoursEnd">עד שעה</label><input id="hoursEnd" type="time" value="17:00"></div>
+              <div class="field"><label for="outsideText">הודעה מחוץ לשעות</label><input id="outsideText" value="אנחנו לא זמינים כרגע. נחזור אליכם בשעות הפעילות."></div>
+            </div>
+          </section>
+
+          <section class="settings-group">
+            <div class="settings-group-head">
+              <div><h3>מעבר לנציג מכל שלב</h3><p>הוספת אפשרות קבועה לשיחה אנושית בכל תפריטי הניווט.</p></div>
+              <label class="switch" aria-label="הפעלת מעבר לנציג"><input id="globalHandoff" type="checkbox" checked><span class="switch-track"></span></label>
+            </div>
+            <div class="settings-grid" id="handoffFields">
+              <div class="field"><label for="globalHandoffLabel">טקסט האפשרות</label><input id="globalHandoffLabel" value="שיחה עם נציג"></div>
+              <div class="field"><label for="globalHandoffPhone">טלפון נציג</label><input id="globalHandoffPhone" type="tel" value="050-123-4567"></div>
+              <div class="field"><label for="globalHandoffText">הודעת מעבר</label><input id="globalHandoffText" value="אפשר להמשיך לשיחה עם נציג."></div>
+            </div>
+          </section>
+
+          <div class="danger-zone">
+            <div><strong>איפוס שיחות פעילות</strong><span>הלקוחות בשיחות קיימות יידרשו לשלוח שוב את מילת הטריגר.</span></div>
+            <button class="button danger" id="resetSessions" type="button">איפוס שיחות פעילות</button>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <section class="state-layer" id="loadingState" aria-live="polite">
+      <div class="skeleton-wrap"><div class="state-illustration"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-3-6.7"/></svg></div><h2>טוענים את בוט השירות</h2><p>ההגדרות והמבנה יופיעו בעוד רגע.</p><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>
+    </section>
+
+    <section class="state-layer" id="emptyState">
+      <div><div class="state-illustration"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 8h10M7 12h6m-8 8 2.7-3H18a3 3 0 0 0 3-3V6a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v8a3 3 0 0 0 3 3h1.7L5 20Z"/></svg></div><h2>בואו נבנה את מסלול השירות הראשון</h2><p>אפשר להתחיל מתבנית מוכנה ולערוך אותה, או ליצור תפריט ראשי ריק.</p><button class="button primary" type="button" data-return-ready>התחלה מתבנית</button> <button class="button" type="button" data-return-ready>יצירת תפריט ריק</button></div>
+    </section>
+
+    <section class="state-layer error" id="errorState" role="alert">
+      <div><div class="state-illustration"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 4h.01"/></svg></div><h2>לא הצלחנו לטעון את הבוט</h2><p>החיבור לשרת נכשל. השינויים המקומיים לא נמחקו ואפשר לנסות שוב.</p><button class="button primary" type="button" data-return-ready>ניסיון נוסף</button></div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const icons = {
+      menu: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3" cy="6" r="1"/><circle cx="3" cy="12" r="1"/><circle cx="3" cy="18" r="1"/></svg>',
+      message: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 4h14v13H8l-3 3V4Z"/><path d="M8 8h8m-8 4h6"/></svg>',
+      handoff: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3"/><path d="M6 20a6 6 0 0 1 12 0M19 7h4m-2-2v4"/></svg>'
+    };
+
+    let nodes = [
+      { id: 'main', title: 'תפריט ראשי', type: 'menu', text: 'היי, איך אפשר לעזור?', options: [
+        { label: 'לקוח חדש', target: 'new-customer' }, { label: 'לקוח קיים', target: 'services' }, { label: 'שעות פתיחה', target: 'hours' }, { label: 'נציג שירות', target: 'handoff' }
+      ]},
+      { id: 'new-customer', title: 'מידע ללקוח חדש', type: 'message', text: 'נשמח להכיר! השאירו לנו הודעה קצרה ונחזור אליכם בהקדם.', options: [] },
+      { id: 'services', title: 'שירותים ללקוחות', type: 'menu', text: 'באיזה נושא תרצו עזרה?', options: [{ label: 'מידע על השירות', target: 'service-info' }] },
+      { id: 'service-info', title: 'מידע על השירות', type: 'message', text: 'כאן אפשר להציג מידע על השירות או המוצר.', options: [] },
+      { id: 'hours', title: 'שעות פתיחה', type: 'message', text: 'ימים א׳–ה׳, 09:00–17:00.', options: [] },
+      { id: 'handoff', title: 'נציג שירות', type: 'handoff', text: 'אפשר להמשיך מכאן לשיחה עם נציג.', phone: '050-123-4567', options: [] }
+    ];
+    let selectedId = 'main';
+
+    const $ = (selector, root = document) => root.querySelector(selector);
+    const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+    const typeLabels = { menu: 'תפריט', message: 'הודעה', handoff: 'נציג' };
+    const nodeById = id => nodes.find(node => node.id === id);
+
+    function announce(message) {
+      const toast = $('#toast');
+      toast.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m5 12 4 4L19 6"/></svg>' + message;
+      toast.classList.add('show');
+      clearTimeout(announce.timer);
+      announce.timer = setTimeout(() => toast.classList.remove('show'), 2600);
+    }
+
+    function markDirty() {
+      $('#saveState').innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 8v4l2.5 1.5M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v6h-6"/></svg> שינויים שלא נשמרו';
+    }
+
+    function renderNodes() {
+      $('#nodeList').innerHTML = nodes.map(node => `
+        <button class="node ${node.id === selectedId ? 'active' : ''}" data-node-id="${node.id}" type="button" aria-pressed="${node.id === selectedId}">
+          <span class="node-icon">${icons[node.type]}</span>
+          <span class="node-copy"><strong>${node.title}</strong><span>${node.type === 'menu' ? `${node.options.length} אפשרויות` : node.type === 'handoff' ? 'קישור לשיחה אנושית' : 'הודעת מידע'}</span></span>
+          <span class="node-badge">${node.id === 'main' ? 'ראשי' : typeLabels[node.type]}</span>
+        </button>`).join('');
+      $$('.node').forEach(button => button.addEventListener('click', () => selectNode(button.dataset.nodeId)));
+    }
+
+    function renderOptions(node) {
+      const list = $('#optionList');
+      list.innerHTML = node.options.map((option, index) => `
+        <div class="option-card" data-option-index="${index}">
+          <span class="option-index">${index + 1}</span>
+          <input aria-label="טקסט אפשרות ${index + 1}" value="${option.label}">
+          <span class="route-arrow" aria-hidden="true">←</span>
+          <select aria-label="יעד אפשרות ${index + 1}">${nodes.map(target => `<option value="${target.id}" ${target.id === option.target ? 'selected' : ''}>${target.title}</option>`).join('')}</select>
+          <button class="button icon-only danger delete-option" type="button" aria-label="מחיקת אפשרות ${index + 1}">×</button>
+        </div>`).join('');
+      $$('.option-card').forEach(card => {
+        const index = Number(card.dataset.optionIndex);
+        $('input', card).addEventListener('input', event => { node.options[index].label = event.target.value; markDirty(); renderPreview(); });
+        $('select', card).addEventListener('change', event => { node.options[index].target = event.target.value; markDirty(); renderPreview(); });
+        $('.delete-option', card).addEventListener('click', () => { node.options.splice(index, 1); markDirty(); renderEditor(); });
+      });
+    }
+
+    function renderEditor() {
+      const node = nodeById(selectedId) || nodes[0];
+      if (!node) return;
+      selectedId = node.id;
+      $('#editorBreadcrumb').textContent = node.title;
+      $('#nodeType').value = node.type;
+      $('#nodeTitle').value = node.title;
+      $('#nodeText').value = node.text;
+      $('#charCount').textContent = `${node.text.length} תווים`;
+      $('#handoffField').hidden = node.type !== 'handoff';
+      $('#handoffPhone').value = node.phone || '';
+      $('#optionsSection').hidden = node.type !== 'menu';
+      $('#deleteNode').disabled = node.id === 'main';
+      if (node.type === 'menu') renderOptions(node);
+      renderNodes();
+      renderPreview();
+    }
+
+    function renderPreview() {
+      const node = nodeById(selectedId);
+      if (!node) return;
+      $('#previewTitle').textContent = node.title || 'ללא כותרת';
+      $('#previewText').textContent = node.type === 'handoff' && node.phone ? `${node.text}\n\nhttps://wa.me/${node.phone.replace(/\D/g, '')}` : node.text || 'הודעה ריקה';
+      $('#previewOptions').innerHTML = node.options.map(option => `<button class="chat-option" data-target="${option.target}" type="button">${option.label || 'אפשרות ללא טקסט'}</button>`).join('');
+      $('#previewNav').hidden = node.id === 'main';
+      $$('.chat-option').forEach(button => button.addEventListener('click', () => {
+        selectNode(button.dataset.target);
+        announce(`עברנו לשלב „${nodeById(button.dataset.target)?.title || ''}”`);
+      }));
+    }
+
+    function selectNode(id) {
+      if (!nodeById(id)) return;
+      selectedId = id;
+      renderEditor();
+      if (window.innerWidth <= 760) activateMobilePanel('editor');
+    }
+
+    function activateMobilePanel(name) {
+      $$('.mobile-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.mobilePanel === name));
+      $$('.panel[data-panel]').forEach(panel => panel.classList.toggle('mobile-active', panel.dataset.panel === name));
+    }
+
+    function showState(state) {
+      $('#readyState').hidden = state !== 'ready';
+      ['loading', 'empty', 'error'].forEach(name => $(`#${name}State`).classList.toggle('active', state === name));
+      $('.mobile-tabs').hidden = state !== 'ready';
+    }
+
+    $$('.mobile-tab').forEach(tab => tab.addEventListener('click', () => activateMobilePanel(tab.dataset.mobilePanel)));
+    $('#demoState').addEventListener('change', event => showState(event.target.value));
+    $$('[data-return-ready]').forEach(button => button.addEventListener('click', () => { $('#demoState').value = 'ready'; showState('ready'); announce('ההדגמה נטענה בהצלחה'); }));
+
+    $('#botEnabled').addEventListener('change', event => {
+      $('#activationTitle').textContent = event.target.checked ? 'הבוט פעיל ומגיב ללקוחות' : 'הבוט כבוי';
+      $('#activationText').textContent = event.target.checked ? 'כיבוי יעצור תגובות חדשות, בלי למחוק את המבנה וההגדרות.' : 'המבנה וההגדרות נשמרו. אפשר להפעיל שוב בכל רגע.';
+      markDirty();
+    });
+
+    $('#nodeType').addEventListener('change', event => {
+      const node = nodeById(selectedId);
+      node.type = event.target.value;
+      if (node.type !== 'menu') node.options = [];
+      if (node.type === 'menu' && !node.options) node.options = [];
+      markDirty(); renderEditor();
+    });
+    $('#nodeTitle').addEventListener('input', event => { const node = nodeById(selectedId); node.title = event.target.value; $('#editorBreadcrumb').textContent = event.target.value; markDirty(); renderNodes(); renderPreview(); });
+    $('#nodeText').addEventListener('input', event => { const node = nodeById(selectedId); node.text = event.target.value; $('#charCount').textContent = `${event.target.value.length} תווים`; markDirty(); renderPreview(); });
+    $('#handoffPhone').addEventListener('input', event => { nodeById(selectedId).phone = event.target.value; markDirty(); renderPreview(); });
+
+    $('#addOption').addEventListener('click', () => {
+      const node = nodeById(selectedId);
+      node.options.push({ label: 'אפשרות חדשה', target: nodes.find(item => item.id !== node.id)?.id || node.id });
+      markDirty(); renderEditor();
+    });
+    $$('.add-node').forEach(button => button.addEventListener('click', () => {
+      const type = button.dataset.type;
+      const id = `node-${nodes.length + 1}`;
+      nodes.push({ id, title: type === 'menu' ? 'תפריט חדש' : 'הודעה חדשה', type, text: '', options: [] });
+      selectedId = id;
+      markDirty(); renderEditor();
+      if (window.innerWidth <= 760) activateMobilePanel('editor');
+    }));
+    $('#deleteNode').addEventListener('click', () => {
+      if (selectedId === 'main') return;
+      const deleted = nodeById(selectedId);
+      nodes = nodes.filter(node => node.id !== selectedId);
+      nodes.forEach(node => node.options = node.options.filter(option => option.target !== selectedId));
+      selectedId = 'main';
+      markDirty(); renderEditor(); announce(`השלב „${deleted.title}” נמחק מהטיוטה`);
+    });
+
+    $('#saveButton').addEventListener('click', () => {
+      const button = $('#saveButton');
+      button.disabled = true;
+      button.textContent = 'שומר…';
+      setTimeout(() => {
+        button.disabled = false;
+        button.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 3h12l2 2v16H5V3Z"/><path d="M8 3v6h8V3M8 21v-7h8v7"/></svg> שמירת הבוט';
+        $('#saveState').innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m5 12 4 4L19 6"/></svg> כל השינויים נשמרו';
+        $('#saveState').style.color = 'var(--brand)';
+        announce('בוט השירות נשמר בהצלחה');
+      }, 700);
+    });
+    $('#validateButton').addEventListener('click', () => announce('בדיקת התקינות הושלמה — המבנה מוכן לשמירה'));
+    $('#templateButton').addEventListener('click', () => announce('התבנית המוכנה נטענה לטיוטה'));
+    $('#resetSessions').addEventListener('click', () => announce('אופסו 4 שיחות פעילות (הדמיה)'));
+    $('#hoursEnabled').addEventListener('change', event => { $('#hoursFields').style.opacity = event.target.checked ? '1' : '.45'; markDirty(); });
+    $('#globalHandoff').addEventListener('change', event => { $('#handoffFields').style.opacity = event.target.checked ? '1' : '.45'; markDirty(); });
+    $$('.settings-content input, .settings-content select').forEach(control => control.addEventListener('input', markDirty));
+
+    renderEditor();
+    showState('ready');
+  </script>
+</body>
+</html>

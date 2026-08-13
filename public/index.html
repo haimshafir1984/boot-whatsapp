@@ -1120,45 +1120,162 @@
     .dashboard-tab { flex:1; border:0; border-radius:9px; padding:11px 16px; background:transparent; color:#64748b; font:inherit; font-weight:800; cursor:pointer; }
     .dashboard-tab.active { background:#dcfce7; color:#166534; box-shadow:0 1px 3px rgba(15,23,42,.08); }
     .dashboard-tab-hidden { display:none !important; }
-    .service-bot-intro { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:18px; }
-    .service-bot-intro p { margin:4px 0 0; color:#64748b; font-size:.82rem; line-height:1.6; }
-    .service-bot-feature-note { border-radius:9px; padding:8px 10px; background:#eff6ff; color:#1d4ed8; font-size:.76rem; font-weight:700; }
-    .service-bot-settings { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-bottom:16px; padding:14px; border:1px solid #e2e8f0; border-radius:12px; background:#f8fafc; }
-    .service-bot-settings .full { grid-column:1 / -1; }
-    .service-bot-grid { display:grid; grid-template-columns:minmax(190px,240px) minmax(330px,1fr) minmax(250px,320px); gap:14px; align-items:start; }
-    .service-bot-panel { border:1px solid #e2e8f0; border-radius:12px; background:#fff; overflow:hidden; }
-    .service-bot-panel-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:12px 14px; border-bottom:1px solid #e2e8f0; background:#f8fafc; font-weight:800; }
+    body.service-bot-mode .page, body.service-bot-mode #main-content { max-width:1480px; }
+    #serviceBotCard { overflow:visible; background:transparent; box-shadow:none; }
+    #serviceBotCard > .card-body { padding:0; }
+    .service-bot-intro { display:flex; justify-content:space-between; align-items:flex-start; gap:18px; margin-bottom:16px; padding:18px; border:1px solid #dce5df; border-radius:14px; background:#fff; box-shadow:0 10px 30px rgba(29,54,41,.07); }
+    .service-bot-intro-main { display:flex; align-items:flex-start; gap:12px; min-width:0; }
+    .service-bot-intro-icon { display:grid; place-items:center; width:42px; height:42px; flex:0 0 auto; border-radius:12px; background:#147a4a; color:#fff; font-size:1.15rem; }
+    .service-bot-intro .sec-title { margin:0; color:#0d633a; letter-spacing:0; text-transform:none; font-size:1.25rem; }
+    .service-bot-intro p { margin:4px 0 0; color:#64726a; font-size:.84rem; line-height:1.6; }
+    .service-bot-status-stack { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:8px; }
+    .service-bot-feature-note { border:1px solid #bfe0cd; border-radius:999px; padding:7px 10px; background:#e9f6ef; color:#0d633a; font-size:.74rem; font-weight:800; white-space:nowrap; }
+    .service-bot-feature-note.is-disabled { border-color:#d9e2dc; background:#f4f6f5; color:#64726a; }
+    .service-bot-dirty { display:inline-flex; align-items:center; gap:5px; color:#a55f07; font-size:.74rem; font-weight:800; white-space:nowrap; }
+    .service-bot-dirty.is-saved { color:#147a4a; }
+    .service-bot-overview { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(330px,.8fr); gap:16px; margin-bottom:14px; padding:16px 18px; border:1px solid #dce5df; border-radius:14px; background:#fff; box-shadow:0 8px 22px rgba(29,54,41,.05); }
+    .service-bot-activation { display:flex; align-items:center; gap:13px; }
+    .service-bot-activation strong { display:block; color:#18231e; font-size:.96rem; }
+    .service-bot-activation span { display:block; margin-top:2px; color:#66756d; font-size:.76rem; }
+    .service-bot-facts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+    .service-bot-fact { min-width:0; padding:9px 10px; border:1px solid #dce5df; border-radius:9px; background:#f8faf9; }
+    .service-bot-fact span { display:block; color:#66756d; font-size:.67rem; font-weight:700; }
+    .service-bot-fact strong { display:block; overflow:hidden; margin-top:2px; color:#26352d; font-size:.75rem; text-overflow:ellipsis; white-space:nowrap; }
+    .service-bot-command-bar { position:sticky; top:0; z-index:20; display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px; padding:9px 0; background:rgba(240,242,245,.94); backdrop-filter:blur(8px); }
+    .service-bot-actions { display:flex; flex-wrap:wrap; gap:8px; }
+    .service-bot-actions .btn-save,.service-bot-actions .btn-small { width:auto; min-height:40px; padding-inline:14px; }
+    .service-bot-actions .btn-save { background:#147a4a; }
+    .service-bot-actions .btn-save:hover { background:#0d633a; }
+    .service-bot-mobile-tabs { display:none; gap:4px; margin-bottom:10px; padding:4px; border:1px solid #dce5df; border-radius:10px; background:#e8eeea; }
+    .service-bot-mobile-tab { flex:1; min-height:38px; border:0; border-radius:7px; background:transparent; color:#66756d; font:inherit; font-size:.8rem; font-weight:800; cursor:pointer; }
+    .service-bot-mobile-tab.active { background:#fff; color:#0d633a; box-shadow:0 1px 5px rgba(20,45,31,.09); }
+    .service-bot-grid { display:grid; grid-template-columns:minmax(220px,260px) minmax(430px,1fr) minmax(290px,340px); gap:14px; align-items:start; }
+    .service-bot-panel { min-width:0; border:1px solid #dce5df; border-radius:14px; background:#fff; box-shadow:0 4px 18px rgba(29,54,41,.045); overflow:hidden; }
+    .service-bot-panel.tree,.service-bot-panel.preview { position:sticky; top:66px; }
+    .service-bot-panel-head { display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:58px; padding:12px 14px; border-bottom:1px solid #dce5df; background:#fbfcfb; font-weight:800; }
+    .service-bot-panel-title { display:flex; align-items:center; gap:8px; min-width:0; }
+    .service-bot-step { display:grid; place-items:center; width:25px; height:25px; flex:0 0 auto; border-radius:7px; background:#e9f6ef; color:#0d633a; font-size:.72rem; font-weight:900; }
+    .service-bot-panel-title strong { display:block; color:#18231e; font-size:.86rem; }
+    .service-bot-panel-title small { display:block; margin-top:1px; color:#66756d; font-size:.67rem; font-weight:400; }
     .service-bot-panel-body { padding:14px; }
+    .service-bot-node-actions { display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-bottom:11px; }
     .service-bot-node-list { display:grid; gap:7px; }
-    .service-bot-node { width:100%; border:1px solid #e2e8f0; border-radius:9px; padding:9px 10px; text-align:right; background:#fff; cursor:pointer; font:inherit; }
-    .service-bot-node.active { border-color:#22c55e; background:#f0fdf4; }
-    .service-bot-node strong,.service-bot-node span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .service-bot-node span { margin-top:2px; color:#64748b; font-size:.72rem; }
-    .service-bot-node-empty { color:#94a3b8; text-align:center; font-size:.8rem; padding:18px 4px; }
-    .service-bot-option { display:grid; grid-template-columns:minmax(80px,.75fr) minmax(120px,1.25fr) minmax(120px,1fr) auto; gap:7px; align-items:end; padding:9px; margin-top:8px; border:1px solid #e2e8f0; border-radius:9px; background:#f8fafc; }
-    .service-bot-option.missing-target { border-color:#ef4444; background:#fff7f7; }
-    .service-bot-option.missing-target select { border-color:#ef4444; }
-    .service-bot-target-error { margin-top:4px; color:#b91c1c; font-size:.68rem; font-weight:700; }
-    .service-bot-option .field { margin:0; }
-    .service-bot-option .field label { font-size:.7rem; }
-    .service-bot-delete { border:0; border-radius:7px; padding:9px 10px; background:#fee2e2; color:#b91c1c; cursor:pointer; }
-    .service-bot-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
-    .service-bot-actions .btn-save,.service-bot-actions .btn-small { width:auto; }
-    .service-bot-validation { display:none; margin-top:12px; border-radius:9px; padding:10px 12px; font-size:.8rem; line-height:1.55; }
-    .service-bot-validation.open { display:block; }
-    .service-bot-validation.success { background:#dcfce7; color:#166534; }
-    .service-bot-validation.error { background:#fee2e2; color:#991b1b; }
-    .service-bot-preview { min-height:210px; padding:14px; background:#efeae2; }
-    .service-bot-preview-bubble { max-width:92%; margin-right:auto; border-radius:10px 10px 2px 10px; padding:10px 12px; background:#d9fdd3; color:#111827; white-space:pre-wrap; line-height:1.55; box-shadow:0 1px 2px rgba(15,23,42,.12); }
+    .service-bot-node { display:grid; grid-template-columns:32px 1fr auto; align-items:center; gap:8px; width:100%; min-height:56px; border:1px solid #dce5df; border-radius:9px; padding:8px 9px; text-align:right; background:#fff; color:#18231e; cursor:pointer; font:inherit; }
+    .service-bot-node:hover { border-color:#aec3b6; background:#fbfdfc; }
+    .service-bot-node.active { border-color:#147a4a; background:#e9f6ef; box-shadow:inset -3px 0 #147a4a; }
+    .service-bot-node-icon { display:grid !important; place-items:center; width:31px; height:31px; border-radius:8px; background:#edf3ef; color:#3d6d54; font-size:.9rem; }
+    .service-bot-node.active .service-bot-node-icon { background:#147a4a; color:#fff; }
+    .service-bot-node-copy { min-width:0; }
+    .service-bot-node-copy strong,.service-bot-node-copy span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .service-bot-node-copy strong { font-size:.76rem; }
+    .service-bot-node-copy span { margin-top:1px; color:#66756d; font-size:.66rem; }
+    .service-bot-node-badge { display:block; border-radius:6px; padding:2px 6px; background:#edf1ef; color:#65736b; font-size:.6rem; font-weight:800; }
+    .service-bot-tree-note { margin-top:10px; padding:9px 10px; border-radius:9px; background:#eef4ff; color:#235cb5; font-size:.69rem; line-height:1.5; }
+    .service-bot-node-empty { color:#7a8981; text-align:center; font-size:.78rem; padding:26px 8px; }
+    .service-bot-panel.editor .service-bot-panel-body { padding:18px; }
+    #serviceBotCard .field { margin-bottom:13px; }
+    #serviceBotCard .field label { color:#33423a; font-size:.75rem; font-weight:800; }
+    #serviceBotCard .field input,#serviceBotCard .field textarea,#serviceBotCard .field select { width:100%; border:1px solid #cbd6d0; border-radius:9px; padding:9px 10px; background:#fff; color:#18231e; font:inherit; font-size:.84rem; }
+    #serviceBotCard .field input,#serviceBotCard .field select { min-height:41px; }
+    #serviceBotCard .field textarea { min-height:108px; line-height:1.55; resize:vertical; }
+    #serviceBotCard .field input:focus,#serviceBotCard .field textarea:focus,#serviceBotCard .field select:focus { outline:none; border-color:#235cb5; box-shadow:0 0 0 3px rgba(35,92,181,.18); }
+    .service-bot-editor-fields { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .service-bot-editor-fields .full { grid-column:1/-1; }
+    .service-bot-section-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:18px -18px 10px; padding:13px 18px 0; border-top:1px solid #dce5df; }
+    .service-bot-section-head strong { display:block; font-size:.82rem; }
+    .service-bot-section-head small { display:block; color:#66756d; font-size:.66rem; font-weight:400; }
+    .service-bot-option { display:grid; grid-template-columns:26px minmax(115px,1fr) 18px minmax(135px,1fr) 36px; gap:7px; align-items:center; padding:9px; margin-top:8px; border:1px solid #dce5df; border-radius:9px; background:#f8faf9; }
+    .service-bot-option.missing-target { border-color:#ef9da5; background:#fff7f7; }
+    .service-bot-option.missing-target select { border-color:#d84a55 !important; }
+    .service-bot-option-index { display:grid; place-items:center; width:25px; height:25px; border-radius:7px; background:#dff1e7; color:#0d633a; font-size:.68rem; font-weight:900; }
+    .service-bot-option-arrow { color:#819087; text-align:center; }
+    .service-bot-option .field { margin:0 !important; }
+    .service-bot-option .field label { margin-bottom:3px !important; font-size:.64rem !important; }
+    .service-bot-option .field input,.service-bot-option .field select { min-height:37px !important; padding:7px 8px !important; }
+    .service-bot-target-error { margin-top:3px; color:#b91c1c; font-size:.63rem; font-weight:700; }
+    .service-bot-delete { display:inline-flex; align-items:center; justify-content:center; min-height:36px; border:1px solid #f0cbd0; border-radius:8px; padding:7px 10px; background:#fff0f1; color:#b4232d; cursor:pointer; font:inherit; font-size:.76rem; font-weight:800; }
+    .service-bot-editor-footer { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:16px; padding-top:13px; border-top:1px solid #dce5df; }
+    .service-bot-editor-hint { color:#66756d; font-size:.67rem; }
+    .service-bot-phone { margin:14px; overflow:hidden; border:6px solid #29342e; border-radius:24px; background:#efeae2; box-shadow:0 12px 28px rgba(24,35,30,.14); }
+    .service-bot-phone-head { display:flex; align-items:center; gap:8px; min-height:48px; padding:8px 10px; background:#075e54; color:#fff; }
+    .service-bot-phone-avatar { display:grid; place-items:center; width:30px; height:30px; border-radius:50%; background:#d7eee7; color:#075e54; font-size:.65rem; font-weight:900; }
+    .service-bot-phone-head strong { display:block; font-size:.72rem; }
+    .service-bot-phone-head small { display:block; opacity:.8; font-size:.58rem; }
+    .service-bot-preview { min-height:400px; padding:18px 10px 22px; background-color:#efeae2; background-image:radial-gradient(rgba(87,99,91,.08) .7px,transparent .7px); background-size:13px 13px; }
+    .service-bot-preview-bubble { max-width:94%; margin-right:auto; border-radius:10px 10px 2px 10px; padding:9px 10px; background:#d9fdd3; color:#202b25; white-space:pre-wrap; line-height:1.55; box-shadow:0 1px 2px rgba(15,23,42,.12); font-size:.73rem; }
     .service-bot-preview-options { display:grid; gap:5px; margin-top:8px; }
-    .service-bot-preview-option { border-top:1px solid rgba(15,23,42,.12); padding-top:6px; color:#166534; font-size:.8rem; font-weight:700; }
-    .service-bot-preview-nav { max-width:92%; margin:8px 0 0 auto; padding:8px 10px; border-radius:10px; background:#fff; color:#64748b; font-size:.78rem; line-height:1.6; }
-    .service-bot-preview-nav span { color:#166534; font-weight:700; }
-    .service-bot-dirty { color:#b45309; font-size:.75rem; font-weight:700; }
-    .service-bot-builder-guide { margin:0 0 14px; padding:12px 14px; border:1px solid #bfdbfe; border-radius:10px; background:#eff6ff; color:#1e3a8a; line-height:1.6; }
-    .service-bot-builder-guide .btn-small { margin-right:8px; }
-    @media (max-width: 980px) { .service-bot-grid { grid-template-columns:1fr; } .service-bot-settings { grid-template-columns:1fr; } .service-bot-settings .full { grid-column:auto; } }
-    @media (max-width: 650px) { .service-bot-option { grid-template-columns:1fr; } .service-bot-intro { flex-direction:column; } }
+    .service-bot-preview-option { width:100%; border:1px solid #b8dfc5; border-radius:7px; padding:6px 8px; background:#fff; color:#086b3d; font:inherit; font-size:.68rem; font-weight:800; text-align:center; cursor:pointer; }
+    .service-bot-preview-option:hover { background:#f2fff6; }
+    .service-bot-preview-nav { max-width:94%; margin:7px 0 0 auto; padding:8px 10px; border-radius:9px; background:#fff; color:#64748b; font-size:.66rem; line-height:1.55; box-shadow:0 1px 2px rgba(15,23,42,.08); }
+    .service-bot-preview-nav span { color:#166534; font-weight:800; }
+    .service-bot-preview-note { margin:0 14px 14px; color:#66756d; font-size:.66rem; text-align:center; }
+    .service-bot-settings-panel { margin-top:14px; border:1px solid #dce5df; border-radius:14px; background:#fff; box-shadow:0 8px 22px rgba(29,54,41,.05); overflow:hidden; }
+    .service-bot-settings-panel summary { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:60px; padding:14px 18px; list-style:none; cursor:pointer; }
+    .service-bot-settings-panel summary::-webkit-details-marker { display:none; }
+    .service-bot-settings-title strong { display:block; color:#18231e; font-size:.86rem; }
+    .service-bot-settings-title span { display:block; margin-top:2px; color:#66756d; font-size:.7rem; }
+    .service-bot-settings-chevron { color:#66756d; transition:transform .2s; }
+    .service-bot-settings-panel[open] .service-bot-settings-chevron { transform:rotate(180deg); }
+    .service-bot-settings { padding:16px; border-top:1px solid #dce5df; background:#fbfcfb; }
+    .service-bot-settings-group { padding:14px; border:1px solid #dce5df; border-radius:10px; background:#fff; }
+    .service-bot-settings-group + .service-bot-settings-group { margin-top:11px; }
+    .service-bot-settings-group-head { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-bottom:12px; }
+    .service-bot-settings-group-head strong { display:block; font-size:.8rem; }
+    .service-bot-settings-group-head span { display:block; margin-top:2px; color:#66756d; font-size:.66rem; }
+    .service-bot-settings-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:11px; }
+    .service-bot-settings-grid .full { grid-column:1/-1; }
+    .service-bot-settings .field { margin:0 !important; }
+    .service-bot-danger-zone { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-top:13px; padding:13px 14px; border:1px solid #f0d1d4; border-radius:10px; background:#fffafa; }
+    .service-bot-danger-zone strong { display:block; color:#81212a; font-size:.77rem; }
+    .service-bot-danger-zone span { display:block; margin-top:2px; color:#8c6569; font-size:.66rem; }
+    .service-bot-validation { display:none; margin:0 0 12px; border-radius:9px; padding:10px 12px; font-size:.78rem; line-height:1.55; }
+    .service-bot-validation.open { display:block; }
+    .service-bot-validation.success { border:1px solid #bfe0cd; background:#e9f6ef; color:#0d633a; }
+    .service-bot-validation.error { border:1px solid #f0cbd0; background:#fff0f1; color:#991b1b; }
+    .service-bot-state { display:none; min-height:460px; place-items:center; padding:28px; border:1px solid #dce5df; border-radius:14px; background:#fff; text-align:center; }
+    .service-bot-state.open { display:grid; }
+    .service-bot-state-icon { display:grid; place-items:center; width:54px; height:54px; margin:0 auto 12px; border-radius:15px; background:#e9f6ef; color:#147a4a; font-size:1.25rem; }
+    .service-bot-state strong { display:block; font-size:.95rem; }
+    .service-bot-state p { max-width:420px; margin:5px auto 15px; color:#66756d; font-size:.78rem; }
+    .service-bot-skeleton { width:min(580px,100%); }
+    .service-bot-skeleton-line { height:13px; margin:11px 0; border-radius:7px; background:linear-gradient(90deg,#edf1ef 25%,#f7f9f8 50%,#edf1ef 75%); background-size:200% 100%; animation:service-bot-shimmer 1.3s infinite; }
+    .service-bot-skeleton-line:nth-child(2) { width:72%; }
+    @keyframes service-bot-shimmer { to { background-position:-200% 0; } }
+    @media (max-width:1180px) {
+      .service-bot-grid { grid-template-columns:minmax(220px,250px) minmax(410px,1fr); }
+      .service-bot-panel.preview { position:static; grid-column:1/-1; }
+      .service-bot-phone { max-width:335px; margin-inline:auto; }
+      .service-bot-settings-grid { grid-template-columns:1fr 1fr; }
+    }
+    @media (max-width:760px) {
+      body.service-bot-mode .page,body.service-bot-mode #main-content { max-width:560px; }
+      .service-bot-intro { flex-direction:column; padding:14px; }
+      .service-bot-status-stack { justify-content:flex-start; }
+      .service-bot-overview { grid-template-columns:1fr; padding:14px; }
+      .service-bot-command-bar { align-items:stretch; flex-direction:column; }
+      .service-bot-actions .btn-save { flex:1; }
+      .service-bot-mobile-tabs { display:flex; }
+      .service-bot-grid { display:block; }
+      .service-bot-panel { display:none; }
+      .service-bot-panel.mobile-active { display:block; }
+      .service-bot-panel.tree,.service-bot-panel.preview { position:static; }
+      .service-bot-editor-fields,.service-bot-settings-grid { grid-template-columns:1fr; }
+      .service-bot-editor-fields .full,.service-bot-settings-grid .full { grid-column:auto; }
+      .service-bot-option { grid-template-columns:26px 1fr 36px; }
+      .service-bot-option-arrow { display:none; }
+      .service-bot-option .field.target { grid-column:2; }
+      .service-bot-option .service-bot-delete { grid-column:3; grid-row:1/3; }
+      .service-bot-settings { padding:11px; }
+      .service-bot-settings-group-head,.service-bot-danger-zone { align-items:stretch; flex-direction:column; }
+      .service-bot-danger-zone .service-bot-delete { width:100%; }
+    }
+    @media (max-width:420px) {
+      .service-bot-facts { grid-template-columns:1fr; }
+      .service-bot-node-actions { grid-template-columns:1fr; }
+      .service-bot-panel.editor .service-bot-panel-body { padding:14px; }
+      .service-bot-section-head { margin-inline:-14px; padding-inline:14px; }
+      .service-bot-editor-footer { align-items:stretch; flex-direction:column-reverse; }
+    }
   </style>
 </head>
 <body>
@@ -1253,78 +1370,164 @@
   <div class="card" id="serviceBotCard" style="display:none">
     <div class="card-body">
       <div class="service-bot-intro">
-        <div>
-          <div class="sec-title">בוט שירות קבוע</div>
-          <p>עץ שירות נפרד מקמפיינים. המשתמש נכנס דרך מילת הטריגר ומתקדם בין תפריטים, הודעות ומעבר לנציג.</p>
-        </div>
-        <div class="service-bot-feature-note" id="serviceBotFeatureNote">פעיל רק ביחידת הבדיקות</div>
-      </div>
-
-      <div class="service-bot-settings">
-        <div class="toggle-row full">
+        <div class="service-bot-intro-main">
+          <div class="service-bot-intro-icon" aria-hidden="true">◫</div>
           <div>
-            <div class="toggle-label">הפעלת בוט השירות</div>
-            <div class="toggle-sub">אפשר לכבות מיד בלי למחוק את העץ או את ההגדרות.</div>
+            <div class="sec-title">בוט שירות</div>
+            <p>בנו מסלול שירות ברור, בדקו אותו בתצוגה המקדימה ושמרו כשהוא מוכן.</p>
           </div>
-          <label class="switch"><input type="checkbox" id="serviceBotEnabled" onchange="updateServiceBotGlobal('enabled', this.checked)" /><span class="slider"></span></label>
         </div>
-        <div class="field">
-          <label for="serviceBotName">שם פנימי</label>
-          <input id="serviceBotName" placeholder="לדוגמה: שירות לקוחות" oninput="updateServiceBotGlobal('name', this.value)" />
+        <div class="service-bot-status-stack">
+          <div class="service-bot-feature-note" id="serviceBotFeatureNote">בודק זמינות…</div>
+          <div class="service-bot-dirty" id="serviceBotDirtyState" aria-live="polite">טוען…</div>
         </div>
-        <div class="field">
-          <label for="serviceBotTrigger">מילת או משפט טריגר</label>
-          <input id="serviceBotTrigger" placeholder="תפריט" oninput="updateServiceBotGlobal('triggerText', this.value)" />
-        </div>
-        <div class="field">
-          <label for="serviceBotMainNode">תפריט ראשי</label>
-          <select id="serviceBotMainNode" onchange="updateServiceBotGlobal('mainMenuNodeId', this.value)"></select>
-        </div>
-        <div class="field">
-          <label for="serviceBotFallback">תגובה לבחירה לא מוכרת</label>
-          <input id="serviceBotFallback" oninput="updateServiceBotGlobal('fallbackText', this.value)" />
-        </div>
-        <div class="field"><label for="serviceBotSessionTimeout">תוקף סשן (דקות)</label><input id="serviceBotSessionTimeout" type="number" min="1" max="10080" oninput="updateServiceBotGlobal('sessionTimeoutMinutes', Number(this.value))" /></div>
-        <div class="field"><label for="serviceBotNavigationPrompt">שאלת ניווט קבועה</label><input id="serviceBotNavigationPrompt" oninput="updateServiceBotGlobal('navigationPromptText', this.value)" /></div>
-        <div class="field"><label for="serviceBotBackLabel">חזרה לתפריט קודם</label><input id="serviceBotBackLabel" oninput="updateServiceBotGlobal('backLabel', this.value)" /></div>
-        <div class="field"><label for="serviceBotMainLabel">חזרה לתפריט ראשי</label><input id="serviceBotMainLabel" oninput="updateServiceBotGlobal('mainMenuLabel', this.value)" /></div>
-        <div class="toggle-row full"><div><div class="toggle-label">שעות פעילות</div><div class="toggle-sub">שליחת הודעה אחרת מחוץ לשעות הפעילות.</div></div><label class="switch"><input type="checkbox" id="serviceBotOutsideHoursEnabled" onchange="updateServiceBotGlobal('outsideHoursEnabled', this.checked)" /><span class="slider"></span></label></div>
-        <div class="field"><label for="serviceBotOutsideHoursStart">משעה</label><input id="serviceBotOutsideHoursStart" type="time" oninput="updateServiceBotGlobal('outsideHoursStart', this.value)" /></div>
-        <div class="field"><label for="serviceBotOutsideHoursEnd">עד שעה</label><input id="serviceBotOutsideHoursEnd" type="time" oninput="updateServiceBotGlobal('outsideHoursEnd', this.value)" /></div>
-        <div class="field full"><label for="serviceBotOutsideHoursText">הודעה מחוץ לשעות</label><input id="serviceBotOutsideHoursText" oninput="updateServiceBotGlobal('outsideHoursText', this.value)" /></div>
-        <div class="toggle-row full"><div><div class="toggle-label">נציג שירות מכל צומת</div><div class="toggle-sub">מוסיף אפשרות מעבר לנציג בתפריטי הניווט.</div></div><label class="switch"><input type="checkbox" id="serviceBotGlobalHandoffEnabled" onchange="updateServiceBotGlobal('globalHandoffEnabled', this.checked)" /><span class="slider"></span></label></div>
-        <div class="field"><label for="serviceBotGlobalHandoffLabel">טקסט אפשרות נציג</label><input id="serviceBotGlobalHandoffLabel" oninput="updateServiceBotGlobal('globalHandoffLabel', this.value)" /></div>
-        <div class="field"><label for="serviceBotGlobalHandoffPhone">טלפון נציג</label><input id="serviceBotGlobalHandoffPhone" oninput="updateServiceBotGlobal('globalHandoffPhone', this.value)" /></div>
-        <div class="field full"><label for="serviceBotGlobalHandoffText">הודעת נציג</label><input id="serviceBotGlobalHandoffText" oninput="updateServiceBotGlobal('globalHandoffText', this.value)" /></div>
       </div>
 
-      <div class="service-bot-builder-guide"><strong>איך בונים בוט?</strong> יוצרים תפריט, מוסיפים אפשרויות, ובוחרים לכל אפשרות לאן ממשיכים. את המזהים הטכניים המערכת מנהלת לבד. <button type="button" class="btn-small" onclick="loadServiceBotSample()">התחלה מתבנית מוכנה</button></div>
-      <div class="service-bot-grid">
-        <section class="service-bot-panel">
-          <div class="service-bot-panel-head"><span>1. בונים את העץ</span><span><button type="button" class="btn-small" onclick="addServiceBotNode('menu')">+ תפריט</button> <button type="button" class="btn-small" onclick="addServiceBotNode('message')">+ הודעה</button></span></div>
-          <div class="service-bot-panel-body"><div class="service-bot-node-list" id="serviceBotNodeList"></div></div>
-        </section>
+      <div id="serviceBotLoadingState" class="service-bot-state">
+        <div class="service-bot-skeleton">
+          <div class="service-bot-state-icon" aria-hidden="true">◌</div>
+          <strong>טוענים את בוט השירות</strong>
+          <p>ההגדרות והמבנה יופיעו בעוד רגע.</p>
+          <div class="service-bot-skeleton-line"></div><div class="service-bot-skeleton-line"></div><div class="service-bot-skeleton-line"></div>
+        </div>
+      </div>
 
-        <section class="service-bot-panel">
-          <div class="service-bot-panel-head"><span>עריכת צומת</span><span class="service-bot-dirty" id="serviceBotDirtyState"></span></div>
-          <div class="service-bot-panel-body" id="serviceBotNodeEditor">
-            <div class="service-bot-node-empty">יש לבחור צומת לעריכה.</div>
+      <div id="serviceBotErrorState" class="service-bot-state" role="alert">
+        <div>
+          <div class="service-bot-state-icon" aria-hidden="true">!</div>
+          <strong>לא הצלחנו לטעון את בוט השירות</strong>
+          <p>החיבור לשרת נכשל. אפשר לנסות שוב בלי לעזוב את המסך.</p>
+          <button type="button" class="btn-save" style="width:auto;padding-inline:20px" onclick="loadServiceBot()">ניסיון נוסף</button>
+        </div>
+      </div>
+
+      <div id="serviceBotWorkspace" style="display:none">
+        <div class="service-bot-overview">
+          <div class="service-bot-activation">
+            <label class="switch"><input type="checkbox" id="serviceBotEnabled" onchange="updateServiceBotGlobal('enabled', this.checked); renderServiceBotSummary()" /><span class="slider"></span></label>
+            <div>
+              <strong id="serviceBotActivationTitle">בוט השירות כבוי</strong>
+              <span id="serviceBotActivationText">אפשר להכין ולשמור את המבנה לפני ההפעלה.</span>
+            </div>
           </div>
-        </section>
+          <div class="service-bot-facts">
+            <div class="service-bot-fact"><span>טריגר</span><strong id="serviceBotTriggerFact">—</strong></div>
+            <div class="service-bot-fact"><span>תפריט ראשי</span><strong id="serviceBotMainFact">—</strong></div>
+            <div class="service-bot-fact"><span>מבנה</span><strong id="serviceBotStructureFact">—</strong></div>
+          </div>
+        </div>
 
-        <section class="service-bot-panel">
-          <div class="service-bot-panel-head"><span>תצוגה מקדימה</span><span style="font-size:.72rem;color:#64748b">WhatsApp</span></div>
-          <div class="service-bot-preview" id="serviceBotPreview"></div>
-        </section>
-      </div>
+        <div class="service-bot-command-bar">
+          <div class="service-bot-actions">
+            <button type="button" class="btn-save" id="saveServiceBotBtn" onclick="saveServiceBot()">שמירת הבוט</button>
+            <button type="button" class="btn-small" onclick="validateServiceBotDraft()">בדיקת תקינות</button>
+            <button type="button" class="btn-small" onclick="loadServiceBotSample()">טעינה מתבנית</button>
+          </div>
+          <span style="color:#66756d;font-size:.7rem">הפעולות במסך חלות רק על בוט השירות</span>
+        </div>
 
-      <div class="service-bot-actions">
-        <button type="button" class="btn-save" id="saveServiceBotBtn" onclick="saveServiceBot()">שמירת בוט השירות</button>
-        <button type="button" class="btn-small" onclick="validateServiceBotDraft()">בדיקת תקינות</button>
-        <button type="button" class="btn-small" onclick="loadServiceBotSample()">טעינת עץ לדוגמה</button>
-        <button type="button" class="btn-small" onclick="clearServiceBotSessions()">איפוס שיחות פעילות</button>
+        <div class="service-bot-validation" id="serviceBotValidation" role="status" aria-live="polite"></div>
+
+        <div class="service-bot-mobile-tabs" role="tablist" aria-label="חלקי עורך הבוט">
+          <button type="button" class="service-bot-mobile-tab active" data-service-bot-mobile="tree" onclick="switchServiceBotMobilePanel('tree')">מבנה</button>
+          <button type="button" class="service-bot-mobile-tab" data-service-bot-mobile="editor" onclick="switchServiceBotMobilePanel('editor')">עריכה</button>
+          <button type="button" class="service-bot-mobile-tab" data-service-bot-mobile="preview" onclick="switchServiceBotMobilePanel('preview')">תצוגה</button>
+        </div>
+
+        <div class="service-bot-grid">
+          <section class="service-bot-panel tree mobile-active" data-service-bot-panel="tree">
+            <div class="service-bot-panel-head">
+              <div class="service-bot-panel-title"><span class="service-bot-step">1</span><div><strong>מבנה הבוט</strong><small>בחרו שלב כדי לערוך אותו</small></div></div>
+            </div>
+            <div class="service-bot-panel-body">
+              <div class="service-bot-node-actions">
+                <button type="button" class="btn-small" onclick="addServiceBotNode('menu')">+ תפריט</button>
+                <button type="button" class="btn-small" onclick="addServiceBotNode('message')">+ הודעה</button>
+              </div>
+              <div class="service-bot-node-list" id="serviceBotNodeList"></div>
+              <div class="service-bot-tree-note">התפריט הראשי נפתח כשהלקוח שולח את מילת הטריגר.</div>
+            </div>
+          </section>
+
+          <section class="service-bot-panel editor" data-service-bot-panel="editor">
+            <div class="service-bot-panel-head">
+              <div class="service-bot-panel-title"><span class="service-bot-step">2</span><div><strong>עריכת השלב</strong><small id="serviceBotEditorBreadcrumb">בחרו שלב</small></div></div>
+              <span style="color:#a55f07;font-size:.67rem">טיוטה</span>
+            </div>
+            <div class="service-bot-panel-body" id="serviceBotNodeEditor">
+              <div class="service-bot-node-empty">יש לבחור שלב לעריכה.</div>
+            </div>
+          </section>
+
+          <section class="service-bot-panel preview" data-service-bot-panel="preview">
+            <div class="service-bot-panel-head">
+              <div class="service-bot-panel-title"><span class="service-bot-step">3</span><div><strong>בדיקה ב־WhatsApp</strong><small>תצוגה מקדימה בלבד</small></div></div>
+            </div>
+            <div class="service-bot-phone">
+              <div class="service-bot-phone-head"><div class="service-bot-phone-avatar">PS</div><div><strong>שירות לקוחות</strong><small>מחובר</small></div></div>
+              <div class="service-bot-preview" id="serviceBotPreview"></div>
+            </div>
+            <div class="service-bot-preview-note">לחיצה על אפשרות בהדמיה תעביר לשלב הבא ותאפשר לבדוק את הזרימה.</div>
+          </section>
+        </div>
+
+        <details class="service-bot-settings-panel" id="serviceBotSettingsPanel">
+          <summary>
+            <div class="service-bot-settings-title"><strong>הגדרות והתנהגות</strong><span>טריגר, ניווט, שעות פעילות ומעבר לנציג</span></div>
+            <span class="service-bot-settings-chevron" aria-hidden="true">⌄</span>
+          </summary>
+          <div class="service-bot-settings">
+            <section class="service-bot-settings-group">
+              <div class="service-bot-settings-group-head"><div><strong>הגדרות בסיס</strong><span>איך הבוט מזוהה ואיך הלקוח נכנס אליו.</span></div></div>
+              <div class="service-bot-settings-grid">
+                <div class="field"><label for="serviceBotName">שם פנימי</label><input id="serviceBotName" placeholder="לדוגמה: שירות לקוחות" oninput="updateServiceBotGlobal('name', this.value)" /></div>
+                <div class="field"><label for="serviceBotTrigger">מילת או משפט טריגר</label><input id="serviceBotTrigger" placeholder="תפריט" oninput="updateServiceBotGlobal('triggerText', this.value); renderServiceBotSummary()" /></div>
+                <div class="field"><label for="serviceBotMainNode">תפריט ראשי</label><select id="serviceBotMainNode" onchange="updateServiceBotGlobal('mainMenuNodeId', this.value); renderServiceBotSummary(); renderServiceBotEditor()"></select></div>
+                <div class="field"><label for="serviceBotFallback">תגובה לבחירה לא מוכרת</label><input id="serviceBotFallback" oninput="updateServiceBotGlobal('fallbackText', this.value)" /></div>
+                <div class="field"><label for="serviceBotSessionTimeout">תוקף שיחה בדקות</label><input id="serviceBotSessionTimeout" type="number" min="1" max="10080" oninput="updateServiceBotGlobal('sessionTimeoutMinutes', Number(this.value))" /></div>
+              </div>
+            </section>
+
+            <section class="service-bot-settings-group">
+              <div class="service-bot-settings-group-head"><div><strong>ניווט קבוע</strong><span>האפשרויות שמופיעות לאחר שלב שאינו התפריט הראשי.</span></div></div>
+              <div class="service-bot-settings-grid">
+                <div class="field"><label for="serviceBotNavigationPrompt">שאלת ניווט</label><input id="serviceBotNavigationPrompt" oninput="updateServiceBotGlobal('navigationPromptText', this.value)" /></div>
+                <div class="field"><label for="serviceBotBackLabel">חזרה לתפריט קודם</label><input id="serviceBotBackLabel" oninput="updateServiceBotGlobal('backLabel', this.value)" /></div>
+                <div class="field"><label for="serviceBotMainLabel">חזרה לתפריט ראשי</label><input id="serviceBotMainLabel" oninput="updateServiceBotGlobal('mainMenuLabel', this.value)" /></div>
+              </div>
+            </section>
+
+            <section class="service-bot-settings-group">
+              <div class="service-bot-settings-group-head">
+                <div><strong>שעות פעילות</strong><span>שליחת הודעה אחרת כאשר לקוח פונה מחוץ לשעות.</span></div>
+                <label class="switch"><input type="checkbox" id="serviceBotOutsideHoursEnabled" onchange="updateServiceBotGlobal('outsideHoursEnabled', this.checked); updateServiceBotConditionalSettings()" /><span class="slider"></span></label>
+              </div>
+              <div class="service-bot-settings-grid" id="serviceBotOutsideHoursFields">
+                <div class="field"><label for="serviceBotOutsideHoursStart">משעה</label><input id="serviceBotOutsideHoursStart" type="time" oninput="updateServiceBotGlobal('outsideHoursStart', this.value)" /></div>
+                <div class="field"><label for="serviceBotOutsideHoursEnd">עד שעה</label><input id="serviceBotOutsideHoursEnd" type="time" oninput="updateServiceBotGlobal('outsideHoursEnd', this.value)" /></div>
+                <div class="field"><label for="serviceBotOutsideHoursText">הודעה מחוץ לשעות</label><input id="serviceBotOutsideHoursText" oninput="updateServiceBotGlobal('outsideHoursText', this.value)" /></div>
+              </div>
+            </section>
+
+            <section class="service-bot-settings-group">
+              <div class="service-bot-settings-group-head">
+                <div><strong>מעבר לנציג מכל שלב</strong><span>הוספת אפשרות קבועה לשיחה אנושית בתפריטי הניווט.</span></div>
+                <label class="switch"><input type="checkbox" id="serviceBotGlobalHandoffEnabled" onchange="updateServiceBotGlobal('globalHandoffEnabled', this.checked); updateServiceBotConditionalSettings()" /><span class="slider"></span></label>
+              </div>
+              <div class="service-bot-settings-grid" id="serviceBotGlobalHandoffFields">
+                <div class="field"><label for="serviceBotGlobalHandoffLabel">טקסט האפשרות</label><input id="serviceBotGlobalHandoffLabel" oninput="updateServiceBotGlobal('globalHandoffLabel', this.value)" /></div>
+                <div class="field"><label for="serviceBotGlobalHandoffPhone">טלפון נציג</label><input id="serviceBotGlobalHandoffPhone" oninput="updateServiceBotGlobal('globalHandoffPhone', this.value)" /></div>
+                <div class="field"><label for="serviceBotGlobalHandoffText">הודעת מעבר</label><input id="serviceBotGlobalHandoffText" oninput="updateServiceBotGlobal('globalHandoffText', this.value)" /></div>
+              </div>
+            </section>
+
+            <div class="service-bot-danger-zone">
+              <div><strong>איפוס שיחות פעילות</strong><span>לקוחות בשיחות קיימות יידרשו לשלוח שוב את מילת הטריגר.</span></div>
+              <button type="button" class="service-bot-delete" onclick="clearServiceBotSessions()">איפוס שיחות פעילות</button>
+            </div>
+          </div>
+        </details>
       </div>
-      <div class="service-bot-validation" id="serviceBotValidation" role="status" aria-live="polite"></div>
     </div>
   </div>
 
@@ -4820,10 +5023,20 @@
     };
   }
 
+  function setServiceBotLoadState(state) {
+    const workspace = document.getElementById('serviceBotWorkspace');
+    const loading = document.getElementById('serviceBotLoadingState');
+    const error = document.getElementById('serviceBotErrorState');
+    if (workspace) workspace.style.display = state === 'ready' ? 'block' : 'none';
+    loading?.classList.toggle('open', state === 'loading');
+    error?.classList.toggle('open', state === 'error');
+  }
+
   async function loadServiceBot() {
+    setServiceBotLoadState('loading');
     try {
       const response = await fetch('/api/service-bot');
-      if (!response.ok) return;
+      if (!response.ok) throw new Error('service-bot-load-failed');
       const data = await response.json();
       const tabs = document.getElementById('dashboardTabs');
       serviceBotFeatureEnabled = Boolean(data.featureEnabled);
@@ -4843,11 +5056,15 @@
       serviceBotSelectedNode = Math.min(serviceBotSelectedNode, serviceBotDraft.nodes.length - 1);
       setServiceBotDirty(false);
       renderServiceBotEditor();
-    } catch (_) {}
+      setServiceBotLoadState('ready');
+    } catch (_) {
+      setServiceBotLoadState('error');
+    }
   }
 
   function switchDashboardTab(tab) {
     const serviceMode = tab === 'service-bot';
+    document.body.classList.toggle('service-bot-mode', serviceMode);
     document.getElementById('campaignsDashboardTab')?.classList.toggle('active', !serviceMode);
     document.getElementById('serviceBotDashboardTab')?.classList.toggle('active', serviceMode);
     document.getElementById('campaignsDashboardTab')?.setAttribute('aria-selected', String(!serviceMode));
@@ -4858,13 +5075,19 @@
     });
     const serviceCard = document.getElementById('serviceBotCard');
     if (serviceCard) serviceCard.style.display = serviceMode ? 'block' : 'none';
-    if (serviceMode && serviceBotDraft) renderServiceBotEditor();
+    if (serviceMode && serviceBotDraft) {
+      renderServiceBotEditor();
+      switchServiceBotMobilePanel('tree');
+    }
   }
 
   function setServiceBotDirty(dirty = true) {
     serviceBotDraftDirty = dirty;
     const state = document.getElementById('serviceBotDirtyState');
-    if (state) state.textContent = dirty ? 'יש שינויים שלא נשמרו' : 'כל השינויים נשמרו';
+    if (state) {
+      state.textContent = dirty ? '◷ שינויים שלא נשמרו' : '✓ כל השינויים נשמרו';
+      state.classList.toggle('is-saved', !dirty);
+    }
     if (dirty) {
       const validation = document.getElementById('serviceBotValidation');
       if (validation) validation.className = 'service-bot-validation';
@@ -4876,6 +5099,46 @@
     serviceBotDraft[field] = value;
     setServiceBotDirty();
     renderServiceBotPreview();
+    renderServiceBotSummary();
+  }
+
+  function switchServiceBotMobilePanel(panel) {
+    document.querySelectorAll('[data-service-bot-mobile]').forEach(button => {
+      const active = button.dataset.serviceBotMobile === panel;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-selected', String(active));
+    });
+    document.querySelectorAll('[data-service-bot-panel]').forEach(section => {
+      section.classList.toggle('mobile-active', section.dataset.serviceBotPanel === panel);
+    });
+  }
+
+  function updateServiceBotConditionalSettings() {
+    const outsideFields = document.getElementById('serviceBotOutsideHoursFields');
+    const handoffFields = document.getElementById('serviceBotGlobalHandoffFields');
+    if (outsideFields) outsideFields.style.opacity = serviceBotDraft?.outsideHoursEnabled ? '1' : '.45';
+    if (handoffFields) handoffFields.style.opacity = serviceBotDraft?.globalHandoffEnabled ? '1' : '.45';
+  }
+
+  function renderServiceBotSummary() {
+    if (!serviceBotDraft) return;
+    const enabled = Boolean(serviceBotDraft.enabled);
+    const title = document.getElementById('serviceBotActivationTitle');
+    const text = document.getElementById('serviceBotActivationText');
+    if (title) title.textContent = enabled ? 'הבוט פעיל ומגיב ללקוחות' : 'בוט השירות כבוי';
+    if (text) text.textContent = enabled
+      ? 'כיבוי יעצור תגובות חדשות בלי למחוק את המבנה וההגדרות.'
+      : 'אפשר להכין ולשמור את המבנה לפני ההפעלה.';
+    const nodes = serviceBotDraft.nodes || [];
+    const mainNode = nodes.find(node => node.id === serviceBotDraft.mainMenuNodeId);
+    const missingTargets = nodes.some(node => (node.options || []).some(option => !option.targetNodeId || !nodes.some(target => target.id === option.targetNodeId)));
+    const triggerFact = document.getElementById('serviceBotTriggerFact');
+    const mainFact = document.getElementById('serviceBotMainFact');
+    const structureFact = document.getElementById('serviceBotStructureFact');
+    if (triggerFact) triggerFact.textContent = serviceBotDraft.triggerText ? `“${serviceBotDraft.triggerText}”` : 'לא הוגדר';
+    if (mainFact) mainFact.textContent = mainNode ? serviceBotNodeLabel(mainNode, nodes.indexOf(mainNode)) : 'לא נבחר';
+    if (structureFact) structureFact.textContent = `${nodes.length} שלבים · ${missingTargets ? 'דורש תיקון' : 'מוכן לבדיקה'}`;
+    updateServiceBotConditionalSettings();
   }
 
   function serviceBotNodeLabel(node, index) {
@@ -4885,9 +5148,11 @@
   function renderServiceBotEditor() {
     if (!serviceBotDraft) return;
     const enabledToggle = document.getElementById('serviceBotEnabled');
-    enabledToggle.checked = Boolean(serviceBotDraft.enabled);
-    enabledToggle.disabled = !serviceBotFeatureEnabled;
-    enabledToggle.title = serviceBotFeatureEnabled ? '' : 'הפעלה תתאפשר לאחר אישור מנהל המערכת';
+    if (enabledToggle) {
+      enabledToggle.checked = Boolean(serviceBotDraft.enabled);
+      enabledToggle.disabled = !serviceBotFeatureEnabled;
+      enabledToggle.title = serviceBotFeatureEnabled ? '' : 'הפעלה תתאפשר לאחר אישור מנהל המערכת';
+    }
     document.getElementById('serviceBotName').value = serviceBotDraft.name || '';
     document.getElementById('serviceBotTrigger').value = serviceBotDraft.triggerText || '';
     document.getElementById('serviceBotFallback').value = serviceBotDraft.fallbackText || '';
@@ -4912,46 +5177,59 @@
 
     const list = document.getElementById('serviceBotNodeList');
     list.innerHTML = nodes.length
-      ? nodes.map((node, index) => `<button type="button" class="service-bot-node ${index === serviceBotSelectedNode ? 'active' : ''}" onclick="selectServiceBotNode(${index})"><strong>${esc(serviceBotNodeLabel(node, index))}</strong><span>${node.type === 'menu' ? 'תפריט עם אפשרויות' : node.type === 'handoff' ? 'מעבר לנציג' : 'הודעת מידע'}</span></button>`).join('')
-      : '<div class="service-bot-node-empty">אין צמתים. אפשר להוסיף צומת ראשון.</div>';
+      ? nodes.map((node, index) => {
+          const isMain = node.id === serviceBotDraft.mainMenuNodeId;
+          const icon = node.type === 'menu' ? '☷' : node.type === 'handoff' ? '♙' : '▤';
+          const description = node.type === 'menu' ? `${(node.options || []).length} אפשרויות` : node.type === 'handoff' ? 'קישור לשיחה אנושית' : 'הודעת מידע';
+          const badge = isMain ? 'ראשי' : node.type === 'menu' ? 'תפריט' : node.type === 'handoff' ? 'נציג' : 'הודעה';
+          return `<button type="button" class="service-bot-node ${index === serviceBotSelectedNode ? 'active' : ''}" aria-pressed="${index === serviceBotSelectedNode}" onclick="selectServiceBotNode(${index})"><span class="service-bot-node-icon" aria-hidden="true">${icon}</span><span class="service-bot-node-copy"><strong>${esc(serviceBotNodeLabel(node, index))}</strong><span>${description}</span></span><span class="service-bot-node-badge">${badge}</span></button>`;
+        }).join('')
+      : '<div class="service-bot-node-empty"><strong>עדיין אין שלבים</strong><br>הוסיפו תפריט או הודעה כדי להתחיל.</div>';
 
     const editor = document.getElementById('serviceBotNodeEditor');
     const node = nodes[serviceBotSelectedNode];
+    const breadcrumb = document.getElementById('serviceBotEditorBreadcrumb');
     if (!node) {
-      editor.innerHTML = '<div class="service-bot-node-empty">יש להוסיף או לבחור צומת.</div>';
+      if (breadcrumb) breadcrumb.textContent = 'בחרו שלב';
+      editor.innerHTML = '<div class="service-bot-node-empty"><strong>אין שלב לעריכה</strong><br>הוסיפו שלב חדש דרך אזור מבנה הבוט.</div>';
       renderServiceBotPreview();
+      renderServiceBotSummary();
       return;
     }
-    const targetOptions = nodes.map((target, index) => `<option value="${esc(target.id || '')}">${esc(serviceBotNodeLabel(target, index))}</option>`).join('');
+    if (breadcrumb) breadcrumb.textContent = serviceBotNodeLabel(node, serviceBotSelectedNode);
     const options = Array.isArray(node.options) ? node.options : [];
     editor.innerHTML = `
-      <div class="two-fields">
+      <div class="service-bot-editor-fields">
         <div class="field service-bot-technical" style="display:none"><label>מזהה צומת</label><input value="${esc(node.id || '')}" onchange="renameServiceBotNode(${serviceBotSelectedNode}, this.value)" /></div>
-        <div class="field"><label>סוג צומת</label><select onchange="updateServiceBotNode(${serviceBotSelectedNode}, 'type', this.value, true)">
-          <option value="menu" ${node.type === 'menu' ? 'selected' : ''}>תפריט</option>
+        <div class="field"><label>סוג השלב</label><select onchange="updateServiceBotNode(${serviceBotSelectedNode}, 'type', this.value, true)">
+          <option value="menu" ${node.type === 'menu' ? 'selected' : ''}>תפריט עם בחירות</option>
           <option value="message" ${node.type === 'message' ? 'selected' : ''}>הודעת מידע</option>
           <option value="handoff" ${node.type === 'handoff' ? 'selected' : ''}>מעבר לנציג</option>
         </select></div>
+        <div class="field"><label>כותרת ללקוח</label><input value="${esc(node.title || '')}" oninput="updateServiceBotNodeTitle(${serviceBotSelectedNode}, this.value)" /></div>
+        <div class="field full"><label>תוכן ההודעה</label><textarea oninput="updateServiceBotNode(${serviceBotSelectedNode}, 'text', this.value)">${esc(node.text || '')}</textarea><div class="service-bot-editor-hint">התצוגה המקדימה מתעדכנת בזמן אמת.</div></div>
+        ${node.type === 'handoff' ? `<div class="field full"><label>מספר WhatsApp לנציג</label><input value="${esc(node.handoffPhone || '')}" placeholder="0501234567" oninput="updateServiceBotNode(${serviceBotSelectedNode}, 'handoffPhone', this.value)" /></div>` : ''}
       </div>
-      <div class="field"><label>שם שמוצג למשתמש</label><input value="${esc(node.title || '')}" oninput="updateServiceBotNodeTitle(${serviceBotSelectedNode}, this.value)" /></div>
-      <div class="field"><label>טקסט ההודעה</label><textarea oninput="updateServiceBotNode(${serviceBotSelectedNode}, 'text', this.value)">${esc(node.text || '')}</textarea></div>
-      ${node.type === 'handoff' ? `<div class="field"><label>מספר WhatsApp לנציג</label><input value="${esc(node.handoffPhone || '')}" placeholder="0501234567" oninput="updateServiceBotNode(${serviceBotSelectedNode}, 'handoffPhone', this.value)" /></div>` : ''}
       ${node.type === 'menu' ? `
-        <div class="service-bot-panel-head" style="margin:14px -14px 0;border-top:1px solid #e2e8f0"><span>אפשרויות</span><button type="button" class="btn-small" onclick="addServiceBotOption(${serviceBotSelectedNode})">+ אפשרות</button></div>
+        <div class="service-bot-section-head"><div><strong>אפשרויות בחירה</strong><small>כל בחירה מובילה לשלב הבא</small></div><button type="button" class="btn-small" onclick="addServiceBotOption(${serviceBotSelectedNode})">+ אפשרות</button></div>
         <div id="serviceBotOptions">${options.length ? options.map((option, optionIndex) => `
           <div class="service-bot-option ${option.targetNodeId ? '' : 'missing-target'}">
+            <span class="service-bot-option-index">${optionIndex + 1}</span>
             <div class="field service-bot-technical" style="display:none"><label>מזהה</label><input value="${esc(option.id || '')}" oninput="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'id', this.value)" /></div>
-            <div class="field"><label>מה המשתמש יראה</label><input value="${esc(option.label || '')}" placeholder="למשל: שעות פתיחה" oninput="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'label', this.value)" /></div>
-            <div class="field"><label>מה קורה אחרי הבחירה? <span class="required">*</span></label><select onchange="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'targetNodeId', this.value); renderServiceBotEditor()"><option value="">בחירת המשך</option>${nodes.map((target, targetIndex) => `<option value="${esc(target.id || '')}" ${target.id === option.targetNodeId ? 'selected' : ''}>${esc(serviceBotNodeLabel(target, targetIndex))}</option>`).join('')}</select>${option.targetNodeId ? '' : '<div class="service-bot-target-error">צריך לבחור מה המשתמש יראה אחרי הלחיצה</div>'}</div>
+            <div class="field"><label>מה הלקוח יראה</label><input value="${esc(option.label || '')}" placeholder="למשל: שעות פתיחה" oninput="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'label', this.value)" /></div>
+            <span class="service-bot-option-arrow" aria-hidden="true">←</span>
+            <div class="field target"><label>השלב הבא <span class="required">*</span></label><select onchange="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'targetNodeId', this.value); renderServiceBotEditor()"><option value="">בחירת המשך</option>${nodes.map((target, targetIndex) => `<option value="${esc(target.id || '')}" ${target.id === option.targetNodeId ? 'selected' : ''}>${esc(serviceBotNodeLabel(target, targetIndex))}</option>`).join('')}</select>${option.targetNodeId ? '' : '<div class="service-bot-target-error">צריך לבחור מה המשתמש יראה אחרי הלחיצה</div>'}</div>
             <button type="button" class="service-bot-delete" aria-label="מחיקת אפשרות" onclick="deleteServiceBotOption(${serviceBotSelectedNode}, ${optionIndex})">✕</button>
-          </div>`).join('') : '<div class="service-bot-node-empty">אין אפשרויות בתפריט.</div>'}</div>` : ''}
-      <div class="service-bot-actions"><button type="button" class="service-bot-delete" onclick="deleteServiceBotNode(${serviceBotSelectedNode})">מחיקת הצומת</button></div>`;
+          </div>`).join('') : '<div class="service-bot-node-empty">אין אפשרויות בתפריט. הוסיפו אפשרות ראשונה.</div>'}</div>` : ''}
+      <div class="service-bot-editor-footer"><button type="button" class="service-bot-delete" onclick="deleteServiceBotNode(${serviceBotSelectedNode})">מחיקת השלב</button><span class="service-bot-editor-hint">השינויים יישמרו רק בלחיצה על “שמירת הבוט”.</span></div>`;
     renderServiceBotPreview();
+    renderServiceBotSummary();
   }
 
   function selectServiceBotNode(index) {
     serviceBotSelectedNode = index;
     renderServiceBotEditor();
+    if (window.innerWidth <= 760) switchServiceBotMobilePanel('editor');
   }
 
   function addServiceBotNode(type = 'message') {
@@ -4965,6 +5243,7 @@
     if (!serviceBotDraft.mainMenuNodeId) serviceBotDraft.mainMenuNodeId = serviceBotDraft.nodes[0].id;
     setServiceBotDirty();
     renderServiceBotEditor();
+    if (window.innerWidth <= 760) switchServiceBotMobilePanel('editor');
   }
 
   function updateServiceBotNodeTitle(index, value) {
@@ -4981,6 +5260,7 @@
     }
     setServiceBotDirty();
     renderServiceBotPreview();
+    renderServiceBotSummary();
   }
 
   function renameServiceBotNode(index, value) {
@@ -5000,7 +5280,7 @@
     node[field] = value;
     if (field === 'type' && value !== 'menu') node.options = [];
     setServiceBotDirty();
-    if (rerender) renderServiceBotEditor(); else renderServiceBotPreview();
+    if (rerender) renderServiceBotEditor(); else { renderServiceBotPreview(); renderServiceBotSummary(); }
   }
 
   function deleteServiceBotNode(index) {
@@ -5032,6 +5312,7 @@
     option[field] = value;
     setServiceBotDirty();
     renderServiceBotPreview();
+    renderServiceBotSummary();
   }
 
   function deleteServiceBotOption(nodeIndex, optionIndex) {
@@ -5046,12 +5327,21 @@
     const preview = document.getElementById('serviceBotPreview');
     if (!preview) return;
     const node = serviceBotDraft?.nodes?.[serviceBotSelectedNode];
-    if (!node) { preview.innerHTML = '<div class="service-bot-node-empty">אין צומת להצגה.</div>'; return; }
+    if (!node) { preview.innerHTML = '<div class="service-bot-node-empty">אין שלב להצגה.</div>'; return; }
     const body = [node.title, node.text].filter(value => String(value || '').trim()).map(value => esc(value)).join('\n\n');
     const handoff = node.type === 'handoff' && node.handoffPhone ? `\n\nhttps://wa.me/${esc(String(node.handoffPhone).replace(/\D/g, ''))}` : '';
-    const options = (node.options || []).map((option, index) => `<div class="service-bot-preview-option">${index + 1}. ${esc(option.label || 'אפשרות ללא טקסט')}</div>`).join('');
+    const options = (node.options || []).map((option, index) => `<button type="button" class="service-bot-preview-option" onclick="previewServiceBotTarget(${serviceBotSelectedNode}, ${index})">${esc(option.label || 'אפשרות ללא טקסט')}</button>`).join('');
     const navigation = node.id === serviceBotDraft.mainMenuNodeId ? '' : `<div class="service-bot-preview-nav">${esc(serviceBotDraft.navigationPromptText || 'מה תרצו לעשות עכשיו?')}<br><span>${esc(serviceBotDraft.backLabel || 'חזרה לתפריט הקודם')}</span> · <span>${esc(serviceBotDraft.mainMenuLabel || 'חזרה לתפריט הראשי')}</span></div>`;
     preview.innerHTML = `<div class="service-bot-preview-bubble">${body || 'הודעה ריקה'}${handoff}${options ? `<div class="service-bot-preview-options">${options}</div>` : ''}</div>${navigation}`;
+  }
+
+  function previewServiceBotTarget(nodeIndex, optionIndex) {
+    const targetId = serviceBotDraft?.nodes?.[nodeIndex]?.options?.[optionIndex]?.targetNodeId;
+    const targetIndex = serviceBotDraft?.nodes?.findIndex(node => node.id === targetId) ?? -1;
+    if (targetIndex < 0) return;
+    serviceBotSelectedNode = targetIndex;
+    renderServiceBotEditor();
+    if (window.innerWidth <= 760) switchServiceBotMobilePanel('preview');
   }
 
   function showServiceBotValidation(kind, messages) {
@@ -5111,13 +5401,14 @@
     } catch (_) {
       showServiceBotValidation('error', 'לא ניתן לשמור את בוט השירות כרגע.');
     } finally {
-      if (button) { button.disabled = false; button.textContent = 'שמירת בוט השירות'; }
+      if (button) { button.disabled = false; button.textContent = 'שמירת הבוט'; }
     }
   }
 
   function loadServiceBotSample() {
     if (serviceBotDraftDirty && !confirm('להחליף את הטיוטה הנוכחית בעץ לדוגמה?')) return;
     serviceBotDraft = {
+      ...emptyServiceBotDraft(),
       enabled: false, name: 'בוט שירות לדוגמה', triggerText: 'תפריט', mainMenuNodeId: 'main',
       fallbackText: 'לא הצלחתי לזהות את הבחירה. אפשר לבחור אחת מהאפשרויות.',
       nodes: [
