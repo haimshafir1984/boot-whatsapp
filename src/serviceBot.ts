@@ -243,7 +243,7 @@ async function sendNavigation(
   if (serviceBot.globalHandoffEnabled && String(serviceBot.globalHandoffPhone || '').replace(/\D/g, '')) {
     buttons.push({ id: HANDOFF_OPTION_ID, text: String(serviceBot.globalHandoffLabel || '\u05e9\u05d9\u05d7\u05d4 \u05e2\u05dd \u05e0\u05e6\u05d9\u05d2') });
   }
-  const prompt = String(serviceBot.navigationPromptText || '\u05de\u05d4 \u05ea\u05e8\u05e6\u05d5 \u05dc\u05e2\u05e9\u05d5\u05ea \u05e2\u05db\u05e9\u05d9\u05d5?').trim();
+  const prompt = String(serviceBot.navigationPromptText ?? '\u05de\u05d4 \u05ea\u05e8\u05e6\u05d5 \u05dc\u05e2\u05e9\u05d5\u05ea \u05e2\u05db\u05e9\u05d9\u05d5?').trim();
   if (!prompt) return;
   if (buttons.length <= 3 && transport.sendInteractiveButtons) {
     await transport.sendInteractiveButtons(to, prompt, buttons);

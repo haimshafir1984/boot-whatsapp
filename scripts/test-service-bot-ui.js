@@ -40,6 +40,13 @@ for (const functionName of [
 assert.match(html, /serviceBotFeatureEnabled = Boolean\(data\.featureEnabled\)/, 'service bot feature state must be tracked');
 assert.match(html, /tabs\.style\.display = 'flex'/, 'service bot tab must be visible for every client');
 assert.match(html, /const defaultTarget = serviceBotDraft\.nodes\.find/, 'new options must receive an existing target by default');
+assert.match(html, /node\.variableKey = `input_\$\{number\}`/, 'new input nodes must receive a safe default variable key');
+assert.match(html, /navigationPromptText \?\? 'מה תרצו לעשות עכשיו\?'/, 'an explicitly blank navigation prompt must remain disabled in preview');
+const titleUpdateStart = html.indexOf('function updateServiceBotNodeTitle(');
+const titleUpdateEnd = html.indexOf('function renameServiceBotNode(', titleUpdateStart);
+assert.ok(titleUpdateStart >= 0 && titleUpdateEnd > titleUpdateStart, 'missing service bot title update function');
+const titleUpdate = html.slice(titleUpdateStart, titleUpdateEnd);
+assert.ok(!titleUpdate.includes('replaceServiceBotTarget'), 'editing a node title must not change its technical id');
 assert.ok(html.includes('צריך לבחור מה המשתמש יראה אחרי הלחיצה'), 'missing targets must be explained next to the continuation selector');
 const inlineScripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)].map(match => match[1]);
 assert.ok(inlineScripts.length, 'dashboard must contain an inline script');

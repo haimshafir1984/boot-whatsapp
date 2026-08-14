@@ -5297,6 +5297,7 @@
     const title = type === 'input' ? 'קליטת מידע חדשה' : type === 'condition' ? 'תנאי חדש' : isMenu ? 'תפריט חדש' : 'הודעה חדשה';
     const node = { id: `node-${number}`, title, type, text: '', options: [] };
     if (type === 'input') Object.assign(node, { inputType: 'text', variableKey: '', nextNodeId: '', inputErrorText: 'נא לשלוח את המידע המבוקש.' });
+    if (type === 'input') node.variableKey = `input_${number}`;
     if (type === 'condition') Object.assign(node, { conditionRules: [], defaultTargetNodeId: '' });
     serviceBotDraft.nodes.push(node);
     serviceBotSelectedNode = serviceBotDraft.nodes.length - 1;
@@ -5310,14 +5311,6 @@
     const node = serviceBotDraft?.nodes?.[index];
     if (!node) return;
     node.title = value;
-    if (!node.id || /^node-\d+$/.test(node.id)) {
-      const slug = String(value || '').trim().toLowerCase().replace(/[^a-z0-9א-ת]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
-      if (slug) {
-        const previous = node.id;
-        node.id = slug;
-        replaceServiceBotTarget(previous, slug);
-      }
-    }
     setServiceBotDirty();
     renderServiceBotPreview();
     renderServiceBotSummary();
@@ -5399,7 +5392,8 @@
     const body = [node.title, node.text].filter(value => String(value || '').trim()).map(value => esc(value)).join('\n\n');
     const handoff = node.type === 'handoff' && node.handoffPhone ? `\n\nhttps://wa.me/${esc(String(node.handoffPhone).replace(/\D/g, ''))}` : '';
     const options = (node.options || []).map((option, index) => `<button type="button" class="service-bot-preview-option" onclick="previewServiceBotTarget(${serviceBotSelectedNode}, ${index})">${esc(option.label || 'אפשרות ללא טקסט')}</button>`).join('');
-    const navigation = node.id === serviceBotDraft.mainMenuNodeId ? '' : `<div class="service-bot-preview-nav">${esc(serviceBotDraft.navigationPromptText || 'מה תרצו לעשות עכשיו?')}<br><span>${esc(serviceBotDraft.backLabel || 'חזרה לתפריט הקודם')}</span> · <span>${esc(serviceBotDraft.mainMenuLabel || 'חזרה לתפריט הראשי')}</span></div>`;
+    const navigationPrompt = String(serviceBotDraft.navigationPromptText ?? 'מה תרצו לעשות עכשיו?').trim();
+    const navigation = node.id === serviceBotDraft.mainMenuNodeId || !navigationPrompt ? '' : `<div class="service-bot-preview-nav">${esc(navigationPrompt)}<br><span>${esc(serviceBotDraft.backLabel || 'חזרה לתפריט הקודם')}</span> · <span>${esc(serviceBotDraft.mainMenuLabel || 'חזרה לתפריט הראשי')}</span></div>`;
     preview.innerHTML = `<div class="service-bot-preview-bubble">${body || 'הודעה ריקה'}${handoff}${options ? `<div class="service-bot-preview-options">${options}</div>` : ''}</div>${navigation}`;
   }
 

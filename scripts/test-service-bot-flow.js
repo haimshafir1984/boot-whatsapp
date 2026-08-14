@@ -104,6 +104,16 @@ async function run() {
     assert.strictEqual(sent.length, beforeUnknown + 2, 'unknown input must send fallback and repeat menu');
     assert.strictEqual(sent[beforeUnknown].text, serviceBot.fallbackText);
 
+    const quietStorage = new Storage(path.join(tempDir, 'quiet-navigation.json'), { initialData: emptyStorageData() });
+    quietStorage.updateServiceBot({ ...serviceBot, navigationPromptText: '' });
+    const quietSent = [];
+    const quietTransport = createTransport(quietSent);
+    await tryHandleServiceBotMessage(serviceBot.triggerText, '777@c.us', '777', quietStorage, quietTransport);
+    const beforeQuietChoice = quietSent.length;
+    await tryHandleServiceBotMessage('1', '777@c.us', '777', quietStorage, quietTransport);
+    assert.strictEqual(quietSent.length, beforeQuietChoice + 1, 'blank navigation prompt must suppress the extra navigation message');
+    assert.strictEqual(quietSent.at(-1).kind, 'text', 'only the destination message should be sent when navigation is disabled');
+
     await tryHandleServiceBotMessage('\u05ea\u05e4\u05e8\u05d9\u05d8', '222@c.us', '222', storage, transport);
     await tryHandleServiceBotMessage('2', '222@c.us', '222', storage, transport);
     assert.strictEqual(storage.getServiceBotSession('222').nodeId, 'existing-info');
