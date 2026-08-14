@@ -1196,6 +1196,19 @@
     .service-bot-delete { display:inline-flex; align-items:center; justify-content:center; min-height:36px; border:1px solid #f0cbd0; border-radius:8px; padding:7px 10px; background:#fff0f1; color:#b4232d; cursor:pointer; font:inherit; font-size:.76rem; font-weight:800; }
     .service-bot-editor-footer { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:16px; padding-top:13px; border-top:1px solid #dce5df; }
     .service-bot-editor-hint { color:#66756d; font-size:.67rem; }
+    .service-bot-auto-note { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; padding:11px 12px; margin:8px 0 12px; border:1px solid #c8e1d3; border-radius:9px; background:#edf8f2; color:#315d46; }
+    .service-bot-auto-note strong { display:block; font-size:.76rem; }
+    .service-bot-auto-note span { display:block; margin-top:2px; color:#5f7569; font-size:.66rem; }
+    .service-bot-coverage { flex:0 0 auto; padding:4px 8px; border-radius:999px; background:#fff; color:#0d633a !important; font-weight:800; white-space:nowrap; }
+    .service-bot-coverage.warning { color:#9b5c08 !important; background:#fff8e8; }
+    .service-bot-friendly-condition { display:grid; grid-template-columns:minmax(150px,1.2fr) minmax(130px,1fr) minmax(105px,.7fr) 34px; gap:8px; align-items:end; padding:9px 0; border-top:1px solid #e4ebe7; }
+    .service-bot-friendly-condition:first-child { border-top:0; }
+    .service-bot-friendly-condition .field { margin:0 !important; }
+    .service-bot-answer-saved { grid-column:2/-1; display:flex; align-items:center; gap:7px; min-height:32px; padding:6px 9px; border:1px solid #d6e7dd; border-radius:8px; color:#37634c; background:#f3faf6; font-size:.66rem; }
+    .service-bot-answer-saved::before { content:'✓'; display:grid; place-items:center; width:18px; height:18px; border-radius:50%; color:#fff; background:#218653; font-weight:900; }
+    .service-bot-advanced { margin-top:8px; padding:8px 10px; border:1px dashed #cbd6d0; border-radius:8px; color:#66756d; background:#fbfcfb; font-size:.66rem; }
+    .service-bot-advanced summary { cursor:pointer; color:#526159; font-weight:800; }
+    .service-bot-condition-actions { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin:10px 0; }
     .service-bot-phone { margin:14px; overflow:hidden; border:6px solid #29342e; border-radius:24px; background:#efeae2; box-shadow:0 12px 28px rgba(24,35,30,.14); }
     .service-bot-phone-head { display:flex; align-items:center; gap:8px; min-height:48px; padding:8px 10px; background:#075e54; color:#fff; }
     .service-bot-phone-avatar { display:grid; place-items:center; width:30px; height:30px; border-radius:50%; background:#d7eee7; color:#075e54; font-size:.65rem; font-weight:900; }
@@ -1265,6 +1278,11 @@
       .service-bot-option-arrow { display:none; }
       .service-bot-option .field.target { grid-column:2; }
       .service-bot-option .service-bot-delete { grid-column:3; grid-row:1/3; }
+      .service-bot-answer-saved { grid-column:2; }
+      .service-bot-friendly-condition { grid-template-columns:1fr 34px; }
+      .service-bot-friendly-condition .field { grid-column:1; }
+      .service-bot-friendly-condition .service-bot-delete { grid-column:2; grid-row:1/4; align-self:center; }
+      .service-bot-auto-note { flex-direction:column; }
       .service-bot-settings { padding:11px; }
       .service-bot-settings-group-head,.service-bot-danger-zone { align-items:stretch; flex-direction:column; }
       .service-bot-danger-zone .service-bot-delete { width:100%; }
@@ -5226,7 +5244,7 @@
           <div class="field"><label>סוג המידע שמצפים לקבל</label><select onchange="updateServiceBotNode(${serviceBotSelectedNode}, 'inputType', this.value)">
             <option value="text" ${node.inputType === 'text' || !node.inputType ? 'selected' : ''}>טקסט חופשי</option><option value="number" ${node.inputType === 'number' ? 'selected' : ''}>מספר</option><option value="image" ${node.inputType === 'image' ? 'selected' : ''}>תמונה</option><option value="document" ${node.inputType === 'document' ? 'selected' : ''}>מסמך</option><option value="media" ${node.inputType === 'media' ? 'selected' : ''}>כל קובץ מדיה</option>
           </select></div>
-          <div class="field"><label>שם המשתנה</label><input value="${esc(node.variableKey || '')}" placeholder="למשל order_number" oninput="updateServiceBotNode(${serviceBotSelectedNode}, 'variableKey', this.value)" /><div class="service-bot-editor-hint">אפשר לשלב אותו בהודעות כך: {{${esc(node.variableKey || 'order_number')}}}</div></div>
+          <div class="field"><label>שמירת המידע</label><div class="service-bot-answer-saved" style="grid-column:auto">המערכת תשמור את התשובה בשם “${esc(node.title || 'המידע שנקלט')}”</div><details class="service-bot-advanced"><summary>הגדרה טכנית מתקדמת</summary><label style="margin-top:8px">מזהה פנימי</label><input value="${esc(node.variableKey || '')}" placeholder="נוצר אוטומטית" oninput="updateServiceBotNode(${serviceBotSelectedNode}, 'variableKey', this.value)" /><div class="service-bot-editor-hint">לשילוב בהודעה: {{${esc(node.variableKey || 'input_value')}}}</div></details></div>
           <div class="field"><label>השלב הבא</label><select onchange="updateServiceBotNode(${serviceBotSelectedNode}, 'nextNodeId', this.value)"><option value="">בחירת המשך</option>${nodes.map((target, targetIndex) => `<option value="${esc(target.id || '')}" ${target.id === node.nextNodeId ? 'selected' : ''}>${esc(serviceBotNodeLabel(target, targetIndex))}</option>`).join('')}</select></div>
           <div class="field"><label>הודעה כאשר הקלט אינו מתאים</label><input value="${esc(node.inputErrorText || '')}" placeholder="נא לשלוח את המידע המבוקש" oninput="updateServiceBotNode(${serviceBotSelectedNode}, 'inputErrorText', this.value)" /></div>` : ''}
       </div>
@@ -5239,7 +5257,8 @@
             <div class="field"><label>מה הלקוח יראה</label><input value="${esc(option.label || '')}" placeholder="למשל: שעות פתיחה" oninput="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'label', this.value)" /></div>
             <span class="service-bot-option-arrow" aria-hidden="true">←</span>
             <div class="field target"><label>השלב הבא <span class="required">*</span></label><select onchange="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'targetNodeId', this.value); renderServiceBotEditor()"><option value="">בחירת המשך</option>${nodes.map((target, targetIndex) => `<option value="${esc(target.id || '')}" ${target.id === option.targetNodeId ? 'selected' : ''}>${esc(serviceBotNodeLabel(target, targetIndex))}</option>`).join('')}</select>${option.targetNodeId ? '' : '<div class="service-bot-target-error">צריך לבחור מה המשתמש יראה אחרי הלחיצה</div>'}</div>
-            <div class="field" style="grid-column:2 / -1"><label>שמירת הבחירה במשתנה (אופציונלי)</label><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><input value="${esc(option.variableKey || '')}" placeholder="שם משתנה, למשל pump_need" oninput="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'variableKey', this.value)" /><input value="${esc(option.variableValue || '')}" placeholder="ערך; ריק = טקסט הבחירה" oninput="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'variableValue', this.value)" /></div></div>
+            <div class="service-bot-answer-saved">הבחירה תופיע אוטומטית ברשימות של שלבי התנאי</div>
+            <details class="service-bot-advanced" style="grid-column:2 / -1"><summary>הגדרה טכנית מתקדמת</summary><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px"><div class="field"><label>מזהה השאלה</label><input value="${esc(option.variableKey || '')}" placeholder="נוצר בעת שימוש בתנאי" oninput="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'variableKey', this.value)" /></div><div class="field"><label>מזהה התשובה</label><input value="${esc(option.variableValue || '')}" placeholder="נוצר בעת שימוש בתנאי" oninput="updateServiceBotOption(${serviceBotSelectedNode}, ${optionIndex}, 'variableValue', this.value)" /></div></div></details>
             <button type="button" class="service-bot-delete" aria-label="מחיקת אפשרות" onclick="deleteServiceBotOption(${serviceBotSelectedNode}, ${optionIndex})">✕</button>
           </div>`).join('') : '<div class="service-bot-node-empty">אין אפשרויות בתפריט. הוסיפו אפשרות ראשונה.</div>'}</div>` : ''}
       ${node.type === 'condition' ? renderServiceBotConditionEditor(node, serviceBotSelectedNode, nodes) : ''}
@@ -5261,16 +5280,90 @@
     if (window.innerWidth <= 760) switchServiceBotMobilePanel('editor');
   }
 
+  function serviceBotStableToken(prefix, value) {
+    let hash = 2166136261;
+    for (const char of String(value || prefix)) {
+      hash ^= char.charCodeAt(0);
+      hash = Math.imul(hash, 16777619);
+    }
+    return `${prefix}_${(hash >>> 0).toString(36)}`;
+  }
+
+  function serviceBotVariableCatalog() {
+    return (serviceBotDraft?.nodes || []).flatMap((node, nodeIndex) => {
+      if (node.type !== 'menu' || !(node.options || []).length) return [];
+      const existingKeys = [...new Set((node.options || []).map(option => String(option.variableKey || '').trim()).filter(Boolean))];
+      const variableKey = existingKeys[0] || serviceBotStableToken('choice', node.id || node.title || nodeIndex);
+      return [{
+        nodeIndex,
+        variableKey,
+        label: serviceBotNodeLabel(node, nodeIndex),
+        hasMixedKeys: existingKeys.length > 1,
+        options: (node.options || []).filter(option => !option.variableKey || option.variableKey === variableKey).map((option, optionIndex) => ({
+          optionIndex,
+          label: option.label || `אפשרות ${optionIndex + 1}`,
+          value: String(option.variableValue || '').trim() || serviceBotStableToken('answer', option.id || option.label || optionIndex),
+        })),
+      }];
+    });
+  }
+
+  function ensureServiceBotFriendlyVariable(catalogIndex) {
+    const source = serviceBotVariableCatalog()[catalogIndex];
+    const node = source && serviceBotDraft?.nodes?.[source.nodeIndex];
+    if (!source || !node) return null;
+    (node.options || []).forEach((option, optionIndex) => {
+      if (!String(option.variableKey || '').trim()) option.variableKey = source.variableKey;
+      if (option.variableKey === source.variableKey && !String(option.variableValue || '').trim()) {
+        option.variableValue = serviceBotStableToken('answer', option.id || option.label || optionIndex);
+      }
+    });
+    return serviceBotVariableCatalog().find(item => item.nodeIndex === source.nodeIndex && item.variableKey === source.variableKey) || source;
+  }
+
+  function serviceBotConditionCoverage(node) {
+    const rules = Array.isArray(node.conditionRules) ? node.conditionRules : [];
+    const catalog = serviceBotVariableCatalog();
+    const keys = [...new Set(rules.flatMap(rule => (rule.conditions || []).filter(condition => condition.operator === 'equals' && condition.variableKey).map(condition => condition.variableKey)))];
+    const sources = keys.map(key => catalog.find(item => item.variableKey === key)).filter(Boolean);
+    if (!sources.length || sources.length !== keys.length || sources.length > 4) return { label: `${rules.length} כללים הוגדרו`, warning: false };
+    const total = sources.reduce((count, source) => count * Math.max(1, source.options.length), 1);
+    const signatures = rules.map(rule => keys.map(key => {
+      const condition = (rule.conditions || []).find(item => item.variableKey === key && item.operator === 'equals');
+      return condition?.value || '';
+    })).filter(values => values.every(Boolean)).map(values => values.join('|'));
+    const unique = new Set(signatures);
+    const duplicate = unique.size !== signatures.length;
+    return duplicate
+      ? { label: 'נמצאה כפילות בין הכללים', warning: true }
+      : { label: `${Math.min(unique.size, total)} מתוך ${total} מצבים מכוסים`, warning: unique.size < total };
+  }
+
   function renderServiceBotConditionEditor(node, nodeIndex, nodes) {
     const rules = Array.isArray(node.conditionRules) ? node.conditionRules : [];
+    const catalog = serviceBotVariableCatalog();
+    const coverage = serviceBotConditionCoverage(node);
     const targets = selected => `<option value="">בחירת יעד</option>${nodes.map((target, index) => `<option value="${esc(target.id || '')}" ${target.id === selected ? 'selected' : ''}>${esc(serviceBotNodeLabel(target, index))}</option>`).join('')}`;
     const operatorOptions = selected => [['equals','שווה ל'],['not_equals','שונה מ'],['contains','מכיל'],['exists','קיים']].map(([value,label]) => `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`).join('');
-    return `<div class="service-bot-section-head"><div><strong>כללי התנאי</strong><small>הכלל הראשון שכל התנאים בו מתקיימים ייבחר</small></div><button type="button" class="btn-small" onclick="addServiceBotConditionRule(${nodeIndex})">+ כלל</button></div>
+    const sourceOptions = condition => {
+      const matchedIndex = catalog.findIndex(item => item.variableKey === condition.variableKey);
+      const legacy = condition.variableKey && matchedIndex < 0 ? '<option value="" selected>נתון קיים שלא נמצא בשאלות</option>' : '<option value="">בחירת שאלה קודמת</option>';
+      return legacy + catalog.map((source, index) => `<option value="${index}" ${index === matchedIndex ? 'selected' : ''}>${esc(source.label)}${source.hasMixedKeys ? ' — הגדרה מורכבת' : ''}</option>`).join('');
+    };
+    const answerOptions = condition => {
+      const source = catalog.find(item => item.variableKey === condition.variableKey);
+      if (!source) return `<option value="${esc(condition.value || '')}" selected>${condition.value ? 'תשובה קיימת' : 'בחירת תשובה'}</option>`;
+      const known = source.options.some(option => option.value === condition.value);
+      return `${known ? '' : `<option value="${esc(condition.value || '')}" selected>${condition.value ? 'תשובה קיימת' : 'בחירת תשובה'}</option>`}${source.options.map(option => `<option value="${esc(option.value)}" ${option.value === condition.value ? 'selected' : ''}>${esc(option.label)}</option>`).join('')}`;
+    };
+    return `<div class="service-bot-section-head"><div><strong>ניתוב לפי תשובות קודמות</strong><small>הכלל הראשון שכל התנאים בו מתקיימים ייבחר</small></div><button type="button" class="btn-small" onclick="addServiceBotConditionRule(${nodeIndex})">+ כלל</button></div>
+      <div class="service-bot-auto-note"><div><strong>אין צורך לכתוב שמות משתנים או ערכים באנגלית</strong><span>בחרו שאלה, תשובה ויעד. המזהים הטכניים נוצרים ונשמרים אוטומטית מאחורי הקלעים.</span></div><span class="service-bot-coverage ${coverage.warning ? 'warning' : ''}">${esc(coverage.label)}</span></div>
+      <div class="service-bot-condition-actions"><span class="service-bot-editor-hint">אפשר למלא אוטומטית שילובים שחסרים בין השאלות שכבר נמצאות בכללים.</span><button type="button" class="btn-small" onclick="generateMissingServiceBotConditionCombinations(${nodeIndex})">מילוי שילובים חסרים</button></div>
       <div>${rules.map((rule, ruleIndex) => `<div class="service-bot-option" style="display:block;margin-bottom:10px">
         <div class="service-bot-editor-fields"><div class="field"><label>שם הכלל</label><input value="${esc(rule.label || '')}" placeholder="למשל המלצה על Fit" oninput="updateServiceBotConditionRule(${nodeIndex},${ruleIndex},'label',this.value)" /></div><div class="field"><label>יעד כאשר הכלל מתקיים</label><select onchange="updateServiceBotConditionRule(${nodeIndex},${ruleIndex},'targetNodeId',this.value)">${targets(rule.targetNodeId)}</select></div></div>
-        ${(rule.conditions || []).map((condition, conditionIndex) => `<div class="service-bot-editor-fields"><div class="field"><label>משתנה</label><input value="${esc(condition.variableKey || '')}" placeholder="pump_need" oninput="updateServiceBotCondition(${nodeIndex},${ruleIndex},${conditionIndex},'variableKey',this.value)" /></div><div class="field"><label>בדיקה</label><select onchange="updateServiceBotCondition(${nodeIndex},${ruleIndex},${conditionIndex},'operator',this.value)">${operatorOptions(condition.operator)}</select></div><div class="field"><label>ערך</label><input value="${esc(condition.value || '')}" ${condition.operator === 'exists' ? 'disabled' : ''} oninput="updateServiceBotCondition(${nodeIndex},${ruleIndex},${conditionIndex},'value',this.value)" /></div><button type="button" class="service-bot-delete" onclick="deleteServiceBotCondition(${nodeIndex},${ruleIndex},${conditionIndex})">✕</button></div>`).join('')}
-        <div style="display:flex;justify-content:space-between;gap:8px"><button type="button" class="btn-small" onclick="addServiceBotCondition(${nodeIndex},${ruleIndex})">+ תנאי AND</button><button type="button" class="service-bot-delete" onclick="deleteServiceBotConditionRule(${nodeIndex},${ruleIndex})">מחיקת כלל</button></div>
-      </div>`).join('') || '<div class="service-bot-node-empty">הוסיפו כלל תנאי ראשון.</div>'}</div>
+        ${(rule.conditions || []).map((condition, conditionIndex) => `<div class="service-bot-friendly-condition"><div class="field"><label>כאשר התשובה לשאלה</label><select onchange="setServiceBotFriendlyConditionSource(${nodeIndex},${ruleIndex},${conditionIndex},this.value)">${sourceOptions(condition)}</select></div><div class="field"><label>היא</label><select ${condition.operator === 'exists' ? 'disabled' : ''} onchange="setServiceBotFriendlyConditionValue(${nodeIndex},${ruleIndex},${conditionIndex},${catalog.findIndex(source => source.variableKey === condition.variableKey)},this.value)">${answerOptions(condition)}</select></div><div class="field"><label>בדיקה</label><select onchange="updateServiceBotCondition(${nodeIndex},${ruleIndex},${conditionIndex},'operator',this.value)">${operatorOptions(condition.operator)}</select></div><button type="button" class="service-bot-delete" aria-label="מחיקת תנאי" onclick="deleteServiceBotCondition(${nodeIndex},${ruleIndex},${conditionIndex})">✕</button><details class="service-bot-advanced" style="grid-column:1/-1"><summary>הגדרה טכנית מתקדמת</summary><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px"><div class="field"><label>מזהה הנתון</label><input value="${esc(condition.variableKey || '')}" oninput="updateServiceBotCondition(${nodeIndex},${ruleIndex},${conditionIndex},'variableKey',this.value)" /></div><div class="field"><label>ערך לבדיקה</label><input value="${esc(condition.value || '')}" ${condition.operator === 'exists' ? 'disabled' : ''} oninput="updateServiceBotCondition(${nodeIndex},${ruleIndex},${conditionIndex},'value',this.value)" /></div></div></details></div>`).join('')}
+        <div style="display:flex;justify-content:space-between;gap:8px"><button type="button" class="btn-small" onclick="addServiceBotCondition(${nodeIndex},${ruleIndex})">+ וגם</button><button type="button" class="service-bot-delete" onclick="deleteServiceBotConditionRule(${nodeIndex},${ruleIndex})">מחיקת כלל</button></div>
+      </div>`).join('') || '<div class="service-bot-node-empty">הוסיפו כלל ראשון ובחרו את התשובות מתוך הרשימות.</div>'}</div>
       <div class="service-bot-editor-fields"><div class="field full"><label>יעד ברירת מחדל כאשר אף כלל לא מתקיים</label><select onchange="updateServiceBotNode(${nodeIndex},'defaultTargetNodeId',this.value)">${targets(node.defaultTargetNodeId)}</select></div></div>`;
   }
 
@@ -5278,15 +5371,77 @@
     const node = serviceBotDraft?.nodes?.[nodeIndex];
     if (!node) return;
     if (!Array.isArray(node.conditionRules)) node.conditionRules = [];
-    node.conditionRules.push({ id: `rule-${node.conditionRules.length + 1}`, label: '', conditions: [{ variableKey: '', operator: 'equals', value: '' }], targetNodeId: '' });
+    const source = ensureServiceBotFriendlyVariable(0);
+    node.conditionRules.push({ id: `rule-${node.conditionRules.length + 1}`, label: '', conditions: [{ variableKey: source?.variableKey || '', operator: 'equals', value: source?.options?.[0]?.value || '' }], targetNodeId: '' });
     setServiceBotDirty(); renderServiceBotEditor();
   }
 
   function updateServiceBotConditionRule(nodeIndex, ruleIndex, field, value) { const rule = serviceBotDraft?.nodes?.[nodeIndex]?.conditionRules?.[ruleIndex]; if (!rule) return; rule[field] = value; setServiceBotDirty(); }
-  function addServiceBotCondition(nodeIndex, ruleIndex) { const rule = serviceBotDraft?.nodes?.[nodeIndex]?.conditionRules?.[ruleIndex]; if (!rule) return; if (!Array.isArray(rule.conditions)) rule.conditions = []; rule.conditions.push({ variableKey: '', operator: 'equals', value: '' }); setServiceBotDirty(); renderServiceBotEditor(); }
+  function addServiceBotCondition(nodeIndex, ruleIndex) { const rule = serviceBotDraft?.nodes?.[nodeIndex]?.conditionRules?.[ruleIndex]; if (!rule) return; if (!Array.isArray(rule.conditions)) rule.conditions = []; const used = new Set(rule.conditions.map(condition => condition.variableKey)); const sourceIndex = serviceBotVariableCatalog().findIndex(source => !used.has(source.variableKey)); const source = ensureServiceBotFriendlyVariable(sourceIndex >= 0 ? sourceIndex : 0); rule.conditions.push({ variableKey: source?.variableKey || '', operator: 'equals', value: source?.options?.[0]?.value || '' }); setServiceBotDirty(); renderServiceBotEditor(); }
   function updateServiceBotCondition(nodeIndex, ruleIndex, conditionIndex, field, value) { const condition = serviceBotDraft?.nodes?.[nodeIndex]?.conditionRules?.[ruleIndex]?.conditions?.[conditionIndex]; if (!condition) return; condition[field] = value; setServiceBotDirty(); if (field === 'operator') renderServiceBotEditor(); }
   function deleteServiceBotCondition(nodeIndex, ruleIndex, conditionIndex) { const conditions = serviceBotDraft?.nodes?.[nodeIndex]?.conditionRules?.[ruleIndex]?.conditions; if (!conditions) return; conditions.splice(conditionIndex, 1); setServiceBotDirty(); renderServiceBotEditor(); }
   function deleteServiceBotConditionRule(nodeIndex, ruleIndex) { const rules = serviceBotDraft?.nodes?.[nodeIndex]?.conditionRules; if (!rules) return; rules.splice(ruleIndex, 1); setServiceBotDirty(); renderServiceBotEditor(); }
+
+  function setServiceBotFriendlyConditionSource(nodeIndex, ruleIndex, conditionIndex, catalogIndexValue) {
+    const condition = serviceBotDraft?.nodes?.[nodeIndex]?.conditionRules?.[ruleIndex]?.conditions?.[conditionIndex];
+    const catalogIndex = Number(catalogIndexValue);
+    if (!condition || !Number.isInteger(catalogIndex) || catalogIndex < 0) return;
+    const source = ensureServiceBotFriendlyVariable(catalogIndex);
+    if (!source) return;
+    condition.variableKey = source.variableKey;
+    condition.operator = 'equals';
+    condition.value = source.options[0]?.value || '';
+    setServiceBotDirty();
+    renderServiceBotEditor();
+  }
+
+  function setServiceBotFriendlyConditionValue(nodeIndex, ruleIndex, conditionIndex, catalogIndex, value) {
+    const condition = serviceBotDraft?.nodes?.[nodeIndex]?.conditionRules?.[ruleIndex]?.conditions?.[conditionIndex];
+    if (!condition) return;
+    if (catalogIndex >= 0) ensureServiceBotFriendlyVariable(catalogIndex);
+    condition.value = value;
+    setServiceBotDirty();
+    renderServiceBotEditor();
+  }
+
+  function generateMissingServiceBotConditionCombinations(nodeIndex) {
+    const node = serviceBotDraft?.nodes?.[nodeIndex];
+    if (!node) return;
+    const rules = Array.isArray(node.conditionRules) ? node.conditionRules : (node.conditionRules = []);
+    const keys = [...new Set(rules.flatMap(rule => (rule.conditions || []).filter(condition => condition.operator === 'equals' && condition.variableKey).map(condition => condition.variableKey)))];
+    const catalog = serviceBotVariableCatalog();
+    const sources = keys.map(key => catalog.find(source => source.variableKey === key));
+    if (!keys.length || sources.some(source => !source)) {
+      alert('כדי ליצור שילובים, הוסיפו קודם כלל ובחרו בו שאלות מתוך הרשימה.');
+      return;
+    }
+    const total = sources.reduce((count, source) => count * Math.max(1, source.options.length), 1);
+    if (total > 128) {
+      alert('נוצרו יותר מדי שילובים. צמצמו את מספר השאלות או התשובות לפני ההמשך.');
+      return;
+    }
+    const combinations = sources.reduce((rows, source) => rows.flatMap(row => source.options.map(option => [...row, option.value])), [[]]);
+    const signatures = new Set(rules.map(rule => keys.map(key => (rule.conditions || []).find(condition => condition.variableKey === key && condition.operator === 'equals')?.value || '').join('|')));
+    let added = 0;
+    combinations.forEach(values => {
+      const signature = values.join('|');
+      if (signatures.has(signature)) return;
+      rules.push({
+        id: `rule-${Date.now()}-${added + 1}`,
+        label: `שילוב ${rules.length + 1}`,
+        conditions: keys.map((variableKey, index) => ({ variableKey, operator: 'equals', value: values[index] })),
+        targetNodeId: node.defaultTargetNodeId || '',
+      });
+      signatures.add(signature);
+      added += 1;
+    });
+    if (!added) {
+      alert('כל שילובי התשובות כבר קיימים.');
+      return;
+    }
+    setServiceBotDirty();
+    renderServiceBotEditor();
+  }
 
   function addServiceBotNode(type = 'message') {
     if (!serviceBotDraft) return;
@@ -5362,7 +5517,10 @@
     const defaultTarget = serviceBotDraft.nodes.find(item => item.id && item.id !== node.id)?.id
       || serviceBotDraft.mainMenuNodeId
       || node.id;
-    node.options.push({ id: `option-${node.options.length + 1}`, label: 'אפשרות חדשה', targetNodeId: defaultTarget || '' });
+    const optionId = `option-${node.options.length + 1}`;
+    const existingKey = node.options.map(option => String(option.variableKey || '').trim()).find(Boolean);
+    const variableKey = existingKey || serviceBotStableToken('choice', node.id || node.title || nodeIndex);
+    node.options.push({ id: optionId, label: 'אפשרות חדשה', targetNodeId: defaultTarget || '', variableKey, variableValue: serviceBotStableToken('answer', optionId) });
     setServiceBotDirty();
     renderServiceBotEditor();
   }

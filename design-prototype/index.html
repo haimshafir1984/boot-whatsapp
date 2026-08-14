@@ -191,6 +191,7 @@
 
     .tree-panel { position: sticky; top: 74px; }
     .node-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 12px; }
+    .node-actions .add-node[data-type="condition"] { grid-column: 1 / -1; }
     .node-list { display: grid; gap: 7px; }
     .node {
       position: relative;
@@ -247,6 +248,27 @@
     .option-card input, .option-card select { width: 100%; min-width: 0; min-height: 38px; padding: 7px 9px; border: 1px solid #cbd6d0; border-radius: 8px; color: var(--ink); background: #fff; }
     .route-arrow { color: #819087; text-align: center; }
     .editor-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+
+    .logic-builder { display: grid; gap: 14px; }
+    .logic-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 13px 14px; border: 1px solid #cfe1d6; border-radius: 11px; background: var(--brand-soft); }
+    .logic-intro strong { display: block; color: var(--brand-strong); font-size: 14px; }
+    .logic-intro p { margin: 3px 0 0; color: #526b5d; font-size: 12px; }
+    .coverage-pill { flex: 0 0 auto; padding: 5px 9px; border-radius: 999px; color: var(--brand-strong); background: #fff; font-size: 11px; font-weight: 850; }
+    .logic-toolbar { display: flex; align-items: end; gap: 9px; padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-soft); }
+    .logic-toolbar .field { flex: 1; }
+    .logic-toolbar .button { flex: 0 0 auto; }
+    .logic-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 11px; }
+    .logic-table { width: 100%; min-width: 720px; border-collapse: collapse; background: #fff; }
+    .logic-table th, .logic-table td { padding: 9px 10px; border-bottom: 1px solid var(--line); text-align: right; vertical-align: middle; }
+    .logic-table th { color: var(--muted); background: #f7f9f8; font-size: 11px; }
+    .logic-table tr:last-child td { border-bottom: 0; }
+    .answer-chip { display: inline-flex; align-items: center; min-height: 28px; padding: 4px 8px; border: 1px solid #d3e3da; border-radius: 7px; color: #315d46; background: #f2faf5; font-size: 11px; font-weight: 750; }
+    .logic-target { min-width: 140px; min-height: 36px; padding: 6px 8px; border: 1px solid #cbd6d0; border-radius: 8px; background: #fff; }
+    .logic-row-number { color: var(--muted); font-size: 11px; font-weight: 800; }
+    .logic-empty { padding: 24px; color: var(--muted); text-align: center; }
+    .technical-details { padding: 10px 12px; border: 1px dashed #cbd6d0; border-radius: 9px; color: var(--muted); background: #fbfcfb; font-size: 11px; }
+    .technical-details summary { color: #526159; font-weight: 800; }
+    .technical-details p { margin: 8px 0 0; }
 
     .preview-panel { position: sticky; top: 74px; }
     .preview-toolbar { display: flex; gap: 4px; padding: 4px; border-radius: 8px; background: #edf1ef; }
@@ -334,6 +356,9 @@
       .option-card .route-arrow { display: none; }
       .option-card select { grid-column: 2 / 3; }
       .option-card .delete-option { grid-column: 3; grid-row: 1 / 3; }
+      .logic-toolbar { align-items: stretch; flex-direction: column; }
+      .logic-toolbar .button { width: 100%; }
+      .logic-intro { flex-direction: column; }
       .settings-content { padding: 12px; }
       .settings-group { padding: 13px; }
       .danger-zone, .settings-group-head { align-items: stretch; flex-direction: column; }
@@ -396,7 +421,7 @@
       <div class="quick-facts">
         <div class="fact"><span>טריגר</span><strong>„תפריט”</strong></div>
         <div class="fact"><span>תפריט ראשי</span><strong>תפריט ראשי</strong></div>
-        <div class="fact"><span>מבנה</span><strong>6 שלבים · תקין</strong></div>
+        <div class="fact"><span>מבנה</span><strong>9 שלבים · תקין</strong></div>
       </div>
     </section>
 
@@ -438,6 +463,7 @@
             <div class="node-actions">
               <button class="button soft small add-node" data-type="menu" type="button">+ תפריט</button>
               <button class="button small add-node" data-type="message" type="button">+ הודעה</button>
+              <button class="button small add-node" data-type="condition" type="button">+ תנאי / ניתוב</button>
             </div>
             <div class="node-list" id="nodeList"></div>
             <div class="main-tag">התפריט הראשי מסומן ראשון ונפתח עם שליחת הטריגר.</div>
@@ -453,13 +479,13 @@
             <div class="field-grid">
               <div class="field">
                 <label for="nodeType">סוג השלב</label>
-                <select id="nodeType"><option value="menu">תפריט עם בחירות</option><option value="message">הודעת מידע</option><option value="handoff">מעבר לנציג</option></select>
+                <select id="nodeType"><option value="menu">תפריט עם בחירות</option><option value="message">הודעת מידע</option><option value="condition">תנאי וניתוב</option><option value="handoff">מעבר לנציג</option></select>
               </div>
               <div class="field">
                 <label for="nodeTitle">כותרת ללקוח</label>
                 <input id="nodeTitle" value="תפריט ראשי">
               </div>
-              <div class="field full">
+              <div class="field full" id="nodeTextField">
                 <label for="nodeText">תוכן ההודעה <small id="charCount">16 תווים</small></label>
                 <textarea id="nodeText">היי, איך אפשר לעזור?</textarea>
                 <p class="hint">התצוגה משמאל מתעדכנת בזמן אמת.</p>
@@ -478,6 +504,30 @@
               </div>
               <div class="option-list" id="optionList"></div>
             </div>
+
+            <section id="conditionSection" hidden>
+              <div class="section-divider">
+                <div><h3>ניתוב לפי תשובות קודמות</h3><span>בוחרים שאלות ותשובות — המערכת מנהלת את הערכים הטכניים לבד</span></div>
+              </div>
+              <div class="logic-builder">
+                <div class="logic-intro">
+                  <div><strong>אין צורך לכתוב שמות משתנים או ערכים באנגלית</strong><p>כל תשובה בתפריט נשמרת אוטומטית. כאן רק בוחרים מה הלקוחה ענתה ולאן להעביר אותה.</p></div>
+                  <span class="coverage-pill" id="coveragePill">8 מתוך 8 מצבים מכוסים</span>
+                </div>
+                <div class="logic-toolbar">
+                  <div class="field"><label for="logicQuestion">כאשר התשובה לשאלה</label><select id="logicQuestion"></select></div>
+                  <div class="field"><label for="logicAnswer">היא</label><select id="logicAnswer"></select></div>
+                  <div class="field"><label for="logicTarget">העבר לשלב</label><select id="logicTarget"></select></div>
+                  <button class="button soft" id="addFriendlyRule" type="button">+ הוספת כלל</button>
+                </div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+                  <div><strong style="font-size:13px">טבלת ההחלטות</strong><div class="hint">אפשר לשנות יעד ישירות בכל שורה. כפילויות וחוסרים יסומנו לפני השמירה.</div></div>
+                  <button class="button small" id="generateCombinations" type="button">יצירת כל שילובי התשובות</button>
+                </div>
+                <div class="logic-table-wrap"><table class="logic-table"><thead><tr><th>#</th><th>מה הצורך שלך?</th><th>מה מידת הקאפ?</th><th>כמה מצבי שאיבה?</th><th>התוצאה</th><th></th></tr></thead><tbody id="logicRules"></tbody></table></div>
+                <details class="technical-details"><summary>מידע טכני אוטומטי — אין צורך לערוך</summary><p>לכל שאלה ותשובה נוצר מזהה יציב מאחורי הקלעים. גם בוטים קיימים עם ערכים ישנים יוצגו כאן בשמות עבריים, בלי לשנות את אופן הפעולה שלהם.</p></details>
+              </div>
+            </section>
 
             <div class="editor-footer">
               <button class="button danger small" id="deleteNode" type="button">
@@ -585,25 +635,46 @@
     const icons = {
       menu: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3" cy="6" r="1"/><circle cx="3" cy="12" r="1"/><circle cx="3" cy="18" r="1"/></svg>',
       message: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 4h14v13H8l-3 3V4Z"/><path d="M8 8h8m-8 4h6"/></svg>',
+      condition: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 4v5a3 3 0 0 0 3 3h6a3 3 0 0 1 3 3v5M6 20v-3a5 5 0 0 1 5-5M18 4v4"/><circle cx="6" cy="3" r="1.5"/><circle cx="18" cy="3" r="1.5"/><circle cx="18" cy="21" r="1.5"/></svg>',
       handoff: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3"/><path d="M6 20a6 6 0 0 1 12 0M19 7h4m-2-2v4"/></svg>'
     };
 
     let nodes = [
       { id: 'main', title: 'תפריט ראשי', type: 'menu', text: 'היי, איך אפשר לעזור?', options: [
-        { label: 'לקוח חדש', target: 'new-customer' }, { label: 'לקוח קיים', target: 'services' }, { label: 'שעות פתיחה', target: 'hours' }, { label: 'נציג שירות', target: 'handoff' }
+        { label: 'התאמת משאבה', target: 'pump-need' }, { label: 'התאמת מידה', target: 'size-guide' }, { label: 'משלוחים', target: 'shipping' }
       ]},
-      { id: 'new-customer', title: 'מידע ללקוח חדש', type: 'message', text: 'נשמח להכיר! השאירו לנו הודעה קצרה ונחזור אליכם בהקדם.', options: [] },
-      { id: 'services', title: 'שירותים ללקוחות', type: 'menu', text: 'באיזה נושא תרצו עזרה?', options: [{ label: 'מידע על השירות', target: 'service-info' }] },
-      { id: 'service-info', title: 'מידע על השירות', type: 'message', text: 'כאן אפשר להציג מידע על השירות או המוצר.', options: [] },
-      { id: 'hours', title: 'שעות פתיחה', type: 'message', text: 'ימים א׳–ה׳, 09:00–17:00.', options: [] },
-      { id: 'handoff', title: 'נציג שירות', type: 'handoff', text: 'אפשר להמשיך מכאן לשיחה עם נציג.', phone: '050-123-4567', options: [] }
+      { id: 'pump-need', title: 'מה הצורך שלך?', type: 'menu', text: 'מה הצורך שלך?', options: [
+        { id: 'warming', label: 'חימום לשחרור רפלקס', target: 'cup-size' }, { id: 'separate', label: 'מיכל נפרד', target: 'cup-size' }
+      ]},
+      { id: 'cup-size', title: 'מה מידת הקאפ?', type: 'menu', text: 'מה מידת הקאפ שלך בחזייה?', options: [
+        { id: 'small', label: 'קטנה–בינונית', target: 'pump-modes' }, { id: 'large', label: 'גדולה', target: 'pump-modes' }
+      ]},
+      { id: 'pump-modes', title: 'כמה מצבי שאיבה?', type: 'menu', text: 'כמה מצבי שאיבה חשובים לך?', options: [
+        { id: 'many', label: 'כמה שיותר מצבים', target: 'routing' }, { id: 'basic', label: 'פחות חשוב', target: 'routing' }
+      ]},
+      { id: 'routing', title: 'התאמת תוצאה', type: 'condition', text: '', options: [], rules: [] },
+      { id: 'result-w1', title: 'המלצה על W1', type: 'message', text: 'לפי התשובות שלך, נראה שמשאבת Zomee W1 מתאימה לך יותר!', options: [] },
+      { id: 'result-fit', title: 'המלצה על FIT', type: 'message', text: 'לפי התשובות שלך, נראה שמשאבת Zomee FIT מתאימה לך יותר!', options: [] },
+      { id: 'size-guide', title: 'התאמת מידה', type: 'message', text: 'מחכה לך כאן מדריך מפורט לבחירת מידה נכונה.', options: [] },
+      { id: 'shipping', title: 'משלוחים', type: 'message', text: 'כאן אפשר להציג מידע ומעקב אחר משלוחים.', options: [] }
     ];
-    let selectedId = 'main';
+    let selectedId = 'routing';
 
     const $ = (selector, root = document) => root.querySelector(selector);
     const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-    const typeLabels = { menu: 'תפריט', message: 'הודעה', handoff: 'נציג' };
+    const typeLabels = { menu: 'תפריט', message: 'הודעה', condition: 'ניתוב', handoff: 'נציג' };
     const nodeById = id => nodes.find(node => node.id === id);
+    const decisionQuestions = ['pump-need', 'cup-size', 'pump-modes'];
+    const combinations = [
+      ['warming', 'small', 'many', 'result-w1'], ['warming', 'small', 'basic', 'result-w1'],
+      ['warming', 'large', 'many', 'result-w1'], ['warming', 'large', 'basic', 'result-fit'],
+      ['separate', 'small', 'many', 'result-w1'], ['separate', 'small', 'basic', 'result-fit'],
+      ['separate', 'large', 'many', 'result-fit'], ['separate', 'large', 'basic', 'result-fit']
+    ];
+    nodeById('routing').rules = combinations.map((values, index) => ({ id: `rule-${index + 1}`, answers: values.slice(0, 3), target: values[3] }));
+
+    const answerLabel = (questionId, answerId) => nodeById(questionId)?.options.find(option => option.id === answerId)?.label || 'לא נבחר';
+    const targetOptions = selected => nodes.filter(node => node.type !== 'condition').map(node => `<option value="${node.id}" ${node.id === selected ? 'selected' : ''}>${node.title}</option>`).join('');
 
     function announce(message) {
       const toast = $('#toast');
@@ -621,7 +692,7 @@
       $('#nodeList').innerHTML = nodes.map(node => `
         <button class="node ${node.id === selectedId ? 'active' : ''}" data-node-id="${node.id}" type="button" aria-pressed="${node.id === selectedId}">
           <span class="node-icon">${icons[node.type]}</span>
-          <span class="node-copy"><strong>${node.title}</strong><span>${node.type === 'menu' ? `${node.options.length} אפשרויות` : node.type === 'handoff' ? 'קישור לשיחה אנושית' : 'הודעת מידע'}</span></span>
+          <span class="node-copy"><strong>${node.title}</strong><span>${node.type === 'menu' ? `${node.options.length} אפשרויות` : node.type === 'handoff' ? 'קישור לשיחה אנושית' : node.type === 'condition' ? `${node.rules?.length || 0} כללי ניתוב` : 'הודעת מידע'}</span></span>
           <span class="node-badge">${node.id === 'main' ? 'ראשי' : typeLabels[node.type]}</span>
         </button>`).join('');
       $$('.node').forEach(button => button.addEventListener('click', () => selectNode(button.dataset.nodeId)));
@@ -645,6 +716,39 @@
       });
     }
 
+    function renderConditionBuilder(node) {
+      const questionSelect = $('#logicQuestion');
+      questionSelect.innerHTML = decisionQuestions.map(id => `<option value="${id}">${nodeById(id).title}</option>`).join('');
+      const refreshAnswers = () => {
+        const question = nodeById(questionSelect.value);
+        $('#logicAnswer').innerHTML = question.options.map(option => `<option value="${option.id}">${option.label}</option>`).join('');
+      };
+      questionSelect.onchange = refreshAnswers;
+      refreshAnswers();
+      $('#logicTarget').innerHTML = targetOptions('result-w1');
+
+      const rules = node.rules || [];
+      const expectedKeys = new Set(combinations.map(values => values.slice(0, 3).join('|')));
+      const completeKeys = rules.filter(rule => rule.answers.every(Boolean)).map(rule => rule.answers.join('|'));
+      const coveredKeys = new Set(completeKeys.filter(key => expectedKeys.has(key)));
+      const hasDuplicates = completeKeys.length !== new Set(completeKeys).size;
+      const coverage = coveredKeys.size;
+      $('#coveragePill').textContent = hasDuplicates ? 'נמצאה כפילות שדורשת תיקון' : `${coverage} מתוך 8 מצבים מכוסים`;
+      $('#coveragePill').style.color = coverage === 8 && !hasDuplicates ? 'var(--brand-strong)' : 'var(--warning)';
+      $('#logicRules').innerHTML = rules.length ? rules.map((rule, index) => `
+        <tr data-rule-index="${index}">
+          <td><span class="logic-row-number">${index + 1}</span></td>
+          ${decisionQuestions.map((questionId, answerIndex) => `<td><span class="answer-chip">${answerLabel(questionId, rule.answers[answerIndex])}</span></td>`).join('')}
+          <td><select class="logic-target" aria-label="יעד כלל ${index + 1}">${targetOptions(rule.target)}</select></td>
+          <td><button class="button icon-only danger delete-rule" type="button" aria-label="מחיקת כלל ${index + 1}">×</button></td>
+        </tr>`).join('') : '<tr><td colspan="6" class="logic-empty">עדיין אין כללי ניתוב. אפשר להוסיף כלל או ליצור את כל השילובים בלחיצה.</td></tr>';
+      $$('#logicRules tr[data-rule-index]').forEach(row => {
+        const index = Number(row.dataset.ruleIndex);
+        $('.logic-target', row).addEventListener('change', event => { node.rules[index].target = event.target.value; markDirty(); renderPreview(); });
+        $('.delete-rule', row).addEventListener('click', () => { node.rules.splice(index, 1); markDirty(); renderConditionBuilder(node); renderNodes(); });
+      });
+    }
+
     function renderEditor() {
       const node = nodeById(selectedId) || nodes[0];
       if (!node) return;
@@ -654,11 +758,14 @@
       $('#nodeTitle').value = node.title;
       $('#nodeText').value = node.text;
       $('#charCount').textContent = `${node.text.length} תווים`;
+      $('#nodeTextField').hidden = node.type === 'condition';
       $('#handoffField').hidden = node.type !== 'handoff';
       $('#handoffPhone').value = node.phone || '';
       $('#optionsSection').hidden = node.type !== 'menu';
+      $('#conditionSection').hidden = node.type !== 'condition';
       $('#deleteNode').disabled = node.id === 'main';
       if (node.type === 'menu') renderOptions(node);
+      if (node.type === 'condition') renderConditionBuilder(node);
       renderNodes();
       renderPreview();
     }
@@ -667,7 +774,7 @@
       const node = nodeById(selectedId);
       if (!node) return;
       $('#previewTitle').textContent = node.title || 'ללא כותרת';
-      $('#previewText').textContent = node.type === 'handoff' && node.phone ? `${node.text}\n\nhttps://wa.me/${node.phone.replace(/\D/g, '')}` : node.text || 'הודעה ריקה';
+      $('#previewText').textContent = node.type === 'condition' ? 'זהו שלב פנימי. הלקוחה אינה רואה אותו — היא מועברת אוטומטית לתוצאה המתאימה לפי התשובות שלה.' : node.type === 'handoff' && node.phone ? `${node.text}\n\nhttps://wa.me/${node.phone.replace(/\D/g, '')}` : node.text || 'הודעה ריקה';
       $('#previewOptions').innerHTML = node.options.map(option => `<button class="chat-option" data-target="${option.target}" type="button">${option.label || 'אפשרות ללא טקסט'}</button>`).join('');
       $('#previewNav').hidden = node.id === 'main';
       $$('.chat-option').forEach(button => button.addEventListener('click', () => {
@@ -709,6 +816,7 @@
       node.type = event.target.value;
       if (node.type !== 'menu') node.options = [];
       if (node.type === 'menu' && !node.options) node.options = [];
+      if (node.type === 'condition' && !node.rules) node.rules = [];
       markDirty(); renderEditor();
     });
     $('#nodeTitle').addEventListener('input', event => { const node = nodeById(selectedId); node.title = event.target.value; $('#editorBreadcrumb').textContent = event.target.value; markDirty(); renderNodes(); renderPreview(); });
@@ -720,10 +828,24 @@
       node.options.push({ label: 'אפשרות חדשה', target: nodes.find(item => item.id !== node.id)?.id || node.id });
       markDirty(); renderEditor();
     });
+    $('#addFriendlyRule').addEventListener('click', () => {
+      const node = nodeById(selectedId);
+      if (!node || node.type !== 'condition') return;
+      const answers = decisionQuestions.map(questionId => questionId === $('#logicQuestion').value ? $('#logicAnswer').value : undefined);
+      node.rules ||= [];
+      node.rules.push({ id: `rule-${Date.now()}`, answers, target: $('#logicTarget').value });
+      markDirty(); renderConditionBuilder(node); renderNodes(); announce('הכלל נוסף בלי צורך בערכים טכניים');
+    });
+    $('#generateCombinations').addEventListener('click', () => {
+      const node = nodeById(selectedId);
+      if (!node || node.type !== 'condition') return;
+      node.rules = combinations.map((values, index) => ({ id: `rule-${index + 1}`, answers: values.slice(0, 3), target: values[3] }));
+      markDirty(); renderConditionBuilder(node); renderNodes(); announce('נוצרו כל 8 שילובי התשובות');
+    });
     $$('.add-node').forEach(button => button.addEventListener('click', () => {
       const type = button.dataset.type;
       const id = `node-${nodes.length + 1}`;
-      nodes.push({ id, title: type === 'menu' ? 'תפריט חדש' : 'הודעה חדשה', type, text: '', options: [] });
+      nodes.push({ id, title: type === 'menu' ? 'תפריט חדש' : type === 'condition' ? 'ניתוב חדש' : 'הודעה חדשה', type, text: '', options: [], rules: [] });
       selectedId = id;
       markDirty(); renderEditor();
       if (window.innerWidth <= 760) activateMobilePanel('editor');

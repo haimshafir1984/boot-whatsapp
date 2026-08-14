@@ -30,6 +30,10 @@ for (const endpoint of [
 for (const functionName of [
   'loadServiceBot',
   'renderServiceBotEditor',
+  'serviceBotVariableCatalog',
+  'setServiceBotFriendlyConditionSource',
+  'setServiceBotFriendlyConditionValue',
+  'generateMissingServiceBotConditionCombinations',
   'validateServiceBotDraft',
   'saveServiceBot',
   'loadServiceBotSample',
@@ -48,6 +52,10 @@ assert.ok(titleUpdateStart >= 0 && titleUpdateEnd > titleUpdateStart, 'missing s
 const titleUpdate = html.slice(titleUpdateStart, titleUpdateEnd);
 assert.ok(!titleUpdate.includes('replaceServiceBotTarget'), 'editing a node title must not change its technical id');
 assert.ok(html.includes('צריך לבחור מה המשתמש יראה אחרי הלחיצה'), 'missing targets must be explained next to the continuation selector');
+assert.ok(html.includes('אין צורך לכתוב שמות משתנים או ערכים באנגלית'), 'friendly condition guidance is missing');
+assert.ok(html.includes('מילוי שילובים חסרים'), 'condition combination helper is missing');
+assert.ok(html.includes('הגדרה טכנית מתקדמת'), 'legacy technical editing must remain available');
+assert.match(html, /variableKey, variableValue: serviceBotStableToken\('answer', optionId\)/, 'new menu options must receive hidden stable condition values');
 const inlineScripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)].map(match => match[1]);
 assert.ok(inlineScripts.length, 'dashboard must contain an inline script');
 for (const script of inlineScripts) new Function(script);
