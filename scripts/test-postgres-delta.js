@@ -12,6 +12,10 @@ function assertSafeTestDatabase(databaseUrl) {
 }
 
 async function clearData(pool) {
+  const serviceBotTable = await pool.query("select to_regclass('public.service_bot_state') as name");
+  if (serviceBotTable.rows[0]?.name) {
+    await pool.query('truncate table service_bot_state restart identity');
+  }
   await pool.query(`truncate table
     scheduled_jobs,
     conversation_state,
@@ -45,6 +49,20 @@ async function main() {
       initialData: emptyStorageData(),
       backend,
     });
+
+    storage.updateServiceBot({
+      ...storage.getServiceBot(),
+      enabled: true,
+      name: 'Persistent service bot',
+      triggerText: 'service-menu',
+      mainMenuNodeId: 'service-main',
+      nodes: [{ id: 'service-main', title: 'Main', type: 'message', text: 'Persist me' }],
+    });
+    await storage.flush();
+    const persistedBot = await pool.query("select data->'serviceBot'->>'name' as name from service_bot_state where id = 'current'");
+    if (persistedBot.rows[0]?.name !== 'Persistent service bot') {
+      throw new Error('Service bot state delta was not persisted.');
+    }
 
     const first = storage.enqueueOutboxMessage({
       kind: 'text',
@@ -190,6 +208,9 @@ async function main() {
     if (!runtimeSnapshot || runtimeSnapshot.outboxMessages.length !== 6) {
       throw new Error('Runtime snapshot was not reconstructed from normalized tables.');
     }
+    if (runtimeSnapshot.serviceBot.name !== 'Persistent service bot' || runtimeSnapshot.serviceBot.nodes.length !== 1) {
+      throw new Error('Runtime snapshot did not overlay the persisted service bot state.');
+    }
     const appState = await pool.query("select jsonb_array_length(data->'outboxMessages')::int as count from app_state where key = 'storage'");
     if (appState.rows[0].count !== 0) {
       throw new Error('Runtime delta unexpectedly rewrote the app_state checkpoint.');
@@ -201,6 +222,9 @@ async function main() {
     const restartedSnapshot = await restartedBackend.loadSnapshot();
     if (!restartedSnapshot || restartedSnapshot.outboxMessages.length !== 6) {
       throw new Error('Restart did not reconstruct the latest normalized state.');
+    }
+    if (restartedSnapshot.serviceBot.name !== 'Persistent service bot' || restartedSnapshot.serviceBot.nodes.length !== 1) {
+      throw new Error('Restart did not reconstruct the latest service bot state.');
     }
     await restartedBackend.close();
     console.log('PostgreSQL delta persistence test passed.');

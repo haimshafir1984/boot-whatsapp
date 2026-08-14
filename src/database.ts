@@ -184,6 +184,16 @@ const MIGRATIONS: Array<{ id: string; sql: string }> = [
         on outbox_messages(processing_started_at);
     `,
   },
+  {
+    id: '004_service_bot_state',
+    sql: `
+      create table if not exists service_bot_state (
+        id text primary key default 'current',
+        data jsonb not null,
+        updated_at timestamptz not null default now()
+      );
+    `,
+  },
 
 ];
 
@@ -370,9 +380,11 @@ async function readRuntimeSnapshot(connection: Pool | PoolClient): Promise<Stora
   const outboxMessages = await connection.query('select data from outbox_messages order by created_at, id');
   const conversationState = await connection.query('select jid, data from conversation_state');
   const scheduledJobs = await connection.query('select data from scheduled_jobs order by run_at, id');
+  const serviceBotState = await connection.query("select data from service_bot_state where id = 'current'");
   const hasNormalizedData = [
     adminSettings, clientProfile, campaigns, campaignResults, campaignEvents, contactQueue,
     savedContacts, uploadedFiles, twilioTemplates, outboxMessages, conversationState, scheduledJobs,
+    serviceBotState,
   ].some((result) => (result.rowCount ?? 0) > 0);
   if (!appState.rowCount && !hasNormalizedData) return null;
 
@@ -381,6 +393,9 @@ async function readRuntimeSnapshot(connection: Pool | PoolClient): Promise<Stora
     : emptyStorageData();
   const rowData = <T>(result: { rows: Array<{ data: T }> }): T[] => result.rows.map((row) => row.data);
   const conversations = Object.fromEntries(conversationState.rows.map((row) => [row.jid, row.data]));
+  const persistedServiceBotState = serviceBotState.rows[0]?.data as Pick<StorageData,
+    'serviceBot' | 'serviceBotSessions' | 'serviceBotRecords' | 'serviceBotFollowUps'
+  > | undefined;
 
   return {
     ...base,
@@ -398,6 +413,10 @@ async function readRuntimeSnapshot(connection: Pool | PoolClient): Promise<Stora
       ? { version: 1, savedAt: base.conversationStateSnapshot?.savedAt ?? new Date().toISOString(), conversations }
       : undefined,
     scheduledJobs: mergeRowsInSnapshotOrder(base.scheduledJobs ?? [], rowData(scheduledJobs), (item) => item.id),
+    serviceBot: persistedServiceBotState?.serviceBot ?? base.serviceBot,
+    serviceBotSessions: persistedServiceBotState?.serviceBotSessions ?? base.serviceBotSessions,
+    serviceBotRecords: persistedServiceBotState?.serviceBotRecords ?? base.serviceBotRecords,
+    serviceBotFollowUps: persistedServiceBotState?.serviceBotFollowUps ?? base.serviceBotFollowUps,
   };
 }
 
@@ -475,6 +494,11 @@ async function writeSnapshot(pool: Pool, data: StorageData): Promise<void> {
     await replaceRows(pool, 'outbox_messages', data.outboxMessages ?? [], (item) => [item.id, item.kind, item.to, item.status, item.attempts, item.providerMessageId ?? null, item.idempotencyKey ?? null, nullableDate(item.processingStartedAt), nullableDate(item.nextAttemptAt), nullableDate(item.createdAt), nullableDate(item.updatedAt), item]);
     await replaceConversationStateRows(pool, data.conversationStateSnapshot?.conversations ?? {});
     await replaceRows(pool, 'scheduled_jobs', data.scheduledJobs ?? [], (item) => [item.id, item.kind, item.targetId, nullableDate(item.runAt), item.status, item.attempts, item, nullableDate(item.updatedAt)]);
+    await pool.query(
+      `insert into service_bot_state(id, data, updated_at) values ('current', $1, now())
+       on conflict (id) do update set data = excluded.data, updated_at = now()`,
+      [jsonbParam(serviceBotStateFromSnapshot(data))],
+    );
 
     await pool.query('commit');
   } catch (err) {
@@ -516,12 +540,32 @@ async function writeSnapshotDelta(pool: Pool, previous: StorageData | null, data
     await syncRowsDelta(pool, 'outbox_messages', previous?.outboxMessages ?? [], data.outboxMessages ?? [], (item) => item.id, (item) => [item.id, item.kind, item.to, item.status, item.attempts, item.providerMessageId ?? null, item.idempotencyKey ?? null, nullableDate(item.processingStartedAt), nullableDate(item.nextAttemptAt), nullableDate(item.createdAt), nullableDate(item.updatedAt), item]);
     await syncConversationStateDelta(pool, previous?.conversationStateSnapshot?.conversations ?? {}, data.conversationStateSnapshot?.conversations ?? {});
     await syncRowsDelta(pool, 'scheduled_jobs', previous?.scheduledJobs ?? [], data.scheduledJobs ?? [], (item) => item.id, (item) => [item.id, item.kind, item.targetId, nullableDate(item.runAt), item.status, item.attempts, item, nullableDate(item.updatedAt)]);
+    const previousServiceBotState = previous ? serviceBotStateFromSnapshot(previous) : null;
+    const nextServiceBotState = serviceBotStateFromSnapshot(data);
+    if (!previousServiceBotState || !sameJson(previousServiceBotState, nextServiceBotState)) {
+      await pool.query(
+        `insert into service_bot_state(id, data, updated_at) values ('current', $1, now())
+         on conflict (id) do update set data = excluded.data, updated_at = now()`,
+        [jsonbParam(nextServiceBotState)],
+      );
+    }
 
     await pool.query('commit');
   } catch (err) {
     await pool.query('rollback');
     throw err;
   }
+}
+
+function serviceBotStateFromSnapshot(data: StorageData): Pick<StorageData,
+  'serviceBot' | 'serviceBotSessions' | 'serviceBotRecords' | 'serviceBotFollowUps'
+> {
+  return {
+    serviceBot: data.serviceBot,
+    serviceBotSessions: data.serviceBotSessions,
+    serviceBotRecords: data.serviceBotRecords,
+    serviceBotFollowUps: data.serviceBotFollowUps,
+  };
 }
 
 function sameJson(left: unknown, right: unknown): boolean {
