@@ -1129,6 +1129,12 @@
     .service-bot-intro .sec-title { margin:0; color:#0d633a; letter-spacing:0; text-transform:none; font-size:1.25rem; }
     .service-bot-intro p { margin:4px 0 0; color:#64726a; font-size:.84rem; line-height:1.6; }
     .service-bot-status-stack { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:8px; }
+    .service-bot-manager { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-bottom:14px; padding:14px 16px; border:1px solid #dce5df; border-radius:14px; background:#fff; box-shadow:0 8px 22px rgba(29,54,41,.05); }
+    .service-bot-manager-main { display:flex; align-items:center; gap:10px; min-width:0; flex:1; }
+    .service-bot-manager-copy strong { display:block; font-size:.82rem; color:#18231e; }
+    .service-bot-manager-copy span { display:block; margin-top:2px; color:#66756d; font-size:.67rem; }
+    .service-bot-manager select { width:min(420px,100%); min-height:41px; border:1px solid #cbd6d0; border-radius:9px; padding:8px 10px; background:#fff; font:inherit; font-size:.82rem; font-weight:700; }
+    .service-bot-manager-actions { display:flex; flex-wrap:wrap; gap:7px; }
     .service-bot-feature-note { border:1px solid #bfe0cd; border-radius:999px; padding:7px 10px; background:#e9f6ef; color:#0d633a; font-size:.74rem; font-weight:800; white-space:nowrap; }
     .service-bot-feature-note.is-disabled { border-color:#d9e2dc; background:#f4f6f5; color:#64726a; }
     .service-bot-dirty { display:inline-flex; align-items:center; gap:5px; color:#a55f07; font-size:.74rem; font-weight:800; white-space:nowrap; }
@@ -1245,6 +1251,7 @@
     .service-bot-validation.open { display:block; }
     .service-bot-validation.success { border:1px solid #bfe0cd; background:#e9f6ef; color:#0d633a; }
     .service-bot-validation.error { border:1px solid #f0cbd0; background:#fff0f1; color:#991b1b; }
+    .service-bot-validation.warning { border:1px solid #f0d59b; background:#fff8e8; color:#8a5705; }
     .service-bot-state { display:none; min-height:460px; place-items:center; padding:28px; border:1px solid #dce5df; border-radius:14px; background:#fff; text-align:center; }
     .service-bot-state.open { display:grid; }
     .service-bot-state-icon { display:grid; place-items:center; width:54px; height:54px; margin:0 auto 12px; border-radius:15px; background:#e9f6ef; color:#147a4a; font-size:1.25rem; }
@@ -1263,6 +1270,9 @@
     @media (max-width:760px) {
       body.service-bot-mode .page,body.service-bot-mode #main-content { max-width:560px; }
       .service-bot-intro { flex-direction:column; padding:14px; }
+      .service-bot-manager,.service-bot-manager-main { align-items:stretch; flex-direction:column; }
+      .service-bot-manager select { width:100%; }
+      .service-bot-manager-actions > * { flex:1; }
       .service-bot-status-stack { justify-content:flex-start; }
       .service-bot-overview { grid-template-columns:1fr; padding:14px; }
       .service-bot-command-bar { align-items:stretch; flex-direction:column; }
@@ -1420,6 +1430,17 @@
       </div>
 
       <div id="serviceBotWorkspace" style="display:none">
+        <div class="service-bot-manager">
+          <div class="service-bot-manager-main">
+            <div class="service-bot-manager-copy"><strong>הבוטים של הלקוח</strong><span>כל בוט מופעל באמצעות משפט טריגר משלו</span></div>
+            <select id="serviceBotSelector" onchange="selectServiceBot(this.value)" aria-label="בחירת בוט שירות"></select>
+          </div>
+          <div class="service-bot-manager-actions">
+            <button type="button" class="btn-small" onclick="createServiceBotDraft()">+ בוט חדש</button>
+            <button type="button" class="btn-small" onclick="duplicateCurrentServiceBot()">שכפול</button>
+            <button type="button" class="service-bot-delete" onclick="deleteCurrentServiceBot()">מחיקה</button>
+          </div>
+        </div>
         <div class="service-bot-overview">
           <div class="service-bot-activation">
             <label class="switch"><input type="checkbox" id="serviceBotEnabled" onchange="updateServiceBotGlobal('enabled', this.checked); renderServiceBotSummary()" /><span class="slider"></span></label>
@@ -5024,12 +5045,15 @@
 
   // ── Service Bot editor ──────────────────────────────────────────────────────
   let serviceBotDraft = null;
+  let serviceBots = [];
+  let serviceBotSelectedId = '';
   let serviceBotSelectedNode = 0;
   let serviceBotDraftDirty = false;
   let serviceBotFeatureEnabled = false;
 
   function emptyServiceBotDraft() {
     return {
+      id: '',
       enabled: false,
       name: '',
       triggerText: 'תפריט',
@@ -5051,6 +5075,80 @@
     };
   }
 
+  function renderServiceBotSelector() {
+    const selector = document.getElementById('serviceBotSelector');
+    if (!selector) return;
+    const options = serviceBots.map((bot, index) => `<option value="${esc(bot.id)}" ${bot.id === serviceBotSelectedId ? 'selected' : ''}>${esc(bot.name?.trim() || `בוט שירות ${index + 1}`)}${bot.enabled ? ' · פעיל' : ' · כבוי'}</option>`).join('');
+    selector.innerHTML = options || '<option value="">בוט חדש שטרם נשמר</option>';
+    selector.value = serviceBotSelectedId;
+  }
+
+  function selectServiceBot(botId) {
+    if (botId === serviceBotSelectedId) return;
+    if (serviceBotDraftDirty && !confirm('יש שינויים שלא נשמרו. לעבור לבוט אחר ולבטל אותם?')) {
+      renderServiceBotSelector();
+      return;
+    }
+    const selected = serviceBots.find(bot => bot.id === botId);
+    if (!selected) return;
+    serviceBotSelectedId = selected.id;
+    serviceBotDraft = JSON.parse(JSON.stringify(selected));
+    serviceBotSelectedNode = 0;
+    setServiceBotDirty(false);
+    renderServiceBotSelector();
+    renderServiceBotEditor();
+    loadServiceBotRecords();
+  }
+
+  function createServiceBotDraft() {
+    if (serviceBotDraftDirty && !confirm('יש שינויים שלא נשמרו. ליצור בוט חדש ולבטל אותם?')) return;
+    serviceBotSelectedId = '';
+    serviceBotDraft = emptyServiceBotDraft();
+    serviceBotDraft.triggerText = '';
+    serviceBotSelectedNode = 0;
+    setServiceBotDirty(true);
+    renderServiceBotSelector();
+    renderServiceBotEditor();
+    showServiceBotValidation('success', 'נוצרה טיוטת בוט חדשה. הגדירו שם וטריגר ושמרו.');
+  }
+
+  async function duplicateCurrentServiceBot() {
+    if (!serviceBotSelectedId) { showServiceBotValidation('error', 'יש לשמור את הבוט לפני שכפול.'); return; }
+    if (serviceBotDraftDirty && !confirm('לשכפל את הגרסה השמורה האחרונה ללא השינויים שטרם נשמרו?')) return;
+    try {
+      const response = await fetch(`/api/service-bots/${encodeURIComponent(serviceBotSelectedId)}/duplicate`, { method: 'POST' });
+      const data = await response.json();
+      if (!response.ok) { showServiceBotValidation('error', data.error || 'שכפול הבוט נכשל.'); return; }
+      serviceBots = Array.isArray(data.serviceBots) ? data.serviceBots : serviceBots;
+      serviceBotSelectedId = data.serviceBot.id;
+      serviceBotDraft = JSON.parse(JSON.stringify(data.serviceBot));
+      serviceBotSelectedNode = 0;
+      setServiceBotDirty(false);
+      renderServiceBotSelector();
+      renderServiceBotEditor();
+      showServiceBotValidation('success', 'הבוט שוכפל במצב כבוי. יש לשנות את הטריגר לפני ההפעלה.');
+    } catch (_) { showServiceBotValidation('error', 'לא ניתן לשכפל את הבוט כרגע.'); }
+  }
+
+  async function deleteCurrentServiceBot() {
+    if (!serviceBotSelectedId) { createServiceBotDraft(); return; }
+    if (!confirm(`למחוק את “${serviceBotDraft?.name || 'בוט השירות'}”? המבנה והשיחות הפעילות שלו יימחקו.`)) return;
+    try {
+      const response = await fetch(`/api/service-bots/${encodeURIComponent(serviceBotSelectedId)}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!response.ok) { showServiceBotValidation('error', data.error || 'מחיקת הבוט נכשלה.'); return; }
+      serviceBots = Array.isArray(data.serviceBots) ? data.serviceBots : [];
+      const next = serviceBots[0];
+      serviceBotSelectedId = next?.id || '';
+      serviceBotDraft = next ? JSON.parse(JSON.stringify(next)) : emptyServiceBotDraft();
+      serviceBotSelectedNode = 0;
+      setServiceBotDirty(false);
+      renderServiceBotSelector();
+      renderServiceBotEditor();
+      showServiceBotValidation('success', 'הבוט נמחק.');
+    } catch (_) { showServiceBotValidation('error', 'לא ניתן למחוק את הבוט כרגע.'); }
+  }
+
   function setServiceBotLoadState(state) {
     const workspace = document.getElementById('serviceBotWorkspace');
     const loading = document.getElementById('serviceBotLoadingState');
@@ -5063,7 +5161,7 @@
   async function loadServiceBot() {
     setServiceBotLoadState('loading');
     try {
-      const response = await fetch('/api/service-bot');
+      const response = await fetch('/api/service-bots');
       if (!response.ok) throw new Error('service-bot-load-failed');
       const data = await response.json();
       const tabs = document.getElementById('dashboardTabs');
@@ -5076,13 +5174,24 @@
           : 'הלשונית זמינה להכנה; ההפעלה תתבצע לאחר אישור מנהל המערכת';
         featureNote.classList.toggle('is-disabled', !serviceBotFeatureEnabled);
       }
-      serviceBotDraft = data.serviceBot && typeof data.serviceBot === 'object'
-        ? JSON.parse(JSON.stringify(data.serviceBot))
-        : emptyServiceBotDraft();
+      serviceBots = Array.isArray(data.serviceBots) ? data.serviceBots : [];
+      const selected = serviceBots.find(bot => bot.id === serviceBotSelectedId) || serviceBots[0];
+      serviceBotSelectedId = selected?.id || '';
+      serviceBotDraft = selected ? JSON.parse(JSON.stringify(selected)) : emptyServiceBotDraft();
       if (!Array.isArray(serviceBotDraft.nodes)) serviceBotDraft.nodes = [];
-      if (!serviceBotDraft.nodes.length) serviceBotDraft = { ...serviceBotDraft, ...emptyServiceBotDraft(), enabled: Boolean(serviceBotDraft.enabled), name: serviceBotDraft.name || '' };
+      if (!serviceBotDraft.nodes.length) {
+        const blankBot = emptyServiceBotDraft();
+        serviceBotDraft = {
+          ...blankBot,
+          ...serviceBotDraft,
+          nodes: blankBot.nodes,
+          enabled: Boolean(serviceBotDraft.enabled),
+          name: serviceBotDraft.name || '',
+        };
+      }
       serviceBotSelectedNode = Math.min(serviceBotSelectedNode, serviceBotDraft.nodes.length - 1);
       setServiceBotDirty(false);
+      renderServiceBotSelector();
       renderServiceBotEditor();
       loadServiceBotRecords();
       setServiceBotLoadState('ready');
@@ -5621,13 +5730,19 @@
     const button = document.getElementById('saveServiceBotBtn');
     if (button) { button.disabled = true; button.textContent = 'שומר...'; }
     try {
-      const response = await fetch('/api/service-bot', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(serviceBotDraft) });
+      const endpoint = serviceBotSelectedId
+        ? `/api/service-bots/${encodeURIComponent(serviceBotSelectedId)}`
+        : '/api/service-bots';
+      const response = await fetch(endpoint, { method: serviceBotSelectedId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(serviceBotDraft) });
       const data = await response.json();
       if (!response.ok) { showServiceBotValidation('error', data.errors || data.error || 'השמירה נכשלה.'); return; }
       serviceBotDraft = JSON.parse(JSON.stringify(data.serviceBot));
+      serviceBots = Array.isArray(data.serviceBots) ? data.serviceBots : serviceBots.filter(bot => bot.id !== data.serviceBot.id).concat(data.serviceBot);
+      serviceBotSelectedId = data.serviceBot.id;
       setServiceBotDirty(false);
+      renderServiceBotSelector();
       renderServiceBotEditor();
-      showServiceBotValidation('success', 'בוט השירות נשמר בהצלחה.');
+      showServiceBotValidation(data.warning ? 'warning' : 'success', data.warning || 'בוט השירות נשמר בהצלחה.');
     } catch (_) {
       showServiceBotValidation('error', 'לא ניתן לשמור את בוט השירות כרגע.');
     } finally {
@@ -5663,7 +5778,7 @@
   async function clearServiceBotSessions() {
     if (!confirm('לאפס את כל שיחות בוט השירות הפעילות? המשתמשים יידרשו לשלוח שוב את הטריגר.')) return;
     try {
-      const response = await fetch('/api/service-bot/sessions', { method: 'DELETE' });
+      const response = await fetch(`/api/service-bot/sessions?botId=${encodeURIComponent(serviceBotSelectedId || '')}`, { method: 'DELETE' });
       const data = await response.json();
       if (!response.ok) { showServiceBotValidation('error', data.error || 'האיפוס נכשל.'); return; }
       showServiceBotValidation('success', `אופסו ${Number(data.deleted || 0)} שיחות פעילות.`);
@@ -5676,7 +5791,7 @@
     const box = document.getElementById('serviceBotRecords');
     if (!box) return;
     try {
-      const response = await fetch('/api/service-bot/records');
+      const response = await fetch(`/api/service-bot/records?botId=${encodeURIComponent(serviceBotSelectedId || '')}`);
       const data = await response.json();
       const records = Array.isArray(data.records) ? data.records : [];
       box.innerHTML = records.length ? records.slice(0, 20).map(record => {

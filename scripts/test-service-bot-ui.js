@@ -9,6 +9,7 @@ for (const id of [
   'dashboardTabs',
   'serviceBotDashboardTab',
   'serviceBotCard',
+  'serviceBotSelector',
   'serviceBotEnabled',
   'serviceBotMainNode',
   'serviceBotNodeList',
@@ -21,6 +22,7 @@ for (const id of [
 
 for (const endpoint of [
   '/api/service-bot',
+  '/api/service-bots',
   '/api/service-bot/validate',
   '/api/service-bot/sessions',
 ]) {
@@ -29,6 +31,10 @@ for (const endpoint of [
 
 for (const functionName of [
   'loadServiceBot',
+  'selectServiceBot',
+  'createServiceBotDraft',
+  'duplicateCurrentServiceBot',
+  'deleteCurrentServiceBot',
   'renderServiceBotEditor',
   'serviceBotVariableCatalog',
   'setServiceBotFriendlyConditionSource',

@@ -394,7 +394,7 @@ async function readRuntimeSnapshot(connection: Pool | PoolClient): Promise<Stora
   const rowData = <T>(result: { rows: Array<{ data: T }> }): T[] => result.rows.map((row) => row.data);
   const conversations = Object.fromEntries(conversationState.rows.map((row) => [row.jid, row.data]));
   const persistedServiceBotState = serviceBotState.rows[0]?.data as Pick<StorageData,
-    'serviceBot' | 'serviceBotSessions' | 'serviceBotRecords' | 'serviceBotFollowUps'
+    'serviceBots' | 'serviceBot' | 'serviceBotSessions' | 'serviceBotRecords' | 'serviceBotFollowUps'
   > | undefined;
 
   return {
@@ -413,6 +413,7 @@ async function readRuntimeSnapshot(connection: Pool | PoolClient): Promise<Stora
       ? { version: 1, savedAt: base.conversationStateSnapshot?.savedAt ?? new Date().toISOString(), conversations }
       : undefined,
     scheduledJobs: mergeRowsInSnapshotOrder(base.scheduledJobs ?? [], rowData(scheduledJobs), (item) => item.id),
+    serviceBots: persistedServiceBotState?.serviceBots ?? base.serviceBots,
     serviceBot: persistedServiceBotState?.serviceBot ?? base.serviceBot,
     serviceBotSessions: persistedServiceBotState?.serviceBotSessions ?? base.serviceBotSessions,
     serviceBotRecords: persistedServiceBotState?.serviceBotRecords ?? base.serviceBotRecords,
@@ -558,9 +559,10 @@ async function writeSnapshotDelta(pool: Pool, previous: StorageData | null, data
 }
 
 function serviceBotStateFromSnapshot(data: StorageData): Pick<StorageData,
-  'serviceBot' | 'serviceBotSessions' | 'serviceBotRecords' | 'serviceBotFollowUps'
+  'serviceBots' | 'serviceBot' | 'serviceBotSessions' | 'serviceBotRecords' | 'serviceBotFollowUps'
 > {
   return {
+    serviceBots: data.serviceBots,
     serviceBot: data.serviceBot,
     serviceBotSessions: data.serviceBotSessions,
     serviceBotRecords: data.serviceBotRecords,

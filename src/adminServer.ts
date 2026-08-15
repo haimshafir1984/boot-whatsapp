@@ -68,6 +68,10 @@ export interface MetaGatewayRoute extends Campaign {
 
 const SERVICE_BOT_META_ROUTE_ID = '__service_bot__';
 
+function serviceBotMetaRouteId(botId: string): string {
+  return botId === 'service-bot-main' ? SERVICE_BOT_META_ROUTE_ID : `${SERVICE_BOT_META_ROUTE_ID}:${botId}`;
+}
+
 export function preferCampaignMetaRoutes<T extends {
   clientId: string;
   triggerText: string;
@@ -87,15 +91,11 @@ export function campaignsToMetaGatewayRoutes(campaigns: Campaign[]): MetaGateway
 
 export function buildMetaGatewayRoutes(storage: Storage, serviceBotFeatureEnabled = config.CLIENT_SERVICE_BOT_ENABLED): MetaGatewayRoute[] {
   const routes = campaignsToMetaGatewayRoutes(storage.getCampaigns());
-  const serviceBot = storage.getServiceBot();
-  if (
-    serviceBotFeatureEnabled
-    && serviceBot.enabled
-    && serviceBot.triggerText.trim()
-    && validateServiceBotConfig(serviceBot).ok
-  ) {
+  if (!serviceBotFeatureEnabled) return routes;
+  for (const serviceBot of storage.getServiceBots().slice().reverse()) {
+    if (!serviceBot.enabled || !serviceBot.triggerText.trim() || !validateServiceBotConfig(serviceBot).ok) continue;
     routes.push({
-      id: SERVICE_BOT_META_ROUTE_ID,
+      id: serviceBotMetaRouteId(serviceBot.id),
       name: serviceBot.name || 'Service Bot',
       triggerType: 1,
       triggerPhrase: serviceBot.triggerText.trim(),
@@ -1180,37 +1180,56 @@ export function startAdminServer(storage: Storage): void {
     }) ?? null;
   };
 
-  const inspectMetaTriggerAvailability = async (requester: ManagedClient, triggerPhrase: string, campaignId?: string) => {
+  const inspectMetaTriggerAvailability = async (
+    requester: ManagedClient,
+    triggerPhrase: string,
+    routeId?: string,
+    routeKind: MetaGatewayRoute['routeKind'] = 'campaign',
+  ) => {
     const normalizedTrigger = normalizeMetaTrigger(triggerPhrase);
     if (!normalizedTrigger) return { available: false, conflicts: [], sameClientConflicts: [], crossClientConflicts: [] };
     const metaClients = ownerStorage.getClients().filter((client) =>
       client.whatsappProvider === 'META_CLOUD_API' && client.managementUrl && client.ownerAccessToken && client.provisioningStatus !== 'disabled');
-    const results = await Promise.all(metaClients.map(async (client) => ({
-      client,
-      result: await fetchClientAsOwner<Campaign[]>(client, '/owner-api/campaigns'),
-    })));
+    const results = await Promise.all(metaClients.map(async (client) => {
+      const routeResult = await fetchClientAsOwner<MetaGatewayRoute[]>(client, '/owner-api/meta-routes');
+      if (routeResult.ok && Array.isArray(routeResult.body)) return { client, result: routeResult };
+      if (routeResult.status !== 404) return { client, result: routeResult };
+      const campaignResult = await fetchClientAsOwner<Campaign[]>(client, '/owner-api/campaigns');
+      return {
+        client,
+        result: campaignResult.ok && Array.isArray(campaignResult.body)
+          ? { ...campaignResult, body: campaignsToMetaGatewayRoutes(campaignResult.body) }
+          : campaignResult,
+      };
+    }));
     const unavailable = results.filter(({ result }) => !result.ok || !Array.isArray(result.body));
     if (unavailable.length) throw new Error(`Could not verify Meta triggers for ${unavailable.length} managed client(s).`);
-    const conflicts: Array<{ clientId: string; campaignId: string; campaignName: string }> = [];
+    const conflicts: Array<{ clientId: string; routeId: string; routeKind: MetaGatewayRoute['routeKind']; routeName: string; triggerPhrase: string; exact: boolean }> = [];
     for (const { client, result } of results) {
-      for (const campaign of result.body as Campaign[]) {
-        if (client.id === requester.id && campaign.id === campaignId) continue;
-        if (!metaCampaignReservesTrigger(campaign)) continue;
-        if (normalizeMetaTrigger(campaign.triggerPhrase || '') !== normalizedTrigger) continue;
-        conflicts.push({ clientId: client.id, campaignId: campaign.id, campaignName: campaign.name });
+      for (const route of result.body as MetaGatewayRoute[]) {
+        if (client.id === requester.id && route.id === routeId && route.routeKind === routeKind) continue;
+        if (!metaCampaignReservesTrigger(route)) continue;
+        const otherTrigger = normalizeMetaTrigger(route.triggerPhrase || '');
+        const exact = otherTrigger === normalizedTrigger;
+        const overlaps = exact || otherTrigger.includes(normalizedTrigger) || normalizedTrigger.includes(otherTrigger);
+        if (!otherTrigger || !overlaps) continue;
+        conflicts.push({ clientId: client.id, routeId: route.id, routeKind: route.routeKind, routeName: route.name, triggerPhrase: route.triggerPhrase, exact });
       }
     }
     const sameClientConflicts = conflicts.filter((conflict) => conflict.clientId === requester.id);
     const crossClientConflicts = conflicts.filter((conflict) => conflict.clientId !== requester.id);
+    const blockingCrossClientConflicts = crossClientConflicts.filter((conflict) => conflict.exact);
+    const warningConflicts = [...sameClientConflicts, ...crossClientConflicts.filter((conflict) => !conflict.exact)];
     return {
-      available: crossClientConflicts.length === 0,
+      available: blockingCrossClientConflicts.length === 0,
       conflicts,
       sameClientConflicts,
       crossClientConflicts,
-      warning: sameClientConflicts.length
-        ? 'אזהרה: ללקוח הזה כבר יש קמפיין פעיל עם אותו משפט טריגר. אם שניהם פעילים, הקמפיין שנוצר מאוחר יותר יקבל את ההודעות.'
+      blockingCrossClientConflicts,
+      warning: warningConflicts.length
+        ? 'אזהרה: קיים מסלול פעיל עם משפט טריגר זהה או דומה. במקרה של התאמה לשני מסלולים, סדר העדיפות של הניתוב יקבע מי מהם יופעל.'
         : undefined,
-      warningCode: sameClientConflicts.length ? 'META_TRIGGER_DUPLICATE_SAME_CLIENT' : undefined,
+      warningCode: warningConflicts.length ? 'META_TRIGGER_OVERLAP' : undefined,
     };
   };
 
@@ -1230,7 +1249,12 @@ export function startAdminServer(storage: Storage): void {
     warningCode?: string;
   };
 
-  const verifyMetaTriggerBeforeActivation = async (triggerPhrase: string, campaignId?: string): Promise<MetaTriggerVerification> => {
+  const verifyMetaTriggerBeforeActivation = async (
+    triggerPhrase: string,
+    routeId?: string,
+    routeKind: MetaGatewayRoute['routeKind'] = 'campaign',
+    blockOccupied = true,
+  ): Promise<MetaTriggerVerification> => {
     if (config.WHATSAPP_PROVIDER !== 'META_CLOUD_API') return { ok: true, status: 200 };
     const ownerToken = process.env.OWNER_ACCESS_TOKEN?.trim();
     if (!ownerToken) return { ok: false, status: 503, error: 'לא ניתן לבדוק כרגע אם משפט הטריגר פנוי. יש לפנות למנהל המערכת.', code: 'META_TRIGGER_CHECK_UNAVAILABLE' };
@@ -1239,7 +1263,7 @@ export function startAdminServer(storage: Storage): void {
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Owner-Token': ownerToken },
-        body: JSON.stringify({ triggerPhrase, campaignId }),
+        body: JSON.stringify({ triggerPhrase, routeId, routeKind, campaignId: routeKind === 'campaign' ? routeId : undefined }),
         signal: AbortSignal.timeout(15_000),
       });
       const body = await response.json().catch(() => ({})) as {
@@ -1249,7 +1273,8 @@ export function startAdminServer(storage: Storage): void {
         warningCode?: string;
       };
       if (!response.ok) return { ok: false, status: response.status, error: body.error || 'בדיקת משפט הטריגר נכשלה.', code: 'META_TRIGGER_CHECK_UNAVAILABLE' };
-      if (body.available !== true) return { ok: false, status: 409, error: 'משפט הטריגר הזה כבר תפוס אצל לקוח Meta אחר. יש לבחור משפט טריגר אחר.', code: 'META_TRIGGER_OCCUPIED' };
+      if (body.available !== true && blockOccupied) return { ok: false, status: 409, error: 'משפט הטריגר הזה כבר תפוס אצל לקוח Meta אחר. יש לבחור משפט טריגר אחר.', code: 'META_TRIGGER_OCCUPIED' };
+      if (body.available !== true) return { ok: true, status: 200, warning: 'משפט הטריגר תפוס כרגע אצל לקוח אחר. ניתן לשמור את הבוט כבוי, אך לא יהיה ניתן להפעיל אותו.', warningCode: 'META_TRIGGER_OCCUPIED_DRAFT' };
       return { ok: true, status: 200, warning: body.warning, warningCode: body.warningCode };
     } catch (err) {
       console.error('[META_TRIGGER_CHECK_FAILED]', err);
@@ -1276,7 +1301,9 @@ export function startAdminServer(storage: Storage): void {
       return;
     }
     try {
-      res.json(await inspectMetaTriggerAvailability(requester, triggerPhrase, String(req.body?.campaignId || '').trim() || undefined));
+      const routeKind = req.body?.routeKind === 'service_bot' ? 'service_bot' : 'campaign';
+      const routeId = String(req.body?.routeId || req.body?.campaignId || '').trim() || undefined;
+      res.json(await inspectMetaTriggerAvailability(requester, triggerPhrase, routeId, routeKind));
     } catch (err) {
       console.error('[META_TRIGGER_REGISTRY_FAILED]', err);
       res.status(503).json({ error: 'Could not verify all managed Meta campaign triggers' });
@@ -2996,7 +3023,12 @@ export function startAdminServer(storage: Storage): void {
     res.json({
       featureEnabled: config.CLIENT_SERVICE_BOT_ENABLED,
       serviceBot: storage.getServiceBot(),
+      serviceBots: storage.getServiceBots(),
     });
+  });
+
+  app.get('/api/service-bots', (_req, res) => {
+    res.json({ featureEnabled: config.CLIENT_SERVICE_BOT_ENABLED, serviceBots: storage.getServiceBots() });
   });
 
   app.post('/api/service-bot/validate', (req, res) => {
@@ -3004,26 +3036,57 @@ export function startAdminServer(storage: Storage): void {
     res.status(result.ok ? 200 : 400).json(result);
   });
 
-  app.put('/api/service-bot', requireWritableClient, (req, res) => {
+  const saveServiceBotCandidate = async (candidate: ServiceBotConfig, botId?: string) => {
+    const validation = validateServiceBotConfig(candidate);
+    if (!validation.ok) return { ok: false as const, status: 400, body: validation };
+    const routeId = botId ? serviceBotMetaRouteId(botId) : undefined;
+    const verification = await verifyMetaTriggerBeforeActivation(candidate.triggerText, routeId, 'service_bot', candidate.enabled);
+    if (!verification.ok) return { ok: false as const, status: verification.status, body: { error: verification.error, code: verification.code } };
+    const serviceBot = botId ? storage.updateServiceBot({ ...candidate, id: botId }, botId) : storage.createServiceBot(candidate);
+    return { ok: true as const, status: botId ? 200 : 201, body: withMetaTriggerWarning({ ok: true, featureEnabled: config.CLIENT_SERVICE_BOT_ENABLED, serviceBot, serviceBots: storage.getServiceBots() }, verification) };
+  };
+
+  app.post('/api/service-bots', requireWritableClient, async (req, res) => {
+    const result = await saveServiceBotCandidate(req.body as ServiceBotConfig);
+    res.status(result.status).json(result.body);
+  });
+
+  app.put('/api/service-bots/:id', requireWritableClient, async (req, res) => {
+    const botId = String(req.params.id);
+    if (!storage.getServiceBots().some((bot) => bot.id === botId)) { res.status(404).json({ error: 'בוט השירות לא נמצא.' }); return; }
+    const result = await saveServiceBotCandidate(req.body as ServiceBotConfig, botId);
+    res.status(result.status).json(result.body);
+  });
+
+  app.post('/api/service-bots/:id/duplicate', requireWritableClient, (req, res) => {
+    const serviceBot = storage.duplicateServiceBot(String(req.params.id));
+    if (!serviceBot) { res.status(404).json({ error: 'בוט השירות לא נמצא.' }); return; }
+    res.status(201).json({ ok: true, serviceBot, serviceBots: storage.getServiceBots() });
+  });
+
+  app.delete('/api/service-bots/:id', requireWritableClient, (req, res) => {
+    const deleted = storage.deleteServiceBot(String(req.params.id));
+    res.status(deleted ? 200 : 404).json(deleted ? { ok: true, serviceBots: storage.getServiceBots() } : { error: 'בוט השירות לא נמצא.' });
+  });
+
+  app.put('/api/service-bot', requireWritableClient, async (req, res) => {
     const candidate = req.body as ServiceBotConfig;
     const validation = validateServiceBotConfig(candidate);
     if (!validation.ok) {
       res.status(400).json(validation);
       return;
     }
-    res.json({
-      ok: true,
-      featureEnabled: config.CLIENT_SERVICE_BOT_ENABLED,
-      serviceBot: storage.updateServiceBot(candidate),
-    });
+    const existing = storage.getServiceBots()[0];
+    const result = await saveServiceBotCandidate(candidate, existing?.id);
+    res.status(result.status).json(result.body);
   });
 
-  app.get('/api/service-bot/records', (_req, res) => {
-    res.json({ records: storage.getServiceBotRecords(100) });
+  app.get('/api/service-bot/records', (req, res) => {
+    res.json({ records: storage.getServiceBotRecords(100, String(req.query.botId || '').trim() || undefined) });
   });
 
-  app.delete('/api/service-bot/sessions', requireWritableClient, (_req, res) => {
-    const deleted = storage.clearServiceBotSessions();
+  app.delete('/api/service-bot/sessions', requireWritableClient, (req, res) => {
+    const deleted = storage.clearServiceBotSessions(String(req.query.botId || '').trim() || undefined);
     res.json({ ok: true, deleted });
   });
 

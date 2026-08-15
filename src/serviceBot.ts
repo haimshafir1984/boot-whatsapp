@@ -182,6 +182,7 @@ function scheduleNodeFollowUp(
   storage: Storage,
   to: string,
   phone: string,
+  serviceBot: ServiceBotConfig,
   node: ServiceBotNode,
   variables: Record<string, string>,
 ): void {
@@ -191,6 +192,7 @@ function scheduleNodeFollowUp(
   if (!Number.isFinite(delay) || delay < 1 || (!text && !targetNodeId)) return;
   storage.cancelServiceBotFollowUps(phone);
   storage.scheduleServiceBotFollowUp({
+    botId: serviceBot.id,
     phone,
     to,
     nodeId: node.id,
@@ -219,10 +221,10 @@ async function enterNode(
     if (!target) return false;
     return await enterNode(storage, transport, to, phone, serviceBot, target, path, variables, depth + 1);
   }
-  storage.saveServiceBotSession(phone, node.id, path, variables);
-  storage.recordServiceBotProgress(phone, node.id, variables);
+  storage.saveServiceBotSession(phone, node.id, path, variables, serviceBot.id);
+  storage.recordServiceBotProgress(phone, node.id, variables, undefined, serviceBot.id);
   await sendNode(transport, to, node, variables);
-  scheduleNodeFollowUp(storage, to, phone, node, variables);
+  scheduleNodeFollowUp(storage, to, phone, serviceBot, node, variables);
   return true;
 }
 
@@ -292,7 +294,12 @@ export async function tryHandleServiceBotMessage(
   inbound: ServiceBotInboundContext = {},
 ): Promise<boolean> {
   if (!config.CLIENT_SERVICE_BOT_ENABLED) return false;
-  const serviceBot = storage.getServiceBot();
+  const phone = normalizedPhone(senderPhone || senderJid);
+  const input = normalizedText(body);
+  const triggerBot = matchingServiceBotTrigger(body, storage);
+  const existingSession = storage.getServiceBotSession(phone);
+  const serviceBot = triggerBot ?? (existingSession ? storage.getServiceBots().find((bot) => bot.id === existingSession.botId) : undefined);
+  if (!serviceBot) return false;
   if (!serviceBot.enabled) return false;
   const validation = validateServiceBotConfig(serviceBot);
   if (!validation.ok) {
@@ -300,13 +307,10 @@ export async function tryHandleServiceBotMessage(
     return false;
   }
 
-  const phone = normalizedPhone(senderPhone || senderJid);
-  const input = normalizedText(body);
-  const isTrigger = input === normalizedText(serviceBot.triggerText);
+  const isTrigger = triggerBot?.id === serviceBot.id;
   const isMainMenuCommand = input === normalizedText(MAIN_MENU_COMMAND);
   const isBackCommand = input === normalizedText(BACK_COMMAND);
   const isRestartCommand = input === normalizedText(RESTART_COMMAND);
-  const existingSession = storage.getServiceBotSession(phone);
   if (!isTrigger && !isMainMenuCommand && !isRestartCommand && !existingSession) return false;
 
   storage.cancelServiceBotFollowUps(phone);
@@ -329,7 +333,7 @@ export async function tryHandleServiceBotMessage(
     const previousId = path[path.length - 1] ?? mainNode.id;
     const nextPath = path.length ? path.slice(0, -1) : [];
     const previousNode = nodes.get(previousId) ?? mainNode;
-    storage.saveServiceBotSession(phone, previousNode.id, nextPath, variables);
+    storage.saveServiceBotSession(phone, previousNode.id, nextPath, variables, serviceBot.id);
     await sendNode(transport, senderJid, previousNode, variables);
     await sendNavigation(transport, senderJid, serviceBot, previousNode, nextPath, mainNode.id);
     return true;
@@ -343,7 +347,7 @@ export async function tryHandleServiceBotMessage(
   if (navigationOption === BACK_OPTION_ID || navigationOption === MAIN_OPTION_ID) {
     const target = navigationOption === MAIN_OPTION_ID ? mainNode : nodes.get(path[path.length - 1]) ?? mainNode;
     const nextPath = navigationOption === MAIN_OPTION_ID ? [] : path.slice(0, -1);
-    storage.saveServiceBotSession(phone, target.id, nextPath, variables);
+    storage.saveServiceBotSession(phone, target.id, nextPath, variables, serviceBot.id);
     await sendNode(transport, senderJid, target, variables);
     await sendNavigation(transport, senderJid, serviceBot, target, nextPath, mainNode.id);
     return true;
@@ -382,7 +386,7 @@ export async function tryHandleServiceBotMessage(
       return true;
     }
     variables[variableKey] = captured;
-    storage.saveServiceBotSession(phone, currentNode.id, path, variables);
+    storage.saveServiceBotSession(phone, currentNode.id, path, variables, serviceBot.id);
     storage.recordServiceBotProgress(phone, currentNode.id, variables, media ? {
       messageId: inbound.messageId || `${phone}:${Date.now()}`,
       variableKey,
@@ -391,12 +395,12 @@ export async function tryHandleServiceBotMessage(
       fileName: media.fileName,
       providerMediaId: media.providerMediaId,
       providerUrl: media.providerUrl,
-    } : undefined);
+    } : undefined, serviceBot.id);
     const target = String(currentNode.nextNodeId || '').trim();
     if (!target) return true;
     const nextPath = [...path, currentNode.id].slice(-12);
     const entered = await enterNode(storage, transport, senderJid, phone, serviceBot, target, nextPath, variables);
-    const enteredSession = storage.getServiceBotSession(phone);
+    const enteredSession = storage.getServiceBotSession(phone, serviceBot.id);
     const enteredNode = enteredSession ? nodes.get(enteredSession.nodeId) : undefined;
     if (enteredNode && enteredNode.type !== 'input') await sendNavigation(transport, senderJid, serviceBot, enteredNode, enteredSession?.path ?? nextPath, mainNode.id);
     return entered;
@@ -404,7 +408,7 @@ export async function tryHandleServiceBotMessage(
   const option = resolveOption(currentNode, body);
   if (!option) {
     if (serviceBot.fallbackText.trim()) await transport.sendMessage(senderJid, serviceBot.fallbackText.trim());
-    storage.saveServiceBotSession(phone, currentNode.id, path, variables);
+    storage.saveServiceBotSession(phone, currentNode.id, path, variables, serviceBot.id);
     await sendNode(transport, senderJid, currentNode, variables);
     await sendNavigation(transport, senderJid, serviceBot, currentNode, path, mainNode.id);
     return true;
@@ -418,10 +422,23 @@ export async function tryHandleServiceBotMessage(
     ? []
     : [...path, currentNode.id].slice(-12);
   await enterNode(storage, transport, senderJid, phone, serviceBot, targetNode.id, nextPath, variables);
-  const enteredSession = storage.getServiceBotSession(phone);
+  const enteredSession = storage.getServiceBotSession(phone, serviceBot.id);
   const enteredNode = enteredSession ? nodes.get(enteredSession.nodeId) : targetNode;
   if (enteredNode && enteredNode.type !== 'input') await sendNavigation(transport, senderJid, serviceBot, enteredNode, enteredSession?.path ?? nextPath, mainNode.id);
   return true;
+}
+
+function matchingServiceBotTrigger(body: string, storage: Storage): ServiceBotConfig | undefined {
+  if (!config.CLIENT_SERVICE_BOT_ENABLED) return undefined;
+  const input = normalizedText(body);
+  return storage.getServiceBots()
+    .map((bot, index) => ({ bot, index, trigger: normalizedText(bot.triggerText) }))
+    .filter(({ bot, trigger }) => bot.enabled && trigger && input.includes(trigger) && validateServiceBotConfig(bot).ok)
+    .sort((left, right) => right.trigger.length - left.trigger.length || right.index - left.index)[0]?.bot;
+}
+
+export function matchesServiceBotTrigger(body: string, storage: Storage): boolean {
+  return Boolean(matchingServiceBotTrigger(body, storage));
 }
 
 export async function deliverServiceBotFollowUp(
@@ -429,14 +446,15 @@ export async function deliverServiceBotFollowUp(
   storage: Storage,
   transport: WhatsAppTransport,
 ): Promise<void> {
-  const serviceBot = storage.getServiceBot();
+  const serviceBot = storage.getServiceBots().find((bot) => bot.id === followUp.botId);
+  if (!serviceBot) return;
   if (!config.CLIENT_SERVICE_BOT_ENABLED || !serviceBot.enabled || !validateServiceBotConfig(serviceBot).ok) return;
-  const session = storage.getServiceBotSession(followUp.phone);
+  const session = storage.getServiceBotSession(followUp.phone, serviceBot.id);
   if (!session || session.nodeId !== followUp.nodeId) return;
   const variables = { ...(session.variables ?? {}) };
   if (followUp.targetNodeId) {
     await enterNode(storage, transport, followUp.to, followUp.phone, serviceBot, followUp.targetNodeId, [...(session.path ?? []), session.nodeId].slice(-12), variables);
-    const nextSession = storage.getServiceBotSession(followUp.phone);
+    const nextSession = storage.getServiceBotSession(followUp.phone, serviceBot.id);
     const node = serviceBot.nodes.find((item) => item.id === nextSession?.nodeId);
     if (node && node.type !== 'input') await sendNavigation(transport, followUp.to, serviceBot, node, nextSession?.path ?? [], serviceBot.mainMenuNodeId);
     return;

@@ -5,7 +5,7 @@ import path from 'path';
 import { conversationState, PersistablePendingConversation } from './conversationState';
 import { Campaign, CampaignConversationSettings, CampaignResult, CampaignScoreAnswer, CompletionLink, DecisionFlowOption, DecisionFlowStep, OutboxMessage, ScoreResultRule, Storage } from './storage';
 import { detectTrigger } from './triggerDetector';
-import { tryHandleServiceBotMessage } from './serviceBot';
+import { matchesServiceBotTrigger, tryHandleServiceBotMessage } from './serviceBot';
 import {
   IncomingWhatsAppMessage,
   WhatsAppMessageSource,
@@ -748,10 +748,12 @@ async function handleMessage(
   let pending = conversationState.get(senderJid) || conversationState.findByPhone(senderPhone);
   const activeCampaigns = storage.getActiveCampaigns();
   const trigger = message.body?.trim() ? detectTrigger(message.body, activeCampaigns) : { matched: false, campaignId: '', suffix: '', campaignName: '' };
-  if (pending && trigger.matched && messageAgeMs <= MAX_TRIGGER_AGE_MS) {
+  const serviceBotTriggerMatched = message.body?.trim() ? matchesServiceBotTrigger(message.body, storage) : false;
+  if (pending && (trigger.matched || serviceBotTriggerMatched) && messageAgeMs <= MAX_TRIGGER_AGE_MS) {
     clearTimeout(pending.timeoutHandle);
     conversationState.remove(pending.senderJid);
     pending = undefined;
+    if (serviceBotTriggerMatched) console.log(`[SERVICE_BOT_TRIGGER_OVERRIDE] via=${source} phone=${senderPhone}`);
   }
 
   if (pending) {

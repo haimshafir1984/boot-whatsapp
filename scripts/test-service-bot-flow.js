@@ -33,6 +33,26 @@ async function run() {
     const legacyStorage = new Storage(path.join(tempDir, 'legacy.json'), { initialData: legacyData });
     assert.strictEqual(legacyStorage.getServiceBot().enabled, false, 'legacy snapshots must default to disabled');
     assert.strictEqual(legacyStorage.getServiceBotSession('1'), null);
+
+    const singletonSnapshot = emptyStorageData();
+    delete singletonSnapshot.serviceBots;
+    singletonSnapshot.serviceBot = {
+      enabled: true,
+      name: 'Legacy singleton',
+      triggerText: 'legacy trigger',
+      mainMenuNodeId: 'main',
+      fallbackText: 'fallback',
+      nodes: [{ id: 'main', title: 'Main', type: 'message', text: 'Hello' }],
+    };
+    singletonSnapshot.serviceBotSessions = [{ phone: '972500000000', nodeId: 'main', variables: {}, updatedAt: new Date().toISOString() }];
+    const migratedSingletonStorage = new Storage(path.join(tempDir, 'legacy-singleton.json'), { initialData: singletonSnapshot });
+    const migratedBots = migratedSingletonStorage.getServiceBots();
+    assert.strictEqual(migratedBots.length, 1, 'legacy singleton must migrate to one service bot');
+    assert.strictEqual(migratedBots[0].name, 'Legacy singleton');
+    assert.ok(migratedBots[0].id, 'migrated service bot must receive an id');
+    assert.strictEqual(migratedSingletonStorage.getServiceBotSession('972500000000').botId, migratedBots[0].id,
+      'legacy sessions must be associated with the migrated bot');
+
     const storage = new Storage(path.join(tempDir, 'contacts.json'), { initialData: emptyStorageData() });
     const serviceBot = {
       enabled: true,
@@ -103,6 +123,17 @@ async function run() {
     await tryHandleServiceBotMessage('???', '111@c.us', '111', storage, transport);
     assert.strictEqual(sent.length, beforeUnknown + 2, 'unknown input must send fallback and repeat menu');
     assert.strictEqual(sent[beforeUnknown].text, serviceBot.fallbackText);
+
+    const secondBot = storage.createServiceBot({ ...serviceBot, id: undefined, name: 'Second service bot', triggerText: 'second menu' });
+    assert.strictEqual(storage.getServiceBots().length, 2, 'multiple service bots must be persisted for one client');
+    assert.strictEqual(buildMetaGatewayRoutes(storage, true).filter(route => route.routeKind === 'service_bot').length, 2,
+      'every enabled service bot must be exposed as a Meta route');
+    await tryHandleServiceBotMessage(secondBot.triggerText, '111@c.us', '111', storage, transport);
+    assert.strictEqual(storage.getServiceBotSession('111').botId, secondBot.id, 'a new explicit trigger must switch the active bot session');
+    await tryHandleServiceBotMessage(serviceBot.triggerText, '111@c.us', '111', storage, transport);
+    assert.strictEqual(storage.getServiceBotSession('111').botId, storage.getServiceBots()[0].id, 'the original trigger must switch back to the original bot');
+    const duplicatedBot = storage.duplicateServiceBot(secondBot.id);
+    assert.ok(duplicatedBot && !duplicatedBot.enabled, 'duplicated service bots must be created disabled');
 
     const quietStorage = new Storage(path.join(tempDir, 'quiet-navigation.json'), { initialData: emptyStorageData() });
     quietStorage.updateServiceBot({ ...serviceBot, navigationPromptText: '' });
@@ -185,8 +216,8 @@ async function run() {
       id: 'service-bot-pending-priority', from: pendingJid, body: serviceBot.triggerText,
       timestamp: Math.floor(Date.now() / 1000), getDisplayName: async () => '',
     }, storage, transport, 'baileys');
-    assert.strictEqual(storage.getServiceBotSession(pendingPhone), null, 'campaign pending state must stay higher priority');
-    assert.strictEqual(sent.at(-1).text, 'campaign handoff');
+    assert.strictEqual(storage.getServiceBotSession(pendingPhone)?.botId, storage.getServiceBot().id, 'an explicit service-bot trigger must replace campaign pending state');
+    assert.notStrictEqual(sent.at(-1).text, 'campaign handoff', 'the stale campaign handoff must not consume an explicit service-bot trigger');
     conversationState.remove(pendingJid);
 
     console.log('Service bot flow tests passed.');

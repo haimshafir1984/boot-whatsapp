@@ -466,6 +466,9 @@ export interface ServiceBotNode {
 }
 
 export interface ServiceBotConfig {
+  id: string;
+  createdAt?: string;
+  updatedAt?: string;
   enabled: boolean;
   name: string;
   triggerText: string;
@@ -487,6 +490,7 @@ export interface ServiceBotConfig {
 }
 
 export interface ServiceBotSession {
+  botId: string;
   phone: string;
   nodeId: string;
   path?: string[];
@@ -507,6 +511,7 @@ export interface ServiceBotAttachment {
 }
 
 export interface ServiceBotRecord {
+  botId: string;
   phone: string;
   variables: Record<string, string>;
   attachments: ServiceBotAttachment[];
@@ -517,6 +522,7 @@ export interface ServiceBotRecord {
 
 export interface ServiceBotFollowUp {
   id: string;
+  botId: string;
   phone: string;
   to: string;
   nodeId: string;
@@ -545,6 +551,8 @@ export interface StorageData {
   outboxMessages: OutboxMessage[];
   conversationStateSnapshot?: ConversationStateSnapshot;
   scheduledJobs: ScheduledJobRecord[];
+  serviceBots: ServiceBotConfig[];
+  /** Compatibility mirror for snapshots created before multi-bot support. */
   serviceBot: ServiceBotConfig;
   serviceBotSessions: ServiceBotSession[];
   serviceBotRecords: ServiceBotRecord[];
@@ -601,6 +609,7 @@ const DEFAULT_TWILIO_ONBOARDING: TwilioOnboardingDetails = {
 };
 
 export const DEFAULT_SERVICE_BOT: ServiceBotConfig = {
+  id: 'service-bot-main',
   enabled: false,
   name: '',
   triggerText: '\u05ea\u05e4\u05e8\u05d9\u05d8',
@@ -633,6 +642,40 @@ function normalizeContactsProvider(provider: unknown): AdminSettings['contactsPr
     : DEFAULT_SETTINGS.contactsProvider;
 }
 
+function cloneServiceBot(value: Partial<ServiceBotConfig> | undefined, fallbackId = DEFAULT_SERVICE_BOT.id): ServiceBotConfig {
+  const now = new Date().toISOString();
+  return {
+    ...DEFAULT_SERVICE_BOT,
+    ...(value ?? {}),
+    id: String(value?.id || fallbackId).trim() || fallbackId,
+    createdAt: value?.createdAt || now,
+    updatedAt: value?.updatedAt || value?.createdAt || now,
+    nodes: Array.isArray(value?.nodes) ? JSON.parse(JSON.stringify(value.nodes)) : [],
+  };
+}
+
+function serviceBotsFromSnapshot(value: Partial<StorageData>): ServiceBotConfig[] {
+  const rawBots = Array.isArray(value.serviceBots) ? value.serviceBots : [];
+  if (rawBots.length) return rawBots.map((bot, index) => cloneServiceBot(bot, `service-bot-${index + 1}`));
+  const legacy = value.serviceBot;
+  if (!legacy) return [];
+  return [cloneServiceBot(legacy, DEFAULT_SERVICE_BOT.id)];
+}
+
+function withMigratedServiceBotRelations(
+  bots: ServiceBotConfig[],
+  sessions: ServiceBotSession[],
+  records: ServiceBotRecord[],
+  followUps: ServiceBotFollowUp[],
+): Pick<StorageData, 'serviceBotSessions' | 'serviceBotRecords' | 'serviceBotFollowUps'> {
+  const fallbackBotId = bots[0]?.id || DEFAULT_SERVICE_BOT.id;
+  return {
+    serviceBotSessions: sessions.map((item) => ({ ...item, botId: String(item.botId || fallbackBotId) })),
+    serviceBotRecords: records.map((item) => ({ ...item, botId: String(item.botId || fallbackBotId) })),
+    serviceBotFollowUps: followUps.map((item) => ({ ...item, botId: String(item.botId || fallbackBotId) })),
+  };
+}
+
 export function emptyStorageData(): StorageData {
   return {
     savedContacts: [],
@@ -648,6 +691,7 @@ export function emptyStorageData(): StorageData {
     twilioTemplates: [],
     outboxMessages: [],
     scheduledJobs: [],
+    serviceBots: [],
     serviceBot: { ...DEFAULT_SERVICE_BOT, nodes: [] },
     serviceBotSessions: [],
     serviceBotRecords: [],
@@ -680,17 +724,19 @@ export class Storage {
     this.backend = options.backend;
     if (options.initialData) {
       const initial = options.initialData as Partial<StorageData>;
+      const serviceBots = serviceBotsFromSnapshot(initial);
+      const relations = withMigratedServiceBotRelations(
+        serviceBots,
+        Array.isArray(initial.serviceBotSessions) ? initial.serviceBotSessions : [],
+        Array.isArray(initial.serviceBotRecords) ? initial.serviceBotRecords : [],
+        Array.isArray(initial.serviceBotFollowUps) ? initial.serviceBotFollowUps : [],
+      );
       this.data = {
         ...emptyStorageData(),
         ...initial,
-        serviceBot: {
-          ...DEFAULT_SERVICE_BOT,
-          ...(initial.serviceBot ?? {}),
-          nodes: Array.isArray(initial.serviceBot?.nodes) ? initial.serviceBot.nodes : [],
-        },
-        serviceBotSessions: Array.isArray(initial.serviceBotSessions) ? initial.serviceBotSessions : [],
-        serviceBotRecords: Array.isArray(initial.serviceBotRecords) ? initial.serviceBotRecords : [],
-        serviceBotFollowUps: Array.isArray(initial.serviceBotFollowUps) ? initial.serviceBotFollowUps : [],
+        serviceBots,
+        serviceBot: serviceBots[0] ?? cloneServiceBot(undefined),
+        ...relations,
       };
     } else {
       this.data = this.load();
@@ -748,6 +794,14 @@ export class Storage {
           updatedAt: contact.savedAt,
         }));
 
+    const serviceBots = serviceBotsFromSnapshot(parsed);
+    const relations = withMigratedServiceBotRelations(
+      serviceBots,
+      Array.isArray((parsed as any).serviceBotSessions) ? (parsed as any).serviceBotSessions : [],
+      Array.isArray((parsed as any).serviceBotRecords) ? (parsed as any).serviceBotRecords : [],
+      Array.isArray((parsed as any).serviceBotFollowUps) ? (parsed as any).serviceBotFollowUps : [],
+    );
+
     return {
       savedContacts: parsed.savedContacts ?? [],
       contactsList,
@@ -763,20 +817,9 @@ export class Storage {
       outboxMessages: (parsed as any).outboxMessages ?? [],
       conversationStateSnapshot: (parsed as any).conversationStateSnapshot,
       scheduledJobs: (parsed as any).scheduledJobs ?? [],
-      serviceBot: {
-        ...DEFAULT_SERVICE_BOT,
-        ...((parsed as any).serviceBot ?? {}),
-        nodes: Array.isArray((parsed as any).serviceBot?.nodes) ? (parsed as any).serviceBot.nodes : [],
-      },
-      serviceBotSessions: Array.isArray((parsed as any).serviceBotSessions)
-        ? (parsed as any).serviceBotSessions
-        : [],
-      serviceBotRecords: Array.isArray((parsed as any).serviceBotRecords)
-        ? (parsed as any).serviceBotRecords
-        : [],
-      serviceBotFollowUps: Array.isArray((parsed as any).serviceBotFollowUps)
-        ? (parsed as any).serviceBotFollowUps
-        : [],
+      serviceBots,
+      serviceBot: serviceBots[0] ?? cloneServiceBot(undefined),
+      ...relations,
     };
   }
 
@@ -1635,19 +1678,80 @@ export class Storage {
     return this.getAdminSettings();
   }
 
-  getServiceBot(): ServiceBotConfig {
-    return JSON.parse(JSON.stringify(this.data.serviceBot)) as ServiceBotConfig;
+  private syncLegacyServiceBotMirror(): void {
+    this.data.serviceBot = this.data.serviceBots[0] ?? cloneServiceBot(undefined);
   }
 
-  updateServiceBot(serviceBot: ServiceBotConfig): ServiceBotConfig {
-    this.data.serviceBot = JSON.parse(JSON.stringify(serviceBot)) as ServiceBotConfig;
+  getServiceBots(): ServiceBotConfig[] {
+    return JSON.parse(JSON.stringify(this.data.serviceBots)) as ServiceBotConfig[];
+  }
+
+  getServiceBot(botId?: string): ServiceBotConfig {
+    const bot = (botId ? this.data.serviceBots.find((item) => item.id === botId) : this.data.serviceBots[0])
+      ?? this.data.serviceBot
+      ?? cloneServiceBot(undefined);
+    return JSON.parse(JSON.stringify(bot)) as ServiceBotConfig;
+  }
+
+  createServiceBot(input: Partial<ServiceBotConfig> = {}): ServiceBotConfig {
+    const now = new Date().toISOString();
+    let id = String(input.id || `service-bot-${generateId()}`).trim();
+    while (this.data.serviceBots.some((item) => item.id === id)) id = `service-bot-${generateId()}`;
+    const bot = cloneServiceBot({ ...input, id, createdAt: now, updatedAt: now }, id);
+    this.data.serviceBots.push(bot);
+    this.syncLegacyServiceBotMirror();
     this.persist();
-    return this.getServiceBot();
+    return this.getServiceBot(id);
   }
 
-  getServiceBotSession(phone: string): ServiceBotSession | null {
-    const session = this.data.serviceBotSessions.find((item) => item.phone === phone);
-    const timeoutMinutes = Math.max(1, Number(this.data.serviceBot.sessionTimeoutMinutes) || 60);
+  updateServiceBot(serviceBot: ServiceBotConfig, botId?: string): ServiceBotConfig {
+    const requestedId = String(botId || serviceBot.id || this.data.serviceBots[0]?.id || DEFAULT_SERVICE_BOT.id).trim();
+    const index = this.data.serviceBots.findIndex((item) => item.id === requestedId);
+    const existing = index >= 0 ? this.data.serviceBots[index] : undefined;
+    const updated = cloneServiceBot({
+      ...serviceBot,
+      id: requestedId,
+      createdAt: existing?.createdAt || serviceBot.createdAt,
+      updatedAt: new Date().toISOString(),
+    }, requestedId);
+    if (index >= 0) this.data.serviceBots[index] = updated;
+    else this.data.serviceBots.push(updated);
+    this.syncLegacyServiceBotMirror();
+    this.persist();
+    return this.getServiceBot(requestedId);
+  }
+
+  duplicateServiceBot(botId: string): ServiceBotConfig | null {
+    const source = this.data.serviceBots.find((item) => item.id === botId);
+    if (!source) return null;
+    return this.createServiceBot({
+      ...JSON.parse(JSON.stringify(source)),
+      id: undefined,
+      name: `${source.name || 'Service Bot'} - עותק`,
+      enabled: false,
+      createdAt: undefined,
+      updatedAt: undefined,
+    });
+  }
+
+  deleteServiceBot(botId: string): boolean {
+    const before = this.data.serviceBots.length;
+    this.data.serviceBots = this.data.serviceBots.filter((item) => item.id !== botId);
+    if (this.data.serviceBots.length === before) return false;
+    this.data.serviceBotSessions = this.data.serviceBotSessions.filter((item) => item.botId !== botId);
+    this.data.serviceBotRecords = this.data.serviceBotRecords.filter((item) => item.botId !== botId);
+    for (const followUp of this.data.serviceBotFollowUps) {
+      if (followUp.botId === botId && followUp.status === 'scheduled') followUp.status = 'cancelled';
+    }
+    this.syncLegacyServiceBotMirror();
+    this.persist();
+    return true;
+  }
+
+  getServiceBotSession(phone: string, botId?: string): ServiceBotSession | null {
+    const session = this.data.serviceBotSessions.find((item) => item.phone === phone && (!botId || item.botId === botId));
+    const serviceBot = session ? this.data.serviceBots.find((item) => item.id === session.botId) : undefined;
+    const timeoutMinutes = Math.max(1, Number(serviceBot?.sessionTimeoutMinutes) || 60);
     if (session && Date.now() - new Date(session.updatedAt).getTime() > timeoutMinutes * 60 * 1000) {
       this.data.serviceBotSessions = this.data.serviceBotSessions.filter((item) => item.phone !== phone);
       this.persist();
@@ -1656,10 +1760,11 @@ export class Storage {
     return session ? { ...session, path: [...(session.path ?? [])], variables: { ...(session.variables ?? {}) } } : null;
   }
 
-  saveServiceBotSession(phone: string, nodeId: string, path: string[] = [], variables?: Record<string, string>): ServiceBotSession {
+  saveServiceBotSession(phone: string, nodeId: string, path: string[] = [], variables?: Record<string, string>, botId = this.data.serviceBots[0]?.id || DEFAULT_SERVICE_BOT.id): ServiceBotSession {
     const updatedAt = new Date().toISOString();
     const existing = this.data.serviceBotSessions.find((item) => item.phone === phone);
     if (existing) {
+      existing.botId = botId;
       existing.nodeId = nodeId;
       existing.path = [...path];
       if (variables) existing.variables = { ...variables };
@@ -1667,7 +1772,7 @@ export class Storage {
       this.persist();
       return { ...existing, path: [...(existing.path ?? [])], variables: { ...(existing.variables ?? {}) } };
     }
-    const session = { phone, nodeId, path: [...path], variables: { ...(variables ?? {}) }, startedAt: updatedAt, updatedAt };
+    const session = { botId, phone, nodeId, path: [...path], variables: { ...(variables ?? {}) }, startedAt: updatedAt, updatedAt };
     this.data.serviceBotSessions.push(session);
     this.persist();
     return { ...session, path: [...session.path], variables: { ...session.variables } };
@@ -1678,11 +1783,12 @@ export class Storage {
     nodeId: string,
     variables: Record<string, string>,
     attachment?: Omit<ServiceBotAttachment, 'capturedAt'>,
+    botId = this.data.serviceBots[0]?.id || DEFAULT_SERVICE_BOT.id,
   ): ServiceBotRecord {
     const now = new Date().toISOString();
-    let record = this.data.serviceBotRecords.find((item) => item.phone === phone);
+    let record = this.data.serviceBotRecords.find((item) => item.phone === phone && item.botId === botId);
     if (!record) {
-      record = { phone, variables: {}, attachments: [], currentNodeId: nodeId, startedAt: now, updatedAt: now };
+      record = { botId, phone, variables: {}, attachments: [], currentNodeId: nodeId, startedAt: now, updatedAt: now };
       this.data.serviceBotRecords.push(record);
     }
     record.variables = { ...variables };
@@ -1695,8 +1801,9 @@ export class Storage {
     return JSON.parse(JSON.stringify(record)) as ServiceBotRecord;
   }
 
-  getServiceBotRecords(limit = 100): ServiceBotRecord[] {
+  getServiceBotRecords(limit = 100, botId?: string): ServiceBotRecord[] {
     return this.data.serviceBotRecords
+      .filter((record) => !botId || record.botId === botId)
       .slice()
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .slice(0, Math.max(1, limit))
@@ -1768,11 +1875,11 @@ export class Storage {
     this.persist();
   }
 
-  clearServiceBotSessions(): number {
-    const count = this.data.serviceBotSessions.length;
-    this.data.serviceBotSessions = [];
+  clearServiceBotSessions(botId?: string): number {
+    const count = this.data.serviceBotSessions.filter((item) => !botId || item.botId === botId).length;
+    this.data.serviceBotSessions = this.data.serviceBotSessions.filter((item) => botId && item.botId !== botId);
     for (const followUp of this.data.serviceBotFollowUps) {
-      if (followUp.status === 'scheduled') followUp.status = 'cancelled';
+      if (followUp.status === 'scheduled' && (!botId || followUp.botId === botId)) followUp.status = 'cancelled';
     }
     this.persist();
     return count;
