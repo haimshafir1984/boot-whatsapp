@@ -4022,6 +4022,12 @@ export function startAdminServer(storage: Storage): void {
     app.get('/privacy', (_req, res) => {
       res.sendFile(path.join(sitePublicDir, 'privacy.html'));
     });
+    app.get('/terms', (_req, res) => {
+      res.sendFile(path.join(sitePublicDir, 'terms.html'));
+    });
+    app.get('/data-deletion', (_req, res) => {
+      res.sendFile(path.join(sitePublicDir, 'data-deletion.html'));
+    });
     app.use('/site-assets', express.static(path.join(sitePublicDir, 'assets')));
   }
   app.get('/client', access.requireClient, (_req, res) => {
