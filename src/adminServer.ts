@@ -4028,6 +4028,10 @@ export function startAdminServer(storage: Storage): void {
     app.get('/data-deletion', (_req, res) => {
       res.sendFile(path.join(sitePublicDir, 'data-deletion.html'));
     });
+    app.get(['/rss/shayleshay-bereshit-pending.xml', '/shayleshay-bereshit-pending.xml'], (_req, res) => {
+      res.type('application/rss+xml');
+      res.sendFile(path.join(sitePublicDir, 'shayleshay-bereshit-pending.xml'));
+    });
     app.use('/site-assets', express.static(path.join(sitePublicDir, 'assets')));
   }
   app.get('/client', access.requireClient, (_req, res) => {
