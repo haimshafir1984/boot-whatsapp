@@ -105,6 +105,8 @@ export class BaileysProvider implements WhatsAppProvider {
   private socket: BaileysSocket | null = null;
   private saveCreds: (() => Promise<void>) | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private pairingRetryTimer: NodeJS.Timeout | null = null;
+  private pairingRequestAttempts = 0;
   private intentionalClose = false;
   private readonly storage: Storage;
   private readonly pairingPhone?: string;
@@ -118,10 +120,13 @@ export class BaileysProvider implements WhatsAppProvider {
     this.intentionalClose = false;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+    if (this.pairingRetryTimer) clearTimeout(this.pairingRetryTimer);
+    this.pairingRetryTimer = null;
     if (this.pairingPhone) {
       botState.pairingCode = null;
       botState.pairingError = null;
       botState.pairingAttempted = false;
+      this.pairingRequestAttempts = 0;
     }
     if (this.socket) {
       try {
@@ -134,7 +139,7 @@ export class BaileysProvider implements WhatsAppProvider {
     const baileys = await import('@whiskeysockets/baileys');
     const pino = (await import('pino')).default;
     const { state, saveCreds } = await baileys.useMultiFileAuthState(authPath());
-    const { version } = await baileys.fetchLatestBaileysVersion();
+    const version = await this.resolveBaileysVersion(baileys);
 
     this.saveCreds = saveCreds;
     this.socket = baileys.makeWASocket({
@@ -168,6 +173,8 @@ export class BaileysProvider implements WhatsAppProvider {
     this.intentionalClose = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+    if (this.pairingRetryTimer) clearTimeout(this.pairingRetryTimer);
+    this.pairingRetryTimer = null;
     if (this.socket) {
       this.socket.end(undefined);
       this.socket = null;
@@ -265,6 +272,9 @@ export class BaileysProvider implements WhatsAppProvider {
       botState.pairingError = null;
       botState.pairingPhone = null;
       botState.pairingAttempted = false;
+      this.pairingRequestAttempts = 0;
+      if (this.pairingRetryTimer) clearTimeout(this.pairingRetryTimer);
+      this.pairingRetryTimer = null;
       botState.authenticated = true;
       botState.ready = true;
       botState.notReadySince = null;
@@ -367,6 +377,17 @@ export class BaileysProvider implements WhatsAppProvider {
     };
   }
 
+  private async resolveBaileysVersion(baileys: BaileysModule): Promise<BaileysModule['DEFAULT_CONNECTION_CONFIG']['version']> {
+    try {
+      const { version } = await baileys.fetchLatestBaileysVersion();
+      return version;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`Baileys latest version fetch failed; using bundled default version. ${message}`);
+      return baileys.DEFAULT_CONNECTION_CONFIG.version;
+    }
+  }
+
   private async requestPairingCode(phone: string): Promise<void> {
     if (!this.socket || botState.pairingAttempted || botState.pairingCode) return;
     const isRegistered = Boolean((this.socket as any).authState?.creds?.registered);
@@ -376,17 +397,32 @@ export class BaileysProvider implements WhatsAppProvider {
     }
     botState.pairingAttempted = true;
     botState.pairingError = null;
+    this.pairingRequestAttempts += 1;
     try {
       const code = await this.socket.requestPairingCode(phone);
       botState.pairingCode = code;
       botState.pairingError = null;
+      if (this.pairingRetryTimer) clearTimeout(this.pairingRetryTimer);
+      this.pairingRetryTimer = null;
       console.log(`Baileys pairing code generated: ${code}`);
     } catch (err) {
       botState.pairingAttempted = false;
       const message = err instanceof Error ? err.message : String(err);
-      botState.pairingError = message || 'לא הצלחנו ליצור קוד התחברות. נסה שוב או סרוק QR.';
+      const shouldRetry = !this.intentionalClose && Boolean(this.socket) && this.pairingRequestAttempts < 5;
+      botState.pairingError = shouldRetry
+        ? `עדיין לא הצלחנו ליצור קוד התחברות, מנסים שוב בעוד רגע. ${message || ''}`.trim()
+        : message || 'לא הצלחנו ליצור קוד התחברות. נסה שוב או סרוק QR.';
       botState.listeningReason = `connection failed: ${botState.pairingError}`;
       console.error('Baileys pairing code request failed:', err);
+
+      if (shouldRetry) {
+        const delay = Math.min(1_000 * this.pairingRequestAttempts, 5_000);
+        if (this.pairingRetryTimer) clearTimeout(this.pairingRetryTimer);
+        this.pairingRetryTimer = setTimeout(() => {
+          this.pairingRetryTimer = null;
+          void this.requestPairingCode(phone);
+        }, delay);
+      }
     }
   }
 
