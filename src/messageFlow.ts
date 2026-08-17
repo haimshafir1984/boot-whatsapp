@@ -2217,6 +2217,7 @@ async function handleWaitReply(
         step.emailInvalidText?.trim() || 'נראה שכתובת המייל לא תקינה. כתבי אותה שוב, למשל: name@example.com',
         0,
       );
+      armWaitReplyTimeout(transport, storage, senderJid, flow, step, campaignId, campaignResultId, senderPhone, humanHandoff);
       return;
     }
     conversationState.pause(senderJid);
@@ -2298,6 +2299,57 @@ function isSendableDecisionStep(step: DecisionFlowStep | undefined): step is Dec
   return false;
 }
 
+function armWaitReplyTimeout(
+  transport: WhatsAppTransport,
+  storage: Storage,
+  senderJid: string,
+  flow: DecisionFlowStep[],
+  step: DecisionFlowStep,
+  campaignId?: string,
+  campaignResultId?: string,
+  senderPhone?: string,
+  humanHandoff: CampaignReplyBehavior = {},
+): void {
+  const timeoutMs = decisionStepTimeoutMs(
+    step,
+    humanHandoff.decisionTimeoutMinutes && humanHandoff.decisionTimeoutMinutes > 0
+      ? humanHandoff.decisionTimeoutMinutes
+      : DECISION_REPLY_TIMEOUT_MS / 60_000,
+  );
+  const timestamp = Date.now();
+  const timeoutHandle = scheduleSerializedPendingTimeout(
+    senderJid,
+    senderPhone,
+    timeoutMs,
+    step.kind === 'email_capture' ? 'email-capture timeout' : 'wait-reply timeout',
+    { kind: 'wait-reply', timestamp, stepId: step.id },
+    async () => {
+      conversationState.remove(senderJid);
+      console.log(`   Wait-reply timeout - cleared pending state for ${senderJid}.`);
+      await sendDecisionTimeoutAction(transport, storage, senderJid, step, humanHandoff.decisionTimeoutText, campaignId, campaignResultId, senderPhone, flow, humanHandoff);
+    },
+  );
+  conversationState.set(senderJid, {
+    kind: 'wait-reply',
+    senderJid,
+    senderPhone,
+    campaignId,
+    campaignResultId,
+    flow,
+    stepId: step.id,
+    humanHandoffEnabled: humanHandoff.enabled,
+    humanHandoffText: humanHandoff.text,
+    humanHandoffPhone: humanHandoff.phone,
+    decisionTimeoutMinutes: humanHandoff.decisionTimeoutMinutes,
+    decisionTimeoutText: humanHandoff.decisionTimeoutText,
+    decisionTimeoutMode: humanHandoff.decisionTimeoutMode,
+    decisionTimeoutNextStepId: humanHandoff.decisionTimeoutNextStepId,
+    timeoutFlowStarted: humanHandoff.timeoutFlowStarted,
+    timestamp,
+    timeoutHandle,
+  });
+}
+
 async function sendDecisionStep(
   transport: WhatsAppTransport,
   storage: Storage,
@@ -2330,44 +2382,7 @@ async function sendDecisionStep(
         label: step.text.slice(0, 120),
       });
     }
-    const timeoutMs = decisionStepTimeoutMs(
-      step,
-      humanHandoff.decisionTimeoutMinutes && humanHandoff.decisionTimeoutMinutes > 0
-        ? humanHandoff.decisionTimeoutMinutes
-        : DECISION_REPLY_TIMEOUT_MS / 60_000,
-    );
-    const timestamp = Date.now();
-    const timeoutHandle = scheduleSerializedPendingTimeout(
-      senderJid,
-      senderPhone,
-      timeoutMs,
-      'wait-reply timeout',
-      { kind: 'wait-reply', timestamp, stepId: step.id },
-      async () => {
-        conversationState.remove(senderJid);
-        console.log(`   Wait-reply timeout - cleared pending state for ${senderJid}.`);
-        await sendDecisionTimeoutAction(transport, storage, senderJid, step, humanHandoff.decisionTimeoutText, campaignId, campaignResultId, senderPhone, flow, humanHandoff);
-      },
-    );
-    conversationState.set(senderJid, {
-      kind: 'wait-reply',
-      senderJid,
-      senderPhone,
-      campaignId,
-      campaignResultId,
-      flow,
-      stepId: step.id,
-      humanHandoffEnabled: humanHandoff.enabled,
-      humanHandoffText: humanHandoff.text,
-      humanHandoffPhone: humanHandoff.phone,
-      decisionTimeoutMinutes: humanHandoff.decisionTimeoutMinutes,
-      decisionTimeoutText: humanHandoff.decisionTimeoutText,
-      decisionTimeoutMode: humanHandoff.decisionTimeoutMode,
-      decisionTimeoutNextStepId: humanHandoff.decisionTimeoutNextStepId,
-      timeoutFlowStarted: humanHandoff.timeoutFlowStarted,
-      timestamp,
-      timeoutHandle,
-    });
+    armWaitReplyTimeout(transport, storage, senderJid, flow, step, campaignId, campaignResultId, senderPhone, humanHandoff);
     return;
   }
 

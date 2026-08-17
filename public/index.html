@@ -3699,7 +3699,7 @@
           </div>
           <div data-question-timeout style="display:none;margin:8px 0 10px;padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc">
             <div class="decision-next-row">
-              <label>אם לא לחצו בשאלה</label>
+              <label>אם לא ענו בשלב</label>
               <select data-step-timeout-mode onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">
                 <option value="stop" ${timeoutMode === 'stop' ? 'selected' : ''}>עוצר תהליך</option>
                 <option value="continue" ${timeoutMode === 'continue' ? 'selected' : ''}>ממשיך אחרי זמן</option>
@@ -4147,6 +4147,7 @@
       const isChoice = kind === 'question' || kind === 'score_question';
       const isReferralHub = step.dataset.referralHub === 'true';
       const presentation = step.querySelector('[data-step-presentation]')?.value || 'buttons';
+      const hasReplyTimeout = isChoice || kind === 'wait_reply' || kind === 'email_capture' || kind === 'referral_share';
       const messageNext = step.querySelector('[data-message-next]');
       const scoreResult = step.querySelector('[data-score-result]');
       const questionPresentation = step.querySelector('[data-question-presentation]');
@@ -4164,7 +4165,7 @@
       if (messageSticker) messageSticker.style.display = kind === 'message' ? '' : 'none';
       if (questionPresentation) questionPresentation.style.display = isChoice ? '' : 'none';
       if (questionTimeout) {
-        questionTimeout.style.display = isChoice ? '' : 'none';
+        questionTimeout.style.display = hasReplyTimeout ? '' : 'none';
         const timeoutMode = questionTimeout.querySelector('[data-step-timeout-mode]')?.value || 'stop';
         const nextRow = questionTimeout.querySelector('[data-question-timeout-next-row]');
         const timeoutText = questionTimeout.querySelector('[data-step-timeout-text]');
@@ -4361,6 +4362,16 @@
           if (kind === 'email_capture') {
             const emailInvalidText = step.querySelector('[data-email-invalid-text]')?.value.trim() || '';
             if (emailInvalidText) item.emailInvalidText = emailInvalidText;
+          }
+          if (kind === 'wait_reply' || kind === 'email_capture' || kind === 'referral_share') {
+            const timeoutMode = step.querySelector('[data-step-timeout-mode]')?.value || 'stop';
+            const timeoutSeconds = Number(step.querySelector('[data-step-timeout-seconds]')?.value || 0);
+            const timeoutText = step.querySelector('[data-step-timeout-text]')?.value.trim() || '';
+            const timeoutNextStepId = step.querySelector('[data-step-timeout-next]')?.value || '';
+            item.timeoutMode = timeoutMode === 'continue' ? 'continue' : 'stop';
+            if (Number.isFinite(timeoutSeconds) && timeoutSeconds > 0) item.timeoutSeconds = Math.min(Math.max(Math.round(timeoutSeconds), 1), 86400);
+            if (timeoutText) item.timeoutText = timeoutText;
+            if (item.timeoutMode === 'continue' && timeoutNextStepId) item.timeoutNextStepId = timeoutNextStepId;
           }
           if (!item.text && kind === 'message' && !item.fileId) return null;
           if (!item.text && (kind === 'wait_reply' || kind === 'email_capture' || kind === 'referral_share')) return null;

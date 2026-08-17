@@ -893,6 +893,19 @@ function sanitizeDecisionFlow(
       if ((kind === 'wait_reply' || kind === 'email_capture' || kind === 'referral_share') && typeof item.timeoutSeconds === 'number' && Number.isFinite(item.timeoutSeconds) && item.timeoutSeconds > 0) {
         step.timeoutSeconds = Math.min(Math.max(Math.round(item.timeoutSeconds), 1), 86400);
       }
+      if (kind === 'wait_reply' || kind === 'email_capture' || kind === 'referral_share') {
+        if (item.timeoutMode === 'continue') {
+          step.timeoutMode = 'continue';
+          if (typeof item.timeoutNextStepId === 'string' && item.timeoutNextStepId.trim()) {
+            step.timeoutNextStepId = item.timeoutNextStepId.trim().slice(0, 80);
+          }
+        } else if (item.timeoutMode === 'stop') {
+          step.timeoutMode = 'stop';
+        }
+        if (typeof item.timeoutText === 'string' && item.timeoutText.trim()) {
+          step.timeoutText = item.timeoutText.trim().slice(0, 2000);
+        }
+      }
       if (kind === 'score_result') {
         const rawRules = Array.isArray(item.resultRules) ? item.resultRules : [];
         step.resultRules = rawRules
@@ -1035,9 +1048,11 @@ function sanitizeDecisionFlow(
   return steps.map((step, index) => {
     const nextSequentialStepId = steps[index + 1]?.id;
     const stepNextStepId = step.nextStepId === '__NEXT__' ? nextSequentialStepId : step.nextStepId;
+    const timeoutNextStepId = step.timeoutNextStepId === '__NEXT__' ? nextSequentialStepId : step.timeoutNextStepId;
     return {
       ...step,
       nextStepId: stepNextStepId && ids.has(stepNextStepId) ? stepNextStepId : undefined,
+      timeoutNextStepId: timeoutNextStepId && ids.has(timeoutNextStepId) ? timeoutNextStepId : undefined,
       fallbackNextStepId: step.fallbackNextStepId && ids.has(step.fallbackNextStepId) ? step.fallbackNextStepId : undefined,
       resultRules: step.resultRules?.map((rule) => ({
         ...rule,
