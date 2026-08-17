@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 import QRCode from 'qrcode';
 import { config } from '../config';
@@ -304,6 +305,16 @@ export class BaileysProvider implements WhatsAppProvider {
         botState.qrDataUrl = null;
         if (this.pairingPhone) {
           botState.pairingError = 'החיבור ל-WhatsApp התנתק. נסה לקבל קוד חדש או לסרוק QR מחדש.';
+        }
+        // WhatsApp confirmed this session is dead. Clear it so the next start
+        // (keep-connected scheduler or manual reset) loads a clean auth state
+        // and actually issues a fresh QR, instead of retrying forever with
+        // the same rejected credentials.
+        try {
+          fs.rmSync(authPath(), { recursive: true, force: true });
+          console.log(`Baileys session cleared after logout: ${authPath()}`);
+        } catch (err) {
+          console.error('Failed to clear Baileys session after logout:', err);
         }
       }
 
