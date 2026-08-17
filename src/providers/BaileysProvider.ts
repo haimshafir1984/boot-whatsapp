@@ -118,6 +118,11 @@ export class BaileysProvider implements WhatsAppProvider {
     this.intentionalClose = false;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+    if (this.pairingPhone) {
+      botState.pairingCode = null;
+      botState.pairingError = null;
+      botState.pairingAttempted = false;
+    }
     if (this.socket) {
       try {
         this.socket.end(undefined);
@@ -248,6 +253,7 @@ export class BaileysProvider implements WhatsAppProvider {
   private async handleConnectionUpdate(baileys: BaileysModule, update: any): Promise<void> {
     if (update.qr) {
       botState.qrDataUrl = await QRCode.toDataURL(update.qr);
+      botState.pairingError = null;
       botState.authenticated = false;
       botState.ready = false;
       console.log('\nBaileys QR received. Open the dashboard to connect WhatsApp.\n');
@@ -256,6 +262,9 @@ export class BaileysProvider implements WhatsAppProvider {
     if (update.connection === 'open') {
       botState.qrDataUrl = null;
       botState.pairingCode = null;
+      botState.pairingError = null;
+      botState.pairingPhone = null;
+      botState.pairingAttempted = false;
       botState.authenticated = true;
       botState.ready = true;
       botState.notReadySince = null;
@@ -283,6 +292,9 @@ export class BaileysProvider implements WhatsAppProvider {
       if (loggedOut) {
         botState.lifecycle = 'stopped';
         botState.qrDataUrl = null;
+        if (this.pairingPhone) {
+          botState.pairingError = 'החיבור ל-WhatsApp התנתק. נסה לקבל קוד חדש או לסרוק QR מחדש.';
+        }
       }
 
       if (!this.intentionalClose && !loggedOut) {
@@ -356,14 +368,24 @@ export class BaileysProvider implements WhatsAppProvider {
   }
 
   private async requestPairingCode(phone: string): Promise<void> {
-    if (!this.socket || botState.pairingAttempted) return;
+    if (!this.socket || botState.pairingAttempted || botState.pairingCode) return;
+    const isRegistered = Boolean((this.socket as any).authState?.creds?.registered);
+    if (isRegistered) {
+      botState.pairingError = 'קיים כבר session מחובר. אם צריך לחבר מספר אחר, אפס את חיבור WhatsApp ונסה שוב.';
+      return;
+    }
     botState.pairingAttempted = true;
+    botState.pairingError = null;
     try {
       const code = await this.socket.requestPairingCode(phone);
       botState.pairingCode = code;
+      botState.pairingError = null;
       console.log(`Baileys pairing code generated: ${code}`);
     } catch (err) {
       botState.pairingAttempted = false;
+      const message = err instanceof Error ? err.message : String(err);
+      botState.pairingError = message || 'לא הצלחנו ליצור קוד התחברות. נסה שוב או סרוק QR.';
+      botState.listeningReason = `connection failed: ${botState.pairingError}`;
       console.error('Baileys pairing code request failed:', err);
     }
   }

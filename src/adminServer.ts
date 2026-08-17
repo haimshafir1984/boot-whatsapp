@@ -2708,6 +2708,7 @@ export function startAdminServer(storage: Storage): void {
       res.json({
         qr: null,
         pairingCode: null,
+        pairingError: null,
         ...getWhatsAppHealth(profile.whatsappPhone),
         shouldRun: storage.hasCampaignsNeedingBot(),
       });
@@ -2718,6 +2719,7 @@ export function startAdminServer(storage: Storage): void {
       authenticated: botState.authenticated,
       ready: botState.ready,
       pairingCode: botState.pairingCode,
+      pairingError: botState.pairingError,
       connectedPhone: botState.connectedPhone ?? profile.whatsappPhone,
       lifecycle: botState.lifecycle,
       listeningReason: botState.listeningReason,
@@ -2731,22 +2733,39 @@ export function startAdminServer(storage: Storage): void {
   // ── Pairing code ──────────────────────────────────────────────────────────
 
   app.post('/api/pair', async (req, res) => {
+    if (config.WHATSAPP_PROVIDER === 'META_CLOUD_API' || config.WHATSAPP_PROVIDER === 'TWILIO_API') {
+      res.status(409).json({ error: 'קוד התחברות זמין רק בחיבור WhatsApp Web/Baileys, לא בחיבור API רשמי.' });
+      return;
+    }
+
     let phone = String(req.body.phone ?? '').replace(/\D/g, '');
     if (phone.startsWith('0')) phone = '972' + phone.slice(1);
     if (!phone) { res.status(400).json({ error: 'מספר טלפון חסר' }); return; }
-    // Store phone and restart client in pairing-code mode
-    botState.pairingPhone      = phone;
-    botState.pairingCode       = null;
-    botState.pairingAttempted  = false;
-    botState.intentionalRestart = true;
 
     try {
-      await stopWhatsAppBot('pairing restart');
+      await resetWhatsAppSession('pairing code session reset');
+
+      // Store phone and restart client in pairing-code mode. Resetting the
+      // Baileys session here is important: Baileys will not reliably issue a
+      // fresh pairing code while an old registered/broken auth folder exists.
+      botState.pairingPhone      = phone;
+      botState.pairingCode       = null;
+      botState.pairingError      = null;
+      botState.pairingAttempted  = false;
+      botState.intentionalRestart = true;
+
       startWhatsAppBot(storage, 'pairing code request', phone)
-        .catch((err) => console.error('❌ Pairing-mode init error:', err))
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          botState.pairingError = message || 'שגיאה בהפעלת חיבור WhatsApp לקבלת קוד.';
+          botState.listeningReason = `connection failed: ${botState.pairingError}`;
+          botState.lifecycle = 'stopped';
+          console.error('❌ Pairing-mode init error:', err);
+        })
         .finally(() => { botState.intentionalRestart = false; });
     } catch (err: any) {
       botState.intentionalRestart = false;
+      botState.pairingError = err?.message ?? 'שגיאה בהפעלת הבוט';
       res.status(500).json({ error: err?.message ?? 'שגיאה בהפעלת הבוט' });
       return;
     }

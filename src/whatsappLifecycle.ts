@@ -32,6 +32,7 @@ function clearRuntimeConnectionState(reason: string): void {
   botState.providerFallbackReason = null;
   botState.qrDataUrl = null;
   botState.pairingCode = null;
+  botState.pairingError = null;
   botState.pairingPhone = null;
   botState.pairingAttempted = false;
   botState.authenticated = false;
@@ -62,6 +63,7 @@ export async function startWhatsAppBot(storage: Storage, reason = 'manual', pair
     botState.requestedProvider = config.WHATSAPP_PROVIDER;
     botState.actualProvider = null;
     botState.providerFallbackReason = null;
+    botState.pairingError = null;
     botState.notReadySince = null;
     botState.reconnectAttempts = 0;
 
@@ -76,6 +78,7 @@ export async function startWhatsAppBot(storage: Storage, reason = 'manual', pair
         botState.actualProvider = null;
         botState.qrDataUrl = null;
         botState.pairingCode = null;
+        botState.pairingError = message;
         botState.authenticated = false;
         botState.ready = false;
         botState.notReadySince = Date.now();
@@ -87,6 +90,7 @@ export async function startWhatsAppBot(storage: Storage, reason = 'manual', pair
 
       console.warn(`Baileys provider failed during startup; falling back to WEB_JS: ${message}`);
       botState.providerFallbackReason = message;
+      botState.pairingError = pairingPhone ? message : null;
       try {
         await runtime.provider.destroy();
       } catch {
@@ -128,6 +132,7 @@ export async function stopWhatsAppBot(reason = 'manual'): Promise<void> {
       botState.actualProvider = null;
       botState.qrDataUrl = null;
       botState.pairingCode = null;
+      botState.pairingError = null;
       botState.pairingAttempted = false;
       botState.authenticated = false;
       botState.ready = false;

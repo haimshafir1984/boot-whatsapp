@@ -6,11 +6,12 @@ export interface RuntimeWhatsAppClient {
 export const botState = {
   qrDataUrl: null as string | null,
   pairingCode: null as string | null,
+  pairingError: null as string | null,
   pairingPhone: null as string | null,
   pairingAttempted: false,
   intentionalRestart: false,
   client: null as RuntimeWhatsAppClient | null,
-  requestedProvider: process.env.WHATSAPP_PROVIDER ?? 'WEB_JS',
+  requestedProvider: process.env.WHATSAPP_PROVIDER ?? 'BAILEYS',
   actualProvider: null as string | null,
   providerFallbackReason: null as string | null,
   authenticated: false,

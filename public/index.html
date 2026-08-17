@@ -4925,7 +4925,10 @@
       errEl.textContent = data.error || 'שגיאה';
       resEl.innerHTML   = '';
     } else if (data.waiting) {
-      resEl.innerHTML = '<div class="qr-spinner">⏳ ממתין לרענון QR — הקוד יופיע כאן אוטומטית...</div>';
+      resEl.innerHTML = '<div class="qr-spinner">⏳ ממתין לקוד התחברות — הקוד יופיע כאן אוטומטית...</div>';
+      qrRetryGraceUntil = Date.now() + 45_000;
+      if (!qrInterval) qrInterval = setInterval(checkQR, 2000);
+      checkQR();
     } else {
       resEl.innerHTML = `<div class="pair-code-box">${data.code}</div>
         <p style="font-size:.78rem;color:#6b7280">יש להזין את הקוד ב-WhatsApp. הקוד תקף לכמה דקות.</p>`;
@@ -4959,6 +4962,7 @@
       const failedReason = String(data.listeningReason || '').startsWith('connection failed:')
         ? data.listeningReason.replace(/^connection failed:\s*/, '')
         : '';
+      const pairingError = String(data.pairingError || '').trim();
 
       const connectedCard = document.getElementById('connected-card');
       if (data.qr) {
@@ -5028,6 +5032,15 @@
         if (resEl && !resEl.querySelector('.pair-code-box')) {
           resEl.innerHTML = `<div class="pair-code-box">${data.pairingCode}</div>
             <p style="font-size:.78rem;color:#6b7280">יש להזין את הקוד ב-WhatsApp. הקוד תקף לכמה דקות.</p>`;
+          switchTab('phone');
+        }
+      } else if (pairingError) {
+        const resEl = document.getElementById('pair-result');
+        if (resEl) {
+          resEl.innerHTML = `<div class="qr-spinner" style="color:#b91c1c;line-height:1.7">
+            לא הצלחנו ליצור קוד התחברות.<br>
+            <span style="font-size:.78rem;color:#991b1b">${esc(pairingError)}</span>
+          </div>`;
           switchTab('phone');
         }
       }

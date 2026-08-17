@@ -44,11 +44,13 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
 
   client.on('code' as any, (code: string) => {
     botState.pairingCode = code;
+    botState.pairingError = null;
     console.log(`Pairing code received: ${code}`);
   });
 
   client.on('qr', async (qr) => {
     botState.qrDataUrl = await QRCode.toDataURL(qr);
+    botState.pairingError = null;
     console.log('\nOpen the admin dashboard to connect WhatsApp.\n');
 
     if (botState.pairingPhone && !botState.pairingAttempted) {
@@ -56,10 +58,13 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
       try {
         const code = await (client as any).requestPairingCode(botState.pairingPhone);
         botState.pairingCode = code;
+        botState.pairingError = null;
         console.log(`Pairing code generated: ${code}`);
       } catch (err) {
         console.error('Pairing code request failed:', err);
         botState.pairingAttempted = false;
+        const message = err instanceof Error ? err.message : String(err);
+        botState.pairingError = message || 'לא הצלחנו ליצור קוד התחברות. נסה שוב או סרוק QR.';
       }
     }
   });
@@ -67,12 +72,16 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
   client.on('authenticated', () => {
     botState.qrDataUrl = null;
     botState.pairingCode = null;
+    botState.pairingError = null;
     botState.authenticated = true;
     console.log('Session authenticated and saved to disk.');
   });
 
   client.on('ready', () => {
     botState.ready = true;
+    botState.pairingError = null;
+    botState.pairingPhone = null;
+    botState.pairingAttempted = false;
     botState.notReadySince = null;
     botState.reconnectAttempts = 0;
     botState.connectedPhone = (client.info?.wid?.user ?? null) as string | null;
@@ -102,6 +111,7 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
     botState.connectedPhone = null;
     botState.pairingAttempted = false;
     botState.pairingCode = null;
+    botState.pairingError = String(msg || 'אימות WhatsApp נכשל. נסה להתחבר מחדש.');
   });
 
   client.on('disconnected', (reason) => {
@@ -112,6 +122,9 @@ export function createWhatsAppClient(storage: Storage, pairingPhone?: string): C
     botState.connectedPhone = null;
     botState.pairingAttempted = false;
     botState.pairingCode = null;
+    if (botState.pairingPhone) {
+      botState.pairingError = `החיבור ל-WhatsApp התנתק: ${reason || 'סיבה לא ידועה'}`;
+    }
 
     if (!botState.intentionalRestart && !closed) {
       const attempt = botState.reconnectAttempts + 1;
