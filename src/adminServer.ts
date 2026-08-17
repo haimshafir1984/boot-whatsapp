@@ -24,7 +24,7 @@ import {
 import { validateServiceBotConfig } from './serviceBot';
 import { config } from './config';
 import { botState } from './botState';
-import { resetWhatsAppSession, startWhatsAppBot, stopWhatsAppBot } from './whatsappLifecycle';
+import { resetAndStartWhatsAppBot, startWhatsAppBot, stopWhatsAppBot } from './whatsappLifecycle';
 import {
   isGoogleConnected,
   getGoogleAuthUrl,
@@ -2743,26 +2743,10 @@ export function startAdminServer(storage: Storage): void {
     if (!phone) { res.status(400).json({ error: 'מספר טלפון חסר' }); return; }
 
     try {
-      await resetWhatsAppSession('pairing code session reset');
-
-      // Store phone and restart client in pairing-code mode. Resetting the
-      // Baileys session here is important: Baileys will not reliably issue a
-      // fresh pairing code while an old registered/broken auth folder exists.
-      botState.pairingPhone      = phone;
-      botState.pairingCode       = null;
-      botState.pairingError      = null;
-      botState.pairingAttempted  = false;
-      botState.intentionalRestart = true;
-
-      startWhatsAppBot(storage, 'pairing code request', phone)
-        .catch((err) => {
-          const message = err instanceof Error ? err.message : String(err);
-          botState.pairingError = message || 'שגיאה בהפעלת חיבור WhatsApp לקבלת קוד.';
-          botState.listeningReason = `connection failed: ${botState.pairingError}`;
-          botState.lifecycle = 'stopped';
-          console.error('❌ Pairing-mode init error:', err);
-        })
-        .finally(() => { botState.intentionalRestart = false; });
+      // Reset and start in a single lifecycle transition. This prevents the
+      // keep-connected scheduler from starting a second Baileys socket between
+      // the session cleanup and the manual pairing-code startup.
+      await resetAndStartWhatsAppBot(storage, 'pairing code request', phone);
     } catch (err: any) {
       botState.intentionalRestart = false;
       botState.pairingError = err?.message ?? 'שגיאה בהפעלת הבוט';
@@ -2793,8 +2777,7 @@ export function startAdminServer(storage: Storage): void {
 
   app.post('/api/whatsapp/reset-session', async (_req, res) => {
     try {
-      await resetWhatsAppSession('manual dashboard QR reset');
-      await startWhatsAppBot(storage, 'manual dashboard QR reset');
+      await resetAndStartWhatsAppBot(storage, 'manual dashboard QR reset');
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? 'שגיאה באיפוס חיבור WhatsApp' });

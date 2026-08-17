@@ -12,7 +12,7 @@ const CAMPAIGN_START_LEAD_MS = 15 * 60 * 1000;
 const WATCHDOG_NOT_READY_MS = Number(process.env.WHATSAPP_WATCHDOG_NOT_READY_MS ?? 3 * 60 * 1000);
 
 let scheduler: NodeJS.Timeout | null = null;
-let transition: Promise<void> | null = null;
+let transition: Promise<void> = Promise.resolve();
 
 type ProviderRuntime = {
   name: 'WEB_JS' | 'BAILEYS';
@@ -51,111 +51,111 @@ async function initializeProvider(runtime: ProviderRuntime): Promise<WhatsAppPro
   return runtime.provider;
 }
 
-export async function startWhatsAppBot(storage: Storage, reason = 'manual', pairingPhone?: string): Promise<void> {
-  if (transition) await transition;
-  if (botState.lifecycle === 'running' || botState.lifecycle === 'starting') return;
-
-  transition = (async () => {
-    console.log(`WhatsApp client starting: ${reason}.`);
-    botState.lifecycle = 'starting';
-    botState.listeningReason = reason;
-    botState.intentionalRestart = false;
-    botState.requestedProvider = config.WHATSAPP_PROVIDER;
-    botState.actualProvider = null;
-    botState.providerFallbackReason = null;
-    botState.pairingError = null;
-    botState.notReadySince = null;
-    botState.reconnectAttempts = 0;
-
-    const runtime = createProvider(storage, pairingPhone);
-    try {
-      await initializeProvider(runtime);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const canFallback = runtime.name === 'BAILEYS' && process.env.BAILEYS_FALLBACK_TO_WEBJS === 'true';
-      if (!canFallback) {
-        botState.client = null;
-        botState.actualProvider = null;
-        botState.qrDataUrl = null;
-        botState.pairingCode = null;
-        botState.pairingError = message;
-        botState.authenticated = false;
-        botState.ready = false;
-        botState.notReadySince = Date.now();
-        botState.connectedPhone = null;
-        botState.lifecycle = 'stopped';
-        botState.listeningReason = `connection failed: ${message}`;
-        throw err;
-      }
-
-      console.warn(`Baileys provider failed during startup; falling back to WEB_JS: ${message}`);
-      botState.providerFallbackReason = message;
-      botState.pairingError = pairingPhone ? message : null;
-      try {
-        await runtime.provider.destroy();
-      } catch {
-        // Best effort cleanup before starting the fallback provider.
-      }
-      await initializeProvider(createProvider(storage, pairingPhone, 'WEB_JS'));
-    }
-    botState.lifecycle = 'running';
-    console.log(`WhatsApp client start requested: ${reason}. provider=${botState.actualProvider ?? 'unknown'}`);
-  })();
-
-  try {
-    await transition;
-  } finally {
-    transition = null;
-  }
+function runWhatsAppTransition(action: () => Promise<void>): Promise<void> {
+  const run = transition.catch(() => undefined).then(action);
+  transition = run.catch(() => undefined);
+  return run;
 }
 
-export async function stopWhatsAppBot(reason = 'manual'): Promise<void> {
-  if (transition) await transition;
+async function startWhatsAppBotNow(storage: Storage, reason = 'manual', pairingPhone?: string): Promise<void> {
+  if (botState.lifecycle === 'running' || botState.lifecycle === 'starting') return;
+
+  console.log(`WhatsApp client starting: ${reason}.`);
+  botState.lifecycle = 'starting';
+  botState.listeningReason = reason;
+  botState.intentionalRestart = false;
+  botState.requestedProvider = config.WHATSAPP_PROVIDER;
+  botState.actualProvider = null;
+  botState.providerFallbackReason = null;
+  botState.pairingError = null;
+  botState.notReadySince = null;
+  botState.reconnectAttempts = 0;
+  if (pairingPhone) {
+    botState.pairingPhone = pairingPhone;
+    botState.pairingCode = null;
+    botState.pairingError = null;
+    botState.pairingAttempted = false;
+  }
+
+  const runtime = createProvider(storage, pairingPhone);
+  try {
+    await initializeProvider(runtime);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const canFallback = runtime.name === 'BAILEYS' && process.env.BAILEYS_FALLBACK_TO_WEBJS === 'true';
+    if (!canFallback) {
+      botState.client = null;
+      botState.actualProvider = null;
+      botState.qrDataUrl = null;
+      botState.pairingCode = null;
+      botState.pairingError = message;
+      botState.authenticated = false;
+      botState.ready = false;
+      botState.notReadySince = Date.now();
+      botState.connectedPhone = null;
+      botState.lifecycle = 'stopped';
+      botState.listeningReason = `connection failed: ${message}`;
+      throw err;
+    }
+
+    console.warn(`Baileys provider failed during startup; falling back to WEB_JS: ${message}`);
+    botState.providerFallbackReason = message;
+    botState.pairingError = pairingPhone ? message : null;
+    try {
+      await runtime.provider.destroy();
+    } catch {
+      // Best effort cleanup before starting the fallback provider.
+    }
+    await initializeProvider(createProvider(storage, pairingPhone, 'WEB_JS'));
+  }
+  botState.lifecycle = 'running';
+  console.log(`WhatsApp client start requested: ${reason}. provider=${botState.actualProvider ?? 'unknown'}`);
+}
+
+export async function startWhatsAppBot(storage: Storage, reason = 'manual', pairingPhone?: string): Promise<void> {
+  return runWhatsAppTransition(() => startWhatsAppBotNow(storage, reason, pairingPhone));
+}
+
+async function stopWhatsAppBotNow(reason = 'manual'): Promise<void> {
   if (botState.lifecycle === 'stopped' || botState.lifecycle === 'stopping') return;
   if (!botState.client) {
     clearRuntimeConnectionState(reason);
     return;
   }
 
-  transition = (async () => {
-    console.log(`WhatsApp client stopping: ${reason}.`);
-    botState.lifecycle = 'stopping';
-    botState.listeningReason = reason;
-    botState.intentionalRestart = true;
-
-    try {
-      await botState.client?.destroy();
-    } catch (err) {
-      console.warn('WhatsApp client destroy failed:', err);
-    } finally {
-      botState.client = null;
-      botState.actualProvider = null;
-      botState.qrDataUrl = null;
-      botState.pairingCode = null;
-      botState.pairingError = null;
-      botState.pairingAttempted = false;
-      botState.authenticated = false;
-      botState.ready = false;
-      botState.notReadySince = null;
-      botState.connectedPhone = null;
-      botState.lifecycle = 'stopped';
-      botState.intentionalRestart = false;
-      console.log(`WhatsApp client stopped: ${reason}.`);
-    }
-  })();
+  console.log(`WhatsApp client stopping: ${reason}.`);
+  botState.lifecycle = 'stopping';
+  botState.listeningReason = reason;
+  botState.intentionalRestart = true;
 
   try {
-    await transition;
+    await botState.client?.destroy();
+  } catch (err) {
+    console.warn('WhatsApp client destroy failed:', err);
   } finally {
-    transition = null;
+    botState.client = null;
+    botState.actualProvider = null;
+    botState.qrDataUrl = null;
+    botState.pairingCode = null;
+    botState.pairingError = null;
+    botState.pairingAttempted = false;
+    botState.authenticated = false;
+    botState.ready = false;
+    botState.notReadySince = null;
+    botState.connectedPhone = null;
+    botState.lifecycle = 'stopped';
+    botState.intentionalRestart = false;
+    console.log(`WhatsApp client stopped: ${reason}.`);
   }
 }
 
-export async function resetWhatsAppSession(reason = 'manual QR reset'): Promise<void> {
-  if (transition) await transition;
+export async function stopWhatsAppBot(reason = 'manual'): Promise<void> {
+  return runWhatsAppTransition(() => stopWhatsAppBotNow(reason));
+}
 
+async function resetWhatsAppSessionNow(reason = 'manual QR reset'): Promise<void> {
   try {
-    await stopWhatsAppBot(reason);
+    await stopWhatsAppBotNow(reason);
   } catch (err) {
     console.warn('WhatsApp stop before session reset failed:', err);
   }
@@ -172,6 +172,17 @@ export async function resetWhatsAppSession(reason = 'manual QR reset'): Promise<
   }
 
   clearRuntimeConnectionState(reason);
+}
+
+export async function resetWhatsAppSession(reason = 'manual QR reset'): Promise<void> {
+  return runWhatsAppTransition(() => resetWhatsAppSessionNow(reason));
+}
+
+export async function resetAndStartWhatsAppBot(storage: Storage, reason = 'manual QR reset', pairingPhone?: string): Promise<void> {
+  return runWhatsAppTransition(async () => {
+    await resetWhatsAppSessionNow(reason);
+    await startWhatsAppBotNow(storage, reason, pairingPhone);
+  });
 }
 
 export function startWhatsAppScheduler(storage: Storage): void {
