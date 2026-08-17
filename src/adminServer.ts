@@ -863,7 +863,7 @@ function sanitizeDecisionFlow(
       const id = typeof item.id === 'string' && item.id.trim()
         ? item.id.trim().slice(0, 80)
         : `step-${index + 1}`;
-      const kind = item.kind === 'question' || item.kind === 'score_question' || item.kind === 'score_result' || item.kind === 'wait_reply' || item.kind === 'contact_card' || (referralContestEnabled && item.kind === 'referral_share') ? item.kind : 'message';
+      const kind = item.kind === 'question' || item.kind === 'score_question' || item.kind === 'score_result' || item.kind === 'wait_reply' || item.kind === 'email_capture' || item.kind === 'contact_card' || (referralContestEnabled && item.kind === 'referral_share') ? item.kind : 'message';
       let text = typeof item.text === 'string' ? item.text.trim().slice(0, 2000) : '';
       if (!text && kind === 'score_result') text = '\u05d7\u05d9\u05e9\u05d5\u05d1 \u05ea\u05d5\u05e6\u05d0\u05d4';
       const fileId = typeof item.fileId === 'string' ? item.fileId.trim().slice(0, 80) : '';
@@ -871,6 +871,9 @@ function sanitizeDecisionFlow(
       if (!text && !canSendWithoutText) return null;
 
       const step: DecisionFlowStep = { id, kind, text };
+      if (kind === 'email_capture' && typeof item.emailInvalidText === 'string' && item.emailInvalidText.trim()) {
+        step.emailInvalidText = item.emailInvalidText.trim().slice(0, 500);
+      }
       if (kind === 'question' && item.referralHub === true) step.referralHub = true;
       if (typeof item.nextStepId === 'string' && item.nextStepId.trim()) {
         step.nextStepId = item.nextStepId.trim().slice(0, 80);
@@ -884,10 +887,10 @@ function sanitizeDecisionFlow(
           step.fileAsSticker = item.fileAsSticker;
         }
       }
-      if ((kind === 'wait_reply' || kind === 'referral_share') && typeof item.timeoutMinutes === 'number' && item.timeoutMinutes > 0) {
+      if ((kind === 'wait_reply' || kind === 'email_capture' || kind === 'referral_share') && typeof item.timeoutMinutes === 'number' && item.timeoutMinutes > 0) {
         step.timeoutMinutes = Math.min(Math.max(Math.round(item.timeoutMinutes), 1), 1440);
       }
-      if ((kind === 'wait_reply' || kind === 'referral_share') && typeof item.timeoutSeconds === 'number' && Number.isFinite(item.timeoutSeconds) && item.timeoutSeconds > 0) {
+      if ((kind === 'wait_reply' || kind === 'email_capture' || kind === 'referral_share') && typeof item.timeoutSeconds === 'number' && Number.isFinite(item.timeoutSeconds) && item.timeoutSeconds > 0) {
         step.timeoutSeconds = Math.min(Math.max(Math.round(item.timeoutSeconds), 1), 86400);
       }
       if (kind === 'score_result') {
@@ -1131,6 +1134,11 @@ function buildCampaignDryRun(campaign: Campaign, storage: Storage) {
       }
       if (selected.endText?.trim()) messages.push({ from: 'bot', text: selected.endText.trim() });
       step = selected.nextStepId ? flow.find((item) => item.id === selected.nextStepId) : undefined;
+    } else if (step.kind === 'email_capture') {
+      messages.push({ from: 'bot', text: step.text.trim() });
+      messages.push({ from: 'user', text: 'name@example.com' });
+      const nextStepId = step.nextStepId;
+      step = nextStepId ? flow.find((item) => item.id === nextStepId) : undefined;
     } else {
       messages.push({ from: 'bot', text: step.text.trim() });
       const nextStepId = step.nextStepId;
@@ -3378,10 +3386,12 @@ export function startAdminServer(storage: Storage): void {
     const resultBatchId = typeof req.query.batch === 'string' ? req.query.batch : storage.getCurrentCampaignResultBatchId(campaign.id);
     const csvValue = (value: string) => `"${value.replace(/"/g, '""')}"`;
     const rows = [
-      'campaign,phone,whatsappName,fallbackName,lastStage,lastEventAt,status,triggeredAt,updatedAt',
+      'campaign,phone,email,emailCollectedAt,whatsappName,fallbackName,lastStage,lastEventAt,status,triggeredAt,updatedAt',
       ...storage.getCampaignResults(campaign.id, resultBatchId).map((result) => [
         csvValue(campaign.name),
         csvValue(result.phone),
+        csvValue(result.email ?? ''),
+        csvValue(result.emailCollectedAt ?? ''),
         csvValue(result.whatsappName ?? ''),
         csvValue(result.fallbackName ?? ''),
         csvValue(result.lastStage ?? ''),
@@ -3431,6 +3441,7 @@ export function startAdminServer(storage: Storage): void {
       step_sent: 'הגיעו לשלב',
       step_answered: 'לחצו או ענו',
       score_answered: 'ענו על שאלת ניקוד',
+      email_captured: 'כתובת מייל נקלטה',
       raffle_entry: '\u05d6\u05db\u05d0\u05d5\u05ea \u05dc\u05d4\u05d2\u05e8\u05dc\u05d4',
       contact_card_confirmed: 'אישרו שמירת איש קשר',
       completion_sent: 'הודעת סיום נשלחה',
@@ -3517,6 +3528,7 @@ export function startAdminServer(storage: Storage): void {
       ['השלימו את התהליך', summary.completed],
       ['עברו למענה אנושי', summary.humanHandoff],
       ['ענו או לחצו על שאלת בחירה', uniqueEventPeople((event) => event.type === 'step_answered' || event.type === 'score_answered')],
+      ['מסרו כתובת מייל', results.filter((result) => Boolean(result.email)).length],
       ['בקשות צירוף שנשלחו למנהלת', uniqueEventPeople((event) => event.type === 'group_join_request')],
       ['נכנסו להגרלה', uniqueEventPeople((event) => event.type === 'raffle_entry')],
       ['המשיכו אוטומטית אחרי אי מענה', uniqueEventPeople((event) => event.type === 'timeout_flow_started')],
@@ -3530,17 +3542,17 @@ export function startAdminServer(storage: Storage): void {
 
     const maxEventsPerPerson = Math.max(0, ...results.map((result) => (eventsByResult.get(result.id) ?? []).length));
     const eventHeaders = Array.from({ length: maxEventsPerPerson }, (_, index) => [`אירוע ${index + 1} – סוג`, `אירוע ${index + 1} – פירוט`]).flat();
-    const detailHeaders = ['קמפיין', 'שם', 'טלפון', 'שם WhatsApp', 'שם שנשמר/שם חלופי', 'סטטוס', 'שלב אחרון', 'מועד כניסה', 'מועד עדכון', 'כל השלבים והפעולות', 'מספר אירועים', ...eventHeaders, 'ניקוד כולל', 'תשובות ניקוד'];
+    const detailHeaders = ['קמפיין', 'שם', 'טלפון', 'מייל', 'מועד קליטת המייל', 'שם WhatsApp', 'שם שנשמר/שם חלופי', 'סטטוס', 'שלב אחרון', 'מועד כניסה', 'מועד עדכון', 'כל השלבים והפעולות', 'מספר אירועים', ...eventHeaders, 'ניקוד כולל', 'תשובות ניקוד'];
     const detailRows: Array<Array<string | number>> = results.map((result) => {
       const personEvents = eventsByResult.get(result.id) ?? [];
       const stepLabels = personEvents.map((event) => eventDisplayLabel(event)).join(' | ');
       const scoreAnswers = (result.scoreAnswers ?? []).map((answer) => `${answer.question}: ${answer.answerText} (${answer.score})`).join(' | ');
       const eventCells = personEvents.flatMap((event) => [event.type, event.label ?? '']);
       while (eventCells.length < maxEventsPerPerson * 2) eventCells.push('');
-      return [campaign.name, personDisplayName(result), result.phone, result.whatsappName ?? '', result.fallbackName ?? '', statusLabels[result.status] ?? result.status, eventTypeLabels[result.lastStage ?? ''] ?? result.lastStage ?? '', result.triggeredAt, result.updatedAt, stepLabels, personEvents.length, ...eventCells, result.scoreTotal ?? '', scoreAnswers];
+      return [campaign.name, personDisplayName(result), result.phone, result.email ?? '', result.emailCollectedAt ?? '', result.whatsappName ?? '', result.fallbackName ?? '', statusLabels[result.status] ?? result.status, eventTypeLabels[result.lastStage ?? ''] ?? result.lastStage ?? '', result.triggeredAt, result.updatedAt, stepLabels, personEvents.length, ...eventCells, result.scoreTotal ?? '', scoreAnswers];
     });
 
-    const peopleHeaders = ['שם', 'טלפון', 'סטטוס', 'מועד כניסה', 'שלב או פעולה אחרונים', 'מועד עדכון', 'מספר שלבים ופעולות', 'אישר/ה שמירה', 'סיים/ה', 'ניקוד'];
+    const peopleHeaders = ['שם', 'טלפון', 'מייל', 'מועד קליטת המייל', 'סטטוס', 'מועד כניסה', 'שלב או פעולה אחרונים', 'מועד עדכון', 'מספר שלבים ופעולות', 'אישר/ה שמירה', 'סיים/ה', 'ניקוד'];
     const peopleRows: Array<Array<string | number>> = results.map((result) => {
       const personEvents = eventsByResult.get(result.id) ?? [];
       const personReportableEvents = personEvents.filter((event) => reportableEventTypes.has(event.type));
@@ -3548,6 +3560,8 @@ export function startAdminServer(storage: Storage): void {
       return [
         personDisplayName(result),
         result.phone,
+        result.email ?? '',
+        result.emailCollectedAt ?? '',
         statusLabels[result.status] ?? result.status,
         result.triggeredAt,
         lastEvent ? eventDisplayLabel(lastEvent) : 'התחיל/ה את הקמפיין',
@@ -3563,6 +3577,7 @@ export function startAdminServer(storage: Storage): void {
       { label: 'התחילו קמפיין', types: [], note: 'כל מי שמופיע בתוצאות הקמפיין' },
       { label: 'קיבלו שלב או הודעה', types: ['step_sent'], note: 'כל שלב שנשלח מתוך זרימת הקמפיין' },
       { label: 'לחצו או ענו לשאלה', types: ['step_answered', 'score_answered'], note: 'תשובות רגילות ותשובות ניקוד' },
+      { label: 'מסרו כתובת מייל', types: ['email_captured'], note: 'כתובות שעברו בדיקת תקינות ונשמרו' },
       { label: 'ביקשו צירוף דרך כפתור', types: ['group_join_request'], note: 'למשל הכפתור תצרפי אותי' },
       { label: 'נכנסו להגרלה', types: ['raffle_entry'], note: 'סומן באפשרות התשובה ככניסה להגרלה' },
       { label: 'קיבלו קובץ באמצע התהליך', types: ['file_sent'], note: 'קובץ שנשלח כתוצאה מבחירה או שלב' },
@@ -3671,7 +3686,14 @@ export function startAdminServer(storage: Storage): void {
 
     const peopleSheet = workbook.addWorksheet('משתתפים ושלבים');
     addDataTable(peopleSheet, 'CampaignPeopleOverview', peopleHeaders, peopleRows);
-    styleDataSheet(peopleSheet, [24, 18, 18, 22, 42, 22, 20, 16, 12, 12], [5]);
+    styleDataSheet(peopleSheet, [24, 18, 32, 22, 18, 22, 42, 22, 20, 16, 12, 12], [7]);
+
+    const emailSheet = workbook.addWorksheet('כתובות מייל');
+    const emailRows: Array<Array<string | number>> = results
+      .filter((result) => Boolean(result.email))
+      .map((result) => [personDisplayName(result), result.phone, result.email ?? '', result.emailCollectedAt ?? '', result.scoreTotal ?? '', campaign.name]);
+    addDataTable(emailSheet, 'CampaignEmailAddresses', ['שם', 'טלפון', 'מייל', 'מועד קליטה', 'ניקוד', 'קמפיין'], emailRows);
+    styleDataSheet(emailSheet, [24, 18, 34, 22, 12, 28]);
 
     const historySheet = workbook.addWorksheet('היסטוריית שלבים');
     const historyHeaders = ['שם', 'טלפון', 'סוג הפעולה', 'שלב או פעולה', 'תאריך ושעה'];

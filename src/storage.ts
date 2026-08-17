@@ -112,7 +112,7 @@ export interface CampaignTwilioSettings {
 
 export interface DecisionFlowStep {
   id: string;
-  kind: 'message' | 'wait_reply' | 'contact_card' | 'referral_share' | 'question' | 'score_question' | 'score_result';
+  kind: 'message' | 'wait_reply' | 'email_capture' | 'contact_card' | 'referral_share' | 'question' | 'score_question' | 'score_result';
   presentation?: 'text' | 'buttons' | 'list';
   text: string;
   nextStepId?: string;
@@ -130,6 +130,8 @@ export interface DecisionFlowStep {
   resultRules?: ScoreResultRule[];
   fallbackText?: string;
   fallbackNextStepId?: string;
+  /** Reply sent when an email-capture answer is not a valid email address. */
+  emailInvalidText?: string;
   referralHub?: boolean;
 }
 
@@ -301,6 +303,8 @@ export interface CampaignResult {
   referredByName?: string;
   referredByPhone?: string;
   fallbackName?: string;
+  email?: string;
+  emailCollectedAt?: string;
   lastStage?: string;
   lastEventAt?: string;
   status: CampaignResultStatus;
@@ -330,6 +334,7 @@ export type CampaignEventType =
   | 'step_sent'
   | 'step_answered'
   | 'score_answered'
+  | 'email_captured'
   | 'raffle_entry'
   | 'group_join_request'
   | 'timeout_flow_started'
@@ -1456,6 +1461,18 @@ export class Storage {
       .filter((result) => (!campaignId || result.campaignId === campaignId) && this.matchesResultBatch(result.resultBatchId, resultBatchId))
       .sort((a, b) => b.triggeredAt.localeCompare(a.triggeredAt))
       .map((result) => ({ ...result }));
+  }
+
+  recordCampaignEmail(resultId: string | undefined, email: string): void {
+    if (!resultId) return;
+    const result = this.data.campaignResults.find((item) => item.id === resultId);
+    if (!result) return;
+    const collectedAt = new Date().toISOString();
+    result.email = email;
+    result.emailCollectedAt = collectedAt;
+    result.updatedAt = collectedAt;
+    result.lastEventAt = collectedAt;
+    this.persist();
   }
 
   recordScoreAnswer(resultId: string | undefined, input: Omit<CampaignScoreAnswer, 'answeredAt'>): void {

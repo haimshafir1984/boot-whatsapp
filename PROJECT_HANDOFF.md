@@ -1454,3 +1454,16 @@ https://client-meta-test-new-number-ce8e0691.flowsbiz.com/webhooks/meta/whatsapp
 - The first existing inactive client, `client-1-cab55e82`, was migrated under a controlled cutover. JSON counts matched the PostgreSQL export: 1 campaign, 378 contacts, 378 contactQueue rows, 407 campaign results, and 1,640 campaign events.
 - `client-1-cab55e82` finished with `storage.enabled=true`, `storage.ready=true`, `pendingWrites=0`, one disabled campaign, 378 saved contacts, and an empty outbox. Its original JSON remains available for rollback.
 - Active clients `client-account-706d5db8` and `client-account-5ec279a8` were not migrated in this checkpoint. `client-account-fce3d086` (Avia) was not touched.
+
+## עדכון 2026-08-17 - קליטת מייל בקמפיין וייצוא Excel
+
+- לבונה הקמפיינים נוסף שלב `קליטת כתובת מייל` (`email_capture`). השינוי אינו שייך לבוט השירות.
+- השלב שולח את נוסח השאלה שהוגדר, ממתין לתשובת טקסט ובודק מבנה של כתובת מייל.
+- תשובה לא תקינה אינה מקדמת את ה-flow. נשלחת הודעת תיקון מותאמת והמשתמשת נשארת באותו שלב.
+- תשובה תקינה נשמרת ב-`CampaignResult.email`, ומועד הקליטה נשמר ב-`CampaignResult.emailCollectedAt`.
+- דומיין המייל מנורמל לאותיות קטנות. כתובת תקינה מתועדת גם כאירוע `email_captured`.
+- השלב משתמש בתשתית השיחה העמידה של `wait-reply`, ולכן מצב ההמתנה נכלל בשחזור שיחות לאחר restart.
+- בייצוא Excel המייל ומועד הקליטה נוספו ל-`משתתפים ושלבים` ול-`נתונים מלאים`.
+- נוספה לשונית `כתובות מייל`, ובה שם, טלפון, מייל, מועד קליטה, ניקוד ושם הקמפיין.
+- גם ייצוא ה-CSV הישן כולל כעת `email` ו-`emailCollectedAt`.
+- בדיקות ייעודיות: `npm run test:email-capture`. הבדיקה מכסה ולידציה, הישארות בשלב לאחר תשובה שגויה, שמירה והמשך לאחר תשובה תקינה, ויצירת Excel אמיתי עם הלשוניות והעמודות החדשות.

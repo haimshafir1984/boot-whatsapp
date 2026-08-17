@@ -2204,19 +2204,46 @@ async function handleWaitReply(
   humanHandoff: CampaignReplyBehavior = {},
 ): Promise<void> {
   const step = flow.find((item) => item.id === stepId);
-  conversationState.pause(senderJid);
-  if (!step || step.kind !== 'wait_reply') {
+  if (!step || (step.kind !== 'wait_reply' && step.kind !== 'email_capture')) {
     conversationState.remove(senderJid);
     return;
   }
+  if (step.kind === 'email_capture') {
+    const email = normalizeCapturedEmail(answer);
+    if (!email) {
+      await sendBotMessage(
+        transport,
+        senderJid,
+        step.emailInvalidText?.trim() || 'נראה שכתובת המייל לא תקינה. כתבי אותה שוב, למשל: name@example.com',
+        0,
+      );
+      return;
+    }
+    conversationState.pause(senderJid);
+    storage.recordCampaignEmail(campaignResultId, email);
+    if (campaignId) {
+      storage.recordCampaignEvent({
+        campaignId,
+        campaignResultId,
+        phone: senderPhone,
+        type: 'email_captured',
+        label: email,
+        dedupeKey: `email_captured:${step.id}`,
+      });
+    }
+  } else {
+    conversationState.pause(senderJid);
+  }
   if (campaignId) {
-    storage.recordCampaignEvent({
-      campaignId,
-      campaignResultId,
-      phone: senderPhone,
-      type: 'step_answered',
-      label: answer.slice(0, 120),
-    });
+    if (step.kind === 'wait_reply') {
+      storage.recordCampaignEvent({
+        campaignId,
+        campaignResultId,
+        phone: senderPhone,
+        type: 'step_answered',
+        label: answer.slice(0, 120),
+      });
+    }
   }
   if (step.nextStepId) {
     await sendDecisionStep(transport, storage, senderJid, flow, step.nextStepId, campaignId, campaignResultId, senderPhone, humanHandoff);
@@ -2230,6 +2257,22 @@ async function handleWaitReply(
     });
     keepHumanHandoffOpen(senderJid, campaignId, campaignResultId, senderPhone, humanHandoff);
   }
+}
+
+function normalizeCapturedEmail(value: string): string | null {
+  const email = value.trim().normalize('NFKC');
+  if (!email || email.length > 254 || /\s/.test(email)) return null;
+  const at = email.lastIndexOf('@');
+  if (at <= 0 || at !== email.indexOf('@') || at > 64 || at === email.length - 1) return null;
+  const local = email.slice(0, at);
+  const domain = email.slice(at + 1).toLowerCase();
+  if (local.startsWith('.') || local.endsWith('.') || local.includes('..')) return null;
+  if (!/^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+$/i.test(local)) return null;
+  if (domain.length > 253 || !domain.includes('.') || domain.startsWith('.') || domain.endsWith('.') || domain.includes('..')) return null;
+  const labels = domain.split('.');
+  if (labels.some((label) => !label || label.length > 63 || label.startsWith('-') || label.endsWith('-') || !/^[A-Z0-9-]+$/i.test(label))) return null;
+  if (labels.at(-1)!.length < 2) return null;
+  return `${local}@${domain}`;
 }
 
 async function sendDecisionFlowStart(
@@ -2275,9 +2318,9 @@ async function sendDecisionStep(
     return;
   }
 
-  if (step.kind === 'wait_reply') {
+  if (step.kind === 'wait_reply' || step.kind === 'email_capture') {
     await sendBotMessage(transport, senderJid, step.text.trim(), stepDelayMs);
-    console.log('   Wait-for-reply message sent.');
+    console.log(step.kind === 'email_capture' ? '   Email-capture message sent.' : '   Wait-for-reply message sent.');
     if (campaignId) {
       storage.recordCampaignEvent({
         campaignId,
