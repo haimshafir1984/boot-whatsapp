@@ -32,7 +32,7 @@
     "test:email-capture": "npm run build && node scripts/test-email-capture.js && node scripts/test-email-export.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^7.0.0-rc13",
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "googleapis": "^140.0.0",

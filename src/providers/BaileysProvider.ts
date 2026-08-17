@@ -379,6 +379,13 @@ export class BaileysProvider implements WhatsAppProvider {
 
   private async resolveBaileysVersion(baileys: BaileysModule): Promise<BaileysModule['DEFAULT_CONNECTION_CONFIG']['version']> {
     try {
+      const { version } = await baileys.fetchLatestWaWebVersion();
+      return version;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`WA Web version fetch failed; falling back to Baileys bundled version lookup. ${message}`);
+    }
+    try {
       const { version } = await baileys.fetchLatestBaileysVersion();
       return version;
     } catch (err) {
