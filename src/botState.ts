@@ -8,6 +8,7 @@ export const botState = {
   pairingCode: null as string | null,
   pairingError: null as string | null,
   pairingPhone: null as string | null,
+  pairingCodeBlockedUntil: null as number | null,
   pairingAttempted: false,
   intentionalRestart: false,
   client: null as RuntimeWhatsAppClient | null,

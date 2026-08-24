@@ -115,7 +115,6 @@ export class BaileysProvider implements WhatsAppProvider {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private pairingRetryTimer: NodeJS.Timeout | null = null;
   private pairingRequestAttempts = 0;
-  private pairingCodeBlockedUntil = 0;
   private intentionalClose = false;
   private readonly storage: Storage;
   private readonly pairingPhone?: string;
@@ -283,6 +282,7 @@ export class BaileysProvider implements WhatsAppProvider {
       botState.pairingCode = null;
       botState.pairingError = null;
       botState.pairingPhone = null;
+      botState.pairingCodeBlockedUntil = null;
       botState.pairingAttempted = false;
       this.pairingRequestAttempts = 0;
       if (this.pairingRetryTimer) clearTimeout(this.pairingRetryTimer);
@@ -430,12 +430,12 @@ export class BaileysProvider implements WhatsAppProvider {
     // Pairing-code registration is stricter than QR registration about the
     // browser/platform display. A custom OS label can produce a locally
     // generated code that WhatsApp later rejects as invalid.
-    return baileys.Browsers?.macOS?.('Chrome') ?? baileys.DEFAULT_CONNECTION_CONFIG.browser;
+    return baileys.Browsers?.windows?.('Chrome') ?? baileys.Browsers?.macOS?.('Chrome') ?? baileys.DEFAULT_CONNECTION_CONFIG.browser;
   }
 
   private async requestPairingCode(baileys: BaileysModule, phone: string): Promise<void> {
     if (!this.socket || botState.pairingAttempted || botState.pairingCode) return;
-    const blockedForMs = this.pairingCodeBlockedUntil - Date.now();
+    const blockedForMs = (botState.pairingCodeBlockedUntil ?? 0) - Date.now();
     if (blockedForMs > 0) {
       const blockedForMinutes = Math.ceil(blockedForMs / 60_000);
       botState.pairingError = `WhatsApp חסמה זמנית יצירת קוד בגלל יותר מדי ניסיונות. המתן כ-${blockedForMinutes} דקות ואז נסה שוב.`;
@@ -468,7 +468,7 @@ export class BaileysProvider implements WhatsAppProvider {
       const message = err instanceof Error ? err.message : String(err);
       const isRateLimited = message.includes('rate-overlimit') || (err as any)?.data === 429;
       if (isRateLimited) {
-        this.pairingCodeBlockedUntil = Date.now() + PAIRING_CODE_RATE_LIMIT_COOLDOWN_MS;
+        botState.pairingCodeBlockedUntil = Date.now() + PAIRING_CODE_RATE_LIMIT_COOLDOWN_MS;
       }
       const shouldRetry = !isRateLimited && !this.intentionalClose && Boolean(this.socket) && this.pairingRequestAttempts < 5;
       botState.pairingError = shouldRetry

@@ -2741,6 +2741,14 @@ export function startAdminServer(storage: Storage): void {
     let phone = String(req.body.phone ?? '').replace(/\D/g, '');
     if (phone.startsWith('0')) phone = '972' + phone.slice(1);
     if (!phone) { res.status(400).json({ error: 'מספר טלפון חסר' }); return; }
+    const blockedForMs = (botState.pairingCodeBlockedUntil ?? 0) - Date.now();
+    if (blockedForMs > 0) {
+      const blockedForMinutes = Math.ceil(blockedForMs / 60_000);
+      const message = `WhatsApp חסמה זמנית יצירת קוד בגלל יותר מדי ניסיונות. המתן כ-${blockedForMinutes} דקות ואז נסה שוב.`;
+      botState.pairingError = message;
+      res.status(429).json({ error: message });
+      return;
+    }
 
     try {
       // Reset and start in a single lifecycle transition. This prevents the
