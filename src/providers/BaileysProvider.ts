@@ -162,12 +162,6 @@ export class BaileysProvider implements WhatsAppProvider {
     this.socket.ev.on('messages.upsert', async (event: any) => {
       await this.handleMessages(event.messages ?? []);
     });
-
-    if (this.pairingPhone) {
-      setTimeout(() => {
-        void this.requestPairingCode(this.pairingPhone!);
-      }, 2_000);
-    }
   }
 
   async destroy(): Promise<void> {
@@ -260,11 +254,20 @@ export class BaileysProvider implements WhatsAppProvider {
 
   private async handleConnectionUpdate(baileys: BaileysModule, update: any): Promise<void> {
     if (update.qr) {
-      botState.qrDataUrl = await QRCode.toDataURL(update.qr);
-      botState.pairingError = null;
       botState.authenticated = false;
       botState.ready = false;
-      console.log('\nBaileys QR received. Open the dashboard to connect WhatsApp.\n');
+      if (this.pairingPhone) {
+        // Pairing-code mode: the qr event only signals the socket has
+        // reached a state where a pairing code can be requested. Request
+        // the code instead of exposing this QR - running both linking
+        // methods on the same socket at once caused the phone to reject
+        // the entered code.
+        void this.requestPairingCode(this.pairingPhone);
+      } else {
+        botState.qrDataUrl = await QRCode.toDataURL(update.qr);
+        botState.pairingError = null;
+        console.log('\nBaileys QR received. Open the dashboard to connect WhatsApp.\n');
+      }
     }
 
     if (update.connection === 'open') {
