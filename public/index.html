@@ -5036,6 +5036,8 @@
         }
       } else if (pairingError) {
         const resEl = document.getElementById('pair-result');
+        const errEl = document.getElementById('pair-error');
+        if (errEl) errEl.textContent = '';
         if (resEl) {
           resEl.innerHTML = `<div class="qr-spinner" style="color:#b91c1c;line-height:1.7">
             לא הצלחנו ליצור קוד התחברות.<br>
