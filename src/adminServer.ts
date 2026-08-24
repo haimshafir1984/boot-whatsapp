@@ -3216,9 +3216,9 @@ export function startAdminServer(storage: Storage): void {
       res.status(400).json({ error: '\u05d4\u05ea\u05de\u05d5\u05e0\u05d4 \u05d2\u05d3\u05d5\u05dc\u05d4 \u05de\u05d3\u05d9. \u05e0\u05d9\u05ea\u05df \u05dc\u05d4\u05e2\u05dc\u05d5\u05ea \u05ea\u05de\u05d5\u05e0\u05d4 \u05e2\u05d3 5MB.' });
       return;
     }
-    const maxBytes = 15 * 1024 * 1024;
+    const maxBytes = 18 * 1024 * 1024;
     if (buffer.length > maxBytes) {
-      res.status(400).json({ error: 'הקובץ גדול מדי. המגבלה כרגע היא 15MB.' });
+      res.status(400).json({ error: 'הקובץ גדול מדי. המגבלה כרגע היא 18MB.' });
       return;
     }
 
