@@ -60,6 +60,13 @@ function runWhatsAppTransition(action: () => Promise<void>): Promise<void> {
 async function startWhatsAppBotNow(storage: Storage, reason = 'manual', pairingPhone?: string): Promise<void> {
   if (botState.lifecycle === 'running' || botState.lifecycle === 'starting') return;
 
+  // If a pairing-code attempt was interrupted (timeout, dropped connection)
+  // and nobody explicitly stopped/reset the bot since, keep pairing with the
+  // same phone number on the next auto-restart instead of silently reverting
+  // to plain QR mode - botState.pairingPhone survives until a successful
+  // connection, an explicit reset, or a fresh /api/pair request.
+  const effectivePairingPhone = pairingPhone ?? botState.pairingPhone ?? undefined;
+
   console.log(`WhatsApp client starting: ${reason}.`);
   botState.lifecycle = 'starting';
   botState.listeningReason = reason;
@@ -70,14 +77,14 @@ async function startWhatsAppBotNow(storage: Storage, reason = 'manual', pairingP
   botState.pairingError = null;
   botState.notReadySince = null;
   botState.reconnectAttempts = 0;
-  if (pairingPhone) {
-    botState.pairingPhone = pairingPhone;
+  if (effectivePairingPhone) {
+    botState.pairingPhone = effectivePairingPhone;
     botState.pairingCode = null;
     botState.pairingError = null;
     botState.pairingAttempted = false;
   }
 
-  const runtime = createProvider(storage, pairingPhone);
+  const runtime = createProvider(storage, effectivePairingPhone);
   try {
     await initializeProvider(runtime);
   } catch (err) {
@@ -100,13 +107,13 @@ async function startWhatsAppBotNow(storage: Storage, reason = 'manual', pairingP
 
     console.warn(`Baileys provider failed during startup; falling back to WEB_JS: ${message}`);
     botState.providerFallbackReason = message;
-    botState.pairingError = pairingPhone ? message : null;
+    botState.pairingError = effectivePairingPhone ? message : null;
     try {
       await runtime.provider.destroy();
     } catch {
       // Best effort cleanup before starting the fallback provider.
     }
-    await initializeProvider(createProvider(storage, pairingPhone, 'WEB_JS'));
+    await initializeProvider(createProvider(storage, effectivePairingPhone, 'WEB_JS'));
   }
   botState.lifecycle = 'running';
   console.log(`WhatsApp client start requested: ${reason}. provider=${botState.actualProvider ?? 'unknown'}`);

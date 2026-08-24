@@ -307,7 +307,8 @@ export class BaileysProvider implements WhatsAppProvider {
         botState.lifecycle = 'stopped';
         botState.qrDataUrl = null;
         if (this.pairingPhone) {
-          botState.pairingError = 'החיבור ל-WhatsApp התנתק. נסה לקבל קוד חדש או לסרוק QR מחדש.';
+          botState.pairingCode = null;
+          botState.pairingError = 'החיבור ל-WhatsApp התנתק. מבקשים קוד התחברות חדש באופן אוטומטי.';
         }
         // WhatsApp confirmed this session is dead. Clear it so the next start
         // (keep-connected scheduler or manual reset) loads a clean auth state
@@ -319,6 +320,14 @@ export class BaileysProvider implements WhatsAppProvider {
         } catch (err) {
           console.error('Failed to clear Baileys session after logout:', err);
         }
+      } else if (this.pairingPhone && !this.intentionalClose) {
+        // The pairing code expired or the connection dropped before it was
+        // used. A reconnect will be scheduled below, which re-requests a
+        // fresh code (initialize() resets pairingAttempted for the same
+        // pairingPhone) - surface that clearly instead of leaving a dead
+        // code on screen or silently falling back to QR.
+        botState.pairingCode = null;
+        botState.pairingError = 'הקוד פג תוקף או שהחיבור נותק. מבקשים קוד חדש באופן אוטומטי.';
       }
 
       if (!this.intentionalClose && !loggedOut) {
