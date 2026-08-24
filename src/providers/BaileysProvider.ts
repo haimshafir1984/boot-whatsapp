@@ -17,6 +17,7 @@ type BaileysMessage = NonNullable<Parameters<Parameters<BaileysSocket['ev']['on'
 
 const RECONNECT_BACKOFF_MS = [10_000, 30_000, 60_000, 120_000, 300_000];
 const PAIRING_CODE_SETTLE_MS = 2_500;
+const PAIRING_CODE_RATE_LIMIT_COOLDOWN_MS = 15 * 60 * 1_000;
 
 function authPath(): string {
   return path.join(config.SESSION_PATH, 'baileys');
@@ -114,6 +115,7 @@ export class BaileysProvider implements WhatsAppProvider {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private pairingRetryTimer: NodeJS.Timeout | null = null;
   private pairingRequestAttempts = 0;
+  private pairingCodeBlockedUntil = 0;
   private intentionalClose = false;
   private readonly storage: Storage;
   private readonly pairingPhone?: string;
@@ -433,6 +435,13 @@ export class BaileysProvider implements WhatsAppProvider {
 
   private async requestPairingCode(baileys: BaileysModule, phone: string): Promise<void> {
     if (!this.socket || botState.pairingAttempted || botState.pairingCode) return;
+    const blockedForMs = this.pairingCodeBlockedUntil - Date.now();
+    if (blockedForMs > 0) {
+      const blockedForMinutes = Math.ceil(blockedForMs / 60_000);
+      botState.pairingError = `WhatsApp חסמה זמנית יצירת קוד בגלל יותר מדי ניסיונות. המתן כ-${blockedForMinutes} דקות ואז נסה שוב.`;
+      botState.listeningReason = `pairing code rate limited: wait ${blockedForMinutes} minutes`;
+      return;
+    }
     const isRegistered = Boolean((this.socket as any).authState?.creds?.registered);
     if (isRegistered) {
       botState.pairingError = 'קיים כבר session מחובר. אם צריך לחבר מספר אחר, אפס את חיבור WhatsApp ונסה שוב.';
@@ -457,9 +466,15 @@ export class BaileysProvider implements WhatsAppProvider {
     } catch (err) {
       botState.pairingAttempted = false;
       const message = err instanceof Error ? err.message : String(err);
-      const shouldRetry = !this.intentionalClose && Boolean(this.socket) && this.pairingRequestAttempts < 5;
+      const isRateLimited = message.includes('rate-overlimit') || (err as any)?.data === 429;
+      if (isRateLimited) {
+        this.pairingCodeBlockedUntil = Date.now() + PAIRING_CODE_RATE_LIMIT_COOLDOWN_MS;
+      }
+      const shouldRetry = !isRateLimited && !this.intentionalClose && Boolean(this.socket) && this.pairingRequestAttempts < 5;
       botState.pairingError = shouldRetry
         ? `עדיין לא הצלחנו ליצור קוד התחברות, מנסים שוב בעוד רגע. ${message || ''}`.trim()
+        : isRateLimited
+          ? 'WhatsApp חסמה זמנית יצירת קוד בגלל יותר מדי ניסיונות. המתן כ-15 דקות ואז נסה שוב.'
         : message || 'לא הצלחנו ליצור קוד התחברות. נסה שוב או סרוק QR.';
       botState.listeningReason = `connection failed: ${botState.pairingError}`;
       console.error('Baileys pairing code request failed:', err);
