@@ -23,6 +23,7 @@ type BaileysMessage = NonNullable<Parameters<Parameters<BaileysSocket['ev']['on'
 
 const RECONNECT_BACKOFF_MS = [10_000, 30_000, 60_000, 120_000, 300_000];
 const PAIRING_CODE_SETTLE_MS = 2_500;
+const PAIRING_RESTART_RECONNECT_MS = 250;
 
 function authPath(): string {
   return path.join(config.SESSION_PATH, 'baileys');
@@ -167,12 +168,25 @@ export class BaileysProvider implements WhatsAppProvider {
       generateHighQualityLinkPreview: false,
     });
 
-    this.socket.ev.on('creds.update', saveCreds);
+    this.socket.ev.on('creds.update', (update: any) => {
+      if (this.pairingPhone && typeof update?.registered === 'boolean') {
+        console.log(`Baileys pairing credentials update: registered=${update.registered}.`);
+      }
+      void saveCreds().catch((err) => console.error('Failed to persist Baileys credentials:', err));
+    });
     this.socket.ev.on('connection.update', async (update: any) => {
       await this.handleConnectionUpdate(baileys, update);
     });
     this.socket.ev.on('messages.upsert', async (event: any) => {
       await this.handleMessages(event.messages ?? []);
+    });
+    const rawSocket = (this.socket as any).ws;
+    rawSocket?.on?.('CB:notification,type:companion_reg_refresh', (node: any) => {
+      console.warn(`Baileys received companion_reg_refresh during pairing (id=${node?.attrs?.id || 'unknown'}); acknowledging through the patched pre-login handler.`);
+    });
+    rawSocket?.on?.('CB:notification,type:link_code_companion_reg', (node: any) => {
+      const stage = node?.attrs?.stage || node?.content?.[0]?.attrs?.stage || 'primary response';
+      console.log(`Baileys received link_code_companion_reg during pairing: stage=${stage}.`);
     });
   }
 
@@ -274,6 +288,7 @@ export class BaileysProvider implements WhatsAppProvider {
         // the code instead of exposing this QR - running both linking
         // methods on the same socket at once caused the phone to reject
         // the entered code.
+        console.log('Baileys pair-device readiness reached; requesting a phone pairing code.');
         void this.requestPairingCode(baileys, this.pairingPhone);
       } else {
         botState.qrDataUrl = await QRCode.toDataURL(update.qr);
@@ -313,9 +328,12 @@ export class BaileysProvider implements WhatsAppProvider {
 
       const statusCode = update.lastDisconnect?.error?.output?.statusCode;
       const loggedOut = statusCode === baileys.DisconnectReason.loggedOut;
+      const restartRequired = statusCode === baileys.DisconnectReason.restartRequired;
       console.warn(`Baileys disconnected. status=${statusCode ?? 'unknown'}`);
       botState.listeningReason = loggedOut
         ? 'connection failed: החיבור ל-WhatsApp התנתק. יש לסרוק QR מחדש.'
+        : restartRequired
+          ? 'finalizing WhatsApp pairing after required restart'
         : `reconnecting after disconnect (${statusCode ?? 'unknown'})`;
       if (loggedOut) {
         botState.lifecycle = 'stopped';
@@ -334,7 +352,7 @@ export class BaileysProvider implements WhatsAppProvider {
         } catch (err) {
           console.error('Failed to clear Baileys session after logout:', err);
         }
-      } else if (this.pairingPhone && !this.intentionalClose) {
+      } else if (this.pairingPhone && !this.intentionalClose && !restartRequired) {
         // The pairing code expired or the connection dropped before it was
         // used. A reconnect will be scheduled below, which re-requests a
         // fresh code (initialize() resets pairingAttempted for the same
@@ -346,7 +364,12 @@ export class BaileysProvider implements WhatsAppProvider {
 
       if (!this.intentionalClose && !loggedOut) {
         const attempt = botState.reconnectAttempts + 1;
-        const delay = RECONNECT_BACKOFF_MS[Math.min(attempt - 1, RECONNECT_BACKOFF_MS.length - 1)];
+        // WhatsApp intentionally closes a newly paired socket with 515. The
+        // saved credentials must be reused immediately; waiting for the normal
+        // reconnect backoff can make the phone report that linking failed.
+        const delay = restartRequired
+          ? PAIRING_RESTART_RECONNECT_MS
+          : RECONNECT_BACKOFF_MS[Math.min(attempt - 1, RECONNECT_BACKOFF_MS.length - 1)];
         botState.reconnectAttempts = attempt;
         botState.lastReconnectAt = new Date().toISOString();
         if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
@@ -416,15 +439,25 @@ export class BaileysProvider implements WhatsAppProvider {
 
   private async resolveBaileysVersion(baileys: BaileysModule): Promise<BaileysModule['DEFAULT_CONNECTION_CONFIG']['version']> {
     try {
-      const { version } = await baileys.fetchLatestWaWebVersion();
-      return version;
+      const result = await baileys.fetchLatestWaWebVersion();
+      if (result.isLatest) {
+        console.log(`Baileys using live WhatsApp Web version ${result.version.join('.')}.`);
+        return result.version;
+      }
+      const detail = result.error instanceof Error ? result.error.message : String(result.error || 'unknown response');
+      if (this.pairingPhone) {
+        throw new Error(`לא ניתן לאמת את גרסת WhatsApp Web העדכנית לפני יצירת קוד. ${detail}`);
+      }
+      console.warn(`Live WA Web version lookup was not authoritative; trying Baileys repository version. ${detail}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.warn(`WA Web version fetch failed; falling back to Baileys bundled version lookup. ${message}`);
+      if (this.pairingPhone) throw err;
+      console.warn(`WA Web version fetch failed; falling back to Baileys repository version. ${message}`);
     }
     try {
-      const { version } = await baileys.fetchLatestBaileysVersion();
-      return version;
+      const result = await baileys.fetchLatestBaileysVersion();
+      console.log(`Baileys using repository WhatsApp Web version ${result.version.join('.')} (latest=${result.isLatest}).`);
+      return result.version;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.warn(`Baileys latest version fetch failed; using bundled default version. ${message}`);
@@ -502,11 +535,7 @@ export class BaileysProvider implements WhatsAppProvider {
     const browserConfig = this.resolveBrowserConfig(baileys);
     const creds = socket.authState.creds;
     creds.pairingCode = pairingCode;
-    creds.me = {
-      id: (baileys as any).jidEncode(phone, 's.whatsapp.net'),
-      name: '~',
-    };
-    socket.ev.emit('creds.update', creds);
+    const jid = (baileys as any).jidEncode(phone, 's.whatsapp.net');
 
     const salt = randomBytes(32);
     const randomIv = randomBytes(16);
@@ -517,56 +546,71 @@ export class BaileysProvider implements WhatsAppProvider {
       randomIv,
     );
 
-    const response = await socket.query({
-      tag: 'iq',
-      attrs: {
-        to: (baileys as any).S_WHATSAPP_NET,
-        type: 'set',
-        xmlns: 'md',
-      },
-      content: [
-        {
-          tag: 'link_code_companion_reg',
-          attrs: {
-            jid: creds.me.id,
-            stage: 'companion_hello',
-            should_show_push_notification: 'true',
-          },
-          content: [
-            {
-              tag: 'link_code_pairing_wrapped_companion_ephemeral_pub',
-              attrs: {},
-              content: Buffer.concat([salt, randomIv, encryptedPairingKey]),
-            },
-            {
-              tag: 'companion_server_auth_key_pub',
-              attrs: {},
-              content: creds.noiseKey.public,
-            },
-            {
-              tag: 'companion_platform_id',
-              attrs: {},
-              content: (baileys as any).getCompanionPlatformId(browserConfig),
-            },
-            {
-              tag: 'companion_platform_display',
-              attrs: {},
-              content: `${browserConfig[1]} (${browserConfig[0]})`,
-            },
-            {
-              tag: 'link_code_pairing_nonce',
-              attrs: {},
-              content: '0',
-            },
-          ],
+    let response: any;
+    try {
+      response = await socket.query({
+        tag: 'iq',
+        attrs: {
+          to: (baileys as any).S_WHATSAPP_NET,
+          type: 'set',
+          xmlns: 'md',
         },
-      ],
-    }, 15_000);
+        content: [
+          {
+            tag: 'link_code_companion_reg',
+            attrs: {
+              jid,
+              stage: 'companion_hello',
+              should_show_push_notification: 'true',
+            },
+            content: [
+              {
+                tag: 'link_code_pairing_wrapped_companion_ephemeral_pub',
+                attrs: {},
+                content: Buffer.concat([salt, randomIv, encryptedPairingKey]),
+              },
+              {
+                tag: 'companion_server_auth_key_pub',
+                attrs: {},
+                content: creds.noiseKey.public,
+              },
+              {
+                tag: 'companion_platform_id',
+                attrs: {},
+                content: (baileys as any).getCompanionPlatformId(browserConfig),
+              },
+              {
+                tag: 'companion_platform_display',
+                attrs: {},
+                content: `${browserConfig[1]} (${browserConfig[0]})`,
+              },
+              {
+                tag: 'link_code_pairing_nonce',
+                attrs: {},
+                content: '0',
+              },
+            ],
+          },
+        ],
+      }, 15_000);
+    } catch (err) {
+      if (creds.pairingCode === pairingCode) creds.pairingCode = undefined;
+      console.error('Baileys companion_hello was rejected by WhatsApp:', err);
+      throw err;
+    }
 
     if (!response) {
+      if (creds.pairingCode === pairingCode) creds.pairingCode = undefined;
       botState.pairingAttempted = false;
       throw new Error('WhatsApp לא אישרה את קוד ההתחברות בזמן. נסה שוב או סרוק QR.');
     }
+
+    console.log(`Baileys companion_hello accepted by WhatsApp: type=${response.attrs?.type || 'unknown'}.`);
+    // Persist the phone identity only after WhatsApp accepted companion_hello.
+    // Saving it earlier makes pre-login notifications look authenticated and
+    // can leave a dead pairing session behind after an IQ rejection.
+    creds.me = { id: jid, name: '~' };
+    socket.ev.emit('creds.update', creds);
 
     return pairingCode;
   }

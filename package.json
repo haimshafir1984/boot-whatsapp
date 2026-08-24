@@ -4,6 +4,7 @@
   "description": "Personal WhatsApp automation bot - saves contacts and sends vCard reply",
   "main": "dist/index.js",
   "scripts": {
+    "postinstall": "node scripts/patch-baileys-prelogin-ack.js",
     "build": "tsc",
     "test:service-bot": "npm run build && node scripts/test-service-bot-flow.js && node scripts/test-service-bot-ui.js",
     "start": "node dist/index.js",
