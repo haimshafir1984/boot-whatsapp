@@ -15,6 +15,7 @@ type BaileysMessage = NonNullable<Parameters<Parameters<BaileysSocket['ev']['on'
   : any;
 
 const RECONNECT_BACKOFF_MS = [10_000, 30_000, 60_000, 120_000, 300_000];
+const PAIRING_CODE_SETTLE_MS = 2_500;
 
 function authPath(): string {
   return path.join(config.SESSION_PATH, 'baileys');
@@ -102,6 +103,10 @@ function getMimeType(filePath: string): string {
   return 'application/octet-stream';
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export class BaileysProvider implements WhatsAppProvider {
   private socket: BaileysSocket | null = null;
   private saveCreds: (() => Promise<void>) | null = null;
@@ -148,7 +153,7 @@ export class BaileysProvider implements WhatsAppProvider {
       logger: pino({ level: 'silent' }),
       printQRInTerminal: false,
       version,
-      browser: ['FlowsBiz', 'Chrome', '1.0.0'],
+      browser: this.resolveBrowserConfig(baileys),
       syncFullHistory: false,
       shouldSyncHistoryMessage: () => false,
       markOnlineOnConnect: false,
@@ -418,6 +423,13 @@ export class BaileysProvider implements WhatsAppProvider {
     }
   }
 
+  private resolveBrowserConfig(baileys: BaileysModule): BaileysModule['DEFAULT_CONNECTION_CONFIG']['browser'] {
+    // Pairing-code registration is stricter than QR registration about the
+    // browser/platform display. A custom OS label can produce a locally
+    // generated code that WhatsApp later rejects as invalid.
+    return baileys.Browsers?.macOS?.('Chrome') ?? baileys.DEFAULT_CONNECTION_CONFIG.browser;
+  }
+
   private async requestPairingCode(phone: string): Promise<void> {
     if (!this.socket || botState.pairingAttempted || botState.pairingCode) return;
     const isRegistered = Boolean((this.socket as any).authState?.creds?.registered);
@@ -430,11 +442,17 @@ export class BaileysProvider implements WhatsAppProvider {
     this.pairingRequestAttempts += 1;
     try {
       const code = await this.socket.requestPairingCode(phone);
+      console.log(`Baileys pairing code generated, waiting ${PAIRING_CODE_SETTLE_MS}ms for early rejection signals.`);
+      await sleep(PAIRING_CODE_SETTLE_MS);
+      if (botState.pairingError || !this.socket || this.intentionalClose) {
+        console.warn(`Baileys pairing code discarded before display: ${botState.pairingError || 'socket closed'}`);
+        return;
+      }
       botState.pairingCode = code;
       botState.pairingError = null;
       if (this.pairingRetryTimer) clearTimeout(this.pairingRetryTimer);
       this.pairingRetryTimer = null;
-      console.log(`Baileys pairing code generated: ${code}`);
+      console.log(`Baileys pairing code ready for display: ${code}`);
     } catch (err) {
       botState.pairingAttempted = false;
       const message = err instanceof Error ? err.message : String(err);
