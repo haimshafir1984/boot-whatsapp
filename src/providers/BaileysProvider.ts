@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { randomBytes } from 'crypto';
 import QRCode from 'qrcode';
 import { config } from '../config';
 import { botState } from '../botState';
@@ -267,7 +268,7 @@ export class BaileysProvider implements WhatsAppProvider {
         // the code instead of exposing this QR - running both linking
         // methods on the same socket at once caused the phone to reject
         // the entered code.
-        void this.requestPairingCode(this.pairingPhone);
+        void this.requestPairingCode(baileys, this.pairingPhone);
       } else {
         botState.qrDataUrl = await QRCode.toDataURL(update.qr);
         botState.pairingError = null;
@@ -430,7 +431,7 @@ export class BaileysProvider implements WhatsAppProvider {
     return baileys.Browsers?.macOS?.('Chrome') ?? baileys.DEFAULT_CONNECTION_CONFIG.browser;
   }
 
-  private async requestPairingCode(phone: string): Promise<void> {
+  private async requestPairingCode(baileys: BaileysModule, phone: string): Promise<void> {
     if (!this.socket || botState.pairingAttempted || botState.pairingCode) return;
     const isRegistered = Boolean((this.socket as any).authState?.creds?.registered);
     if (isRegistered) {
@@ -441,7 +442,7 @@ export class BaileysProvider implements WhatsAppProvider {
     botState.pairingError = null;
     this.pairingRequestAttempts += 1;
     try {
-      const code = await this.socket.requestPairingCode(phone);
+      const code = await this.requestConfirmedPairingCode(baileys, phone);
       console.log(`Baileys pairing code generated, waiting ${PAIRING_CODE_SETTLE_MS}ms for early rejection signals.`);
       await sleep(PAIRING_CODE_SETTLE_MS);
       if (botState.pairingError || !this.socket || this.intentionalClose) {
@@ -468,10 +469,85 @@ export class BaileysProvider implements WhatsAppProvider {
         if (this.pairingRetryTimer) clearTimeout(this.pairingRetryTimer);
         this.pairingRetryTimer = setTimeout(() => {
           this.pairingRetryTimer = null;
-          void this.requestPairingCode(phone);
+          void this.requestPairingCode(baileys, phone);
         }, delay);
       }
     }
+  }
+
+  private async requestConfirmedPairingCode(baileys: BaileysModule, phone: string): Promise<string> {
+    const socket = this.socket as any;
+    const pairingCode = (baileys as any).bytesToCrockford(randomBytes(5));
+    const browserConfig = this.resolveBrowserConfig(baileys);
+    const creds = socket.authState.creds;
+    creds.pairingCode = pairingCode;
+    creds.me = {
+      id: (baileys as any).jidEncode(phone, 's.whatsapp.net'),
+      name: '~',
+    };
+    socket.ev.emit('creds.update', creds);
+
+    const salt = randomBytes(32);
+    const randomIv = randomBytes(16);
+    const key = await (baileys as any).derivePairingCodeKey(pairingCode, salt);
+    const encryptedPairingKey = (baileys as any).aesEncryptCTR(
+      creds.pairingEphemeralKeyPair.public,
+      key,
+      randomIv,
+    );
+
+    const response = await socket.query({
+      tag: 'iq',
+      attrs: {
+        to: (baileys as any).S_WHATSAPP_NET,
+        type: 'set',
+        xmlns: 'md',
+      },
+      content: [
+        {
+          tag: 'link_code_companion_reg',
+          attrs: {
+            jid: creds.me.id,
+            stage: 'companion_hello',
+            should_show_push_notification: 'true',
+          },
+          content: [
+            {
+              tag: 'link_code_pairing_wrapped_companion_ephemeral_pub',
+              attrs: {},
+              content: Buffer.concat([salt, randomIv, encryptedPairingKey]),
+            },
+            {
+              tag: 'companion_server_auth_key_pub',
+              attrs: {},
+              content: creds.noiseKey.public,
+            },
+            {
+              tag: 'companion_platform_id',
+              attrs: {},
+              content: (baileys as any).getCompanionPlatformId(browserConfig),
+            },
+            {
+              tag: 'companion_platform_display',
+              attrs: {},
+              content: `${browserConfig[1]} (${browserConfig[0]})`,
+            },
+            {
+              tag: 'link_code_pairing_nonce',
+              attrs: {},
+              content: '0',
+            },
+          ],
+        },
+      ],
+    }, 15_000);
+
+    if (!response) {
+      botState.pairingAttempted = false;
+      throw new Error('WhatsApp לא אישרה את קוד ההתחברות בזמן. נסה שוב או סרוק QR.');
+    }
+
+    return pairingCode;
   }
 
   private assertReady(): void {
