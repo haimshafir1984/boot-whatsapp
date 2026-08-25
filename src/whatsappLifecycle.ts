@@ -60,12 +60,11 @@ function runWhatsAppTransition(action: () => Promise<void>): Promise<void> {
 async function startWhatsAppBotNow(storage: Storage, reason = 'manual', pairingPhone?: string): Promise<void> {
   if (botState.lifecycle === 'running' || botState.lifecycle === 'starting') return;
 
-  // If a pairing-code attempt was interrupted (timeout, dropped connection)
-  // and nobody explicitly stopped/reset the bot since, keep pairing with the
-  // same phone number on the next auto-restart instead of silently reverting
-  // to plain QR mode - botState.pairingPhone survives until a successful
-  // connection, an explicit reset, or a fresh /api/pair request.
-  const effectivePairingPhone = pairingPhone ?? botState.pairingPhone ?? undefined;
+  // Pairing-code mode is strictly opt-in for a single /api/pair transition.
+  // Scheduler/watchdog starts never inherit a previous phone number, otherwise
+  // a background restart can create a new code and renew WhatsApp's rate limit
+  // without a fresh user action.
+  const effectivePairingPhone = pairingPhone;
 
   console.log(`WhatsApp client starting: ${reason}.`);
   botState.lifecycle = 'starting';
@@ -145,6 +144,7 @@ async function stopWhatsAppBotNow(reason = 'manual'): Promise<void> {
     botState.qrDataUrl = null;
     botState.pairingCode = null;
     botState.pairingError = null;
+    botState.pairingPhone = null;
     botState.pairingAttempted = false;
     botState.authenticated = false;
     botState.ready = false;
