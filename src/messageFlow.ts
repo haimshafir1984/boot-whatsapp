@@ -2792,7 +2792,7 @@ async function sendReferralShareStep(
 function buildReferralShareLink(storage: Storage, triggerPhrase: string, code: string): string {
   const profilePhone = storage.getClientProfile().whatsappPhone;
   const rawPhone = config.META_DISPLAY_PHONE_NUMBER || config.TWILIO_FROM || profilePhone;
-  const phone = rawPhone.replace(/^whatsapp:/i, '').replace(/[^\d]/g, '');
+  const phone = normalizeHumanHandoffPhone(rawPhone);
   const text = (triggerPhrase + '\n\nהגעתי דרך הסטטוס של ' + code).trim();
   return phone ? 'https://wa.me/' + phone + '?text=' + encodeReadableWhatsappText(text) : text;
 }
@@ -3166,5 +3166,6 @@ function normalizeHumanHandoffPhone(phone?: string): string {
   if (raw.startsWith('+')) return raw.slice(1);
   if (raw.startsWith('00')) return raw.slice(2);
   if (raw.startsWith('0') && raw.length >= 9) return `972${raw.slice(1)}`;
+  if (/^5\d{8}$/.test(raw)) return `972${raw}`;
   return raw;
 }

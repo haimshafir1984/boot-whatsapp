@@ -365,7 +365,11 @@ function normalizeSharePhone(value: unknown): string {
   if (!raw) return '';
   const withoutWhatsappPrefix = raw.replace(/^whatsapp:/i, '');
   const withoutJid = withoutWhatsappPrefix.split('@')[0]?.split(':')[0] ?? withoutWhatsappPrefix;
-  return withoutJid.replace(/[^\d]/g, '');
+  let digits = withoutJid.replace(/[^\d]/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits.startsWith('0') && digits.length === 10) return `972${digits.slice(1)}`;
+  if (/^5\d{8}$/.test(digits)) return `972${digits}`;
+  return digits;
 }
 
 function getCampaignSharePhone(storage: Storage): string {

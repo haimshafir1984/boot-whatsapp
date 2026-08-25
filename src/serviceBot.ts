@@ -44,6 +44,7 @@ function normalizedHandoffPhone(value: string | undefined): string {
   let digits = String(value ?? '').replace(/\D/g, '');
   if (digits.startsWith('00')) digits = digits.slice(2);
   if (digits.startsWith('0')) digits = `972${digits.slice(1)}`;
+  if (/^5\d{8}$/.test(digits)) digits = `972${digits}`;
   return digits;
 }
 
