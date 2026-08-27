@@ -404,7 +404,7 @@ function campaignContactSuffix(value: unknown, fallback: string): string {
   return label ? ` - (${label})` : '';
 }
 
-function buildContactsVCard(contacts: Array<{ name?: string; phone: string }>): string {
+export function buildContactsVCard(contacts: Array<{ name?: string; phone: string }>): string {
   return contacts
     .filter((contact) => contact.phone.trim())
     .map((contact) => {
@@ -419,6 +419,25 @@ function buildContactsVCard(contacts: Array<{ name?: string; phone: string }>): 
       ].join('\r\n');
     })
     .join('\r\n');
+}
+
+export function normalizeCampaignContactPhone(phone: string): string {
+  let digits = String(phone ?? '').replace(/[^\d]/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits.startsWith('0') && digits.length === 10) return `972${digits.slice(1)}`;
+  if (/^5\d{8}$/.test(digits)) return `972${digits}`;
+  return digits;
+}
+
+export function resolveCampaignContactName(
+  result: { phone: string; fallbackName?: string; whatsappName?: string },
+  contactNames: Map<string, string>,
+): string {
+  const normalizedPhone = normalizeCampaignContactPhone(result.phone);
+  return contactNames.get(normalizedPhone)?.trim()
+    || result.fallbackName?.trim()
+    || result.whatsappName?.trim()
+    || result.phone;
 }
 
 function twilioConfigured(): boolean {
@@ -3831,18 +3850,22 @@ export function startAdminServer(storage: Storage): void {
       return;
     }
 
-    const contactNames = new Map(storage.getAllContacts().map((contact) => [contact.phone, contact.name]));
+    const contactNames = new Map(storage.getAllContacts().map((contact) => [
+      normalizeCampaignContactPhone(contact.phone),
+      contact.name,
+    ]));
     const seen = new Set<string>();
     const resultBatchId = typeof req.query.batch === 'string' ? req.query.batch : storage.getCurrentCampaignResultBatchId(campaign.id);
     const contacts = storage.getCampaignResults(campaign.id, resultBatchId)
       .filter((result) => {
-        if (seen.has(result.phone)) return false;
-        seen.add(result.phone);
+        const normalizedPhone = normalizeCampaignContactPhone(result.phone);
+        if (!normalizedPhone || seen.has(normalizedPhone)) return false;
+        seen.add(normalizedPhone);
         return true;
       })
       .map((result) => ({
         phone: result.phone,
-        name: contactNames.get(result.phone) || result.phone,
+        name: resolveCampaignContactName(result, contactNames),
       }));
     const vcard = buildContactsVCard(contacts);
     res.setHeader('Content-Type', 'text/vcard; charset=utf-8');
