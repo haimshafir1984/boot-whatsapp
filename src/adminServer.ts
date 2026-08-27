@@ -1643,7 +1643,6 @@ export function startAdminServer(storage: Storage): void {
       } else if (session) {
         console.log('[META_GATEWAY_IGNORED] reason=session_client_unavailable', session.clientId, session.campaignId);
       }
-      if (lookupFailures > 0) throw new Error(`Campaign routing unavailable for ${lookupFailures} client(s)`);
     }
 
     // A reply can arrive after the gateway session was lost (for example after
@@ -1691,6 +1690,9 @@ export function startAdminServer(storage: Storage): void {
     }
 
     if (!targetClient) {
+      if (lookupFailures > 0) {
+        throw new Error(`Campaign routing unavailable for ${lookupFailures} client(s)`);
+      }
       console.log('[META_GATEWAY_IGNORED] reason=no_trigger_or_session', message.id, message.from);
       return { handled: true };
     }
