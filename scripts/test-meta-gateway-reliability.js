@@ -4,6 +4,8 @@ const {
   groupMetaItemsBySender,
   isRetryableMetaStatus,
   retryTransientMetaOperation,
+  splitMetaWebhookMessages,
+  splitMetaWebhookStatuses,
 } = require('../dist/metaGatewayReliability');
 
 async function main() {
@@ -79,6 +81,35 @@ async function main() {
     { id: 'a2', payload: payload('111', 'a2') },
   ]);
   assert.deepEqual(grouped.map((group) => group.map((item) => item.id)), [['a1', 'a2'], ['b1']], 'gateway batches must preserve order per sender while separating different senders');
+
+  const batchedWebhook = {
+    object: 'whatsapp_business_account',
+    entry: [{
+      id: 'waba-1',
+      changes: [{
+        field: 'messages',
+        value: {
+          metadata: { phone_number_id: 'phone-1' },
+          contacts: [{ wa_id: '111' }],
+          messages: [
+            { id: 'reply-1', from: '111', type: 'interactive', interactive: { button_reply: { id: 'saved' } } },
+            { id: 'reply-2', from: '222', type: 'text', text: { body: 'hello' } },
+          ],
+          statuses: [{ id: 'outbound-1', status: 'delivered' }],
+        },
+      }],
+    }],
+  };
+  const splitMessages = splitMetaWebhookMessages(batchedWebhook);
+  assert.deepEqual(splitMessages.map((item) => item.id), ['reply-1', 'reply-2']);
+  assert.equal(splitMessages[0].payload.entry[0].changes[0].value.messages.length, 1);
+  assert.equal(splitMessages[0].payload.entry[0].changes[0].value.statuses, undefined);
+  assert.equal(splitMessages[1].payload.entry[0].changes[0].value.messages[0].from, '222');
+
+  const splitStatuses = splitMetaWebhookStatuses(batchedWebhook);
+  assert.equal(splitStatuses.length, 1);
+  assert.equal(splitStatuses[0].entry[0].changes[0].value.messages, undefined);
+  assert.equal(splitStatuses[0].entry[0].changes[0].value.statuses[0].id, 'outbound-1');
 
   console.log('Meta gateway reliability tests passed.');
 }

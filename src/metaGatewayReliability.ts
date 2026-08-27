@@ -2,6 +2,65 @@ export const META_CAMPAIGN_CACHE_TTL_MS = 5_000;
 export const META_FORWARD_ATTEMPTS = 3;
 export const META_FORWARD_RETRY_DELAYS_MS = [500, 1_500];
 
+export interface MetaWebhookItem {
+  id: string;
+  payload: any;
+}
+
+/**
+ * Meta may batch several entries, changes, or messages in one webhook request.
+ * Downstream routing is intentionally one-message-at-a-time so every reply gets
+ * its own durable inbox record instead of silently dropping all but index zero.
+ */
+export function splitMetaWebhookMessages(payload: any): MetaWebhookItem[] {
+  const items: MetaWebhookItem[] = [];
+  for (const entry of Array.isArray(payload?.entry) ? payload.entry : []) {
+    for (const change of Array.isArray(entry?.changes) ? entry.changes : []) {
+      const value = change?.value;
+      for (const message of Array.isArray(value?.messages) ? value.messages : []) {
+        const id = String(message?.id || '').trim();
+        if (!id) continue;
+        items.push({
+          id,
+          payload: {
+            ...payload,
+            entry: [{
+              ...entry,
+              changes: [{
+                ...change,
+                value: { ...value, messages: [message], statuses: undefined },
+              }],
+            }],
+          },
+        });
+      }
+    }
+  }
+  return items;
+}
+
+export function splitMetaWebhookStatuses(payload: any): any[] {
+  const items: any[] = [];
+  for (const entry of Array.isArray(payload?.entry) ? payload.entry : []) {
+    for (const change of Array.isArray(entry?.changes) ? entry.changes : []) {
+      const value = change?.value;
+      const statuses = Array.isArray(value?.statuses) ? value.statuses : [];
+      if (!statuses.length) continue;
+      items.push({
+        ...payload,
+        entry: [{
+          ...entry,
+          changes: [{
+            ...change,
+            value: { ...value, messages: undefined, statuses },
+          }],
+        }],
+      });
+    }
+  }
+  return items;
+}
+
 export function metaPayloadSenderKey(payload: any): string {
   const value = payload?.entry?.[0]?.changes?.[0]?.value;
   const from = String(value?.messages?.[0]?.from || '').trim();

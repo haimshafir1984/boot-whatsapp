@@ -53,6 +53,8 @@ import {
   groupMetaItemsBySender,
   META_CAMPAIGN_CACHE_TTL_MS,
   retryTransientMetaOperation,
+  splitMetaWebhookMessages,
+  splitMetaWebhookStatuses,
 } from './metaGatewayReliability';
 
 import { MetaGatewayInbox } from './metaGatewayInbox';
@@ -1464,9 +1466,6 @@ export function startAdminServer(storage: Storage): void {
   // Delivery statuses arrive on the same webhook as inbound messages but under `statuses`.
   // They carry the wamid we stored as providerMessageId, so the client that sent the message
   // can record whether it was actually delivered/read or failed after the API accepted it.
-  const isMetaStatusPayload = (payload: any): boolean =>
-    Array.isArray(payload?.entry?.[0]?.changes?.[0]?.value?.statuses);
-
   const handleMetaStatusesForStorage = (payload: any): boolean => {
     const statuses = payload?.entry?.[0]?.changes?.[0]?.value?.statuses;
     if (!Array.isArray(statuses) || !statuses.length) return false;
@@ -1647,6 +1646,50 @@ export function startAdminServer(storage: Storage): void {
       if (lookupFailures > 0) throw new Error(`Campaign routing unavailable for ${lookupFailures} client(s)`);
     }
 
+    // A reply can arrive after the gateway session was lost (for example after
+    // a redeploy or when another replica received the original trigger). Ask
+    // the client applications which one is actually waiting for this phone.
+    // This is only used as a fallback and is deliberately fail-closed when
+    // more than one client claims the same sender.
+    if (!targetClient && !best) {
+      const pendingMatches = (await Promise.all(clients.map(async (client) => {
+        try {
+          const result = await fetchClientAsOwner<{
+            pending: boolean;
+            campaignId?: string;
+            kind?: string;
+          }>(client, '/owner-api/meta-pending-route', {
+            method: 'POST',
+            body: JSON.stringify({ phone: fromKey }),
+            signal: AbortSignal.timeout(3_000),
+          });
+          if (!result.ok || !result.body?.pending || !result.body?.campaignId) return null;
+          const routes = campaignsByClient.get(client.id) ?? [];
+          const campaign = routes.find((route) => route.id === result.body.campaignId);
+          if (!campaign?.active || campaign.runtimeStatus !== 'active') return null;
+          return { client, campaign };
+        } catch (err) {
+          console.warn('[META_GATEWAY_PENDING_LOOKUP_FAILED]', client.id, err);
+          return null;
+        }
+      }))).filter((match): match is { client: ManagedClient; campaign: MetaGatewayRoute } => Boolean(match));
+
+      if (pendingMatches.length === 1) {
+        targetClient = pendingMatches[0].client;
+        routedCampaignId = pendingMatches[0].campaign.id;
+        metaGatewaySessions.set({
+          from: sessionKey,
+          clientId: targetClient.id,
+          campaignId: routedCampaignId,
+          updatedAt: new Date().toISOString(),
+        });
+        console.warn('[META_GATEWAY_SESSION_RECOVERED]', message.id, message.from, targetClient.id, `campaign=${routedCampaignId}`);
+      } else if (pendingMatches.length > 1) {
+        console.warn('[META_GATEWAY_IGNORED] reason=ambiguous_pending_conversation', message.id, message.from, `matches=${pendingMatches.length}`);
+        return { handled: true };
+      }
+    }
+
     if (!targetClient) {
       console.log('[META_GATEWAY_IGNORED] reason=no_trigger_or_session', message.id, message.from);
       return { handled: true };
@@ -1783,24 +1826,28 @@ export function startAdminServer(storage: Storage): void {
   };
 
   app.post('/webhooks/meta/whatsapp', (req, res) => {
-    if (isMetaStatusPayload(req.body)) {
-      res.sendStatus(200);
-      // Record on the admin's own storage too, then fan out to clients.
-      handleMetaStatusesForStorage(req.body);
-      forwardMetaStatusToClients(req.body);
-      return;
-    }
-    const messageId = String(req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.id || '').trim();
-    if (!messageId) {
+    const statusPayloads = splitMetaWebhookStatuses(req.body);
+    const messagePayloads = splitMetaWebhookMessages(req.body);
+    if (!statusPayloads.length && !messagePayloads.length) {
       res.sendStatus(200);
       return;
     }
+
     try {
-      metaGatewayInbox.enqueue(messageId, req.body);
+      for (const statusPayload of statusPayloads) {
+        handleMetaStatusesForStorage(statusPayload);
+        forwardMetaStatusToClients(statusPayload);
+      }
+      for (const item of messagePayloads) {
+        const message = item.payload?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+        const body = getMetaInboundBody(message);
+        console.log('[META_GATEWAY_INBOUND]', item.id, message?.from, `type=${String(message?.type || 'unknown')}`, body.slice(0, 120));
+        metaGatewayInbox.enqueue(item.id, item.payload);
+      }
       res.sendStatus(200);
-      void processMetaGatewayInbox();
+      if (messagePayloads.length) void processMetaGatewayInbox();
     } catch (err) {
-      console.error('[META_GATEWAY_INBOX_PERSIST_FAILED]', messageId, err);
+      console.error('[META_GATEWAY_INBOX_PERSIST_FAILED]', messagePayloads.map((item) => item.id).join(','), err);
       res.sendStatus(503);
     }
   });
@@ -2537,22 +2584,23 @@ export function startAdminServer(storage: Storage): void {
       res.status(409).json({ error: 'Meta Cloud API provider is not enabled for this client' });
       return;
     }
-    if (isMetaStatusPayload(req.body)) {
-      handleMetaStatusesForStorage(req.body);
-      res.json({ ok: true });
-      return;
-    }
-    const messageId = String(req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.id || '').trim();
-    if (!messageId) {
+    const statusPayloads = splitMetaWebhookStatuses(req.body);
+    const messagePayloads = splitMetaWebhookMessages(req.body);
+    if (!statusPayloads.length && !messagePayloads.length) {
       res.json({ ok: true, ignored: true });
       return;
     }
     try {
-      metaClientInbox.enqueue(messageId, req.body);
-      res.status(202).json({ ok: true, queued: true });
-      void processMetaClientInbox();
+      for (const statusPayload of statusPayloads) handleMetaStatusesForStorage(statusPayload);
+      for (const item of messagePayloads) metaClientInbox.enqueue(item.id, item.payload);
+      res.status(messagePayloads.length ? 202 : 200).json({
+        ok: true,
+        queued: messagePayloads.length,
+        statuses: statusPayloads.length,
+      });
+      if (messagePayloads.length) void processMetaClientInbox();
     } catch (err) {
-      console.error('[META_CLIENT_INBOX_PERSIST_FAILED]', messageId, err);
+      console.error('[META_CLIENT_INBOX_PERSIST_FAILED]', messagePayloads.map((item) => item.id).join(','), err);
       res.status(503).json({ error: 'Meta message could not be queued' });
     }
   });
@@ -2626,6 +2674,18 @@ export function startAdminServer(storage: Storage): void {
 
   app.get('/owner-api/meta-routes', (_req, res) => {
     res.json(buildMetaGatewayRoutes(storage));
+  });
+
+  app.post('/owner-api/meta-pending-route', (req, res) => {
+    const phone = normalizeGatewayPhone(String(req.body?.phone || ''));
+    if (!phone) {
+      res.status(400).json({ error: 'Phone is required' });
+      return;
+    }
+    const pending = conversationState.findByPhone(phone);
+    res.json(pending
+      ? { pending: true, campaignId: pending.campaignId, kind: pending.kind, timestamp: pending.timestamp }
+      : { pending: false });
   });
 
   app.post('/owner-api/campaigns', async (req, res) => {
