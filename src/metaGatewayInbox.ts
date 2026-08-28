@@ -41,17 +41,40 @@ export class MetaGatewayInbox {
   }
 
   claimNext(now = new Date()): MetaGatewayInboxItem | null {
-    const nowMs = now.getTime();
-    const item = this.data.items.filter((candidate) => this.isClaimable(candidate, nowMs)).sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
-    if (!item) return null;
-    item.status = 'processing';
-    item.attempts += 1;
-    item.processingStartedAt = now.toISOString();
-    item.updatedAt = item.processingStartedAt;
-    item.nextAttemptAt = undefined;
-    item.lastError = undefined;
+    return this.claimBatch(1, undefined, now)[0] ?? null;
+  }
+
+  claimBatch(
+    limit: number,
+    groupKey?: (item: MetaGatewayInboxItem) => string,
+    now = new Date(),
+  ): MetaGatewayInboxItem[] {
+    const ordered = this.data.items.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    let candidates = ordered;
+    if (groupKey) {
+      const firstOutstandingByGroup = new Map<string, MetaGatewayInboxItem>();
+      for (const item of ordered) {
+        if (item.status === 'completed' || item.status === 'failed') continue;
+        const key = groupKey(item);
+        if (!firstOutstandingByGroup.has(key)) firstOutstandingByGroup.set(key, item);
+      }
+      candidates = [...firstOutstandingByGroup.values()];
+    }
+    const selected = candidates
+      .filter((candidate) => this.isClaimable(candidate, now.getTime()))
+      .slice(0, Math.max(0, limit));
+    if (!selected.length) return [];
+    const timestamp = now.toISOString();
+    for (const item of selected) {
+      item.status = 'processing';
+      item.attempts += 1;
+      item.processingStartedAt = timestamp;
+      item.updatedAt = timestamp;
+      item.nextAttemptAt = undefined;
+      item.lastError = undefined;
+    }
     this.persist();
-    return { ...item };
+    return selected.map((item) => ({ ...item }));
   }
 
   markCompleted(id: string, now = new Date()): void {

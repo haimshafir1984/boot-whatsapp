@@ -22,6 +22,7 @@
     "test:meta-media-cache": "npm run build && node scripts/test-meta-media-cache.js",
     "test:message-delays": "npm run build && node scripts/test-message-delays.js",
     "test:outbox-claim": "npm run build && node scripts/test-outbox-claim.js",
+    "test:outbox-ordering": "npm run build && node scripts/test-outbox-ordering.js",
     "test:migration-safety": "npm run build && node scripts/test-migration-safety.js",
     "test:postgres-migration-pilot": "node scripts/test-postgres-migration-pilot.js",
     "test:postgres-burst": "npm run build && node scripts/test-postgres-burst.js",

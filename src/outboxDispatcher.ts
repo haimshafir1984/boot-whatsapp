@@ -6,6 +6,7 @@ type TransportResolver = () => WhatsAppTransport | null | undefined;
 const OUTBOX_POLL_MS = 15_000;
 const OUTBOX_RETRY_MS = 60_000;
 const OUTBOX_MAX_ATTEMPTS = 3;
+const OUTBOX_MAX_MESSAGES_PER_TICK = 100;
 
 function providerMessageId(result: void | WhatsAppSendResult): string | undefined {
   return result && typeof result === 'object' && typeof result.messageId === 'string'
@@ -85,9 +86,17 @@ export function startOutboxDispatcher(storage: Storage, getTransport: TransportR
     try {
       const transport = getTransport();
       if (!transport) return;
-      const pending = storage.getPendingOutboxMessages(20);
-      for (const message of pending) {
-        await dispatchMessage(storage, transport, message);
+      let processed = 0;
+      while (processed < OUTBOX_MAX_MESSAGES_PER_TICK) {
+        // Storage returns at most the head message for each recipient. Process
+        // different recipients in parallel, then ask again so the next message
+        // for a recipient starts only after its predecessor completed.
+        const pending = storage.getPendingOutboxMessages(
+          Math.min(20, OUTBOX_MAX_MESSAGES_PER_TICK - processed),
+        );
+        if (!pending.length) break;
+        await Promise.all(pending.map((message) => dispatchMessage(storage, transport, message)));
+        processed += pending.length;
       }
     } catch (err) {
       console.warn('Outbox dispatcher failed:', err);

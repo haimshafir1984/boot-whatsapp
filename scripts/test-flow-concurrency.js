@@ -21,6 +21,7 @@ class FakeTransport {
     this.maxActiveSends = 0;
     this.failText = '';
     this.failCount = 0;
+    this.fileDelayMs = 0;
   }
   async resolvePhone(jid) { return String(jid).replace(/\D/g, ''); }
   async deliver(item) {
@@ -40,6 +41,16 @@ class FakeTransport {
   async sendMessage(to, text) { await this.deliver({ type: 'text', to, text }); }
   async sendInteractiveButtons(to, text, buttons) { await this.deliver({ type: 'buttons', to, text, buttons }); }
   async sendInteractiveList(to, text, buttonText, items) { await this.deliver({ type: 'list', to, text, buttonText, items }); }
+  async sendFile(to, filePath, caption, options) {
+    this.activeSends += 1;
+    this.maxActiveSends = Math.max(this.maxActiveSends, this.activeSends);
+    try {
+      if (this.fileDelayMs) await wait(this.fileDelayMs);
+      this.sent.push({ type: 'file', to, filePath, caption, options });
+    } finally {
+      this.activeSends -= 1;
+    }
+  }
 }
 
 function flowConversation(overrides = {}) {
@@ -226,6 +237,48 @@ function inbound(storage, transport, phone, body, isButtonReply = false) {
     ]);
     assert.ok(transport.maxActiveSends >= 2, 'different users should continue processing in parallel');
     assert.strictEqual(storage.getCampaignResults(parallelCampaign.id).length, 2, 'parallel users must each create one result');
+
+    const media = storage.addUploadedFile({
+      originalName: 'slow-image.jpg',
+      filename: 'slow-image.jpg',
+      mimeType: 'image/jpeg',
+      size: 1024,
+    });
+    addCampaign(storage, 'Ordered media campaign', 'join-ordered-media', {
+      decisionFlow: [
+        { id: 'slow-media', kind: 'message', text: 'media caption', fileId: media.id, nextStepId: 'after-media', delayMs: 0 },
+        { id: 'after-media', kind: 'message', text: 'must follow media', delayMs: 0 },
+      ],
+    });
+    const mediaPhone = '972500000108';
+    usedPhones.add(mediaPhone);
+    transport.fileDelayMs = 180;
+    await inbound(storage, transport, mediaPhone, 'join-ordered-media');
+    transport.fileDelayMs = 0;
+    const mediaEvents = transport.sent.filter((item) => item.to === `whatsapp:${mediaPhone}`);
+    assert.deepStrictEqual(
+      mediaEvents.map((item) => item.type),
+      ['file', 'text'],
+      'a message after slow media must not overtake the media send',
+    );
+    assert.strictEqual(mediaEvents[1].text, 'must follow media');
+
+    const isolatedStorageA = new Storage(path.join(tempDir, 'isolated-a.json'));
+    const isolatedStorageB = new Storage(path.join(tempDir, 'isolated-b.json'));
+    const isolatedTransportA = new FakeTransport(80);
+    const isolatedTransportB = new FakeTransport(80);
+    addCampaign(isolatedStorageA, 'Isolated A', 'join-isolated-a');
+    addCampaign(isolatedStorageB, 'Isolated B', 'join-isolated-b');
+    const isolatedPhoneA = '972500000109';
+    const isolatedPhoneB = '972500000110';
+    usedPhones.add(isolatedPhoneA);
+    usedPhones.add(isolatedPhoneB);
+    await Promise.all([
+      inbound(isolatedStorageA, isolatedTransportA, isolatedPhoneA, 'join-isolated-a'),
+      inbound(isolatedStorageB, isolatedTransportB, isolatedPhoneB, 'join-isolated-b'),
+    ]);
+    assert.ok(isolatedStorageA.getOutboxMessages().every((item) => item.to === `whatsapp:${isolatedPhoneA}`), 'concurrent client A must retain its own outbox context');
+    assert.ok(isolatedStorageB.getOutboxMessages().every((item) => item.to === `whatsapp:${isolatedPhoneB}`), 'concurrent client B must retain its own outbox context');
 
     const health = getFlowHealthSnapshot();
     assert.ok(health.serializedWaits >= 1, 'health metrics should report a same-user queue wait');

@@ -935,16 +935,33 @@ export class Storage {
 
   getPendingOutboxMessages(limit = 50, now = new Date(), processingStaleMs = 2 * 60 * 1000): OutboxMessage[] {
     const nowMs = now.getTime();
-    return this.data.outboxMessages
+    const firstOutstandingByRecipient = new Map<string, OutboxMessage>();
+    const ordered = this.data.outboxMessages
+      .slice()
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    for (const message of ordered) {
+      if (message.status === 'sent' || message.status === 'failed') continue;
+      const recipient = normalizeOutboxRecipient(message.to);
+      if (!firstOutstandingByRecipient.has(recipient)) {
+        firstOutstandingByRecipient.set(recipient, message);
+      }
+    }
+    return [...firstOutstandingByRecipient.values()]
       .filter((message) => this.isOutboxClaimable(message, nowMs, processingStaleMs))
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
       .slice(0, limit)
       .map((message) => this.copyOutboxMessage(message));
   }
 
   claimOutboxMessage(id: string, now = new Date(), processingStaleMs = 2 * 60 * 1000): OutboxMessage | null {
-    const message = this.data.outboxMessages.find((item) => item.id === id);
+    const messageIndex = this.data.outboxMessages.findIndex((item) => item.id === id);
+    const message = messageIndex >= 0 ? this.data.outboxMessages[messageIndex] : undefined;
     if (!message || !this.isOutboxClaimable(message, now.getTime(), processingStaleMs)) return null;
+    const recipient = normalizeOutboxRecipient(message.to);
+    const hasEarlierOutstanding = this.data.outboxMessages.slice(0, messageIndex).some((earlier) =>
+      normalizeOutboxRecipient(earlier.to) === recipient
+      && earlier.status !== 'sent'
+      && earlier.status !== 'failed');
+    if (hasEarlierOutstanding) return null;
     this.markOutboxProcessing(id);
     return this.copyOutboxMessage(message);
   }
@@ -2131,6 +2148,11 @@ export class Storage {
 
 function normalizeCampaignPhone(value: string | undefined): string {
   return String(value || '').replace(/^whatsapp:/i, '').split('@')[0].replace(/\D/g, '');
+}
+
+function normalizeOutboxRecipient(value: string | undefined): string {
+  const raw = String(value || '').trim().toLowerCase().replace(/^whatsapp:/i, '').split('@')[0];
+  return raw.replace(/\D/g, '') || raw;
 }
 
 function referralLetter(index: number): string {

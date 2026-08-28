@@ -23,9 +23,8 @@ const TEXT_SEND_RETRY_DELAY_MS = 3_000;
 const TEXT_SEND_ATTEMPTS = 2;
 const BOT_REPLY_DELAY_MS = Math.max(
   0,
-  Number.isFinite(config.BOT_REPLY_DELAY_MS) ? config.BOT_REPLY_DELAY_MS : 3000,
+  Number.isFinite(config.BOT_REPLY_DELAY_MS) ? config.BOT_REPLY_DELAY_MS : 1000,
 );
-const CONTACT_CARD_NEXT_STEP_DELAY_MS = Math.max(BOT_REPLY_DELAY_MS, 4000);
 const FLOW_STEP_FAILURE_CONTINUE_DELAY_MS = 60_000;
 const RECENT_DECISION_REPLY_TTL_MS = 15_000;
 const FLOW_RECOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -60,16 +59,10 @@ const flowHealth = {
 };
 const senderQueueDepth = new Map<string, number>();
 
-let activeOutboxStorage: Storage | undefined;
+const outboxStorageScope = new AsyncLocalStorage<Storage>();
 
 async function withDurableMessaging<T>(storage: Storage, action: () => Promise<T>): Promise<T> {
-  const previous = activeOutboxStorage;
-  activeOutboxStorage = storage;
-  try {
-    return await action();
-  } finally {
-    activeOutboxStorage = previous;
-  }
+  return await outboxStorageScope.run(storage, action);
 }
 
 function providerMessageId(result: void | WhatsAppSendResult): string | undefined {
@@ -502,7 +495,7 @@ async function sendBotMessage(transport: WhatsAppTransport, to: string, text: st
   const cleanText = text.trim();
   if (!cleanText) return;
 
-  const storage = activeOutboxStorage;
+  const storage = outboxStorageScope.getStore();
   const outbox = storage?.enqueueOutboxMessage({ kind: 'text', to, text: cleanText });
   if (storage && outbox) {
     if (!storage.claimOutboxMessage(outbox.id)) throw new Error('Could not claim newly queued outbox message.');
@@ -511,7 +504,15 @@ async function sendBotMessage(transport: WhatsAppTransport, to: string, text: st
 
   let lastError: unknown;
   for (let attempt = 1; attempt <= TEXT_SEND_ATTEMPTS; attempt += 1) {
-    await waitBeforeBotReply(delayMs);
+    try {
+      await waitBeforeBotReply(delayMs);
+    } catch (err) {
+      if (storage && outbox) {
+        storage.markOutboxFailed(outbox.id, err);
+        await storage.flush().catch((flushErr) => console.error('[OUTBOX_CANCEL_PERSIST_FAILED] text', flushErr));
+      }
+      throw err;
+    }
     try {
       const result = await transport.sendMessage(to, cleanText);
       if (storage && outbox) {
@@ -553,7 +554,9 @@ export async function handleIncomingWhatsAppMessage(
   const inboundKey = noteInboundQueued(message.senderPhone || message.from);
   try {
     await withDurableMessaging(storage, () => runSerializedForSender(message.senderPhone || message.from, `inbound:${source}`, async () => {
-      await markIncomingMessageReadIfEnabled(message, storage, transport, source);
+      // Read receipts are independent of the reply. Start them immediately,
+      // but do not make the user wait for another Meta round-trip first.
+      void markIncomingMessageReadIfEnabled(message, storage, transport, source);
       try {
         await handleMessage(message, storage, transport, source);
       } catch (err) {
@@ -2121,7 +2124,8 @@ async function handleReferralMenuAction(transport: WhatsAppTransport, storage: S
     storage.recordCampaignEvent({ campaignId, campaignResultId, phone: senderPhone, type: 'referral_rank_viewed', label: rank ? String(rank.rank) : 'none' });
   }
   await sendBotMessage(transport, senderJid, message, 0);
-  if (!isReferralHubStep(step) && option.nextStepId) {
+  const shouldLeaveReferralHub = Boolean(option.nextStepId && option.nextStepId !== step.id);
+  if (option.nextStepId && (!isReferralHubStep(step) || shouldLeaveReferralHub)) {
     await sendDecisionStep(transport, storage, senderJid, flow, option.nextStepId, campaignId, campaignResultId, senderPhone, humanHandoff);
   } else {
     await sendDecisionStep(transport, storage, senderJid, flow, step.id, campaignId, campaignResultId, senderPhone, humanHandoff);
@@ -2428,7 +2432,9 @@ async function sendDecisionStep(
       }
     }
     if (step.nextStepId) {
-      await sleep(failed ? FLOW_STEP_FAILURE_CONTINUE_DELAY_MS : CONTACT_CARD_NEXT_STEP_DELAY_MS);
+      // The next step applies its own configured pacing. An additional fixed
+      // four-second pause here made the normal contact-card flow wait twice.
+      if (failed) await sleep(FLOW_STEP_FAILURE_CONTINUE_DELAY_MS);
       await sendDecisionStep(transport, storage, senderJid, flow, step.nextStepId, campaignId, campaignResultId, senderPhone, humanHandoff);
     } else if (campaignId) {
       storage.recordCampaignEvent({
@@ -3048,14 +3054,22 @@ async function sendFileWithRetry(
   label: string,
 ): Promise<void> {
   if (!transport.sendFile) throw new Error('WhatsApp transport does not support files.');
-  const storage = activeOutboxStorage;
+  const storage = outboxStorageScope.getStore();
   const outbox = storage?.enqueueOutboxMessage({ kind: 'file', to, filePath, caption, fileOptions: options, label });
   if (storage && outbox) {
     if (!storage.claimOutboxMessage(outbox.id)) throw new Error('Could not claim newly queued file outbox message.');
     await storage.flush();
   }
 
-  await waitBeforeBotReply();
+  try {
+    await waitBeforeBotReply();
+  } catch (err) {
+    if (storage && outbox) {
+      storage.markOutboxFailed(outbox.id, err);
+      await storage.flush().catch((flushErr) => console.error('[OUTBOX_CANCEL_PERSIST_FAILED] file', flushErr));
+    }
+    throw err;
+  }
   console.log(`[SEND] file "${label}"`);
   try {
     const result = await transport.sendFile(to, filePath, caption, options);
@@ -3078,7 +3092,15 @@ async function sendFileWithRetry(
     if (!storage.claimOutboxMessage(outbox.id)) throw new Error('Could not reclaim file outbox message for retry.');
     await storage.flush();
   }
-  await waitBeforeBotReply();
+  try {
+    await waitBeforeBotReply();
+  } catch (err) {
+    if (storage && outbox) {
+      storage.markOutboxFailed(outbox.id, err);
+      await storage.flush().catch((flushErr) => console.error('[OUTBOX_CANCEL_PERSIST_FAILED] file retry', flushErr));
+    }
+    throw err;
+  }
   try {
     const result = await transport.sendFile(to, filePath, caption, options);
     if (storage && outbox) {

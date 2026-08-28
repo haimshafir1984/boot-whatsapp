@@ -29,6 +29,20 @@ try {
   assert.equal(afterRestart.counts().completed, 1);
   assert.equal(afterRestart.claimNext(), null);
 
+  const orderedInbox = new MetaGatewayInbox(path.join(directory, 'ordered-inbox.json'));
+  orderedInbox.enqueue('sender-a-1', { sender: 'a' });
+  orderedInbox.enqueue('sender-a-2', { sender: 'a' });
+  orderedInbox.enqueue('sender-b-1', { sender: 'b' });
+  const firstBatch = orderedInbox.claimBatch(20, (item) => item.payload.sender);
+  assert.deepEqual(firstBatch.map((item) => item.id), ['sender-a-1', 'sender-b-1'], 'only one message per sender may be in flight');
+  orderedInbox.markRetry('sender-a-1', 'temporary', new Date(Date.now() + 60_000));
+  orderedInbox.markCompleted('sender-b-1');
+  assert.equal(
+    orderedInbox.claimBatch(20, (item) => item.payload.sender).some((item) => item.id === 'sender-a-2'),
+    false,
+    'a retrying message must block later messages from the same sender',
+  );
+
   const prunePath = path.join(directory, 'prune.json');
   const pruneInbox = new MetaGatewayInbox(prunePath);
   pruneInbox.enqueue('old-completed', {}, new Date('2026-01-01T00:00:00.000Z'));

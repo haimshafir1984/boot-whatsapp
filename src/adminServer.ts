@@ -51,6 +51,7 @@ import {
 import {
   decideMetaFallbackRoute,
   groupMetaItemsBySender,
+  metaPayloadSenderKey,
   retryTransientMetaOperation,
   splitMetaWebhookMessages,
   splitMetaWebhookStatuses,
@@ -108,6 +109,37 @@ export function buildMetaGatewayRoutes(storage: Storage, serviceBotFeatureEnable
     });
   }
   return routes;
+}
+
+interface MetaPendingRouteResponse {
+  pending: boolean;
+  campaignId?: string;
+  kind?: string;
+  timestamp?: number;
+}
+
+interface MetaRoutingSnapshotResponse {
+  routes: MetaGatewayRoute[];
+  pendingRoute: MetaPendingRouteResponse;
+}
+
+function localMetaPendingRoute(storage: Storage, phone: string): MetaPendingRouteResponse {
+  const pending = conversationState.findByPhone(phone);
+  if (pending?.campaignId) {
+    return { pending: true, campaignId: pending.campaignId, kind: pending.kind, timestamp: pending.timestamp };
+  }
+  const serviceBotSession = storage.getServiceBotSession(phone);
+  const serviceBot = serviceBotSession
+    ? storage.getServiceBots().find((item) => item.id === serviceBotSession.botId && item.enabled)
+    : undefined;
+  return serviceBotSession && serviceBot
+    ? {
+      pending: true,
+      campaignId: serviceBotMetaRouteId(serviceBot.id),
+      kind: 'service-bot',
+      timestamp: new Date(serviceBotSession.updatedAt).getTime(),
+    }
+    : { pending: false };
 }
 
 interface TwilioGatewaySessionStore {
@@ -1576,27 +1608,42 @@ export function startAdminServer(storage: Storage): void {
     const body = getMetaInboundBody(message);
     const normalizedBody = normalizeGatewayText(body);
     const campaignsByClient = new Map<string, MetaGatewayRoute[]>();
+    const pendingByClient = new Map<string, MetaPendingRouteResponse>();
+    const legacyRoutingClients = new Set<string>();
+    const routingStartedAt = Date.now();
     let lookupFailures = 0;
     const candidates: Array<{ client: ManagedClient; clientId: string; campaign: MetaGatewayRoute; triggerText: string }> = [];
     await Promise.all(clients.map(async (client) => {
       try {
         // Correct isolation requires a fresh answer from every client. Cached
         // route data could hide a container that has just gone offline.
-        const routeResult = await fetchClientAsOwner<MetaGatewayRoute[]>(client, '/owner-api/meta-routes', {
+        const snapshotResult = await fetchClientAsOwner<MetaRoutingSnapshotResponse>(client, '/owner-api/meta-routing-snapshot', {
+          method: 'POST',
+          body: JSON.stringify({ phone: fromKey }),
           signal: AbortSignal.timeout(3_000),
         });
         let campaigns: MetaGatewayRoute[];
-        if (routeResult.ok && Array.isArray(routeResult.body)) {
-          campaigns = routeResult.body;
+        if (snapshotResult.ok && Array.isArray(snapshotResult.body?.routes)) {
+          campaigns = snapshotResult.body.routes;
+          pendingByClient.set(client.id, snapshotResult.body.pendingRoute ?? { pending: false });
         } else {
-          if (routeResult.status !== 404) throw new Error('Meta route lookup failed with status ' + routeResult.status);
-          const campaignResult = await fetchClientAsOwner<Campaign[]>(client, '/owner-api/campaigns', {
+          if (snapshotResult.status !== 404) throw new Error('Meta routing snapshot failed with status ' + snapshotResult.status);
+          legacyRoutingClients.add(client.id);
+          const routeResult = await fetchClientAsOwner<MetaGatewayRoute[]>(client, '/owner-api/meta-routes', {
             signal: AbortSignal.timeout(3_000),
           });
-          if (!campaignResult.ok || !Array.isArray(campaignResult.body)) {
-            throw new Error('Campaign fallback lookup failed with status ' + campaignResult.status);
+          if (routeResult.ok && Array.isArray(routeResult.body)) {
+            campaigns = routeResult.body;
+          } else {
+            if (routeResult.status !== 404) throw new Error('Meta route lookup failed with status ' + routeResult.status);
+            const campaignResult = await fetchClientAsOwner<Campaign[]>(client, '/owner-api/campaigns', {
+              signal: AbortSignal.timeout(3_000),
+            });
+            if (!campaignResult.ok || !Array.isArray(campaignResult.body)) {
+              throw new Error('Campaign fallback lookup failed with status ' + campaignResult.status);
+            }
+            campaigns = campaignsToMetaGatewayRoutes(campaignResult.body);
           }
-          campaigns = campaignsToMetaGatewayRoutes(campaignResult.body);
         }
         campaignsByClient.set(client.id, campaigns);
         for (const campaign of campaigns) {
@@ -1635,23 +1682,23 @@ export function startAdminServer(storage: Storage): void {
       let pendingLookupFailures = 0;
       const pendingMatches = (await Promise.all(clients.map(async (client) => {
         try {
-          const result = await fetchClientAsOwner<{
-            pending: boolean;
-            campaignId?: string;
-            kind?: string;
-          }>(client, '/owner-api/meta-pending-route', {
-            method: 'POST',
-            body: JSON.stringify({ phone: fromKey }),
-            signal: AbortSignal.timeout(3_000),
-          });
-          if (!result.ok) {
-            pendingLookupFailures += 1;
-            console.warn('[META_GATEWAY_PENDING_LOOKUP_FAILED]', client.id, `status=${result.status}`);
-            return null;
+          let pendingRoute = pendingByClient.get(client.id);
+          if (legacyRoutingClients.has(client.id)) {
+            const result = await fetchClientAsOwner<MetaPendingRouteResponse>(client, '/owner-api/meta-pending-route', {
+              method: 'POST',
+              body: JSON.stringify({ phone: fromKey }),
+              signal: AbortSignal.timeout(3_000),
+            });
+            if (!result.ok) {
+              pendingLookupFailures += 1;
+              console.warn('[META_GATEWAY_PENDING_LOOKUP_FAILED]', client.id, `status=${result.status}`);
+              return null;
+            }
+            pendingRoute = result.body;
           }
-          if (!result.body?.pending || !result.body?.campaignId) return null;
+          if (!pendingRoute?.pending || !pendingRoute.campaignId) return null;
           const routes = campaignsByClient.get(client.id) ?? [];
-          const campaign = routes.find((route) => route.id === result.body.campaignId);
+          const campaign = routes.find((route) => route.id === pendingRoute.campaignId);
           if (!campaign?.active || campaign.runtimeStatus !== 'active') return null;
           return { client, campaign };
         } catch (err) {
@@ -1719,6 +1766,7 @@ export function startAdminServer(storage: Storage): void {
         routedTriggerText ? `trigger=${routedTriggerText}` : 'trigger=pending',
         `clients_checked=${clients.length}`,
         `candidates=${eligibleCandidates.length}`,
+        `route_ms=${Date.now() - routingStartedAt}`,
       );
     }
     return { handled: true };
@@ -1730,12 +1778,7 @@ export function startAdminServer(storage: Storage): void {
     metaGatewayInboxRunning = true;
     try {
       while (true) {
-        const batch = [];
-        for (let processed = 0; processed < 20; processed += 1) {
-          const item = metaGatewayInbox.claimNext();
-          if (!item) break;
-          batch.push(item);
-        }
+        const batch = metaGatewayInbox.claimBatch(20, (item) => metaPayloadSenderKey(item.payload));
         if (!batch.length) break;
         await Promise.all(groupMetaItemsBySender(batch).map(async (items) => {
           for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
@@ -1749,7 +1792,7 @@ export function startAdminServer(storage: Storage): void {
                 metaGatewayInbox.markFailed(item.id, err);
                 console.error('[META_GATEWAY_INBOX_FAILED]', item.id, err);
               } else {
-                const retryDelayMs = Math.min(15_000 * (2 ** Math.max(0, item.attempts - 1)), 5 * 60_000);
+                const retryDelayMs = Math.min(5_000 * (2 ** Math.max(0, item.attempts - 1)), 5 * 60_000);
                 const nextAttemptAt = new Date(Date.now() + retryDelayMs);
                 metaGatewayInbox.markRetry(item.id, err, nextAttemptAt);
                 // The remaining items were already claimed as part of this
@@ -1773,7 +1816,7 @@ export function startAdminServer(storage: Storage): void {
       metaGatewayInboxRunning = false;
     }
   };
-  setInterval(() => { void processMetaGatewayInbox(); }, 15_000);
+  setInterval(() => { void processMetaGatewayInbox(); }, 2_000);
   void processMetaGatewayInbox();
 
   let metaClientInboxRunning = false;
@@ -1782,12 +1825,7 @@ export function startAdminServer(storage: Storage): void {
     metaClientInboxRunning = true;
     try {
       while (true) {
-        const batch = [];
-        for (let processed = 0; processed < 20; processed += 1) {
-          const item = metaClientInbox.claimNext();
-          if (!item) break;
-          batch.push(item);
-        }
+        const batch = metaClientInbox.claimBatch(20, (item) => metaPayloadSenderKey(item.payload));
         if (!batch.length) break;
         await Promise.all(groupMetaItemsBySender(batch).map(async (items) => {
           for (const item of items) {
@@ -2679,29 +2717,25 @@ export function startAdminServer(storage: Storage): void {
     res.json(buildMetaGatewayRoutes(storage));
   });
 
+  app.post('/owner-api/meta-routing-snapshot', (req, res) => {
+    const phone = normalizeGatewayPhone(String(req.body?.phone || ''));
+    if (!phone) {
+      res.status(400).json({ error: 'Phone is required' });
+      return;
+    }
+    res.json({
+      routes: buildMetaGatewayRoutes(storage),
+      pendingRoute: localMetaPendingRoute(storage, phone),
+    } satisfies MetaRoutingSnapshotResponse);
+  });
+
   app.post('/owner-api/meta-pending-route', (req, res) => {
     const phone = normalizeGatewayPhone(String(req.body?.phone || ''));
     if (!phone) {
       res.status(400).json({ error: 'Phone is required' });
       return;
     }
-    const pending = conversationState.findByPhone(phone);
-    if (pending?.campaignId) {
-      res.json({ pending: true, campaignId: pending.campaignId, kind: pending.kind, timestamp: pending.timestamp });
-      return;
-    }
-    const serviceBotSession = storage.getServiceBotSession(phone);
-    const serviceBot = serviceBotSession
-      ? storage.getServiceBots().find((item) => item.id === serviceBotSession.botId && item.enabled)
-      : undefined;
-    res.json(serviceBotSession && serviceBot
-      ? {
-        pending: true,
-        campaignId: serviceBotMetaRouteId(serviceBot.id),
-        kind: 'service-bot',
-        timestamp: new Date(serviceBotSession.updatedAt).getTime(),
-      }
-      : { pending: false });
+    res.json(localMetaPendingRoute(storage, phone));
   });
 
   app.post('/owner-api/campaigns', async (req, res) => {
