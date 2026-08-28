@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const {
   AsyncExpiringCache,
+  decideMetaFallbackRoute,
   groupMetaItemsBySender,
   isRetryableMetaStatus,
   retryTransientMetaOperation,
@@ -73,6 +74,32 @@ async function main() {
   }, { delaysMs: [0, 0] });
   assert.equal(permanent.status, 409);
   assert.equal(permanentAttempts, 1, 'permanent failures should not be retried');
+
+  assert.deepEqual(decideMetaFallbackRoute({
+    routeLookupFailures: 3,
+    pendingLookupFailures: 0,
+    pendingClientIds: ['old-session-client'],
+  }), { action: 'retry' }, 'a stale client session must never win while any route owner is unavailable');
+  assert.deepEqual(decideMetaFallbackRoute({
+    routeLookupFailures: 0,
+    pendingLookupFailures: 1,
+    pendingClientIds: ['claiming-client'],
+  }), { action: 'retry' }, 'one pending claim is unsafe while another client did not answer');
+  assert.deepEqual(decideMetaFallbackRoute({
+    routeLookupFailures: 0,
+    pendingLookupFailures: 0,
+    pendingClientIds: ['client-a', 'client-b'],
+  }), { action: 'ambiguous' }, 'cross-client pending state must fail closed');
+  assert.deepEqual(decideMetaFallbackRoute({
+    routeLookupFailures: 0,
+    pendingLookupFailures: 0,
+    pendingClientIds: ['client-a', 'client-a'],
+  }), { action: 'route', clientId: 'client-a' }, 'only one fully verified client may receive a follow-up');
+  assert.deepEqual(decideMetaFallbackRoute({
+    routeLookupFailures: 0,
+    pendingLookupFailures: 0,
+    pendingClientIds: [],
+  }), { action: 'no_match' });
 
   const payload = (from, id) => ({ entry: [{ changes: [{ value: { metadata: { phone_number_id: 'phone-1' }, messages: [{ from, id }] } }] }] });
   const grouped = groupMetaItemsBySender([

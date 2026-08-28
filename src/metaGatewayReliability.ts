@@ -2,6 +2,32 @@ export const META_CAMPAIGN_CACHE_TTL_MS = 5_000;
 export const META_FORWARD_ATTEMPTS = 3;
 export const META_FORWARD_RETRY_DELAYS_MS = [500, 1_500];
 
+export type MetaFallbackRouteDecision =
+  | { action: 'route'; clientId: string }
+  | { action: 'no_match' }
+  | { action: 'ambiguous' }
+  | { action: 'retry' };
+
+/**
+ * A shared Meta number must never use a phone-only sticky session as routing
+ * authority. A follow-up is safe to forward only when every client answered
+ * both discovery checks and exactly one client proves that it owns a pending
+ * conversation for the sender.
+ */
+export function decideMetaFallbackRoute(input: {
+  routeLookupFailures: number;
+  pendingLookupFailures: number;
+  pendingClientIds: string[];
+}): MetaFallbackRouteDecision {
+  if (input.routeLookupFailures > 0 || input.pendingLookupFailures > 0) {
+    return { action: 'retry' };
+  }
+  const uniqueClientIds = [...new Set(input.pendingClientIds.filter(Boolean))];
+  if (uniqueClientIds.length === 1) return { action: 'route', clientId: uniqueClientIds[0] };
+  if (uniqueClientIds.length > 1) return { action: 'ambiguous' };
+  return { action: 'no_match' };
+}
+
 export interface MetaWebhookItem {
   id: string;
   payload: any;

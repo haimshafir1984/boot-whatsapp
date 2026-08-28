@@ -49,9 +49,8 @@ import {
   selectMetaRouteCandidate,
 } from './metaCampaignRouting';
 import {
-  AsyncExpiringCache,
+  decideMetaFallbackRoute,
   groupMetaItemsBySender,
-  META_CAMPAIGN_CACHE_TTL_MS,
   retryTransientMetaOperation,
   splitMetaWebhookMessages,
   splitMetaWebhookStatuses,
@@ -1209,10 +1208,6 @@ export function startAdminServer(storage: Storage): void {
   const twilioGatewaySessions = createTwilioGatewaySessionStore(
     path.join(path.dirname(config.OWNER_STORAGE_PATH), 'twilio-gateway-sessions.json'),
   );
-  const metaGatewaySessions = createTwilioGatewaySessionStore(
-    path.join(path.dirname(config.OWNER_STORAGE_PATH), 'meta-gateway-sessions.json'),
-  );
-  const metaCampaignCache = new AsyncExpiringCache<MetaGatewayRoute[]>(META_CAMPAIGN_CACHE_TTL_MS);
   const metaGatewayInbox = new MetaGatewayInbox(path.join(path.dirname(config.OWNER_STORAGE_PATH), 'meta-gateway-inbox.json'));
   const metaClientInbox = new MetaGatewayInbox(path.join(path.dirname(config.STORAGE_PATH), 'meta-client-inbox.json'));
 
@@ -1585,11 +1580,15 @@ export function startAdminServer(storage: Storage): void {
     const candidates: Array<{ client: ManagedClient; clientId: string; campaign: MetaGatewayRoute; triggerText: string }> = [];
     await Promise.all(clients.map(async (client) => {
       try {
-        const campaigns = await metaCampaignCache.get(client.id, async () => {
-          const routeResult = await fetchClientAsOwner<MetaGatewayRoute[]>(client, '/owner-api/meta-routes', {
-            signal: AbortSignal.timeout(3_000),
-          });
-          if (routeResult.ok && Array.isArray(routeResult.body)) return routeResult.body;
+        // Correct isolation requires a fresh answer from every client. Cached
+        // route data could hide a container that has just gone offline.
+        const routeResult = await fetchClientAsOwner<MetaGatewayRoute[]>(client, '/owner-api/meta-routes', {
+          signal: AbortSignal.timeout(3_000),
+        });
+        let campaigns: MetaGatewayRoute[];
+        if (routeResult.ok && Array.isArray(routeResult.body)) {
+          campaigns = routeResult.body;
+        } else {
           if (routeResult.status !== 404) throw new Error('Meta route lookup failed with status ' + routeResult.status);
           const campaignResult = await fetchClientAsOwner<Campaign[]>(client, '/owner-api/campaigns', {
             signal: AbortSignal.timeout(3_000),
@@ -1597,8 +1596,8 @@ export function startAdminServer(storage: Storage): void {
           if (!campaignResult.ok || !Array.isArray(campaignResult.body)) {
             throw new Error('Campaign fallback lookup failed with status ' + campaignResult.status);
           }
-          return campaignsToMetaGatewayRoutes(campaignResult.body);
-        });
+          campaigns = campaignsToMetaGatewayRoutes(campaignResult.body);
+        }
         campaignsByClient.set(client.id, campaigns);
         for (const campaign of campaigns) {
           if (!campaign.active || (campaign.runtimeStatus && campaign.runtimeStatus !== 'active')) continue;
@@ -1611,46 +1610,29 @@ export function startAdminServer(storage: Storage): void {
       }
     }));
 
+    // With a shared Meta number, even one missing client makes the global
+    // routing picture incomplete. Never let another client's trigger or an
+    // old phone-only session win while the real owner may be unavailable.
+    if (lookupFailures > 0) {
+      throw new Error(`Campaign routing incomplete for ${lookupFailures} client(s); refusing unsafe fallback`);
+    }
+
     const eligibleCandidates = preferCampaignMetaRoutes(candidates);
     const { best, ambiguous } = selectMetaRouteCandidate(eligibleCandidates);
     if (ambiguous) {
-      console.log('[META_GATEWAY_IGNORED] reason=ambiguous_trigger', message.id, message.from);
-      return { handled: true };
+      console.error('[META_GATEWAY_AMBIGUOUS] reason=ambiguous_trigger', message.id, message.from);
+      throw new Error('Ambiguous Meta trigger ownership; refusing cross-client routing');
     }
 
-    const destinationKey = phoneNumberId || displayPhoneNumber;
-    const sessionKey = destinationKey ? fromKey + ':' + destinationKey : fromKey;
     let targetClient: ManagedClient | null = best?.client ?? null;
     let routedCampaignId = best?.campaign.id ?? '';
     let routedTriggerText = best?.triggerText ?? '';
-    if (best) {
-      metaGatewaySessions.set({
-        from: sessionKey,
-        clientId: best.client.id,
-        campaignId: best.campaign.id,
-        updatedAt: new Date().toISOString(),
-      });
-    } else {
-      const session = metaGatewaySessions.get(sessionKey);
-      const sessionCampaigns = session ? campaignsByClient.get(session.clientId) : undefined;
-      const sessionCampaign = sessionCampaigns?.find((campaign) => campaign.id === session?.campaignId);
-      if (session && sessionCampaign?.active && sessionCampaign.runtimeStatus === 'active') {
-        targetClient = clients.find((client) => client.id === session.clientId) ?? null;
-        routedCampaignId = session.campaignId;
-      } else if (session && sessionCampaigns) {
-        metaGatewaySessions.delete(sessionKey);
-        console.log('[META_GATEWAY_SESSION_RELEASED] reason=campaign_not_active', session.clientId, session.campaignId);
-      } else if (session) {
-        console.log('[META_GATEWAY_IGNORED] reason=session_client_unavailable', session.clientId, session.campaignId);
-      }
-    }
 
-    // A reply can arrive after the gateway session was lost (for example after
-    // a redeploy or when another replica received the original trigger). Ask
-    // the client applications which one is actually waiting for this phone.
-    // This is only used as a fallback and is deliberately fail-closed when
-    // more than one client claims the same sender.
+    // META follow-ups are resolved from client-owned pending state, never from
+    // the gateway's historical phone session. This prevents a conversation on
+    // one customer from capturing a new or follow-up message for another.
     if (!targetClient && !best) {
+      let pendingLookupFailures = 0;
       const pendingMatches = (await Promise.all(clients.map(async (client) => {
         try {
           const result = await fetchClientAsOwner<{
@@ -1662,38 +1644,44 @@ export function startAdminServer(storage: Storage): void {
             body: JSON.stringify({ phone: fromKey }),
             signal: AbortSignal.timeout(3_000),
           });
-          if (!result.ok || !result.body?.pending || !result.body?.campaignId) return null;
+          if (!result.ok) {
+            pendingLookupFailures += 1;
+            console.warn('[META_GATEWAY_PENDING_LOOKUP_FAILED]', client.id, `status=${result.status}`);
+            return null;
+          }
+          if (!result.body?.pending || !result.body?.campaignId) return null;
           const routes = campaignsByClient.get(client.id) ?? [];
           const campaign = routes.find((route) => route.id === result.body.campaignId);
           if (!campaign?.active || campaign.runtimeStatus !== 'active') return null;
           return { client, campaign };
         } catch (err) {
+          pendingLookupFailures += 1;
           console.warn('[META_GATEWAY_PENDING_LOOKUP_FAILED]', client.id, err);
           return null;
         }
       }))).filter((match): match is { client: ManagedClient; campaign: MetaGatewayRoute } => Boolean(match));
 
-      if (pendingMatches.length === 1) {
-        targetClient = pendingMatches[0].client;
-        routedCampaignId = pendingMatches[0].campaign.id;
-        metaGatewaySessions.set({
-          from: sessionKey,
-          clientId: targetClient.id,
-          campaignId: routedCampaignId,
-          updatedAt: new Date().toISOString(),
-        });
-        console.warn('[META_GATEWAY_SESSION_RECOVERED]', message.id, message.from, targetClient.id, `campaign=${routedCampaignId}`);
-      } else if (pendingMatches.length > 1) {
-        console.warn('[META_GATEWAY_IGNORED] reason=ambiguous_pending_conversation', message.id, message.from, `matches=${pendingMatches.length}`);
-        return { handled: true };
+      const fallbackDecision = decideMetaFallbackRoute({
+        routeLookupFailures: lookupFailures,
+        pendingLookupFailures,
+        pendingClientIds: pendingMatches.map((match) => match.client.id),
+      });
+      if (fallbackDecision.action === 'retry') {
+        throw new Error(`Pending Meta routing incomplete for ${pendingLookupFailures} client(s); refusing unsafe fallback`);
+      }
+      if (fallbackDecision.action === 'route') {
+        const pendingMatch = pendingMatches.find((match) => match.client.id === fallbackDecision.clientId)!;
+        targetClient = pendingMatch.client;
+        routedCampaignId = pendingMatch.campaign.id;
+        console.warn('[META_GATEWAY_PENDING_ROUTED]', message.id, message.from, targetClient.id, `campaign=${routedCampaignId}`);
+      } else if (fallbackDecision.action === 'ambiguous') {
+        console.error('[META_GATEWAY_AMBIGUOUS] reason=ambiguous_pending_conversation', message.id, message.from, `matches=${pendingMatches.length}`);
+        throw new Error('Ambiguous pending Meta conversation ownership; refusing cross-client routing');
       }
     }
 
     if (!targetClient) {
-      if (lookupFailures > 0) {
-        throw new Error(`Campaign routing unavailable for ${lookupFailures} client(s)`);
-      }
-      console.log('[META_GATEWAY_IGNORED] reason=no_trigger_or_session', message.id, message.from);
+      console.log('[META_GATEWAY_IGNORED] reason=no_trigger_or_pending_conversation', message.id, message.from);
       return { handled: true };
     }
 
@@ -1728,7 +1716,7 @@ export function startAdminServer(storage: Storage): void {
         message.id,
         targetClient.id,
         routedCampaignId ? `campaign=${routedCampaignId}` : 'campaign=unknown',
-        routedTriggerText ? `trigger=${routedTriggerText}` : 'trigger=session',
+        routedTriggerText ? `trigger=${routedTriggerText}` : 'trigger=pending',
         `clients_checked=${clients.length}`,
         `candidates=${eligibleCandidates.length}`,
       );
@@ -1750,7 +1738,8 @@ export function startAdminServer(storage: Storage): void {
         }
         if (!batch.length) break;
         await Promise.all(groupMetaItemsBySender(batch).map(async (items) => {
-          for (const item of items) {
+          for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
+            const item = items[itemIndex];
             try {
               const gateway = await routeMetaGatewayInbound(item.payload);
               if (!gateway.handled) await handleMetaInboundForStorage(item.payload);
@@ -1761,8 +1750,20 @@ export function startAdminServer(storage: Storage): void {
                 console.error('[META_GATEWAY_INBOX_FAILED]', item.id, err);
               } else {
                 const retryDelayMs = Math.min(15_000 * (2 ** Math.max(0, item.attempts - 1)), 5 * 60_000);
-                metaGatewayInbox.markRetry(item.id, err, new Date(Date.now() + retryDelayMs));
+                const nextAttemptAt = new Date(Date.now() + retryDelayMs);
+                metaGatewayInbox.markRetry(item.id, err, nextAttemptAt);
+                // The remaining items were already claimed as part of this
+                // batch. Put them back on the same retry boundary so a reply
+                // can never overtake its trigger for the same sender.
+                for (const deferred of items.slice(itemIndex + 1)) {
+                  metaGatewayInbox.markRetry(
+                    deferred.id,
+                    `Waiting for earlier Meta message ${item.id}`,
+                    nextAttemptAt,
+                  );
+                }
                 console.warn('[META_GATEWAY_INBOX_RETRY]', item.id, `attempt=${item.attempts}`, err);
+                break;
               }
             }
           }
@@ -2685,8 +2686,21 @@ export function startAdminServer(storage: Storage): void {
       return;
     }
     const pending = conversationState.findByPhone(phone);
-    res.json(pending
-      ? { pending: true, campaignId: pending.campaignId, kind: pending.kind, timestamp: pending.timestamp }
+    if (pending?.campaignId) {
+      res.json({ pending: true, campaignId: pending.campaignId, kind: pending.kind, timestamp: pending.timestamp });
+      return;
+    }
+    const serviceBotSession = storage.getServiceBotSession(phone);
+    const serviceBot = serviceBotSession
+      ? storage.getServiceBots().find((item) => item.id === serviceBotSession.botId && item.enabled)
+      : undefined;
+    res.json(serviceBotSession && serviceBot
+      ? {
+        pending: true,
+        campaignId: serviceBotMetaRouteId(serviceBot.id),
+        kind: 'service-bot',
+        timestamp: new Date(serviceBotSession.updatedAt).getTime(),
+      }
       : { pending: false });
   });
 
