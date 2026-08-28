@@ -22,6 +22,8 @@ export interface ManagedClient {
   botReplyDelayMs?: number;
   managementUrl: string;
   provisioningStatus: ClientProvisioningStatus;
+  disabledAt?: string;
+  disabledReason?: string;
   railwayServiceId?: string;
   railwayVolumeId?: string;
   railwaySourceAttached?: boolean;

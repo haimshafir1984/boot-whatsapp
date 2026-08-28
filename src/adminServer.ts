@@ -1371,6 +1371,10 @@ export function startAdminServer(storage: Storage): void {
       res.status(401).json({ error: 'Managed client token is invalid' });
       return;
     }
+    if (requester.provisioningStatus === 'disabled') {
+      res.status(409).json({ error: 'Managed client is disabled in the central gateway' });
+      return;
+    }
     const triggerPhrase = String(req.body?.triggerPhrase || '').trim();
     if (!triggerPhrase) {
       res.status(400).json({ error: 'Trigger phrase is required' });
@@ -2119,6 +2123,25 @@ export function startAdminServer(storage: Storage): void {
   app.get('/owner/api/client-summaries', async (_req, res) => {
     const clients = ownerStorage.getClients();
     const summaries = await Promise.all(clients.map(async (client) => {
+      if (client.provisioningStatus === 'disabled') {
+        return {
+          id: client.id,
+          summary: {
+            reachable: false,
+            error: 'הלקוחה מושבתת במערכת המרכזית. הנתונים והשירות לא נמחקו.',
+            campaignCount: 0,
+            activeCampaigns: 0,
+            endedCampaigns: 0,
+            savedContacts: 0,
+            pendingContacts: 0,
+            failedContacts: 0,
+            whatsappReady: false,
+            whatsappShouldRun: false,
+            googleConnected: false,
+            campaigns: [],
+          } satisfies OwnerClientSummary,
+        };
+      }
       try {
         return { id: client.id, summary: await fetchClientSummary(client) };
       } catch (err: any) {
@@ -2370,6 +2393,80 @@ export function startAdminServer(storage: Storage): void {
     res.json(updated ? exposeOwnerClient(updated) : null);
   });
 
+  app.post('/owner/api/clients/:id/disable', (req, res) => {
+    const client = ownerStorage.getClient(req.params.id);
+    if (!client) {
+      res.status(404).json({ error: 'לקוחה לא נמצאה' });
+      return;
+    }
+    if (client.provisioningStatus === 'disabled') {
+      res.json(exposeOwnerClient(client));
+      return;
+    }
+    const updated = ownerStorage.updateClient(client.id, {
+      provisioningStatus: 'disabled',
+      disabledAt: new Date().toISOString(),
+      disabledReason: String(req.body?.reason || 'הושבתה ידנית מדשבורד המנהלים').trim().slice(0, 240),
+    });
+    console.log('[OWNER_CLIENT_DISABLED]', client.id, client.name);
+    res.json(updated ? exposeOwnerClient(updated) : null);
+  });
+
+  app.post('/owner/api/clients/:id/enable', async (req, res) => {
+    const client = ownerStorage.getClient(req.params.id);
+    if (!client) {
+      res.status(404).json({ error: 'לקוחה לא נמצאה' });
+      return;
+    }
+    if (client.provisioningStatus !== 'disabled') {
+      res.json(exposeOwnerClient(client));
+      return;
+    }
+    if (!client.managementUrl) {
+      res.status(409).json({ error: 'לא ניתן להפעיל מחדש לקוחה ללא כתובת שירות.' });
+      return;
+    }
+    try {
+      const healthUrl = new URL('/health', client.managementUrl).toString();
+      const response = await fetch(healthUrl, { signal: AbortSignal.timeout(8_000) });
+      const health = await response.json().catch(() => null) as {
+        clientConfigured?: boolean;
+        storage?: { ready?: boolean };
+      } | null;
+      if (!response.ok || health?.clientConfigured !== true || health?.storage?.ready === false) {
+        res.status(503).json({ error: 'השירות של הלקוחה עדיין אינו זמין או שהאחסון אינו מוכן. הלקוחה נשארה מושבתת.' });
+        return;
+      }
+      if (client.whatsappProvider === 'META_CLOUD_API') {
+        const routesResult = await fetchClientAsOwner<MetaGatewayRoute[]>(client, '/owner-api/meta-routes', {
+          signal: AbortSignal.timeout(8_000),
+        });
+        if (!routesResult.ok || !Array.isArray(routesResult.body)) {
+          res.status(503).json({ error: 'לא ניתן לקרוא את הטריגרים של הלקוחה. הלקוחה נשארה מושבתת ולא צורפה לניתוב.' });
+          return;
+        }
+        const reservedRoutes = routesResult.body.filter(metaCampaignReservesTrigger);
+        const checks = await Promise.all(reservedRoutes.map((route) =>
+          inspectMetaTriggerAvailability(client, route.triggerPhrase, route.id, route.routeKind)));
+        if (checks.some((check) => check.available !== true)) {
+          res.status(409).json({ error: 'לא ניתן להפעיל מחדש: לפחות טריגר פעיל אחד של הלקוחה תפוס אצל לקוח Meta אחר.' });
+          return;
+        }
+      }
+      const updated = ownerStorage.updateClient(client.id, {
+        provisioningStatus: 'ready',
+        provisioningError: undefined,
+        disabledAt: undefined,
+        disabledReason: undefined,
+      });
+      console.log('[OWNER_CLIENT_ENABLED]', client.id, client.name);
+      res.json(updated ? exposeOwnerClient(updated) : null);
+    } catch (err) {
+      console.warn('[OWNER_CLIENT_ENABLE_FAILED]', client.id, err);
+      res.status(503).json({ error: 'לא ניתן להשלים את בדיקות הבריאות והטריגרים. הלקוחה נשארה מושבתת ולא צורפה לניתוב.' });
+    }
+  });
+
   app.post('/owner/api/clients/:id/migrate-to-meta', async (req, res) => {
     const client = ownerStorage.getClient(req.params.id);
     if (!client) {
@@ -2462,6 +2559,10 @@ export function startAdminServer(storage: Storage): void {
       res.status(404).json({ error: 'לקוחה לא נמצאה' });
       return;
     }
+    if (client.provisioningStatus === 'disabled') {
+      res.status(409).json({ error: 'הלקוחה מושבתת. יש להשתמש בפעולת הפעלה מחדש.' });
+      return;
+    }
     if (!client.managementUrl) {
       res.json(exposeOwnerClient(client));
       return;
@@ -2487,6 +2588,10 @@ export function startAdminServer(storage: Storage): void {
       res.status(404).json({ error: 'לקוחה לא נמצאה' });
       return;
     }
+    if (client.provisioningStatus === 'disabled') {
+      res.status(409).json({ error: 'הלקוחה מושבתת. יש להפעיל אותה מחדש לפני פריסה.' });
+      return;
+    }
     try {
       res.json(exposeOwnerClient(await provisionClient(client.id)));
     } catch (err: any) {
@@ -2501,6 +2606,23 @@ export function startAdminServer(storage: Storage): void {
     const client = ownerStorage.getClient(req.params.id);
     if (!client) {
       res.status(404).json({ error: 'Client not found' });
+      return;
+    }
+    if (client.provisioningStatus === 'disabled') {
+      res.json({
+        reachable: false,
+        error: 'הלקוחה מושבתת במערכת המרכזית. הנתונים והשירות לא נמחקו.',
+        campaignCount: 0,
+        activeCampaigns: 0,
+        endedCampaigns: 0,
+        savedContacts: 0,
+        pendingContacts: 0,
+        failedContacts: 0,
+        whatsappReady: false,
+        whatsappShouldRun: false,
+        googleConnected: false,
+        campaigns: [],
+      } satisfies OwnerClientSummary);
       return;
     }
     try {
