@@ -2535,67 +2535,15 @@ async function sendDecisionStep(
   const presentation = step.presentation ?? 'buttons';
   const hasLongOptions = presentation === 'list'
     && (step.options ?? []).some((option) => Array.from(option.text.trim()).length > 96);
-  let sentInteractive = false;
-  if (!hasLongOptions && presentation === 'list' && transport.sendInteractiveList && step.options?.length) {
-    try {
-      await waitBeforeBotReply(stepDelayMs);
-      const items = step.options.slice(0, 10).map((option) => buildInteractiveListItem(option));
-      await sendTrackedOutboxMessage(storage, {
-        kind: 'interactive_list',
-        to: senderJid,
-        text: step.text.trim(),
-        buttonText: 'בחר/י תשובה',
-        items,
-        campaignId,
-        campaignResultId,
-        stepId: step.id,
-      }, () => transport.sendInteractiveList!(senderJid, step.text.trim(), 'בחר/י תשובה', items));
-      sentInteractive = true;
-    } catch (err) {
-      if (err instanceof TimeoutContinuationCancelledError) throw err;
-      console.warn('   Interactive decision list failed, falling back to text:', err);
-    }
-  }
-  if (!hasLongOptions && presentation === 'buttons' && transport.sendInteractiveButtons && step.options?.length) {
-    try {
-      await waitBeforeBotReply(stepDelayMs);
-      const options = step.options.slice(0, 3);
-      const needsFullOptionText = options.some((option) =>
-        Boolean(option.buttonLabel?.trim()) || Array.from(option.text.trim()).length > 20
-      );
-      const buttons = options.map((option, index) => ({
-        id: option.id,
-        text: buildInteractiveButtonLabel(option, index),
-      }));
-      const buttonBodyText = needsFullOptionText ? formatQuestion(step) : step.text.trim();
-      await sendTrackedOutboxMessage(storage, {
-        kind: 'interactive_buttons',
-        to: senderJid,
-        text: buttonBodyText,
-        buttons,
-        campaignId,
-        campaignResultId,
-        stepId: step.id,
-      }, () => transport.sendInteractiveButtons!(senderJid, buttonBodyText, buttons));
-      sentInteractive = true;
-    } catch (err) {
-      if (err instanceof TimeoutContinuationCancelledError) throw err;
-      console.warn('   Interactive decision question failed, falling back to text:', err);
-    }
-  }
-  if (!sentInteractive) {
-    await sendBotMessage(transport, senderJid, formatQuestion(step), stepDelayMs);
-  }
-  console.log('   Decision question sent.');
-  if (campaignId) {
-    storage.recordCampaignEvent({
-      campaignId,
-      campaignResultId,
-      phone: senderPhone,
-      type: 'step_sent',
-      label: step.text.slice(0, 120),
-    });
-  }
+
+  // Register the pending "awaiting a decision reply" state BEFORE the question
+  // is actually sent, not after. Meta can deliver a button/list message to the
+  // recipient's phone the instant our API call is accepted - a fast enough
+  // reply could otherwise arrive and be processed while this function is still
+  // awaiting that same API call, finding no pending state yet and being
+  // silently ignored (STATE_MISS). Registering first closes that window; if
+  // the send ultimately fails, the state (and its timeout) is rolled back
+  // below, preserving today's exact "no pending state on total failure" behavior.
   const timeoutMs = decisionStepTimeoutMs(
     step,
     humanHandoff.decisionTimeoutMinutes && humanHandoff.decisionTimeoutMinutes > 0
@@ -2648,6 +2596,77 @@ async function sendDecisionStep(
     timestamp,
     timeoutHandle,
   });
+
+  let sentInteractive = false;
+  try {
+    if (!hasLongOptions && presentation === 'list' && transport.sendInteractiveList && step.options?.length) {
+      try {
+        await waitBeforeBotReply(stepDelayMs);
+        const items = step.options.slice(0, 10).map((option) => buildInteractiveListItem(option));
+        await sendTrackedOutboxMessage(storage, {
+          kind: 'interactive_list',
+          to: senderJid,
+          text: step.text.trim(),
+          buttonText: 'בחר/י תשובה',
+          items,
+          campaignId,
+          campaignResultId,
+          stepId: step.id,
+        }, () => transport.sendInteractiveList!(senderJid, step.text.trim(), 'בחר/י תשובה', items));
+        sentInteractive = true;
+      } catch (err) {
+        if (err instanceof TimeoutContinuationCancelledError) throw err;
+        console.warn('   Interactive decision list failed, falling back to text:', err);
+      }
+    }
+    if (!hasLongOptions && presentation === 'buttons' && transport.sendInteractiveButtons && step.options?.length) {
+      try {
+        await waitBeforeBotReply(stepDelayMs);
+        const options = step.options.slice(0, 3);
+        const needsFullOptionText = options.some((option) =>
+          Boolean(option.buttonLabel?.trim()) || Array.from(option.text.trim()).length > 20
+        );
+        const buttons = options.map((option, index) => ({
+          id: option.id,
+          text: buildInteractiveButtonLabel(option, index),
+        }));
+        const buttonBodyText = needsFullOptionText ? formatQuestion(step) : step.text.trim();
+        await sendTrackedOutboxMessage(storage, {
+          kind: 'interactive_buttons',
+          to: senderJid,
+          text: buttonBodyText,
+          buttons,
+          campaignId,
+          campaignResultId,
+          stepId: step.id,
+        }, () => transport.sendInteractiveButtons!(senderJid, buttonBodyText, buttons));
+        sentInteractive = true;
+      } catch (err) {
+        if (err instanceof TimeoutContinuationCancelledError) throw err;
+        console.warn('   Interactive decision question failed, falling back to text:', err);
+      }
+    }
+    if (!sentInteractive) {
+      await sendBotMessage(transport, senderJid, formatQuestion(step), stepDelayMs);
+    }
+  } catch (err) {
+    // The question was never actually delivered - undo the pending state (and
+    // its scheduled timeout) registered above, matching the pre-existing
+    // behavior where a total send failure left no pending conversation at all.
+    conversationState.remove(senderJid);
+    throw err;
+  }
+
+  console.log('   Decision question sent.');
+  if (campaignId) {
+    storage.recordCampaignEvent({
+      campaignId,
+      campaignResultId,
+      phone: senderPhone,
+      type: 'step_sent',
+      label: step.text.slice(0, 120),
+    });
+  }
 }
 
 async function handleScoreResultStep(

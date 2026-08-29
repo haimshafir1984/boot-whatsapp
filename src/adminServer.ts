@@ -1695,11 +1695,16 @@ export function startAdminServer(storage: Storage): void {
       if (staleClients.length) {
         await Promise.all(staleClients.map(async (client) => {
           try {
-            await fetchClientAsOwner(client, '/owner-api/meta-clear-pending', {
+            const result = await fetchClientAsOwner<{ removed?: number }>(client, '/owner-api/meta-clear-pending', {
               method: 'POST',
               body: JSON.stringify({ phone: fromKey }),
               signal: AbortSignal.timeout(3_000),
             });
+            if (result.ok) {
+              console.log('[META_GATEWAY_CLEAR_PENDING]', client.id, `removed=${result.body?.removed ?? 0}`);
+            } else {
+              console.warn('[META_GATEWAY_CLEAR_PENDING_FAILED]', client.id, `status=${result.status}`);
+            }
           } catch (err) {
             // Best-effort: worst case the stale conversation lingers until its
             // own timeout, which is exactly today's pre-fix behavior - never
