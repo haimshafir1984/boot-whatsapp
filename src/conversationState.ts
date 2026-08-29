@@ -251,6 +251,28 @@ class ConversationStateManager {
     this.persist();
   }
 
+  /**
+   * Drops every pending conversation for a phone number, regardless of kind
+   * or how close its own timeout is. Used when a fresh trigger message from
+   * this phone (possibly for a different campaign, or on another client
+   * sharing the same Meta number) makes any older pending conversation moot -
+   * the sender has moved on, so it should stop being a candidate for future
+   * replies immediately rather than waiting for its own timeout.
+   */
+  removeByPhone(phone: string | undefined): number {
+    const normalized = normalizePhone(phone);
+    if (!normalized) return 0;
+    let removed = 0;
+    for (const [jid, state] of this.map.entries()) {
+      if (normalizePhone(state.senderPhone) !== normalized) continue;
+      this.clearTimer(state);
+      this.map.delete(jid);
+      removed += 1;
+    }
+    if (removed) this.persist();
+    return removed;
+  }
+
   removeByCampaign(campaignId: string): number {
     let removed = 0;
     for (const [jid, state] of this.map.entries()) {

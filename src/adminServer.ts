@@ -125,7 +125,10 @@ interface MetaRoutingSnapshotResponse {
 
 function localMetaPendingRoute(storage: Storage, phone: string): MetaPendingRouteResponse {
   const pending = conversationState.findByPhone(phone);
-  if (pending?.campaignId) {
+  // 'expired-decision' is kept around only to let a one-shot inactivity
+  // continuation run once; the sender is no longer actively expected to
+  // reply, so it must not keep winning future cross-client routing forever.
+  if (pending?.campaignId && pending.kind !== 'expired-decision') {
     return { pending: true, campaignId: pending.campaignId, kind: pending.kind, timestamp: pending.timestamp };
   }
   const serviceBotSession = storage.getServiceBotSession(phone);
@@ -1679,6 +1682,34 @@ export function startAdminServer(storage: Storage): void {
     let routedCampaignId = best?.campaign.id ?? '';
     let routedTriggerText = best?.triggerText ?? '';
 
+    // A fresh trigger match means this sender has moved on, even if some
+    // other client (sharing this same Meta number) still thinks it has a
+    // conversation open with them - possibly still well inside its own
+    // timeout. Clear those before forwarding, so a stale pending
+    // conversation on client A can never intercept a reply meant for the
+    // brand-new conversation on client B.
+    if (targetClient) {
+      const staleClients = clients.filter(
+        (client) => client.id !== targetClient!.id && pendingByClient.get(client.id)?.pending,
+      );
+      if (staleClients.length) {
+        await Promise.all(staleClients.map(async (client) => {
+          try {
+            await fetchClientAsOwner(client, '/owner-api/meta-clear-pending', {
+              method: 'POST',
+              body: JSON.stringify({ phone: fromKey }),
+              signal: AbortSignal.timeout(3_000),
+            });
+          } catch (err) {
+            // Best-effort: worst case the stale conversation lingers until its
+            // own timeout, which is exactly today's pre-fix behavior - never
+            // block or fail the new trigger's own routing over this.
+            console.warn('[META_GATEWAY_CLEAR_PENDING_FAILED]', client.id, err);
+          }
+        }));
+      }
+    }
+
     // META follow-ups are resolved from client-owned pending state, never from
     // the gateway's historical phone session. This prevents a conversation on
     // one customer from capturing a new or follow-up message for another.
@@ -2858,6 +2889,21 @@ export function startAdminServer(storage: Storage): void {
       return;
     }
     res.json(localMetaPendingRoute(storage, phone));
+  });
+
+  // Called by the gateway right before forwarding a freshly-matched trigger
+  // to its owning client, for every OTHER client that reported a pending
+  // conversation for the same phone. A new trigger means the sender has
+  // moved on, so any older pending conversation here - even one still well
+  // inside its own timeout - must stop being a candidate immediately.
+  app.post('/owner-api/meta-clear-pending', (req, res) => {
+    const phone = normalizeGatewayPhone(String(req.body?.phone || ''));
+    if (!phone) {
+      res.status(400).json({ error: 'Phone is required' });
+      return;
+    }
+    const removed = conversationState.removeByPhone(phone);
+    res.json({ removed });
   });
 
   app.post('/owner-api/campaigns', async (req, res) => {
