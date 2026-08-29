@@ -564,6 +564,31 @@ export interface StorageData {
   serviceBotFollowUps: ServiceBotFollowUp[];
 }
 
+/**
+ * Logical groups of StorageData that the PostgreSQL backend syncs as independent
+ * tables (see writeSnapshotDelta in database.ts). Every call to persist() must name
+ * exactly which of these it actually touched, so the backend can skip the expensive
+ * full-history diff for tables nothing changed in. `serviceBotState` covers every
+ * service-bot field (serviceBots, serviceBot, serviceBotSessions, serviceBotRecords,
+ * serviceBotFollowUps), which are written together as one row.
+ * `twilioOnboarding` has no dedicated table and is intentionally never listed here.
+ */
+export type StorageTableName =
+  | 'adminSettings'
+  | 'clientProfile'
+  | 'campaigns'
+  | 'campaignResults'
+  | 'campaignEvents'
+  | 'contactQueue'
+  /** The `saved_contacts` table syncs from the `contactsList` field, not the separate `savedContacts: string[]` phone list (which has no dedicated table). */
+  | 'contactsList'
+  | 'uploadedFiles'
+  | 'twilioTemplates'
+  | 'outboxMessages'
+  | 'conversationStateSnapshot'
+  | 'scheduledJobs'
+  | 'serviceBotState';
+
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 
 const DEFAULT_SETTINGS: AdminSettings = {
@@ -708,7 +733,11 @@ export function emptyStorageData(): StorageData {
 
 export interface StoragePersistBackend {
   mode: 'postgres';
-  persistSnapshot(data: StorageData): void;
+  persistSnapshot(
+    data: StorageData,
+    dirtyTables: ReadonlySet<StorageTableName> | 'all',
+    dirtyOutboxRows: ReadonlySet<string> | 'all',
+  ): void;
   flush(): Promise<void>;
   close(): Promise<void>;
   health(): { enabled: boolean; ready: boolean; lastError?: string; pendingWrites: number; lastWriteAt?: string };
@@ -828,9 +857,23 @@ export class Storage {
     };
   }
 
-  private persist(): void {
+  /**
+   * @param dirtyTables Exactly which logical tables this call just changed (can be
+   * empty, e.g. a field with no dedicated Postgres table). The PostgreSQL backend
+   * uses this to skip re-diffing tables nothing touched. The JSON-file backend
+   * ignores it and always rewrites the whole file, so behavior there is unchanged.
+   * @param outboxMessageId When 'outboxMessages' is in dirtyTables and exactly one
+   * specific row changed (true at every current call site), naming it here lets the
+   * backend skip re-comparing every other outbox message. Omit when multiple or
+   * unknown rows changed - the backend then safely compares every row, exactly as
+   * before this optimization.
+   */
+  private persist(dirtyTables: StorageTableName[], outboxMessageId?: string): void {
     if (this.backend) {
-      this.backend.persistSnapshot(this.data);
+      const dirtyOutboxRows = dirtyTables.includes('outboxMessages')
+        ? (outboxMessageId ? new Set([outboxMessageId]) : 'all' as const)
+        : new Set<string>();
+      this.backend.persistSnapshot(this.data, new Set(dirtyTables), dirtyOutboxRows);
       return;
     }
 
@@ -876,7 +919,7 @@ export class Storage {
       ...input,
     };
     this.data.outboxMessages.push(message);
-    this.persist();
+    this.persist(['outboxMessages'], message.id);
     return this.copyOutboxMessage(message);
   }
 
@@ -888,7 +931,7 @@ export class Storage {
     message.updatedAt = new Date().toISOString();
     message.processingStartedAt = message.updatedAt;
     message.lastError = undefined;
-    this.persist();
+    this.persist(['outboxMessages'], message.id);
   }
 
   markOutboxSent(id: string, providerMessageId?: string): void {
@@ -900,7 +943,7 @@ export class Storage {
     message.processingStartedAt = undefined;
     message.lastError = undefined;
     message.updatedAt = new Date().toISOString();
-    this.persist();
+    this.persist(['outboxMessages'], message.id);
   }
 
   markOutboxRetry(id: string, error: unknown, nextAttemptAt?: string): void {
@@ -911,7 +954,7 @@ export class Storage {
     message.nextAttemptAt = nextAttemptAt;
     message.processingStartedAt = undefined;
     message.updatedAt = new Date().toISOString();
-    this.persist();
+    this.persist(['outboxMessages'], message.id);
   }
 
   markOutboxFailed(id: string, error: unknown): void {
@@ -922,7 +965,7 @@ export class Storage {
     message.nextAttemptAt = undefined;
     message.processingStartedAt = undefined;
     message.updatedAt = new Date().toISOString();
-    this.persist();
+    this.persist(['outboxMessages'], message.id);
   }
 
   getOutboxMessages(limit = 100): OutboxMessage[] {
@@ -999,7 +1042,7 @@ export class Storage {
     message.deliveryStatus = status;
     message.deliveryError = status === 'failed' ? (error || 'Delivery failed') : undefined;
     message.deliveryUpdatedAt = new Date().toISOString();
-    this.persist();
+    this.persist(['outboxMessages'], message.id);
     return message;
   }
 
@@ -1025,7 +1068,7 @@ export class Storage {
 
   saveConversationStateSnapshot(snapshot: ConversationStateSnapshot): void {
     this.data.conversationStateSnapshot = JSON.parse(JSON.stringify(snapshot)) as ConversationStateSnapshot;
-    this.persist();
+    this.persist(['conversationStateSnapshot']);
   }
 
   getDurableTimerHealth(): { scheduled: number; jobs: number } {
@@ -1060,7 +1103,7 @@ export class Storage {
       job.lastError = undefined;
       this.updateCampaignResultStatuses(job.campaignResultIds, 'saved', now);
     }
-    this.persist();
+    this.persist(['contactsList', 'contactQueue', 'campaignResults']);
   }
 
   getAllContacts(): SavedContact[] {
@@ -1084,7 +1127,7 @@ export class Storage {
         existing.campaignResultIds = [...(existing.campaignResultIds ?? []), campaignResultId];
       }
       this.updateCampaignResultStatuses(existing.campaignResultIds, 'pending', now);
-      this.persist();
+      this.persist(['contactQueue', 'campaignResults']);
       return { ...existing };
     }
 
@@ -1102,7 +1145,7 @@ export class Storage {
     };
     this.updateCampaignResultStatuses(job.campaignResultIds, 'pending', now);
     this.data.contactQueue.push(job);
-    this.persist();
+    this.persist(['contactQueue', 'campaignResults']);
     return { ...job };
   }
 
@@ -1124,7 +1167,7 @@ export class Storage {
     if (!job) return null;
     job.attempts += 1;
     job.updatedAt = new Date().toISOString();
-    this.persist();
+    this.persist(['contactQueue']);
     return { ...job };
   }
 
@@ -1139,7 +1182,7 @@ export class Storage {
       ? new Date(now + retryDelayMs).toISOString()
       : undefined;
     this.updateCampaignResultStatuses(job.campaignResultIds, job.status, job.updatedAt);
-    this.persist();
+    this.persist(['contactQueue', 'campaignResults']);
     return { ...job };
   }
 
@@ -1157,7 +1200,7 @@ export class Storage {
       this.updateCampaignResultStatuses(job.campaignResultIds, 'pending', now);
       count += 1;
     }
-    if (count) this.persist();
+    if (count) this.persist(['contactQueue', 'campaignResults']);
     return count;
   }
 
@@ -1185,7 +1228,7 @@ export class Storage {
       ...file,
     };
     this.data.uploadedFiles.push(uploaded);
-    this.persist();
+    this.persist(['uploadedFiles']);
     return { ...uploaded };
   }
 
@@ -1204,7 +1247,7 @@ export class Storage {
     const index = this.data.uploadedFiles.findIndex((item) => item.id === id);
     if (index < 0) return null;
     const [removed] = this.data.uploadedFiles.splice(index, 1);
-    this.persist();
+    this.persist(['uploadedFiles']);
     return { ...removed };
   }
 
@@ -1230,7 +1273,7 @@ export class Storage {
     const batchId = generateId();
     campaign.currentResultBatchId = batchId;
     campaign.currentResultBatchStartedAt = now;
-    this.persist();
+    this.persist(['campaigns']);
     return { id: batchId, label: this.getCampaignResultBatchLabel(campaign, batchId), startedAt: now, total: 0, isCurrent: true };
   }
 
@@ -1294,7 +1337,7 @@ export class Storage {
       isDemo,
     };
     this.data.campaignResults.push(result);
-    this.persist();
+    this.persist(['campaignResults']);
     return { ...result };
   }
 
@@ -1325,7 +1368,7 @@ export class Storage {
         added += 1;
       }
     }
-    this.persist();
+    this.persist(['campaignResults']);
     return { added, removed };
   }
 
@@ -1333,7 +1376,7 @@ export class Storage {
     const before = this.data.campaignResults.length;
     this.data.campaignResults = this.data.campaignResults.filter((result) => !(result.campaignId === campaignId && result.isDemo));
     const removed = before - this.data.campaignResults.length;
-    if (persist && removed) this.persist();
+    if (persist && removed) this.persist(['campaignResults']);
     return removed;
   }
   ensureCampaignResultReferralCode(resultId: string | undefined): string {
@@ -1353,7 +1396,7 @@ export class Storage {
         }
       }
       result.referralCode = nextCode;
-      this.persist();
+      this.persist(['campaignResults']);
     }
     return result.referralCode || '';
   }
@@ -1419,7 +1462,7 @@ export class Storage {
     result.lastEventAt = now;
     result.updatedAt = now;
     if (fallbackName !== undefined) result.fallbackName = fallbackName;
-    this.persist();
+    this.persist(['campaignResults']);
   }
 
   queueAwaitingNameCampaignResults(campaignId: string, resultBatchId?: string): { queued: number; skipped: number } {
@@ -1444,7 +1487,7 @@ export class Storage {
         skipped += 1;
       }
     }
-    if (queued || skipped) this.persist();
+    if (queued || skipped) this.persist(['campaignResults']);
     return { queued, skipped };
   }
 
@@ -1470,7 +1513,7 @@ export class Storage {
         skipped += 1;
       }
     }
-    if (queued || skipped) this.persist();
+    if (queued || skipped) this.persist(['campaignResults']);
     return { queued, skipped };
   }
   getCampaignResults(campaignId?: string, resultBatchId?: string): CampaignResult[] {
@@ -1489,7 +1532,7 @@ export class Storage {
     result.emailCollectedAt = collectedAt;
     result.updatedAt = collectedAt;
     result.lastEventAt = collectedAt;
-    this.persist();
+    this.persist(['campaignResults']);
   }
 
   recordScoreAnswer(resultId: string | undefined, input: Omit<CampaignScoreAnswer, 'answeredAt'>): void {
@@ -1506,7 +1549,7 @@ export class Storage {
     result.scoreTotal = answers.reduce((sum, answer) => sum + answer.score, 0);
     result.updatedAt = answeredAt;
     result.lastEventAt = answeredAt;
-    this.persist();
+    this.persist(['campaignResults']);
   }
 
   getCampaignScoreAnswers(resultId: string | undefined): CampaignScoreAnswer[] {
@@ -1540,7 +1583,7 @@ export class Storage {
         result.updatedAt = saved.createdAt;
       }
     }
-    this.persist();
+    this.persist(event.campaignResultId ? ['campaignEvents', 'campaignResults'] : ['campaignEvents']);
     return { ...saved };
   }
 
@@ -1578,7 +1621,7 @@ export class Storage {
     const batchId = generateId();
     campaign.currentResultBatchId = batchId;
     campaign.currentResultBatchStartedAt = now;
-    this.persist();
+    this.persist(['campaigns', 'campaignResults', 'campaignEvents', 'contactQueue']);
     return { results, events, queueJobs, batchId };
   }
 
@@ -1708,7 +1751,7 @@ export class Storage {
 
   updateAdminSettings(patch: Partial<AdminSettings>): AdminSettings {
     this.data.adminSettings = { ...this.data.adminSettings, ...patch };
-    this.persist();
+    this.persist(['adminSettings']);
     return this.getAdminSettings();
   }
 
@@ -1734,7 +1777,7 @@ export class Storage {
     const bot = cloneServiceBot({ ...input, id, createdAt: now, updatedAt: now }, id);
     this.data.serviceBots.push(bot);
     this.syncLegacyServiceBotMirror();
-    this.persist();
+    this.persist(['serviceBotState']);
     return this.getServiceBot(id);
   }
 
@@ -1751,7 +1794,7 @@ export class Storage {
     if (index >= 0) this.data.serviceBots[index] = updated;
     else this.data.serviceBots.push(updated);
     this.syncLegacyServiceBotMirror();
-    this.persist();
+    this.persist(['serviceBotState']);
     return this.getServiceBot(requestedId);
   }
 
@@ -1778,7 +1821,7 @@ export class Storage {
       if (followUp.botId === botId && followUp.status === 'scheduled') followUp.status = 'cancelled';
     }
     this.syncLegacyServiceBotMirror();
-    this.persist();
+    this.persist(['serviceBotState']);
     return true;
   }
 
@@ -1788,7 +1831,7 @@ export class Storage {
     const timeoutMinutes = Math.max(1, Number(serviceBot?.sessionTimeoutMinutes) || 60);
     if (session && Date.now() - new Date(session.updatedAt).getTime() > timeoutMinutes * 60 * 1000) {
       this.data.serviceBotSessions = this.data.serviceBotSessions.filter((item) => item.phone !== phone);
-      this.persist();
+      this.persist(['serviceBotState']);
       return null;
     }
     return session ? { ...session, path: [...(session.path ?? [])], variables: { ...(session.variables ?? {}) } } : null;
@@ -1803,12 +1846,12 @@ export class Storage {
       existing.path = [...path];
       if (variables) existing.variables = { ...variables };
       existing.updatedAt = updatedAt;
-      this.persist();
+      this.persist(['serviceBotState']);
       return { ...existing, path: [...(existing.path ?? [])], variables: { ...(existing.variables ?? {}) } };
     }
     const session = { botId, phone, nodeId, path: [...path], variables: { ...(variables ?? {}) }, startedAt: updatedAt, updatedAt };
     this.data.serviceBotSessions.push(session);
-    this.persist();
+    this.persist(['serviceBotState']);
     return { ...session, path: [...session.path], variables: { ...session.variables } };
   }
 
@@ -1831,7 +1874,7 @@ export class Storage {
     if (attachment && !record.attachments.some((item) => item.messageId === attachment.messageId)) {
       record.attachments.push({ ...attachment, capturedAt: now });
     }
-    this.persist();
+    this.persist(['serviceBotState']);
     return JSON.parse(JSON.stringify(record)) as ServiceBotRecord;
   }
 
@@ -1855,7 +1898,7 @@ export class Storage {
       ...input,
     };
     this.data.serviceBotFollowUps.push(followUp);
-    this.persist();
+    this.persist(['serviceBotState']);
     return { ...followUp };
   }
 
@@ -1868,7 +1911,7 @@ export class Storage {
       followUp.updatedAt = now;
       cancelled += 1;
     }
-    if (cancelled) this.persist();
+    if (cancelled) this.persist(['serviceBotState']);
     return cancelled;
   }
 
@@ -1886,7 +1929,7 @@ export class Storage {
     followUp.status = 'processing';
     followUp.attempts += 1;
     followUp.updatedAt = new Date().toISOString();
-    this.persist();
+    this.persist(['serviceBotState']);
     return { ...followUp };
   }
 
@@ -1896,7 +1939,7 @@ export class Storage {
     followUp.status = 'sent';
     followUp.updatedAt = new Date().toISOString();
     followUp.lastError = undefined;
-    this.persist();
+    this.persist(['serviceBotState']);
   }
 
   failServiceBotFollowUp(id: string, error: unknown): void {
@@ -1906,7 +1949,7 @@ export class Storage {
     if (followUp.status === 'scheduled') followUp.runAt = new Date(Date.now() + 60_000).toISOString();
     followUp.updatedAt = new Date().toISOString();
     followUp.lastError = error instanceof Error ? error.message : String(error);
-    this.persist();
+    this.persist(['serviceBotState']);
   }
 
   clearServiceBotSessions(botId?: string): number {
@@ -1915,7 +1958,7 @@ export class Storage {
     for (const followUp of this.data.serviceBotFollowUps) {
       if (followUp.status === 'scheduled' && (!botId || followUp.botId === botId)) followUp.status = 'cancelled';
     }
-    this.persist();
+    this.persist(['serviceBotState']);
     return count;
   }
 
@@ -1925,7 +1968,7 @@ export class Storage {
 
   updateClientProfile(patch: Partial<ClientProfile>): ClientProfile {
     this.data.clientProfile = { ...this.data.clientProfile, ...patch };
-    this.persist();
+    this.persist(['clientProfile']);
     return this.getClientProfile();
   }
 
@@ -1939,7 +1982,8 @@ export class Storage {
       ...patch,
       updatedAt: new Date().toISOString(),
     };
-    this.persist();
+    // twilioOnboarding has no dedicated PostgreSQL table (see StorageTableName).
+    this.persist([]);
     return this.getTwilioOnboarding();
   }
 
@@ -1966,7 +2010,7 @@ export class Storage {
       updatedAt: now,
     };
     this.data.twilioTemplates.push(template);
-    this.persist();
+    this.persist(['twilioTemplates']);
     return { ...template, variables: { ...template.variables } };
   }
 
@@ -1979,7 +2023,7 @@ export class Storage {
       variables: patch.variables ? { ...patch.variables } : this.data.twilioTemplates[idx].variables,
       updatedAt: new Date().toISOString(),
     };
-    this.persist();
+    this.persist(['twilioTemplates']);
     const template = this.data.twilioTemplates[idx];
     return { ...template, variables: { ...template.variables } };
   }
@@ -2092,7 +2136,7 @@ export class Storage {
   addCampaign(data: Omit<Campaign, 'id'>): Campaign {
     const campaign: Campaign = { id: generateId(), ...data };
     this.data.campaigns.push(campaign);
-    this.persist();
+    this.persist(['campaigns']);
     return campaign;
   }
 
@@ -2121,7 +2165,7 @@ export class Storage {
     const idx = this.data.campaigns.findIndex((c) => c.id === id);
     if (idx === -1) return null;
     this.data.campaigns[idx] = { ...this.data.campaigns[idx], ...patch };
-    this.persist();
+    this.persist(['campaigns']);
     return this.data.campaigns[idx];
   }
 
@@ -2129,7 +2173,7 @@ export class Storage {
     const before = this.data.campaigns.length;
     this.data.campaigns = this.data.campaigns.filter((c) => c.id !== id);
     if (this.data.campaigns.length !== before) {
-      this.persist();
+      this.persist(['campaigns']);
       return true;
     }
     return false;

@@ -1,5 +1,5 @@
 import { Pool, PoolClient } from 'pg';
-import { emptyStorageData, StorageData } from './storage';
+import { emptyStorageData, StorageData, StorageTableName } from './storage';
 
 export interface DatabaseHealth {
   enabled: boolean;
@@ -9,10 +9,27 @@ export interface DatabaseHealth {
   lastWriteAt?: string;
 }
 
+/**
+ * The set of tables a persistSnapshot() call actually changed. `'all'` means
+ * "unknown or everything" and forces the full historical diff for every table -
+ * the same behavior as before this optimization existed. It is the only value
+ * that must be assumed whenever a caller's intent is not precisely known.
+ */
+export type DirtyTables = ReadonlySet<StorageTableName> | 'all';
+
+/**
+ * outbox_messages rows are mutated in place after creation (status transitions),
+ * unlike campaign_events, so they can't use an append-only fast path. Instead each
+ * persist() call names the exact row id(s) it changed. 'all' means "unknown, or more
+ * than one id changed in a way the caller didn't track" and forces the full
+ * per-row comparison - the same behavior as before this optimization existed.
+ */
+export type DirtyOutboxRows = ReadonlySet<string> | 'all';
+
 export interface StorageBackend {
   mode: 'postgres';
   loadSnapshot(): Promise<StorageData | null>;
-  persistSnapshot(data: StorageData): void;
+  persistSnapshot(data: StorageData, dirtyTables: DirtyTables, dirtyOutboxRows: DirtyOutboxRows): void;
   flush(): Promise<void>;
   close(): Promise<void>;
   health(): DatabaseHealth;
@@ -222,6 +239,8 @@ class PostgresStorageBackend implements StorageBackend {
   private initialized = false;
   private persistedSnapshot: StorageData | null = null;
   private queuedSnapshot: StorageData | null = null;
+  private queuedDirtyTables: DirtyTables = new Set();
+  private queuedOutboxRows: DirtyOutboxRows = new Set();
   private draining = false;
 
   constructor(private readonly pool: Pool) {}
@@ -238,8 +257,13 @@ class PostgresStorageBackend implements StorageBackend {
     return snapshot;
   }
 
-  persistSnapshot(data: StorageData): void {
+  persistSnapshot(data: StorageData, dirtyTables: DirtyTables, dirtyOutboxRows: DirtyOutboxRows): void {
     this.queuedSnapshot = data;
+    // Union dirty tables across coalesced writes. If either this call or an
+    // earlier still-queued one is 'all', the whole coalesced batch must be
+    // treated as 'all' - we can never know less than the least-informed caller.
+    this.queuedDirtyTables = mergeDirtyTables(this.queuedDirtyTables, dirtyTables);
+    this.queuedOutboxRows = mergeDirtyOutboxRows(this.queuedOutboxRows, dirtyOutboxRows);
     this.pendingWrites = 1;
     if (this.draining) return;
 
@@ -251,9 +275,16 @@ class PostgresStorageBackend implements StorageBackend {
     try {
       while (this.queuedSnapshot) {
         const source = this.queuedSnapshot;
+        const dirtyTables = this.queuedDirtyTables;
+        const dirtyOutboxRows = this.queuedOutboxRows;
         this.queuedSnapshot = null;
+        // Reset to empty sets, not 'all': this starts the *next* accumulation
+        // round clean. Resetting to 'all' would poison every future write forever,
+        // since merge('all', anything) is always 'all'.
+        this.queuedDirtyTables = new Set();
+        this.queuedOutboxRows = new Set();
         const snapshot = cloneSnapshot(source);
-        await writeSnapshotDelta(this.pool, this.persistedSnapshot, snapshot);
+        await writeSnapshotDelta(this.pool, this.persistedSnapshot, snapshot, dirtyTables, dirtyOutboxRows);
         this.persistedSnapshot = snapshot;
         this.lastError = undefined;
         this.lastWriteAt = new Date().toISOString();
@@ -297,6 +328,19 @@ class PostgresStorageBackend implements StorageBackend {
 
 function cloneSnapshot(data: StorageData): StorageData {
   return sanitizeJsonForPostgres(JSON.parse(JSON.stringify(data))) as StorageData;
+}
+
+// Exported for test scripts that verify the dirty-table skip logic against a
+// mocked pg.Pool (see scripts/test-postgres-dirty-tables.js) - not part of the
+// public runtime API.
+export function mergeDirtyTables(a: DirtyTables, b: DirtyTables): DirtyTables {
+  if (a === 'all' || b === 'all') return 'all';
+  return new Set([...a, ...b]);
+}
+
+export function mergeDirtyOutboxRows(a: DirtyOutboxRows, b: DirtyOutboxRows): DirtyOutboxRows {
+  if (a === 'all' || b === 'all') return 'all';
+  return new Set([...a, ...b]);
 }
 
 function sanitizeJsonForPostgres(value: unknown): unknown {
@@ -512,18 +556,26 @@ async function writeSnapshot(pool: Pool, data: StorageData): Promise<void> {
  * Runtime persistence updates normalized tables only. app_state remains an
  * import/rollback checkpoint; startup and exports overlay these tables onto it.
  */
-async function writeSnapshotDelta(pool: Pool, previous: StorageData | null, data: StorageData): Promise<void> {
+export async function writeSnapshotDelta(pool: Pool, previous: StorageData | null, data: StorageData, dirtyTables: DirtyTables, dirtyOutboxRows: DirtyOutboxRows): Promise<void> {
+  // A table absent from dirtyTables was provably untouched by whatever mutated
+  // `data` since `previous` was captured (persist() call sites name every table
+  // they change; see StorageTableName in storage.ts). Skipping its diff entirely
+  // is safe: previous[table] and data[table] cannot differ. 'all' (unknown caller
+  // intent, or the first write after startup when `previous` is null) always
+  // checks everything, matching the pre-optimization behavior exactly.
+  const isDirty = (table: StorageTableName): boolean => !previous || dirtyTables === 'all' || dirtyTables.has(table);
+
   await pool.query('begin');
   try {
 
-    if (!previous || !sameJson(previous.adminSettings, data.adminSettings)) {
+    if (isDirty('adminSettings') && (!previous || !sameJson(previous.adminSettings, data.adminSettings))) {
       await pool.query(
         `insert into admin_settings(id, data, updated_at) values ('current', $1, now())
          on conflict (id) do update set data = excluded.data, updated_at = now()`,
         [jsonbParam(data.adminSettings)],
       );
     }
-    if (!previous || !sameJson(previous.clientProfile, data.clientProfile)) {
+    if (isDirty('clientProfile') && (!previous || !sameJson(previous.clientProfile, data.clientProfile))) {
       await pool.query(
         `insert into client_profile(id, data, updated_at) values ('current', $1, now())
          on conflict (id) do update set data = excluded.data, updated_at = now()`,
@@ -531,30 +583,124 @@ async function writeSnapshotDelta(pool: Pool, previous: StorageData | null, data
       );
     }
 
-    await syncRowsDelta(pool, 'campaigns', previous?.campaigns ?? [], data.campaigns, (item) => item.id, (item) => [item.id, item.triggerPhrase, item.active, item.runtimeStatus ?? null, item]);
-    await syncRowsDelta(pool, 'campaign_results', previous?.campaignResults ?? [], data.campaignResults, (item) => item.id, (item) => [item.id, item.campaignId, item.resultBatchId ?? null, item.phone, item.status, item.lastStage ?? null, nullableDate(item.triggeredAt), nullableDate(item.updatedAt), item]);
-    await syncRowsDelta(pool, 'campaign_events', previous?.campaignEvents ?? [], data.campaignEvents, (item) => item.id, (item) => [item.id, item.campaignId, item.campaignResultId ?? null, item.resultBatchId ?? null, item.phone ?? null, item.type, item.dedupeKey ?? null, nullableDate(item.createdAt), item]);
-    await syncRowsDelta(pool, 'contact_queue', previous?.contactQueue ?? [], data.contactQueue, (item) => item.id, (item) => [item.id, item.phone, item.status, nullableDate(item.nextAttemptAt), item.attempts, item, nullableDate(item.updatedAt)]);
-    await syncRowsDelta(pool, 'saved_contacts', previous?.contactsList ?? [], data.contactsList, (item) => item.phone, (item) => [item.phone, item.name, nullableDate(item.savedAt), item]);
-    await syncRowsDelta(pool, 'uploaded_files', previous?.uploadedFiles ?? [], data.uploadedFiles, (item) => item.id, (item) => [item.id, item.filename, item.mimeType, item.size, item, nullableDate(item.createdAt)]);
-    await syncRowsDelta(pool, 'twilio_templates', previous?.twilioTemplates ?? [], data.twilioTemplates, (item) => item.id, (item) => [item.id, item.status, item, nullableDate(item.updatedAt)]);
-    await syncRowsDelta(pool, 'outbox_messages', previous?.outboxMessages ?? [], data.outboxMessages ?? [], (item) => item.id, (item) => [item.id, item.kind, item.to, item.status, item.attempts, item.providerMessageId ?? null, item.idempotencyKey ?? null, nullableDate(item.processingStartedAt), nullableDate(item.nextAttemptAt), nullableDate(item.createdAt), nullableDate(item.updatedAt), item]);
-    await syncConversationStateDelta(pool, previous?.conversationStateSnapshot?.conversations ?? {}, data.conversationStateSnapshot?.conversations ?? {});
-    await syncRowsDelta(pool, 'scheduled_jobs', previous?.scheduledJobs ?? [], data.scheduledJobs ?? [], (item) => item.id, (item) => [item.id, item.kind, item.targetId, nullableDate(item.runAt), item.status, item.attempts, item, nullableDate(item.updatedAt)]);
-    const previousServiceBotState = previous ? serviceBotStateFromSnapshot(previous) : null;
-    const nextServiceBotState = serviceBotStateFromSnapshot(data);
-    if (!previousServiceBotState || !sameJson(previousServiceBotState, nextServiceBotState)) {
-      await pool.query(
-        `insert into service_bot_state(id, data, updated_at) values ('current', $1, now())
-         on conflict (id) do update set data = excluded.data, updated_at = now()`,
-        [jsonbParam(nextServiceBotState)],
-      );
+    if (isDirty('campaigns')) {
+      await syncRowsDelta(pool, 'campaigns', previous?.campaigns ?? [], data.campaigns, (item) => item.id, (item) => [item.id, item.triggerPhrase, item.active, item.runtimeStatus ?? null, item]);
+    }
+    if (isDirty('campaignResults')) {
+      await syncRowsDelta(pool, 'campaign_results', previous?.campaignResults ?? [], data.campaignResults, (item) => item.id, (item) => [item.id, item.campaignId, item.resultBatchId ?? null, item.phone, item.status, item.lastStage ?? null, nullableDate(item.triggeredAt), nullableDate(item.updatedAt), item]);
+    }
+    if (isDirty('campaignEvents')) {
+      await syncCampaignEventsDelta(pool, previous?.campaignEvents ?? [], data.campaignEvents);
+    }
+    if (isDirty('contactQueue')) {
+      await syncRowsDelta(pool, 'contact_queue', previous?.contactQueue ?? [], data.contactQueue, (item) => item.id, (item) => [item.id, item.phone, item.status, nullableDate(item.nextAttemptAt), item.attempts, item, nullableDate(item.updatedAt)]);
+    }
+    if (isDirty('contactsList')) {
+      await syncRowsDelta(pool, 'saved_contacts', previous?.contactsList ?? [], data.contactsList, (item) => item.phone, (item) => [item.phone, item.name, nullableDate(item.savedAt), item]);
+    }
+    if (isDirty('uploadedFiles')) {
+      await syncRowsDelta(pool, 'uploaded_files', previous?.uploadedFiles ?? [], data.uploadedFiles, (item) => item.id, (item) => [item.id, item.filename, item.mimeType, item.size, item, nullableDate(item.createdAt)]);
+    }
+    if (isDirty('twilioTemplates')) {
+      await syncRowsDelta(pool, 'twilio_templates', previous?.twilioTemplates ?? [], data.twilioTemplates, (item) => item.id, (item) => [item.id, item.status, item, nullableDate(item.updatedAt)]);
+    }
+    if (isDirty('outboxMessages')) {
+      // previous === null (first write ever, e.g. after a fresh deploy) has no
+      // baseline to compare specific rows against - always do the full sync then.
+      await syncOutboxMessagesDelta(pool, previous?.outboxMessages ?? [], data.outboxMessages ?? [], previous ? dirtyOutboxRows : 'all');
+    }
+    if (isDirty('conversationStateSnapshot')) {
+      await syncConversationStateDelta(pool, previous?.conversationStateSnapshot?.conversations ?? {}, data.conversationStateSnapshot?.conversations ?? {});
+    }
+    if (isDirty('scheduledJobs')) {
+      await syncRowsDelta(pool, 'scheduled_jobs', previous?.scheduledJobs ?? [], data.scheduledJobs ?? [], (item) => item.id, (item) => [item.id, item.kind, item.targetId, nullableDate(item.runAt), item.status, item.attempts, item, nullableDate(item.updatedAt)]);
+    }
+    if (isDirty('serviceBotState')) {
+      const previousServiceBotState = previous ? serviceBotStateFromSnapshot(previous) : null;
+      const nextServiceBotState = serviceBotStateFromSnapshot(data);
+      if (!previousServiceBotState || !sameJson(previousServiceBotState, nextServiceBotState)) {
+        await pool.query(
+          `insert into service_bot_state(id, data, updated_at) values ('current', $1, now())
+           on conflict (id) do update set data = excluded.data, updated_at = now()`,
+          [jsonbParam(nextServiceBotState)],
+        );
+      }
     }
 
     await pool.query('commit');
   } catch (err) {
     await pool.query('rollback');
     throw err;
+  }
+}
+
+/**
+ * campaign_events rows are append-only in normal operation (recordCampaignEvent
+ * only ever pushes; nothing in storage.ts mutates an existing event's fields).
+ * The one exception is resetCampaignData, which removes a campaign's events by
+ * filtering the array. We detect that safely and cheaply: if `previous` is a
+ * true prefix of `data` by id (a fast id-only comparison, not a full deep
+ * comparison), only the new tail needs to be synced. If the id sequence doesn't
+ * match a simple append (a reset, or any other reordering), fall back to the
+ * exact same full comparison used before this optimization - always correct,
+ * just not fast for that one case.
+ */
+export async function syncCampaignEventsDelta(pool: Pool, previousRows: StorageData['campaignEvents'], nextRows: StorageData['campaignEvents']): Promise<void> {
+  const isAppendOnly = nextRows.length >= previousRows.length
+    && previousRows.every((row, index) => nextRows[index]?.id === row.id);
+  const rowsToUpsert = isAppendOnly ? nextRows.slice(previousRows.length) : nextRows;
+  const rowsToCompareAgainst = isAppendOnly ? [] : previousRows;
+  await syncRowsDelta(
+    pool,
+    'campaign_events',
+    rowsToCompareAgainst,
+    rowsToUpsert,
+    (item) => item.id,
+    (item) => [item.id, item.campaignId, item.campaignResultId ?? null, item.resultBatchId ?? null, item.phone ?? null, item.type, item.dedupeKey ?? null, nullableDate(item.createdAt), item],
+  );
+}
+
+function outboxMessageParams(item: StorageData['outboxMessages'][number]): unknown[] {
+  return [item.id, item.kind, item.to, item.status, item.attempts, item.providerMessageId ?? null, item.idempotencyKey ?? null, nullableDate(item.processingStartedAt), nullableDate(item.nextAttemptAt), nullableDate(item.createdAt), nullableDate(item.updatedAt), item];
+}
+
+/**
+ * outbox_messages rows are mutated in place after creation (status transitions),
+ * so unlike campaign_events they can't use an append-only fast path. Instead every
+ * persist() call names the exact row id(s) it changed (see StorageTableName and
+ * persist() in storage.ts). When `touchedIds` is a concrete set, we look up only
+ * those rows directly - no scan of the other thousands of unrelated messages.
+ *
+ * Safety net: nothing in storage.ts currently removes an outbox message, but if
+ * that ever changes, or if any untouched row's content differs for a reason we
+ * don't know about, the cheap structural check below (comparing the untouched
+ * portion's *count*, not its content) catches it and falls back to the exact full
+ * comparison used before this optimization - always correct, just not fast for
+ * that one case.
+ */
+export async function syncOutboxMessagesDelta(pool: Pool, previousRows: StorageData['outboxMessages'], nextRows: StorageData['outboxMessages'], touchedIds: DirtyOutboxRows): Promise<void> {
+  const fullSync = () => syncRowsDelta(pool, 'outbox_messages', previousRows, nextRows, (item) => item.id, outboxMessageParams);
+
+  if (touchedIds === 'all') return fullSync();
+
+  const untouchedPreviousCount = previousRows.filter((row) => !touchedIds.has(row.id)).length;
+  const untouchedNextCount = nextRows.filter((row) => !touchedIds.has(row.id)).length;
+  if (untouchedPreviousCount !== untouchedNextCount) return fullSync();
+
+  const previousById = new Map(previousRows.map((row) => [row.id, row]));
+  const nextById = new Map(nextRows.map((row) => [row.id, row]));
+  for (const id of touchedIds) {
+    const row = nextById.get(id);
+    if (!row) {
+      // Named as touched but no longer present - only reachable if something
+      // removes outbox messages in the future. Handle it correctly rather than
+      // silently doing nothing.
+      if (previousById.has(id)) await pool.query('delete from outbox_messages where id = $1', [id]);
+      continue;
+    }
+    const previousRow = previousById.get(id);
+    if (previousRow && sameJson(previousRow, row)) continue;
+    await upsertRow(pool, 'outbox_messages', outboxMessageParams(row));
   }
 }
 
