@@ -3,11 +3,12 @@
 /**
  * Benchmark, not a correctness test: reproduces the exact scale measured on a real
  * client (client-yhvdyt-pytns-meta-3fe79d6d: 12,869 outbox messages, 18,641 campaign
- * events) and times a single persist() cycle before vs after the dirty-table skip -
- * i.e. dirty='all' (every call site untagged, the pre-optimization behavior) vs
- * dirty={'outboxMessages'} (one call site correctly tagged, matching e.g.
- * markOutboxSent). No real PostgreSQL needed - only the in-process clone + diff cost
- * is measured, via a mocked pool that returns instantly.
+ * events, and a comparably large campaign_results history) and times a single
+ * persist() cycle before vs after the dirty-table + row-level skip - i.e. the
+ * original full sameJson scan of every table vs every call site correctly tagged
+ * with the exact row id(s) it touched (outboxMessages and campaignResults both).
+ * No real PostgreSQL needed - only the in-process clone + diff cost is measured,
+ * via a mocked pool that returns instantly.
  */
 
 const { writeSnapshotDelta } = require('../dist/database');
@@ -31,7 +32,7 @@ function sameJsonOld(left, right) {
 }
 async function originalFullDiff(pool, previous, data) {
   await pool.query('begin');
-  for (const [table, key] of [['outboxMessages', 'id'], ['campaignEvents', 'id'], ['campaignResults', 'id'], ['contactQueue', 'id']]) {
+  for (const [table, key] of [['outboxMessages', 'id'], ['campaignEvents', 'id'], ['campaignResults', 'id'], ['contactQueue', 'id'], ['contactsList', 'phone']]) {
     const prevRows = previous ? previous[table] : [];
     const nextRows = data[table];
     const prevMap = new Map(prevRows.map((r) => [r[key], r]));
@@ -49,7 +50,7 @@ function makeMockPool() {
   return { query: () => Promise.resolve({ rows: [], rowCount: 0 }) };
 }
 
-function buildLargeSnapshot(outboxCount, eventCount) {
+function buildLargeSnapshot(outboxCount, eventCount, resultCount) {
   const now = new Date().toISOString();
   const outboxMessages = [];
   for (let i = 0; i < outboxCount; i += 1) {
@@ -64,7 +65,14 @@ function buildLargeSnapshot(outboxCount, eventCount) {
       id: 'e' + i, campaignId: 'c1', campaignResultId: 'r' + (i % 500), type: 'step_sent', createdAt: now,
     });
   }
-  return { ...emptyStorageData(), outboxMessages, campaignEvents };
+  const campaignResults = [];
+  for (let i = 0; i < resultCount; i += 1) {
+    campaignResults.push({
+      id: 'r' + i, campaignId: 'c1', phone: 'whatsapp:97250000' + (i % 1000), status: 'pending',
+      lastStage: 'decision_sent', triggeredAt: now, updatedAt: now,
+    });
+  }
+  return { ...emptyStorageData(), outboxMessages, campaignEvents, campaignResults };
 }
 
 // cloneSnapshot() is what PostgresStorageBackend does before calling writeSnapshotDelta;
@@ -73,11 +81,11 @@ function cloneLike(data) {
   return JSON.parse(JSON.stringify(data));
 }
 
-async function timeOne(previous, next, dirty, dirtyOutboxRows, label) {
+async function timeOne(previous, next, dirty, dirtyRowIds, label) {
   const pool = makeMockPool();
   const t0 = Date.now();
   const clonedNext = cloneLike(next); // mirror PostgresStorageBackend's cloneSnapshot cost
-  await writeSnapshotDelta(pool, previous, clonedNext, dirty, dirtyOutboxRows);
+  await writeSnapshotDelta(pool, previous, clonedNext, dirty, dirtyRowIds);
   const ms = Date.now() - t0;
   console.log(`${label}: ${ms}ms`);
   return ms;
@@ -86,13 +94,17 @@ async function timeOne(previous, next, dirty, dirtyOutboxRows, label) {
 (async () => {
   const OUTBOX_COUNT = 12_869;
   const EVENT_COUNT = 18_641;
-  console.log(`Scale: ${OUTBOX_COUNT} outbox messages, ${EVENT_COUNT} campaign events (matches the live client that was slow).\n`);
+  const RESULT_COUNT = 12_869; // same order of magnitude as outbox history for this client
+  console.log(`Scale: ${OUTBOX_COUNT} outbox messages, ${EVENT_COUNT} campaign events, ${RESULT_COUNT} campaign results (matches the live client that was slow).\n`);
 
-  const previous = buildLargeSnapshot(OUTBOX_COUNT, EVENT_COUNT);
-  // Simulate exactly one real mutation: markOutboxSent on a single existing message.
+  const previous = buildLargeSnapshot(OUTBOX_COUNT, EVENT_COUNT, RESULT_COUNT);
+  // Simulate exactly one real mutation: markOutboxSent on a single existing message,
+  // plus the campaignResult it's tied to moving forward a stage (recordCampaignEvent).
   const next = cloneLike(previous);
   next.outboxMessages[0].status = 'sent';
   next.outboxMessages[0].updatedAt = new Date().toISOString();
+  next.campaignResults[0].lastStage = 'decision_answered';
+  next.campaignResults[0].updatedAt = new Date().toISOString();
 
   const beforePool = makeMockPool();
   const t0 = Date.now();
@@ -100,9 +112,13 @@ async function timeOne(previous, next, dirty, dirtyOutboxRows, label) {
   const beforeMs = Date.now() - t0;
   console.log(`BEFORE (original: full sameJson scan of every table, every persist()): ${beforeMs}ms`);
 
-  const afterMs = await timeOne(previous, next, new Set(['outboxMessages']), new Set(['m0']), 'AFTER  (dirty={outboxMessages}, row m0 tagged)');
+  const afterMs = await timeOne(
+    previous, next, new Set(['outboxMessages', 'campaignResults']),
+    { outboxMessages: new Set(['m0']), campaignResults: new Set(['r0']) },
+    'AFTER  (dirty={outboxMessages,campaignResults}, rows m0/r0 tagged)',
+  );
 
-  console.log(`\nSpeedup for one single-table touch: ${(beforeMs / Math.max(afterMs, 1)).toFixed(1)}x`);
+  console.log(`\nSpeedup for one combined touch: ${(beforeMs / Math.max(afterMs, 1)).toFixed(1)}x`);
 
   // ── Realistic scenario: sending ONE decision-question message end to end, exactly
   // as messageFlow.ts does it - enqueueOutboxMessage, claimOutboxMessage,
@@ -130,8 +146,10 @@ async function timeOne(previous, next, dirty, dirtyOutboxRows, label) {
     const pool = makeMockPool();
     const t = Date.now();
     const clonedNext = cloneLike(next);
-    const dirtyOutboxRows = tags.includes('outboxMessages') ? new Set(['m0']) : new Set();
-    await writeSnapshotDelta(pool, previous, clonedNext, new Set(tags), dirtyOutboxRows);
+    const dirtyRowIds = {};
+    if (tags.includes('outboxMessages')) dirtyRowIds.outboxMessages = new Set(['m0']);
+    if (tags.includes('campaignResults')) dirtyRowIds.campaignResults = new Set(['r0']);
+    await writeSnapshotDelta(pool, previous, clonedNext, new Set(tags), dirtyRowIds);
     afterTotalMs += Date.now() - t;
   }
   console.log(`AFTER  total for 4 calls: ${afterTotalMs}ms`);

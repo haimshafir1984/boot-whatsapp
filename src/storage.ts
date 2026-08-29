@@ -731,12 +731,17 @@ export function emptyStorageData(): StorageData {
 
 // ─── Storage class ────────────────────────────────────────────────────────────
 
+/** The tables that support row-level dirty tracking - each of their rows is
+ * mutated in place after creation, so pinpointing exactly which id(s) changed
+ * lets the backend skip re-comparing the rest of a potentially large table. */
+const ROW_TRACKED_TABLES: readonly StorageTableName[] = ['outboxMessages', 'campaignResults', 'contactQueue', 'contactsList'];
+
 export interface StoragePersistBackend {
   mode: 'postgres';
   persistSnapshot(
     data: StorageData,
     dirtyTables: ReadonlySet<StorageTableName> | 'all',
-    dirtyOutboxRows: ReadonlySet<string> | 'all',
+    dirtyRowIds: Partial<Record<StorageTableName, ReadonlySet<string> | 'all'>>,
   ): void;
   flush(): Promise<void>;
   close(): Promise<void>;
@@ -862,18 +867,21 @@ export class Storage {
    * empty, e.g. a field with no dedicated Postgres table). The PostgreSQL backend
    * uses this to skip re-diffing tables nothing touched. The JSON-file backend
    * ignores it and always rewrites the whole file, so behavior there is unchanged.
-   * @param outboxMessageId When 'outboxMessages' is in dirtyTables and exactly one
-   * specific row changed (true at every current call site), naming it here lets the
-   * backend skip re-comparing every other outbox message. Omit when multiple or
-   * unknown rows changed - the backend then safely compares every row, exactly as
-   * before this optimization.
+   * @param dirtyRowIds For any of ROW_TRACKED_TABLES that's in dirtyTables: the
+   * exact row id(s) (or a single id) that changed, letting the backend skip
+   * re-comparing the rest of that table. Omit a table's entry when multiple or
+   * unknown rows changed - the backend then safely compares every row in it,
+   * exactly as before this optimization.
    */
-  private persist(dirtyTables: StorageTableName[], outboxMessageId?: string): void {
+  private persist(dirtyTables: StorageTableName[], dirtyRowIds: Partial<Record<StorageTableName, string | readonly string[]>> = {}): void {
     if (this.backend) {
-      const dirtyOutboxRows = dirtyTables.includes('outboxMessages')
-        ? (outboxMessageId ? new Set([outboxMessageId]) : 'all' as const)
-        : new Set<string>();
-      this.backend.persistSnapshot(this.data, new Set(dirtyTables), dirtyOutboxRows);
+      const rowIds: Partial<Record<StorageTableName, ReadonlySet<string> | 'all'>> = {};
+      for (const table of ROW_TRACKED_TABLES) {
+        if (!dirtyTables.includes(table)) continue;
+        const ids = dirtyRowIds[table];
+        rowIds[table] = ids === undefined ? 'all' : new Set(Array.isArray(ids) ? ids : [ids]);
+      }
+      this.backend.persistSnapshot(this.data, new Set(dirtyTables), rowIds);
       return;
     }
 
@@ -903,6 +911,11 @@ export class Storage {
     await this.backend?.close();
   }
 
+  getOutboxMessage(id: string): OutboxMessage | null {
+    const message = this.data.outboxMessages.find((item) => item.id === id);
+    return message ? this.copyOutboxMessage(message) : null;
+  }
+
   enqueueOutboxMessage(input: Omit<OutboxMessage, 'id' | 'status' | 'attempts' | 'createdAt' | 'updatedAt'>): OutboxMessage {
     const existing = input.idempotencyKey
       ? this.data.outboxMessages.find((item) => item.idempotencyKey === input.idempotencyKey)
@@ -919,7 +932,7 @@ export class Storage {
       ...input,
     };
     this.data.outboxMessages.push(message);
-    this.persist(['outboxMessages'], message.id);
+    this.persist(['outboxMessages'], { outboxMessages: message.id });
     return this.copyOutboxMessage(message);
   }
 
@@ -931,7 +944,7 @@ export class Storage {
     message.updatedAt = new Date().toISOString();
     message.processingStartedAt = message.updatedAt;
     message.lastError = undefined;
-    this.persist(['outboxMessages'], message.id);
+    this.persist(['outboxMessages'], { outboxMessages: message.id });
   }
 
   markOutboxSent(id: string, providerMessageId?: string): void {
@@ -943,7 +956,7 @@ export class Storage {
     message.processingStartedAt = undefined;
     message.lastError = undefined;
     message.updatedAt = new Date().toISOString();
-    this.persist(['outboxMessages'], message.id);
+    this.persist(['outboxMessages'], { outboxMessages: message.id });
   }
 
   markOutboxRetry(id: string, error: unknown, nextAttemptAt?: string): void {
@@ -954,7 +967,7 @@ export class Storage {
     message.nextAttemptAt = nextAttemptAt;
     message.processingStartedAt = undefined;
     message.updatedAt = new Date().toISOString();
-    this.persist(['outboxMessages'], message.id);
+    this.persist(['outboxMessages'], { outboxMessages: message.id });
   }
 
   markOutboxFailed(id: string, error: unknown): void {
@@ -965,7 +978,7 @@ export class Storage {
     message.nextAttemptAt = undefined;
     message.processingStartedAt = undefined;
     message.updatedAt = new Date().toISOString();
-    this.persist(['outboxMessages'], message.id);
+    this.persist(['outboxMessages'], { outboxMessages: message.id });
   }
 
   getOutboxMessages(limit = 100): OutboxMessage[] {
@@ -1042,7 +1055,7 @@ export class Storage {
     message.deliveryStatus = status;
     message.deliveryError = status === 'failed' ? (error || 'Delivery failed') : undefined;
     message.deliveryUpdatedAt = new Date().toISOString();
-    this.persist(['outboxMessages'], message.id);
+    this.persist(['outboxMessages'], { outboxMessages: message.id });
     return message;
   }
 
@@ -1103,7 +1116,11 @@ export class Storage {
       job.lastError = undefined;
       this.updateCampaignResultStatuses(job.campaignResultIds, 'saved', now);
     }
-    this.persist(['contactsList', 'contactQueue', 'campaignResults']);
+    this.persist(['contactsList', 'contactQueue', 'campaignResults'], {
+      contactsList: phone,
+      contactQueue: job?.id,
+      campaignResults: job?.campaignResultIds,
+    });
   }
 
   getAllContacts(): SavedContact[] {
@@ -1127,7 +1144,7 @@ export class Storage {
         existing.campaignResultIds = [...(existing.campaignResultIds ?? []), campaignResultId];
       }
       this.updateCampaignResultStatuses(existing.campaignResultIds, 'pending', now);
-      this.persist(['contactQueue', 'campaignResults']);
+      this.persist(['contactQueue', 'campaignResults'], { contactQueue: existing.id, campaignResults: existing.campaignResultIds });
       return { ...existing };
     }
 
@@ -1145,7 +1162,7 @@ export class Storage {
     };
     this.updateCampaignResultStatuses(job.campaignResultIds, 'pending', now);
     this.data.contactQueue.push(job);
-    this.persist(['contactQueue', 'campaignResults']);
+    this.persist(['contactQueue', 'campaignResults'], { contactQueue: job.id, campaignResults: job.campaignResultIds });
     return { ...job };
   }
 
@@ -1167,7 +1184,7 @@ export class Storage {
     if (!job) return null;
     job.attempts += 1;
     job.updatedAt = new Date().toISOString();
-    this.persist(['contactQueue']);
+    this.persist(['contactQueue'], { contactQueue: job.id });
     return { ...job };
   }
 
@@ -1182,7 +1199,7 @@ export class Storage {
       ? new Date(now + retryDelayMs).toISOString()
       : undefined;
     this.updateCampaignResultStatuses(job.campaignResultIds, job.status, job.updatedAt);
-    this.persist(['contactQueue', 'campaignResults']);
+    this.persist(['contactQueue', 'campaignResults'], { contactQueue: job.id, campaignResults: job.campaignResultIds });
     return { ...job };
   }
 
@@ -1337,7 +1354,7 @@ export class Storage {
       isDemo,
     };
     this.data.campaignResults.push(result);
-    this.persist(['campaignResults']);
+    this.persist(['campaignResults'], { campaignResults: result.id });
     return { ...result };
   }
 
@@ -1386,17 +1403,19 @@ export class Storage {
     const currentCode = normalizeReferralCode(result.referralCode);
     if (!/^[A-Z]{1,2}\d{4}$/.test(currentCode)) {
       const nextCode = this.generateUniqueReferralCode(result.campaignId, result.phone);
+      const touchedResultIds = [result.id];
       if (currentCode) {
         result.referralCodeAliases = [...new Set([...(result.referralCodeAliases || []), currentCode])];
         for (const invitee of this.data.campaignResults) {
           if (invitee.campaignId !== result.campaignId) continue;
           if (invitee.referredByResultId === result.id || normalizeReferralCode(invitee.referredByCode) === currentCode) {
             invitee.referredByCode = nextCode;
+            touchedResultIds.push(invitee.id);
           }
         }
       }
       result.referralCode = nextCode;
-      this.persist(['campaignResults']);
+      this.persist(['campaignResults'], { campaignResults: touchedResultIds });
     }
     return result.referralCode || '';
   }
@@ -1462,7 +1481,7 @@ export class Storage {
     result.lastEventAt = now;
     result.updatedAt = now;
     if (fallbackName !== undefined) result.fallbackName = fallbackName;
-    this.persist(['campaignResults']);
+    this.persist(['campaignResults'], { campaignResults: resultId });
   }
 
   queueAwaitingNameCampaignResults(campaignId: string, resultBatchId?: string): { queued: number; skipped: number } {
@@ -1471,6 +1490,7 @@ export class Storage {
     const campaignName = campaign?.name?.trim() || 'קמפיין';
     let queued = 0;
     let skipped = 0;
+    const touchedResultIds: string[] = [];
 
     for (const result of this.data.campaignResults) {
       if (result.campaignId !== campaignId || result.status !== 'awaiting_name' || !this.matchesResultBatch(result.resultBatchId, resultBatchId)) continue;
@@ -1482,12 +1502,13 @@ export class Storage {
       if (job) {
         result.lastStage = 'manually_queued_stuck';
         result.lastEventAt = new Date().toISOString();
+        touchedResultIds.push(result.id);
         queued += 1;
       } else {
         skipped += 1;
       }
     }
-    if (queued || skipped) this.persist(['campaignResults']);
+    if (queued || skipped) this.persist(['campaignResults'], { campaignResults: touchedResultIds });
     return { queued, skipped };
   }
 
@@ -1497,6 +1518,7 @@ export class Storage {
     const campaignName = campaign?.name?.trim() || 'Campaign';
     let queued = 0;
     let skipped = 0;
+    const touchedResultIds: string[] = [];
 
     for (const result of this.data.campaignResults) {
       if (result.campaignId !== campaignId || result.status === 'saved' || !this.matchesResultBatch(result.resultBatchId, resultBatchId)) continue;
@@ -1508,12 +1530,13 @@ export class Storage {
       if (job) {
         result.lastStage = 'manually_queued_unsaved';
         result.lastEventAt = new Date().toISOString();
+        touchedResultIds.push(result.id);
         queued += 1;
       } else {
         skipped += 1;
       }
     }
-    if (queued || skipped) this.persist(['campaignResults']);
+    if (queued || skipped) this.persist(['campaignResults'], { campaignResults: touchedResultIds });
     return { queued, skipped };
   }
   getCampaignResults(campaignId?: string, resultBatchId?: string): CampaignResult[] {
@@ -1532,7 +1555,7 @@ export class Storage {
     result.emailCollectedAt = collectedAt;
     result.updatedAt = collectedAt;
     result.lastEventAt = collectedAt;
-    this.persist(['campaignResults']);
+    this.persist(['campaignResults'], { campaignResults: resultId });
   }
 
   recordScoreAnswer(resultId: string | undefined, input: Omit<CampaignScoreAnswer, 'answeredAt'>): void {
@@ -1549,7 +1572,7 @@ export class Storage {
     result.scoreTotal = answers.reduce((sum, answer) => sum + answer.score, 0);
     result.updatedAt = answeredAt;
     result.lastEventAt = answeredAt;
-    this.persist(['campaignResults']);
+    this.persist(['campaignResults'], { campaignResults: resultId });
   }
 
   getCampaignScoreAnswers(resultId: string | undefined): CampaignScoreAnswer[] {
@@ -1583,7 +1606,10 @@ export class Storage {
         result.updatedAt = saved.createdAt;
       }
     }
-    this.persist(event.campaignResultId ? ['campaignEvents', 'campaignResults'] : ['campaignEvents']);
+    this.persist(
+      event.campaignResultId ? ['campaignEvents', 'campaignResults'] : ['campaignEvents'],
+      event.campaignResultId ? { campaignResults: event.campaignResultId } : undefined,
+    );
     return { ...saved };
   }
 

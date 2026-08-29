@@ -10,7 +10,11 @@
  */
 
 const assert = require('assert');
-const { writeSnapshotDelta, syncCampaignEventsDelta, syncOutboxMessagesDelta, mergeDirtyTables, mergeDirtyOutboxRows } = require('../dist/database');
+const {
+  writeSnapshotDelta, syncCampaignEventsDelta, syncOutboxMessagesDelta,
+  syncCampaignResultsDelta, syncContactQueueDelta, syncContactsListDelta,
+  mergeDirtyTables, mergeDirtyOutboxRows, mergeDirtyRowIdsByTable,
+} = require('../dist/database');
 const { emptyStorageData } = require('../dist/storage');
 
 function makeMockPool() {
@@ -47,7 +51,7 @@ function campaignEvent(id, overrides = {}) {
   {
     const pool = makeMockPool();
     const snap = baseSnapshot();
-    await writeSnapshotDelta(pool, snap, snap, new Set(), new Set());
+    await writeSnapshotDelta(pool, snap, snap, new Set(), {});
     const nonTxn = pool.calls.filter((c) => !/^(begin|commit|rollback)$/i.test(c.sql));
     assert.strictEqual(nonTxn.length, 0, `expected no table queries when nothing is dirty, got: ${JSON.stringify(nonTxn)}`);
   }
@@ -57,7 +61,7 @@ function campaignEvent(id, overrides = {}) {
     const pool = makeMockPool();
     const previous = baseSnapshot();
     const next = { ...previous, outboxMessages: [{ id: 'm1', kind: 'text', to: 'x', status: 'sent', attempts: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] };
-    await writeSnapshotDelta(pool, previous, next, new Set(['outboxMessages']), new Set(['m1']));
+    await writeSnapshotDelta(pool, previous, next, new Set(['outboxMessages']), { outboxMessages: new Set(['m1']) });
     const touched = tablesTouched(pool.calls);
     assert.deepStrictEqual([...touched], ['outbox_messages'], `expected only outbox_messages touched, got: ${[...touched]}`);
     const inserts = pool.calls.filter((c) => /^insert into outbox_messages/i.test(c.sql));
@@ -73,7 +77,7 @@ function campaignEvent(id, overrides = {}) {
       campaigns: [{ id: 'c1', triggerPhrase: 'hi', active: true }],
       outboxMessages: [{ id: 'm1', kind: 'text', to: 'x', status: 'sent', attempts: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }],
     };
-    await writeSnapshotDelta(pool, null, next, new Set(), new Set());
+    await writeSnapshotDelta(pool, null, next, new Set(), {});
     const touched = tablesTouched(pool.calls);
     assert.ok(touched.has('campaigns'), 'first write must sync campaigns even though the dirty set is empty');
     assert.ok(touched.has('outbox_messages'), 'first write must sync outbox_messages even though the dirty set is empty');
@@ -194,6 +198,89 @@ function campaignEvent(id, overrides = {}) {
     const inserts = pool.calls.filter((c) => /^insert into outbox_messages/i.test(c.sql));
     assert.strictEqual(inserts.length, 1, "'all' must still correctly detect the one real change via full comparison");
     assert.strictEqual(inserts[0].params[0], 'm2');
+  }
+
+  // 13. mergeDirtyRowIdsByTable: merges per-table, union within a table, 'all'
+  //     poisons only that table (not the whole map).
+  {
+    const merged = mergeDirtyRowIdsByTable(
+      { campaignResults: new Set(['r1']), contactQueue: new Set(['q1']) },
+      { campaignResults: new Set(['r2']), outboxMessages: new Set(['m1']) },
+    );
+    assert.deepStrictEqual([...merged.campaignResults].sort(), ['r1', 'r2']);
+    assert.deepStrictEqual([...merged.contactQueue], ['q1']);
+    assert.deepStrictEqual([...merged.outboxMessages], ['m1']);
+    const poisoned = mergeDirtyRowIdsByTable({ campaignResults: new Set(['r1']) }, { campaignResults: 'all' });
+    assert.strictEqual(poisoned.campaignResults, 'all');
+  }
+
+  function campaignResult(id, overrides = {}) {
+    const now = new Date().toISOString();
+    return { id, campaignId: 'c1', phone: 'x', status: 'pending', triggeredAt: now, updatedAt: now, ...overrides };
+  }
+  function contactQueueJob(id, overrides = {}) {
+    const now = new Date().toISOString();
+    return { id, phone: 'x', status: 'pending', attempts: 0, createdAt: now, updatedAt: now, ...overrides };
+  }
+  function savedContact(phone, overrides = {}) {
+    return { phone, name: 'x', savedAt: new Date().toISOString(), ...overrides };
+  }
+
+  // 14. campaignResults row-level fast path: only the tagged id is compared/
+  //     upserted among thousands of unrelated results (the exact shape of the
+  //     bottleneck a client with a large history was hitting on every message step).
+  {
+    const pool = makeMockPool();
+    const many = Array.from({ length: 5000 }, (_, i) => campaignResult('other' + i));
+    const previous = [...many, campaignResult('r1', { status: 'pending' })];
+    const next = previous.map((row) => (row.id === 'r1' ? { ...row, status: 'saved', updatedAt: new Date().toISOString() } : row));
+    const t0 = Date.now();
+    await syncCampaignResultsDelta(pool, previous, next, new Set(['r1']));
+    const ms = Date.now() - t0;
+    const inserts = pool.calls.filter((c) => /^insert into campaign_results/i.test(c.sql));
+    assert.strictEqual(inserts.length, 1, `only the touched result should be upserted, got ${inserts.length}`);
+    assert.strictEqual(inserts[0].params[0], 'r1');
+    assert.ok(ms < 50, `row-level sync of 5000 results with 1 touched id should be near-instant, took ${ms}ms`);
+  }
+
+  // 15. campaignResults safety net: an untracked removal is still caught via the
+  //     untouched-count fallback, not silently missed.
+  {
+    const pool = makeMockPool();
+    const previous = [campaignResult('r1'), campaignResult('untracked-removed')];
+    const next = [campaignResult('r1', { status: 'saved' })];
+    await syncCampaignResultsDelta(pool, previous, next, new Set(['r1']));
+    const deletes = pool.calls.filter((c) => /^delete from campaign_results/i.test(c.sql));
+    assert.strictEqual(deletes.length, 1, 'an untracked removal must still be caught by the fallback');
+    assert.deepStrictEqual(deletes[0].params[0], ['untracked-removed']);
+  }
+
+  // 16. contactQueue row-level fast path: same pattern, keyed by job id.
+  {
+    const pool = makeMockPool();
+    const many = Array.from({ length: 1000 }, (_, i) => contactQueueJob('other' + i));
+    const previous = [...many, contactQueueJob('q1', { status: 'pending' })];
+    const next = previous.map((row) => (row.id === 'q1' ? { ...row, status: 'saved' } : row));
+    await syncContactQueueDelta(pool, previous, next, new Set(['q1']));
+    const inserts = pool.calls.filter((c) => /^insert into contact_queue/i.test(c.sql));
+    assert.strictEqual(inserts.length, 1, `only the touched job should be upserted, got ${inserts.length}`);
+    assert.strictEqual(inserts[0].params[0], 'q1');
+  }
+
+  // 17. contactsList (saved_contacts) row-level fast path: keyed by phone, not id -
+  //     also verifies the delete-by-phone column path for an untracked removal.
+  {
+    const pool = makeMockPool();
+    const many = Array.from({ length: 1000 }, (_, i) => savedContact('other' + i));
+    const previous = [...many, savedContact('972500000001'), savedContact('untracked-removed-phone')];
+    const next = [...many, savedContact('972500000001', { name: 'Updated Name' })];
+    await syncContactsListDelta(pool, previous, next, new Set(['972500000001']));
+    const inserts = pool.calls.filter((c) => /^insert into saved_contacts/i.test(c.sql));
+    assert.strictEqual(inserts.length, 1, `only the touched contact should be upserted, got ${inserts.length}`);
+    assert.strictEqual(inserts[0].params[0], '972500000001');
+    const deletes = pool.calls.filter((c) => /^delete from saved_contacts/i.test(c.sql));
+    assert.strictEqual(deletes.length, 1, 'the untracked phone removal must still be caught by the fallback');
+    assert.deepStrictEqual(deletes[0].params[0], ['untracked-removed-phone']);
   }
 
   console.log('PostgreSQL dirty-table skip logic tests passed.');

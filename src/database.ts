@@ -18,18 +18,26 @@ export interface DatabaseHealth {
 export type DirtyTables = ReadonlySet<StorageTableName> | 'all';
 
 /**
- * outbox_messages rows are mutated in place after creation (status transitions),
- * unlike campaign_events, so they can't use an append-only fast path. Instead each
- * persist() call names the exact row id(s) it changed. 'all' means "unknown, or more
- * than one id changed in a way the caller didn't track" and forces the full
- * per-row comparison - the same behavior as before this optimization existed.
+ * Rows in a mutated-in-place table (outbox_messages, campaign_results,
+ * contact_queue, saved_contacts) can't use an append-only fast path the way
+ * campaign_events does. Instead each persist() call names the exact row id(s)
+ * it changed. 'all' means "unknown, or more than the caller tracked" and
+ * forces the full per-row comparison - the same behavior as before this
+ * optimization existed.
  */
-export type DirtyOutboxRows = ReadonlySet<string> | 'all';
+export type DirtyRowIds = ReadonlySet<string> | 'all';
+/** @deprecated kept as an alias so existing imports keep working; use DirtyRowIds. */
+export type DirtyOutboxRows = DirtyRowIds;
+
+/** Per-table row-id tracking, for the tables that support it. A table absent
+ * from this map is either not dirty, or not row-trackable - its own full sync
+ * (or append-only fast path) runs unaffected. */
+export type DirtyRowIdsByTable = Partial<Record<StorageTableName, DirtyRowIds>>;
 
 export interface StorageBackend {
   mode: 'postgres';
   loadSnapshot(): Promise<StorageData | null>;
-  persistSnapshot(data: StorageData, dirtyTables: DirtyTables, dirtyOutboxRows: DirtyOutboxRows): void;
+  persistSnapshot(data: StorageData, dirtyTables: DirtyTables, dirtyRowIds: DirtyRowIdsByTable): void;
   flush(): Promise<void>;
   close(): Promise<void>;
   health(): DatabaseHealth;
@@ -240,7 +248,7 @@ class PostgresStorageBackend implements StorageBackend {
   private persistedSnapshot: StorageData | null = null;
   private queuedSnapshot: StorageData | null = null;
   private queuedDirtyTables: DirtyTables = new Set();
-  private queuedOutboxRows: DirtyOutboxRows = new Set();
+  private queuedDirtyRowIds: DirtyRowIdsByTable = {};
   private draining = false;
 
   constructor(private readonly pool: Pool) {}
@@ -257,13 +265,13 @@ class PostgresStorageBackend implements StorageBackend {
     return snapshot;
   }
 
-  persistSnapshot(data: StorageData, dirtyTables: DirtyTables, dirtyOutboxRows: DirtyOutboxRows): void {
+  persistSnapshot(data: StorageData, dirtyTables: DirtyTables, dirtyRowIds: DirtyRowIdsByTable): void {
     this.queuedSnapshot = data;
     // Union dirty tables across coalesced writes. If either this call or an
     // earlier still-queued one is 'all', the whole coalesced batch must be
     // treated as 'all' - we can never know less than the least-informed caller.
     this.queuedDirtyTables = mergeDirtyTables(this.queuedDirtyTables, dirtyTables);
-    this.queuedOutboxRows = mergeDirtyOutboxRows(this.queuedOutboxRows, dirtyOutboxRows);
+    this.queuedDirtyRowIds = mergeDirtyRowIdsByTable(this.queuedDirtyRowIds, dirtyRowIds);
     this.pendingWrites = 1;
     if (this.draining) return;
 
@@ -276,15 +284,15 @@ class PostgresStorageBackend implements StorageBackend {
       while (this.queuedSnapshot) {
         const source = this.queuedSnapshot;
         const dirtyTables = this.queuedDirtyTables;
-        const dirtyOutboxRows = this.queuedOutboxRows;
+        const dirtyRowIds = this.queuedDirtyRowIds;
         this.queuedSnapshot = null;
-        // Reset to empty sets, not 'all': this starts the *next* accumulation
+        // Reset to empty, not 'all': this starts the *next* accumulation
         // round clean. Resetting to 'all' would poison every future write forever,
         // since merge('all', anything) is always 'all'.
         this.queuedDirtyTables = new Set();
-        this.queuedOutboxRows = new Set();
+        this.queuedDirtyRowIds = {};
         const snapshot = cloneSnapshot(source);
-        await writeSnapshotDelta(this.pool, this.persistedSnapshot, snapshot, dirtyTables, dirtyOutboxRows);
+        await writeSnapshotDelta(this.pool, this.persistedSnapshot, snapshot, dirtyTables, dirtyRowIds);
         this.persistedSnapshot = snapshot;
         this.lastError = undefined;
         this.lastWriteAt = new Date().toISOString();
@@ -338,9 +346,21 @@ export function mergeDirtyTables(a: DirtyTables, b: DirtyTables): DirtyTables {
   return new Set([...a, ...b]);
 }
 
-export function mergeDirtyOutboxRows(a: DirtyOutboxRows, b: DirtyOutboxRows): DirtyOutboxRows {
+export function mergeDirtyOutboxRows(a: DirtyRowIds, b: DirtyRowIds): DirtyRowIds {
   if (a === 'all' || b === 'all') return 'all';
   return new Set([...a, ...b]);
+}
+/** Alias with the general name; mergeDirtyOutboxRows is kept for existing callers/tests. */
+export const mergeDirtyRowIds = mergeDirtyOutboxRows;
+
+export function mergeDirtyRowIdsByTable(a: DirtyRowIdsByTable, b: DirtyRowIdsByTable): DirtyRowIdsByTable {
+  const merged: DirtyRowIdsByTable = { ...a };
+  for (const table of Object.keys(b) as StorageTableName[]) {
+    const bValue = b[table];
+    if (bValue === undefined) continue;
+    merged[table] = mergeDirtyRowIds(merged[table] ?? new Set<string>(), bValue);
+  }
+  return merged;
 }
 
 function sanitizeJsonForPostgres(value: unknown): unknown {
@@ -556,7 +576,7 @@ async function writeSnapshot(pool: Pool, data: StorageData): Promise<void> {
  * Runtime persistence updates normalized tables only. app_state remains an
  * import/rollback checkpoint; startup and exports overlay these tables onto it.
  */
-export async function writeSnapshotDelta(pool: Pool, previous: StorageData | null, data: StorageData, dirtyTables: DirtyTables, dirtyOutboxRows: DirtyOutboxRows): Promise<void> {
+export async function writeSnapshotDelta(pool: Pool, previous: StorageData | null, data: StorageData, dirtyTables: DirtyTables, dirtyRowIds: DirtyRowIdsByTable): Promise<void> {
   // A table absent from dirtyTables was provably untouched by whatever mutated
   // `data` since `previous` was captured (persist() call sites name every table
   // they change; see StorageTableName in storage.ts). Skipping its diff entirely
@@ -564,6 +584,9 @@ export async function writeSnapshotDelta(pool: Pool, previous: StorageData | nul
   // intent, or the first write after startup when `previous` is null) always
   // checks everything, matching the pre-optimization behavior exactly.
   const isDirty = (table: StorageTableName): boolean => !previous || dirtyTables === 'all' || dirtyTables.has(table);
+  // previous === null (first write ever, e.g. after a fresh deploy) has no
+  // baseline to compare specific rows against - always do the full sync then.
+  const rowIdsFor = (table: StorageTableName): DirtyRowIds => (previous ? (dirtyRowIds[table] ?? 'all') : 'all');
 
   await pool.query('begin');
   try {
@@ -587,16 +610,16 @@ export async function writeSnapshotDelta(pool: Pool, previous: StorageData | nul
       await syncRowsDelta(pool, 'campaigns', previous?.campaigns ?? [], data.campaigns, (item) => item.id, (item) => [item.id, item.triggerPhrase, item.active, item.runtimeStatus ?? null, item]);
     }
     if (isDirty('campaignResults')) {
-      await syncRowsDelta(pool, 'campaign_results', previous?.campaignResults ?? [], data.campaignResults, (item) => item.id, (item) => [item.id, item.campaignId, item.resultBatchId ?? null, item.phone, item.status, item.lastStage ?? null, nullableDate(item.triggeredAt), nullableDate(item.updatedAt), item]);
+      await syncCampaignResultsDelta(pool, previous?.campaignResults ?? [], data.campaignResults, rowIdsFor('campaignResults'));
     }
     if (isDirty('campaignEvents')) {
       await syncCampaignEventsDelta(pool, previous?.campaignEvents ?? [], data.campaignEvents);
     }
     if (isDirty('contactQueue')) {
-      await syncRowsDelta(pool, 'contact_queue', previous?.contactQueue ?? [], data.contactQueue, (item) => item.id, (item) => [item.id, item.phone, item.status, nullableDate(item.nextAttemptAt), item.attempts, item, nullableDate(item.updatedAt)]);
+      await syncContactQueueDelta(pool, previous?.contactQueue ?? [], data.contactQueue, rowIdsFor('contactQueue'));
     }
     if (isDirty('contactsList')) {
-      await syncRowsDelta(pool, 'saved_contacts', previous?.contactsList ?? [], data.contactsList, (item) => item.phone, (item) => [item.phone, item.name, nullableDate(item.savedAt), item]);
+      await syncContactsListDelta(pool, previous?.contactsList ?? [], data.contactsList, rowIdsFor('contactsList'));
     }
     if (isDirty('uploadedFiles')) {
       await syncRowsDelta(pool, 'uploaded_files', previous?.uploadedFiles ?? [], data.uploadedFiles, (item) => item.id, (item) => [item.id, item.filename, item.mimeType, item.size, item, nullableDate(item.createdAt)]);
@@ -605,9 +628,7 @@ export async function writeSnapshotDelta(pool: Pool, previous: StorageData | nul
       await syncRowsDelta(pool, 'twilio_templates', previous?.twilioTemplates ?? [], data.twilioTemplates, (item) => item.id, (item) => [item.id, item.status, item, nullableDate(item.updatedAt)]);
     }
     if (isDirty('outboxMessages')) {
-      // previous === null (first write ever, e.g. after a fresh deploy) has no
-      // baseline to compare specific rows against - always do the full sync then.
-      await syncOutboxMessagesDelta(pool, previous?.outboxMessages ?? [], data.outboxMessages ?? [], previous ? dirtyOutboxRows : 'all');
+      await syncOutboxMessagesDelta(pool, previous?.outboxMessages ?? [], data.outboxMessages ?? [], rowIdsFor('outboxMessages'));
     }
     if (isDirty('conversationStateSnapshot')) {
       await syncConversationStateDelta(pool, previous?.conversationStateSnapshot?.conversations ?? {}, data.conversationStateSnapshot?.conversations ?? {});
@@ -664,44 +685,79 @@ function outboxMessageParams(item: StorageData['outboxMessages'][number]): unkno
   return [item.id, item.kind, item.to, item.status, item.attempts, item.providerMessageId ?? null, item.idempotencyKey ?? null, nullableDate(item.processingStartedAt), nullableDate(item.nextAttemptAt), nullableDate(item.createdAt), nullableDate(item.updatedAt), item];
 }
 
+function campaignResultParams(item: StorageData['campaignResults'][number]): unknown[] {
+  return [item.id, item.campaignId, item.resultBatchId ?? null, item.phone, item.status, item.lastStage ?? null, nullableDate(item.triggeredAt), nullableDate(item.updatedAt), item];
+}
+function contactQueueParams(item: StorageData['contactQueue'][number]): unknown[] {
+  return [item.id, item.phone, item.status, nullableDate(item.nextAttemptAt), item.attempts, item, nullableDate(item.updatedAt)];
+}
+function contactsListParams(item: StorageData['contactsList'][number]): unknown[] {
+  return [item.phone, item.name, nullableDate(item.savedAt), item];
+}
+
 /**
- * outbox_messages rows are mutated in place after creation (status transitions),
- * so unlike campaign_events they can't use an append-only fast path. Instead every
- * persist() call names the exact row id(s) it changed (see StorageTableName and
- * persist() in storage.ts). When `touchedIds` is a concrete set, we look up only
- * those rows directly - no scan of the other thousands of unrelated messages.
+ * Rows in these tables are mutated in place after creation (status
+ * transitions, field updates), so unlike campaign_events they can't use an
+ * append-only fast path. Instead every persist() call names the exact row
+ * id(s) it changed (see StorageTableName and persist() in storage.ts). When
+ * `touchedIds` is a concrete set, we look up only those rows directly - no
+ * scan of the rest of the table.
  *
- * Safety net: nothing in storage.ts currently removes an outbox message, but if
- * that ever changes, or if any untouched row's content differs for a reason we
- * don't know about, the cheap structural check below (comparing the untouched
- * portion's *count*, not its content) catches it and falls back to the exact full
- * comparison used before this optimization - always correct, just not fast for
- * that one case.
+ * Safety net: if a bulk removal path doesn't tag every id it drops, or any
+ * untouched row's content differs for a reason we don't know about, the cheap
+ * structural check below (comparing the untouched portion's *count*, not its
+ * content) catches it and falls back to the exact full comparison used before
+ * this optimization - always correct, just not fast for that one case.
  */
-export async function syncOutboxMessagesDelta(pool: Pool, previousRows: StorageData['outboxMessages'], nextRows: StorageData['outboxMessages'], touchedIds: DirtyOutboxRows): Promise<void> {
-  const fullSync = () => syncRowsDelta(pool, 'outbox_messages', previousRows, nextRows, (item) => item.id, outboxMessageParams);
+async function syncRowsDeltaTracked<T extends Record<string, any>>(
+  pool: Pool,
+  table: string,
+  previousRows: T[],
+  nextRows: T[],
+  keyOf: (row: T) => string,
+  values: (row: T) => unknown[],
+  touchedIds: DirtyRowIds,
+): Promise<void> {
+  const fullSync = () => syncRowsDelta(pool, table, previousRows, nextRows, keyOf, values);
 
   if (touchedIds === 'all') return fullSync();
 
-  const untouchedPreviousCount = previousRows.filter((row) => !touchedIds.has(row.id)).length;
-  const untouchedNextCount = nextRows.filter((row) => !touchedIds.has(row.id)).length;
+  const untouchedPreviousCount = previousRows.filter((row) => !touchedIds.has(keyOf(row))).length;
+  const untouchedNextCount = nextRows.filter((row) => !touchedIds.has(keyOf(row))).length;
   if (untouchedPreviousCount !== untouchedNextCount) return fullSync();
 
-  const previousById = new Map(previousRows.map((row) => [row.id, row]));
-  const nextById = new Map(nextRows.map((row) => [row.id, row]));
-  for (const id of touchedIds) {
-    const row = nextById.get(id);
+  const previousByKey = new Map(previousRows.map((row) => [keyOf(row), row]));
+  const nextByKey = new Map(nextRows.map((row) => [keyOf(row), row]));
+  const keyColumn = table === 'saved_contacts' ? 'phone' : 'id';
+  for (const key of touchedIds) {
+    const row = nextByKey.get(key);
     if (!row) {
       // Named as touched but no longer present - only reachable if something
-      // removes outbox messages in the future. Handle it correctly rather than
-      // silently doing nothing.
-      if (previousById.has(id)) await pool.query('delete from outbox_messages where id = $1', [id]);
+      // removes a row of this table without tagging the removal. Handle it
+      // correctly rather than silently doing nothing.
+      if (previousByKey.has(key)) await pool.query(`delete from ${table} where ${keyColumn} = $1`, [key]);
       continue;
     }
-    const previousRow = previousById.get(id);
+    const previousRow = previousByKey.get(key);
     if (previousRow && sameJson(previousRow, row)) continue;
-    await upsertRow(pool, 'outbox_messages', outboxMessageParams(row));
+    await upsertRow(pool, table, values(row));
   }
+}
+
+export async function syncOutboxMessagesDelta(pool: Pool, previousRows: StorageData['outboxMessages'], nextRows: StorageData['outboxMessages'], touchedIds: DirtyRowIds): Promise<void> {
+  return syncRowsDeltaTracked(pool, 'outbox_messages', previousRows, nextRows, (item) => item.id, outboxMessageParams, touchedIds);
+}
+
+export async function syncCampaignResultsDelta(pool: Pool, previousRows: StorageData['campaignResults'], nextRows: StorageData['campaignResults'], touchedIds: DirtyRowIds): Promise<void> {
+  return syncRowsDeltaTracked(pool, 'campaign_results', previousRows, nextRows, (item) => item.id, campaignResultParams, touchedIds);
+}
+
+export async function syncContactQueueDelta(pool: Pool, previousRows: StorageData['contactQueue'], nextRows: StorageData['contactQueue'], touchedIds: DirtyRowIds): Promise<void> {
+  return syncRowsDeltaTracked(pool, 'contact_queue', previousRows, nextRows, (item) => item.id, contactQueueParams, touchedIds);
+}
+
+export async function syncContactsListDelta(pool: Pool, previousRows: StorageData['contactsList'], nextRows: StorageData['contactsList'], touchedIds: DirtyRowIds): Promise<void> {
+  return syncRowsDeltaTracked(pool, 'saved_contacts', previousRows, nextRows, (item) => item.phone, contactsListParams, touchedIds);
 }
 
 function serviceBotStateFromSnapshot(data: StorageData): Pick<StorageData,

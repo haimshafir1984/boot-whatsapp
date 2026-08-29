@@ -19,6 +19,17 @@ const DECISION_REPLY_TIMEOUT_MS = 30 * 60 * 1000;
 const HUMAN_HANDOFF_WINDOW_MS = 24 * 60 * 60 * 1000;
 const ASK_NAME_RETRY_DELAY_MS = 5_000;
 const FILE_SEND_RETRY_DELAY_MS = 5_000;
+// Meta accepting a media send call means "queued for delivery", not "already
+// visible in the recipient's chat" - a heavy video can still be transcoding
+// server-side while a later, lighter text message sails straight through and
+// arrives first. Waiting for the actual delivery webhook (bounded by a
+// timeout, so a missing/slow webhook can never stall the conversation
+// forever) keeps the order the user actually sees matching the order we sent.
+const FILE_DELIVERY_WAIT_TIMEOUT_MS = Math.max(
+  0,
+  Number.isFinite(config.FILE_DELIVERY_WAIT_TIMEOUT_MS) ? config.FILE_DELIVERY_WAIT_TIMEOUT_MS : 20_000,
+);
+const FILE_DELIVERY_POLL_INTERVAL_MS = 300;
 const TEXT_SEND_RETRY_DELAY_MS = 3_000;
 const TEXT_SEND_ATTEMPTS = 2;
 const BOT_REPLY_DELAY_MS = Math.max(
@@ -3045,6 +3056,28 @@ function formatFileFailureFallback(caption?: string): string {
   return cleanCaption || failureText;
 }
 
+/**
+ * Only meaningful for Meta Cloud API: that's the only provider that feeds
+ * delivery-status webhooks into storage.recordOutboxDelivery() (adminServer.ts's
+ * handleMetaStatusesForStorage). For Baileys/WhatsApp Web and Twilio, deliveryStatus
+ * never gets set, so this would just burn the full timeout on every file for no
+ * benefit - callers must gate on the provider themselves.
+ */
+async function waitForOutboxFileDelivery(storage: Storage, outboxId: string, label: string): Promise<void> {
+  const deadline = Date.now() + FILE_DELIVERY_WAIT_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const message = storage.getOutboxMessage(outboxId);
+    // Message vanished (shouldn't happen) - nothing left to wait on.
+    if (!message) return;
+    if (message.deliveryStatus === 'delivered' || message.deliveryStatus === 'read' || message.deliveryStatus === 'failed') return;
+    await sleep(FILE_DELIVERY_POLL_INTERVAL_MS);
+  }
+  // Timed out: proceed anyway rather than stall the conversation forever if the
+  // delivery webhook is slow or never arrives - better a rare reordering than a
+  // stuck flow.
+  console.warn(`[FILE_DELIVERY_WAIT_TIMEOUT] "${label}" - proceeding without delivery confirmation.`);
+}
+
 async function sendFileWithRetry(
   transport: WhatsAppTransport,
   to: string,
@@ -3076,6 +3109,7 @@ async function sendFileWithRetry(
     if (storage && outbox) {
       storage.markOutboxSent(outbox.id, providerMessageId(result));
       await storage.flush();
+      if (config.WHATSAPP_PROVIDER === 'META_CLOUD_API') await waitForOutboxFileDelivery(storage, outbox.id, label);
     }
     console.log(`[SEND_OK] file "${label}"`);
     return;
@@ -3106,6 +3140,7 @@ async function sendFileWithRetry(
     if (storage && outbox) {
       storage.markOutboxSent(outbox.id, providerMessageId(result));
       await storage.flush();
+      if (config.WHATSAPP_PROVIDER === 'META_CLOUD_API') await waitForOutboxFileDelivery(storage, outbox.id, label);
     }
     console.log(`[SEND_OK] file "${label}" after retry`);
   } catch (err) {
