@@ -12,10 +12,15 @@ const { extractReferralCode } = require('../dist/triggerDetector');
 class FakeTransport { constructor() { this.sent = []; } async resolvePhone(jid) { return String(jid).replace(/\D/g, ''); } async sendMessage(to, text) { this.sent.push({ type: 'text', to, text }); } async sendInteractiveButtons(to, text, buttons) { this.sent.push({ type: 'buttons', to, text, buttons }); } }
 let messageId = 0;
 async function inbound(storage, transport, phone, body, isButtonReply = false) { messageId += 1; await handleIncomingWhatsAppMessage({ id: `referral-test-${messageId}`, from: `whatsapp:${phone}`, body, hasUserSignal: true, isButtonReply, timestamp: Math.floor(Date.now() / 1000), async getDisplayName() { return 'Flow User'; } }, storage, transport, 'webhook'); }
+function pendingTimeoutMs(phone) {
+  const handle = conversationState.findByPhone(phone)?.timeoutHandle;
+  return Number(handle?._idleTimeout || 0);
+}
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'referral-ranking-test-'));
 const storage = new Storage(path.join(tempDir, 'storage.json'));
 (async () => { try {
   const campaign = storage.addCampaign({ name: 'Referral ranking', triggerType: 1, triggerPhrase: 'join', suffix: '', active: true, conversation: { askNameEnabled: false, nameTimeoutMinutes: 5, askNameText: '', replyText: '', followupMessages: [], decisionFlow: [{ id: 'referral-hub', kind: 'question', presentation: 'buttons', text: 'Choose', options: [{ id: 'link', text: 'Personal link', action: 'referral_link', endText: 'Your link: {referral_link}', nextStepId: 'referral-hub' }, { id: 'leaders', text: 'Leaders', action: 'referral_leaderboard', referralLeaderboardDisplay: 'names_only', endText: 'Current leaders:', nextStepId: 'referral-hub' }, { id: 'rank', text: 'My rank', action: 'referral_my_rank', endText: 'Rank {rank}; referrals {referrals}', nextStepId: 'done' }] }, { id: 'done', kind: 'message', text: 'Done' }] } });
+  const shortHubCampaign = storage.addCampaign({ name: 'Short referral hub', triggerType: 1, triggerPhrase: 'short-hub', suffix: '', active: true, conversation: { askNameEnabled: false, nameTimeoutMinutes: 5, askNameText: '', replyText: '', followupMessages: [], decisionFlow: [{ id: 'short-referral-hub', kind: 'question', referralHub: true, presentation: 'buttons', text: 'Choose', timeoutSeconds: 7200, options: [{ id: 'rank', text: 'My rank', action: 'referral_my_rank', endText: 'Rank {rank}' }, { id: 'leaders', text: 'Leaders', action: 'referral_leaderboard', endText: 'Leaders' }] }] } });
   const leader = storage.recordCampaignTrigger(campaign.id, '972500000001', 'Leader'); const second = storage.recordCampaignTrigger(campaign.id, '972500000002', 'Second');
   assert.strictEqual(leader.referralCode, 'A0001', 'referral code must use a letter and the last four phone digits');
   const collisionStorage = new Storage(path.join(tempDir, 'collision-storage.json'));
@@ -42,6 +47,9 @@ const storage = new Storage(path.join(tempDir, 'storage.json'));
   const rows = storage.getCampaignReferralLeaderboard(campaign.id); assert.strictEqual(rows.find((row) => row.phone === leader.phone).invited, 2, 'duplicate invitee must count once'); assert.strictEqual(rows.find((row) => row.phone === second.phone).invited, 1);
   const rank = storage.getCampaignReferralRank(campaign.id, leader.phone); assert.deepStrictEqual({ rank: rank.rank, invited: rank.invited, nextGap: rank.nextGap }, { rank: 1, invited: 2, nextGap: 0 });
   const transport = new FakeTransport(); const flowPhone = '972500000009'; await inbound(storage, transport, flowPhone, 'join'); await inbound(storage, transport, flowPhone, 'link', true);
+  assert.strictEqual(pendingTimeoutMs(flowPhone), 86400000, 'referral hubs without an explicit step timeout must stay active for 24 hours');
+  const shortHubPhone = '972500000011'; await inbound(storage, transport, shortHubPhone, 'short-hub'); assert.strictEqual(pendingTimeoutMs(shortHubPhone), 7200000, 'explicit referral hub step timeout must override the 24-hour default');
+  const switchPhone = '972500000012'; await inbound(storage, transport, switchPhone, 'join'); await inbound(storage, transport, switchPhone, 'short-hub'); const switchedPending = conversationState.findByPhone(switchPhone); assert.strictEqual(switchedPending?.campaignId, shortHubCampaign.id, 'a new campaign trigger must replace the old referral hub pending state for the same phone'); assert.strictEqual(switchedPending?.stepId, 'short-referral-hub', 'old campaign buttons must not remain active after starting another campaign');
   const personalLinkMessage = transport.sent.find((item) => item.type === 'text' && item.text.includes('Your link:'));
   assert(personalLinkMessage?.text.includes('הגעתי דרך הסטטוס של A0009'), `personal-link action must send the readable status attribution: ${personalLinkMessage?.text || 'missing'}`); assert(transport.sent.filter((item) => item.type === 'buttons' && item.to === `whatsapp:${flowPhone}`).length >= 2, 'referral menu must remain open after an action');
   await inbound(storage, transport, flowPhone, 'leaders', true); const leaderboardMessage = transport.sent.findLast((item) => item.type === 'text' && item.text.includes('Current leaders:')); assert(leaderboardMessage, 'leaderboard action must send the configured heading'); assert(leaderboardMessage.text.includes('🏆 מקום 1:'), 'leaderboard must use RTL-safe rank labels instead of dotted numbers'); assert(leaderboardMessage.text.includes('\u2066Leader\u2069'), 'Latin names must be isolated to avoid RTL/LTR reordering in WhatsApp'); assert(!leaderboardMessage.text.includes('מצטרפות'), 'names-only leaderboard must hide referral counts');
@@ -50,5 +58,7 @@ const storage = new Storage(path.join(tempDir, 'storage.json'));
   storage.startNewCampaignResultBatch(campaign.id); storage.recordCampaignTrigger(campaign.id, '972500000002', 'Second, new batch'); const currentRows = storage.getCampaignReferralLeaderboard(campaign.id); assert.strictEqual(currentRows.length, 1, 'leaderboard must use only current batch'); assert.strictEqual(currentRows[0].phone, second.phone);
   conversationState.remove(`whatsapp:${flowPhone}`);
   conversationState.remove(`whatsapp:${countedFlowPhone}`);
+  conversationState.remove(`whatsapp:${shortHubPhone}`);
+  conversationState.remove(`whatsapp:${switchPhone}`);
   console.log('Referral ranking and menu tests passed.');
 } finally { fs.rmSync(tempDir, { recursive: true, force: true }); } })().catch((err) => { console.error(err); process.exit(1); });

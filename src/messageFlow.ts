@@ -465,6 +465,11 @@ function decisionStepTimeoutMs(step: DecisionFlowStep | undefined, fallbackMinut
   return Math.min(Math.max(minutes || 30, 0.001), 1440) * 60 * 1000;
 }
 
+function decisionFallbackTimeoutMinutes(step: DecisionFlowStep | undefined, fallbackMinutes: number): number {
+  if (step && isReferralHubStep(step)) return 1440;
+  return fallbackMinutes;
+}
+
 async function waitBeforeBotReply(delayMs = BOT_REPLY_DELAY_MS): Promise<void> {
   assertTimeoutContinuationActive();
   if (delayMs > 0) await sleep(delayMs);
@@ -2362,9 +2367,12 @@ function armWaitReplyTimeout(
 ): void {
   const timeoutMs = decisionStepTimeoutMs(
     step,
-    humanHandoff.decisionTimeoutMinutes && humanHandoff.decisionTimeoutMinutes > 0
-      ? humanHandoff.decisionTimeoutMinutes
-      : DECISION_REPLY_TIMEOUT_MS / 60_000,
+    decisionFallbackTimeoutMinutes(
+      step,
+      humanHandoff.decisionTimeoutMinutes && humanHandoff.decisionTimeoutMinutes > 0
+        ? humanHandoff.decisionTimeoutMinutes
+        : DECISION_REPLY_TIMEOUT_MS / 60_000,
+    ),
   );
   const timestamp = Date.now();
   const timeoutHandle = scheduleSerializedPendingTimeout(
@@ -2581,9 +2589,12 @@ async function sendDecisionStep(
   // below, preserving today's exact "no pending state on total failure" behavior.
   const timeoutMs = decisionStepTimeoutMs(
     step,
-    humanHandoff.decisionTimeoutMinutes && humanHandoff.decisionTimeoutMinutes > 0
-      ? humanHandoff.decisionTimeoutMinutes
-      : DECISION_REPLY_TIMEOUT_MS / 60_000,
+    decisionFallbackTimeoutMinutes(
+      step,
+      humanHandoff.decisionTimeoutMinutes && humanHandoff.decisionTimeoutMinutes > 0
+        ? humanHandoff.decisionTimeoutMinutes
+        : DECISION_REPLY_TIMEOUT_MS / 60_000,
+    ),
   );
   const timestamp = Date.now();
   const timeoutHandle = scheduleSerializedPendingTimeout(
