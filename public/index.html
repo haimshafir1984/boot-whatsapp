@@ -3700,6 +3700,11 @@
               <option value="text" ${presentation === 'text' ? 'selected' : ''}>טקסט ממוספר</option>
             </select>
           </div>
+          <div class="decision-next-row" data-question-list-button style="display:none">
+            <label>טקסט על כפתור הרשימה</label>
+            <input data-step-list-button-text type="text" maxlength="20" value="${esc(step.listButtonText || 'לשאלות 👇')}" oninput="updateCampaignConversationPreview()" placeholder="לשאלות 👇" />
+            <span>עד 20 תווים</span>
+          </div>
           <div data-question-timeout style="display:none;margin:8px 0 10px;padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc">
             <div class="decision-next-row">
               <label>אם לא ענו בשלב</label>
@@ -3974,7 +3979,7 @@
       return;
     }
     if (type === 'list') {
-      addDecisionStep({ id: makeFlowId(), kind: 'question', text: '', presentation: 'list', options: [{ id: makeFlowId('option'), text: '', endText: '' }] });
+      addDecisionStep({ id: makeFlowId(), kind: 'question', text: '', presentation: 'list', listButtonText: 'לשאלות 👇', options: [{ id: makeFlowId('option'), text: '', endText: '' }] });
       return;
     }
     if (type === 'message') {
@@ -4154,6 +4159,7 @@
       const messageNext = step.querySelector('[data-message-next]');
       const scoreResult = step.querySelector('[data-score-result]');
       const questionPresentation = step.querySelector('[data-question-presentation]');
+      const questionListButton = step.querySelector('[data-question-list-button]');
       const questionTimeout = step.querySelector('[data-question-timeout]');
       const optionsPanel = step.querySelector('[data-options]');
       if (messageNext) messageNext.style.display = (kind === 'message' || kind === 'wait_reply' || kind === 'email_capture' || kind === 'contact_card' || kind === 'referral_share') ? '' : 'none';
@@ -4167,6 +4173,7 @@
       if (referralTokenHelp) referralTokenHelp.style.display = kind === 'referral_share' ? '' : 'none';
       if (messageSticker) messageSticker.style.display = kind === 'message' ? '' : 'none';
       if (questionPresentation) questionPresentation.style.display = isChoice ? '' : 'none';
+      if (questionListButton) questionListButton.style.display = isChoice && presentation === 'list' ? '' : 'none';
       if (questionTimeout) {
         questionTimeout.style.display = hasReplyTimeout ? '' : 'none';
         const timeoutMode = questionTimeout.querySelector('[data-step-timeout-mode]')?.value || 'stop';
@@ -4388,6 +4395,10 @@
           if (timeoutText) item.timeoutText = timeoutText;
           if (item.timeoutMode === 'continue' && timeoutNextStepId) item.timeoutNextStepId = timeoutNextStepId;
           item.presentation = step.querySelector('[data-step-presentation]')?.value || 'buttons';
+          if (item.presentation === 'list') {
+            const listButtonText = step.querySelector('[data-step-list-button-text]')?.value.trim() || '';
+            if (listButtonText) item.listButtonText = listButtonText.slice(0, 20);
+          }
           item.options = [...step.querySelectorAll('[data-decision-option]')]
             .map(option => {
               const text = option.querySelector('[data-option-text]').value.trim();

@@ -404,7 +404,7 @@ export class DokployProvisioner {
     if (current.serviceExpiresAt) {
       envLines.push(`CLIENT_SERVICE_EXPIRES_AT=${escapeEnvValue(current.serviceExpiresAt)}`);
     }
-    const botReplyDelayMs = current.botReplyDelayMs ?? this.config.botReplyDelayMs ?? 1000;
+    const botReplyDelayMs = current.botReplyDelayMs ?? this.config.botReplyDelayMs ?? (current.whatsappProvider === 'META_CLOUD_API' ? 250 : 1000);
     if (typeof botReplyDelayMs === 'number') {
       envLines.push(`BOT_REPLY_DELAY_MS=${String(Math.max(0, Math.round(botReplyDelayMs)))}`);
     }

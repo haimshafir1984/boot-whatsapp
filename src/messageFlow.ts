@@ -32,10 +32,17 @@ const FILE_DELIVERY_WAIT_TIMEOUT_MS = Math.max(
 const FILE_DELIVERY_POLL_INTERVAL_MS = 300;
 const TEXT_SEND_RETRY_DELAY_MS = 3_000;
 const TEXT_SEND_ATTEMPTS = 2;
-const BOT_REPLY_DELAY_MS = Math.max(
+const CONFIGURED_BOT_REPLY_DELAY_MS = Math.max(
   0,
-  Number.isFinite(config.BOT_REPLY_DELAY_MS) ? config.BOT_REPLY_DELAY_MS : 1000,
+  Number.isFinite(config.BOT_REPLY_DELAY_MS) ? config.BOT_REPLY_DELAY_MS : (config.WHATSAPP_PROVIDER === 'META_CLOUD_API' ? 250 : 1000),
 );
+// Existing Meta clients may still have BOT_REPLY_DELAY_MS=1000 in Dokploy.
+// Cap only the provider-level default so current campaigns become snappier
+// after deploy, while explicit per-step delays configured in the flow still
+// keep their intended timing.
+const BOT_REPLY_DELAY_MS = config.WHATSAPP_PROVIDER === 'META_CLOUD_API'
+  ? Math.min(CONFIGURED_BOT_REPLY_DELAY_MS, 250)
+  : CONFIGURED_BOT_REPLY_DELAY_MS;
 const FLOW_STEP_FAILURE_CONTINUE_DELAY_MS = 60_000;
 const RECENT_DECISION_REPLY_TTL_MS = 15_000;
 const FLOW_RECOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -565,8 +572,9 @@ export async function handleIncomingWhatsAppMessage(
   const inboundKey = noteInboundQueued(message.senderPhone || message.from);
   try {
     await withDurableMessaging(storage, () => runSerializedForSender(message.senderPhone || message.from, `inbound:${source}`, async () => {
-      // Read receipts are independent of the reply. Start them immediately,
-      // but do not make the user wait for another Meta round-trip first.
+      // Read receipts / typing indicators are independent of the reply. Start
+      // them immediately, but do not make the user wait for another provider
+      // round-trip first.
       void markIncomingMessageReadIfEnabled(message, storage, transport, source);
       try {
         await handleMessage(message, storage, transport, source);
@@ -585,7 +593,18 @@ async function markIncomingMessageReadIfEnabled(
   transport: WhatsAppTransport,
   source: WhatsAppMessageSource,
 ): Promise<void> {
+  let typingIndicatorSent = false;
+  if (transport.showTypingIndicator) {
+    try {
+      await transport.showTypingIndicator(message);
+      typingIndicatorSent = true;
+    } catch (err) {
+      console.warn(`[TYPING_INDICATOR] failed via ${source}:`, err);
+    }
+  }
+
   if (!storage.getAdminSettings().readReceiptsEnabled) return;
+  if (typingIndicatorSent) return;
   if (!transport.markRead) {
     console.warn(`[READ_RECEIPT] markRead is not supported via ${source}.`);
     return;
@@ -2534,7 +2553,7 @@ async function sendDecisionStep(
 
   const presentation = step.presentation ?? 'buttons';
   const hasLongOptions = presentation === 'list'
-    && (step.options ?? []).some((option) => Array.from(option.text.trim()).length > 96);
+    && (step.options ?? []).some((option) => Array.from(option.text.trim()).length > 72);
 
   // Register the pending "awaiting a decision reply" state BEFORE the question
   // is actually sent, not after. Meta can deliver a button/list message to the
@@ -2599,20 +2618,22 @@ async function sendDecisionStep(
 
   let sentInteractive = false;
   try {
-    if (!hasLongOptions && presentation === 'list' && transport.sendInteractiveList && step.options?.length) {
+    if (presentation === 'list' && transport.sendInteractiveList && step.options?.length) {
       try {
         await waitBeforeBotReply(stepDelayMs);
-        const items = step.options.slice(0, 10).map((option) => buildInteractiveListItem(option));
+        const listButtonText = buildInteractiveListButtonText(step);
+        const items = step.options.slice(0, 10).map((option, optionIndex) => buildInteractiveListItem(option, optionIndex));
+        const listBodyText = hasLongOptions ? formatQuestion(step) : step.text.trim();
         await sendTrackedOutboxMessage(storage, {
           kind: 'interactive_list',
           to: senderJid,
-          text: step.text.trim(),
-          buttonText: 'בחר/י תשובה',
+          text: listBodyText,
+          buttonText: listButtonText,
           items,
           campaignId,
           campaignResultId,
           stepId: step.id,
-        }, () => transport.sendInteractiveList!(senderJid, step.text.trim(), 'בחר/י תשובה', items));
+        }, () => transport.sendInteractiveList!(senderJid, listBodyText, listButtonText, items));
         sentInteractive = true;
       } catch (err) {
         if (err instanceof TimeoutContinuationCancelledError) throw err;
@@ -3179,18 +3200,24 @@ function formatQuestion(step: DecisionFlowStep): string {
   return options ? `${step.text.trim()}\n\n${options}` : step.text.trim();
 }
 
-function buildInteractiveListItem(option: DecisionFlowOption): { id: string; text: string; description?: string } {
+function buildInteractiveListButtonText(step: DecisionFlowStep): string {
+  const configured = step.listButtonText?.trim();
+  const value = configured || 'לשאלות 👇';
+  return Array.from(value).slice(0, 20).join('');
+}
+
+function buildInteractiveListItem(option: DecisionFlowOption, index: number): { id: string; text: string; description?: string } {
   const value = option.text.trim();
   const characters = Array.from(value);
-  if (characters.length <= 24) return { id: option.id, text: value };
-
-  const titleCandidate = characters.slice(0, 24).join('');
-  const lastSpace = titleCandidate.lastIndexOf(' ');
-  const splitAt = lastSpace >= 8 ? lastSpace : 24;
-  const title = characters.slice(0, splitAt).join('').trim();
-  const description = characters.slice(splitAt, splitAt + 72).join('').trim();
-  return { id: option.id, text: title, description };
+  const numericTitle = String(index + 1);
+  if (!value) return { id: option.id, text: numericTitle };
+  return {
+    id: option.id,
+    text: numericTitle,
+    description: characters.slice(0, 72).join('').trim(),
+  };
 }
+
 
 function buildInteractiveButtonLabel(option: DecisionFlowOption, index: number): string {
   const configuredLabel = option.buttonLabel?.trim();

@@ -41,6 +41,7 @@ export interface WhatsAppTransport {
   sendInteractiveButtons?(to: string, text: string, buttons: Array<{ id: string; text: string }>): Promise<void | WhatsAppSendResult>;
   sendInteractiveList?(to: string, text: string, buttonText: string, items: InteractiveListItem[]): Promise<void | WhatsAppSendResult>;
   resolvePhone(jid: string): Promise<string>;
+  showTypingIndicator?(message: IncomingWhatsAppMessage): Promise<void>;
   markRead?(message: IncomingWhatsAppMessage): Promise<void>;
 }
 
@@ -65,5 +66,6 @@ export interface WhatsAppProvider {
     buttonText: string,
     items: InteractiveListItem[],
   ): Promise<void | WhatsAppSendResult>;
+  showTypingIndicator?(message: IncomingWhatsAppMessage): Promise<void>;
   markRead?(message: IncomingWhatsAppMessage): Promise<void>;
 }

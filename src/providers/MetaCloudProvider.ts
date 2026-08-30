@@ -99,6 +99,17 @@ export class MetaCloudProvider implements WhatsAppProvider {
     if (message.id) await this.postMessages({ messaging_product: 'whatsapp', status: 'read', message_id: message.id });
   }
 
+  async showTypingIndicator(message: IncomingWhatsAppMessage): Promise<void> {
+    if (message.id) {
+      await this.postMessages({
+        messaging_product: 'whatsapp',
+        status: 'read',
+        message_id: message.id,
+        typing_indicator: { type: 'text' },
+      });
+    }
+  }
+
   private assertConfigured(): void {
     if (!config.META_ACCESS_TOKEN || !config.META_PHONE_NUMBER_ID) {
       throw new Error('META_ACCESS_TOKEN and META_PHONE_NUMBER_ID are required for Meta Cloud API.');

@@ -33,7 +33,7 @@ export const config = {
   META_GRAPH_API_VERSION: envValue(process.env.META_GRAPH_API_VERSION, 'v23.0'),
   META_GATEWAY_BASE_URL: envValue(process.env.META_GATEWAY_BASE_URL, 'https://admin.flowsbiz.com'),
   WHATSAPP_KEEP_CONNECTED: envFlag(process.env.WHATSAPP_KEEP_CONNECTED, true),
-  BOT_REPLY_DELAY_MS: Number(process.env.BOT_REPLY_DELAY_MS ?? 1000),
+  BOT_REPLY_DELAY_MS: Number(process.env.BOT_REPLY_DELAY_MS ?? (envValue(process.env.WHATSAPP_PROVIDER, 'BAILEYS') === 'META_CLOUD_API' ? 250 : 1000)),
   FILE_DELIVERY_WAIT_TIMEOUT_MS: Number(process.env.FILE_DELIVERY_WAIT_TIMEOUT_MS ?? 20_000),
   TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID ?? process.env.DOKPLOY_TWILIO_ACCOUNT_SID ?? '',
   TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN ?? process.env.DOKPLOY_TWILIO_AUTH_TOKEN ?? '',

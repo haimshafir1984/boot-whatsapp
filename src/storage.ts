@@ -114,6 +114,8 @@ export interface DecisionFlowStep {
   id: string;
   kind: 'message' | 'wait_reply' | 'email_capture' | 'contact_card' | 'referral_share' | 'question' | 'score_question' | 'score_result';
   presentation?: 'text' | 'buttons' | 'list';
+  /** Text displayed on the WhatsApp list opener button. Meta limits it to 20 chars. */
+  listButtonText?: string;
   text: string;
   nextStepId?: string;
   delayMs?: number;
@@ -594,7 +596,7 @@ export type StorageTableName =
 const DEFAULT_SETTINGS: AdminSettings = {
   askNameEnabled: false,
   nameTimeoutMinutes: 5,
-  contactsProvider: config.WHATSAPP_PROVIDER === 'TWILIO_API' ? 'manual' : 'google',
+  contactsProvider: config.WHATSAPP_PROVIDER === 'TWILIO_API' || config.WHATSAPP_PROVIDER === 'META_CLOUD_API' ? 'manual' : 'google',
   readReceiptsEnabled: false,
   askNameText: config.ASK_NAME_TEXT,
   replyText: config.REPLY_TEXT,
