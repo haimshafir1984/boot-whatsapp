@@ -1012,6 +1012,9 @@ function sanitizeDecisionFlow(
         if (step.presentation === 'list' && typeof item.listButtonText === 'string' && item.listButtonText.trim()) {
           step.listButtonText = Array.from(item.listButtonText.trim()).slice(0, 20).join('');
         }
+        if (step.presentation === 'list') {
+          step.listSelectionDisplay = item.listSelectionDisplay === 'text' ? 'text' : 'number';
+        }
         if (typeof item.timeoutMinutes === 'number' && item.timeoutMinutes > 0) {
           step.timeoutMinutes = Math.min(Math.max(Math.round(item.timeoutMinutes), 1), 1440);
         }

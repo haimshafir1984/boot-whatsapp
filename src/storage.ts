@@ -116,6 +116,8 @@ export interface DecisionFlowStep {
   presentation?: 'text' | 'buttons' | 'list';
   /** Text displayed on the WhatsApp list opener button. Meta limits it to 20 chars. */
   listButtonText?: string;
+  /** Controls whether WhatsApp list replies show a numeric row title or the selected option text. */
+  listSelectionDisplay?: 'number' | 'text';
   text: string;
   nextStepId?: string;
   delayMs?: number;

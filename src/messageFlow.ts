@@ -2638,7 +2638,7 @@ async function sendDecisionStep(
       try {
         await waitBeforeBotReply(stepDelayMs);
         const listButtonText = buildInteractiveListButtonText(step);
-        const items = step.options.slice(0, 10).map((option, optionIndex) => buildInteractiveListItem(option, optionIndex));
+        const items = step.options.slice(0, 10).map((option, optionIndex) => buildInteractiveListItem(step, option, optionIndex));
         const listBodyText = hasLongOptions ? formatQuestion(step) : step.text.trim();
         await sendTrackedOutboxMessage(storage, {
           kind: 'interactive_list',
@@ -3222,11 +3222,18 @@ function buildInteractiveListButtonText(step: DecisionFlowStep): string {
   return Array.from(value).slice(0, 20).join('');
 }
 
-function buildInteractiveListItem(option: DecisionFlowOption, index: number): { id: string; text: string; description?: string } {
+function buildInteractiveListItem(step: DecisionFlowStep, option: DecisionFlowOption, index: number): { id: string; text: string; description?: string } {
   const value = option.text.trim();
   const characters = Array.from(value);
   const numericTitle = String(index + 1);
   if (!value) return { id: option.id, text: numericTitle };
+  if (step.listSelectionDisplay === 'text') {
+    return {
+      id: option.id,
+      text: characters.slice(0, 24).join('').trim() || numericTitle,
+      description: characters.length > 24 ? characters.slice(0, 72).join('').trim() : undefined,
+    };
+  }
   return {
     id: option.id,
     text: numericTitle,

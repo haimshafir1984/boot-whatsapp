@@ -4,8 +4,10 @@
  * Regression coverage for the Meta UX changes:
  * - Existing Dokploy clients may still carry BOT_REPLY_DELAY_MS=1000, but Meta
  *   conversations should use the capped provider default and feel fast.
- * - List questions should keep the WhatsApp picker tidy: numbered row titles,
- *   long answer copy in descriptions, and a configurable opener button.
+ * - List questions should keep the WhatsApp picker tidy by default: numbered
+ *   row titles, long answer copy in descriptions, and a configurable opener button.
+ * - Campaign owners can switch list replies to show the selected option text
+ *   instead of a bare number in the WhatsApp user bubble.
  */
 
 process.env.NODE_ENV = 'test';
@@ -64,6 +66,34 @@ function addCampaign(storage) {
   });
 }
 
+function addTextSelectionCampaign(storage) {
+  storage.addCampaign({
+    name: 'meta-list-text-selection',
+    triggerType: 1,
+    triggerPhrase: 'meta-list-text-selection',
+    suffix: '',
+    active: true,
+    conversation: {
+      askNameEnabled: false,
+      nameTimeoutMinutes: 5,
+      askNameText: '',
+      replyText: '',
+      followupMessages: [],
+      decisionFlow: [{
+        id: 'question',
+        kind: 'question',
+        presentation: 'list',
+        listSelectionDisplay: 'text',
+        text: 'בחרי שאלה שמעניינת אותך',
+        options: [
+          { id: 'one', text: 'האם כדי להגיע ליעדים אצטרך לחיות בצמצום?' },
+          { id: 'two', text: 'כבר ניסינו הכול, מה ישתנה?' },
+        ],
+      }],
+    },
+  });
+}
+
 async function inbound(storage, transport, phone, body) {
   await handleIncomingWhatsAppMessage({
     id: `meta-speed-list-${Date.now()}`,
@@ -94,7 +124,17 @@ async function inbound(storage, transport, phone, body) {
     assert.equal(list.items[0].description, 'האם כדי להגיע ליעדים אצטרך לחיות בצמצום?');
     assert.match(list.items[2].description, /אנחנו מרוויחים מעולה/);
 
+    addTextSelectionCampaign(storage);
+    const textSelectionPhone = '972500000502';
+    await inbound(storage, transport, textSelectionPhone, 'meta-list-text-selection');
+    const textSelectionList = transport.sentLists[1];
+    assert.ok(textSelectionList, 'the text-selection question must be sent as an interactive list');
+    assert.notDeepEqual(textSelectionList.items.map((item) => item.text), ['1', '2'], 'text-selection mode must not expose bare numeric row titles');
+    assert.ok(textSelectionList.items[0].text.startsWith('האם כדי להגיע'), 'first text-selection title must come from the option text');
+    assert.ok(textSelectionList.items[1].text.startsWith('כבר ניסינו'), 'second text-selection title must come from the option text');
+
     conversationState.remove(`whatsapp:${phone}`);
+    conversationState.remove(`whatsapp:${textSelectionPhone}`);
     console.log(`Meta speed/list presentation test passed in ${elapsedMs}ms.`);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });

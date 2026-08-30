@@ -3705,6 +3705,13 @@
             <input data-step-list-button-text type="text" maxlength="20" value="${esc(step.listButtonText || 'לשאלות 👇')}" oninput="updateCampaignConversationPreview()" placeholder="לשאלות 👇" />
             <span>עד 20 תווים</span>
           </div>
+          <div class="decision-next-row" data-question-list-selection style="display:none">
+            <label>מה יוצג אחרי בחירה?</label>
+            <select data-step-list-selection-display onchange="updateCampaignConversationPreview()">
+              <option value="number" ${step.listSelectionDisplay === 'text' ? '' : 'selected'}>מספר הבחירה</option>
+              <option value="text" ${step.listSelectionDisplay === 'text' ? 'selected' : ''}>טקסט הבחירה</option>
+            </select>
+          </div>
           <div data-question-timeout style="display:none;margin:8px 0 10px;padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc">
             <div class="decision-next-row">
               <label>אם לא ענו בשלב</label>
@@ -4165,6 +4172,7 @@
       const scoreResult = step.querySelector('[data-score-result]');
       const questionPresentation = step.querySelector('[data-question-presentation]');
       const questionListButton = step.querySelector('[data-question-list-button]');
+      const questionListSelection = step.querySelector('[data-question-list-selection]');
       const questionTimeout = step.querySelector('[data-question-timeout]');
       const optionsPanel = step.querySelector('[data-options]');
       if (messageNext) messageNext.style.display = (kind === 'message' || kind === 'wait_reply' || kind === 'email_capture' || kind === 'contact_card' || kind === 'referral_share') ? '' : 'none';
@@ -4179,6 +4187,7 @@
       if (messageSticker) messageSticker.style.display = kind === 'message' ? '' : 'none';
       if (questionPresentation) questionPresentation.style.display = isChoice ? '' : 'none';
       if (questionListButton) questionListButton.style.display = isChoice && presentation === 'list' ? '' : 'none';
+      if (questionListSelection) questionListSelection.style.display = isChoice && presentation === 'list' ? '' : 'none';
       if (questionTimeout) {
         questionTimeout.style.display = hasReplyTimeout ? '' : 'none';
         const timeoutMode = questionTimeout.querySelector('[data-step-timeout-mode]')?.value || 'stop';
@@ -4403,6 +4412,7 @@
           if (item.presentation === 'list') {
             const listButtonText = step.querySelector('[data-step-list-button-text]')?.value.trim() || '';
             if (listButtonText) item.listButtonText = listButtonText.slice(0, 20);
+            item.listSelectionDisplay = step.querySelector('[data-step-list-selection-display]')?.value === 'text' ? 'text' : 'number';
           }
           item.options = [...step.querySelectorAll('[data-decision-option]')]
             .map(option => {
