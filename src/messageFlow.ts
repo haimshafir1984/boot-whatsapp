@@ -2093,12 +2093,14 @@ async function handleDecisionReply(
   clearTimedOutDecision(senderPhone || senderJid);
 }
 
-function referralDisplayName(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
+function referralDisplayName(name: string, display: 'short' | 'full' = 'short'): string {
+  const cleanName = name.trim();
+  if (display === 'full') return cleanName || '\u05de\u05e9\u05ea\u05ea\u05e4\u05ea';
+  const parts = cleanName.split(/\s+/).filter(Boolean);
   return parts.length < 2 ? (parts[0] || '\u05de\u05e9\u05ea\u05ea\u05e4\u05ea') : `${parts[0]} ${parts[1].slice(0, 1)}.`;
 }
 
-const REFERRAL_RANK_LABELS = ['🏆 מקום 1:', '🥈 מקום 2:', '🥉 מקום 3:'];
+const REFERRAL_RANK_EMOJIS = ['🏆', '🥈', '🥉', '✨', '⭐', '🌟', '💫', '🔸', '🔹', '🌸'];
 const LRI = '\u2066';
 const PDI = '\u2069';
 
@@ -2106,9 +2108,9 @@ function isolateMixedDirectionText(text: string): string {
   return /[A-Za-z]/.test(text) ? `${LRI}${text}${PDI}` : text;
 }
 
-function formatReferralLeaderboardRow(row: { name: string; invited: number }, rank: number, showCounts: boolean): string {
-  const label = REFERRAL_RANK_LABELS[rank - 1] || `מקום ${rank}:`;
-  const name = isolateMixedDirectionText(referralDisplayName(row.name));
+function formatReferralLeaderboardRow(row: { name: string; invited: number }, rank: number, showCounts: boolean, nameDisplay: 'short' | 'full' = 'short'): string {
+  const label = `${REFERRAL_RANK_EMOJIS[rank - 1] || '•'} מקום ${rank}:`;
+  const name = isolateMixedDirectionText(referralDisplayName(row.name, nameDisplay));
   return showCounts ? `${label} ${name} — ${row.invited} מצטרפות` : `${label} ${name}`;
 }
 
@@ -2149,12 +2151,13 @@ async function handleReferralMenuAction(transport: WhatsAppTransport, storage: S
     }
     const rows = [...rowsByName.values()]
       .sort((a, b) => b.invited - a.invited || b.saved - a.saved || a.name.localeCompare(b.name, 'he'))
-      .slice(0, 5);
+      .slice(0, 10);
     const header = option.endText?.trim() || '\u05d4\u05de\u05d5\u05d1\u05d9\u05dc\u05d5\u05ea \u05db\u05e8\u05d2\u05e2:';
     const showCounts = option.referralLeaderboardDisplay !== 'names_only';
+    const nameDisplay = option.referralLeaderboardNameDisplay === 'full' ? 'full' : 'short';
     const lines = rows.map((row, index, all) => {
       const rank = all.findIndex((candidate) => candidate.invited === row.invited && candidate.saved === row.saved) + 1;
-      return formatReferralLeaderboardRow(row, rank, showCounts);
+      return formatReferralLeaderboardRow(row, rank, showCounts, nameDisplay);
     });
     message = rows.length
       ? `${header}\n\n${lines.join('\n')}`

@@ -3843,6 +3843,11 @@
                 <option value="names_and_counts" ${option.referralLeaderboardDisplay !== 'names_only' ? 'selected' : ''}>שם + מספר שיתופים</option>
                 <option value="names_only" ${option.referralLeaderboardDisplay === 'names_only' ? 'selected' : ''}>שם בלבד</option>
               </select>
+              <div class="decision-option-label">איך להציג שמות?</div>
+              <select data-option-referral-leaderboard-name-display onchange="updateCampaignConversationPreview()">
+                <option value="short" ${option.referralLeaderboardNameDisplay === 'full' ? '' : 'selected'}>שם פרטי + אות ראשונה</option>
+                <option value="full" ${option.referralLeaderboardNameDisplay === 'full' ? 'selected' : ''}>שם מלא</option>
+              </select>
               <div class="decision-option-label">שמות התחלתיים בטבלת המובילים</div>
               <div data-referral-leaderboard-seeds>
                 ${(option.referralLeaderboardSeeds || []).map(seed => referralLeaderboardSeedRowHtml(seed)).join('')}
@@ -4421,6 +4426,9 @@
                   clean.referralLeaderboardDisplay = option.querySelector('[data-option-referral-leaderboard-display]')?.value === 'names_only'
                     ? 'names_only'
                     : 'names_and_counts';
+                  clean.referralLeaderboardNameDisplay = option.querySelector('[data-option-referral-leaderboard-name-display]')?.value === 'full'
+                    ? 'full'
+                    : 'short';
                   const emptyText = option.querySelector('[data-option-referral-leaderboard-empty-text]')?.value.trim() || '';
                   if (emptyText) clean.referralLeaderboardEmptyText = emptyText;
                   const seeds = [...option.querySelectorAll('[data-referral-leaderboard-seed]')]

@@ -1077,6 +1077,9 @@ function sanitizeDecisionFlow(
                 clean.referralLeaderboardDisplay = rawOption.referralLeaderboardDisplay === 'names_only'
                   ? 'names_only'
                   : 'names_and_counts';
+                clean.referralLeaderboardNameDisplay = rawOption.referralLeaderboardNameDisplay === 'full'
+                  ? 'full'
+                  : 'short';
                 if (typeof rawOption.referralLeaderboardEmptyText === 'string' && rawOption.referralLeaderboardEmptyText.trim()) {
                   clean.referralLeaderboardEmptyText = rawOption.referralLeaderboardEmptyText.trim().slice(0, 1000);
                 }

@@ -164,6 +164,8 @@ export interface DecisionFlowOption {
   action?: 'request_group_join' | 'referral_link' | 'referral_leaderboard' | 'referral_my_rank';
   /** Controls whether a referral leaderboard exposes each participant's share count. */
   referralLeaderboardDisplay?: 'names_only' | 'names_and_counts';
+  /** Controls whether leaderboard rows show the full saved name or the privacy-friendly short name. */
+  referralLeaderboardNameDisplay?: 'short' | 'full';
   /** Message shown when the referral leaderboard has no participants with shares yet. */
   referralLeaderboardEmptyText?: string;
   /** Optional display-only starting rows, merged with live referral totals. */
