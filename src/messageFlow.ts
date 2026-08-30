@@ -2098,6 +2098,20 @@ function referralDisplayName(name: string): string {
   return parts.length < 2 ? (parts[0] || '\u05de\u05e9\u05ea\u05ea\u05e4\u05ea') : `${parts[0]} ${parts[1].slice(0, 1)}.`;
 }
 
+const REFERRAL_RANK_LABELS = ['🏆 מקום 1:', '🥈 מקום 2:', '🥉 מקום 3:'];
+const LRI = '\u2066';
+const PDI = '\u2069';
+
+function isolateMixedDirectionText(text: string): string {
+  return /[A-Za-z]/.test(text) ? `${LRI}${text}${PDI}` : text;
+}
+
+function formatReferralLeaderboardRow(row: { name: string; invited: number }, rank: number, showCounts: boolean): string {
+  const label = REFERRAL_RANK_LABELS[rank - 1] || `מקום ${rank}:`;
+  const name = isolateMixedDirectionText(referralDisplayName(row.name));
+  return showCounts ? `${label} ${name} — ${row.invited} מצטרפות` : `${label} ${name}`;
+}
+
 function normalizeReferralLeaderboardName(name: string): string {
   return name.normalize('NFKC').trim().toLocaleLowerCase('he').replace(/\s+/g, ' ');
 }
@@ -2140,8 +2154,7 @@ async function handleReferralMenuAction(transport: WhatsAppTransport, storage: S
     const showCounts = option.referralLeaderboardDisplay !== 'names_only';
     const lines = rows.map((row, index, all) => {
       const rank = all.findIndex((candidate) => candidate.invited === row.invited && candidate.saved === row.saved) + 1;
-      const name = `${rank}. ${referralDisplayName(row.name)}`;
-      return showCounts ? `${name} - ${row.invited} \u05de\u05e6\u05d8\u05e8\u05e4\u05d5\u05ea` : name;
+      return formatReferralLeaderboardRow(row, rank, showCounts);
     });
     message = rows.length
       ? `${header}\n\n${lines.join('\n')}`
