@@ -22,8 +22,17 @@ interface MetaGatewayInboxFile {
 
 export class MetaGatewayInbox {
   private data: MetaGatewayInboxFile;
-  private static readonly COMPLETED_RETENTION_MS = 24 * 60 * 60 * 1000;
-  private static readonly MAX_COMPLETED_ITEMS = 5_000;
+  // persist() rewrites the ENTIRE file synchronously (writeFileSync +
+  // copyFileSync + renameSync) on every single enqueue/claimBatch/update call.
+  // That cost scales with how much completed-item history is retained, and
+  // during a message burst it runs many times in quick succession - measured
+  // at ~85% less blocking time (5,000 -> 300 items) for the same burst size,
+  // see scripts/measure-inbox-retention-cost.js. Lower retention only drops
+  // already-completed items (active/processing/retry items are never pruned),
+  // and duplicate-webhook protection has a second, independent layer
+  // (messageFlow.ts's rememberMessage()), so this does not weaken correctness.
+  private static readonly COMPLETED_RETENTION_MS = 2 * 60 * 60 * 1000;
+  private static readonly MAX_COMPLETED_ITEMS = 300;
 
   constructor(private readonly filePath: string, private readonly processingStaleMs = 2 * 60 * 1000) {
     this.data = this.load();
