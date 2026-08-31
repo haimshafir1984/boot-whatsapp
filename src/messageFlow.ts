@@ -14,7 +14,12 @@ import {
 } from './types/whatsapp';
 
 const handledMessageIds = new Set<string>();
-const MAX_TRIGGER_AGE_MS = 2 * 60 * 1000;
+// Meta can deliver webhook bursts late under load. Keep stale-trigger
+// protection, but give Meta campaigns a wider window so legitimate launch
+// traffic is not silently ignored after a two-minute gateway delay.
+const MAX_TRIGGER_AGE_MS = config.WHATSAPP_PROVIDER === 'META_CLOUD_API'
+  ? 10 * 60 * 1000
+  : 2 * 60 * 1000;
 const DECISION_REPLY_TIMEOUT_MS = 30 * 60 * 1000;
 const HUMAN_HANDOFF_WINDOW_MS = 24 * 60 * 60 * 1000;
 const ASK_NAME_RETRY_DELAY_MS = 5_000;
