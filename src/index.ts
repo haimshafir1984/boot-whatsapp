@@ -53,12 +53,29 @@ function currentOutboundTransport(): WhatsAppTransport | null {
 
 function restoreConversationState(storage: Storage): void {
   conversationState.configurePersistence(config.CONVERSATION_STATE_PATH, storage);
-  const restored = conversationState.restore((jid, state) => scheduleRestoredConversationTimeout(
-    storage,
-    currentOutboundTransport,
-    jid,
-    state,
-  ));
+  // Conversations no longer store their own copy of the campaign flow; rebuild
+  // it here. Cached per campaign so restoring thousands of conversations does
+  // not re-scan the campaign list once per conversation - and so every
+  // conversation on a campaign shares one flow object instead of a copy each.
+  const flowByCampaign = new Map<string, ReturnType<Storage['getCampaignConversationSettings']>['decisionFlow']>();
+  const restored = conversationState.restore(
+    (jid, state) => scheduleRestoredConversationTimeout(
+      storage,
+      currentOutboundTransport,
+      jid,
+      state,
+    ),
+    (campaignId) => {
+      if (!campaignId) return undefined;
+      const cached = flowByCampaign.get(campaignId);
+      if (cached) return cached;
+      const campaign = storage.getCampaigns().find((item) => item.id === campaignId);
+      if (!campaign) return undefined;
+      const flow = storage.getCampaignConversationSettings(campaign).decisionFlow;
+      flowByCampaign.set(campaignId, flow);
+      return flow;
+    },
+  );
   if (restored) {
     console.log(`  Restored pending conversations: ${restored}`);
   }

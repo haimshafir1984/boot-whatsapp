@@ -204,6 +204,26 @@ interface ConversationStatePersistenceBackend {
   saveConversationStateSnapshot(snapshot: ConversationStateSnapshot): void;
 }
 
+/**
+ * Rebuilds a campaign's decision flow on restore. The flow is an identical copy
+ * for every conversation on the same campaign, so it is stripped before the
+ * snapshot is written (see persist) and resolved back afterwards.
+ */
+export type DecisionFlowResolver = (campaignId: string | undefined)
+  => import('./storage').DecisionFlowStep[] | undefined;
+
+/** State kinds that carry the campaign flow under `flow`. */
+const FLOW_KINDS = new Set(['decision', 'wait-reply', 'expired-decision']);
+/** State kinds that carry the same list under `decisionFlow`. */
+const DECISION_FLOW_KINDS = new Set(['name', 'pre-name-prompt', 'contact-card-confirmation']);
+
+function flowFieldFor(kind: unknown): 'flow' | 'decisionFlow' | null {
+  if (typeof kind !== 'string') return null;
+  if (FLOW_KINDS.has(kind)) return 'flow';
+  if (DECISION_FLOW_KINDS.has(kind)) return 'decisionFlow';
+  return null;
+}
+
 class ConversationStateManager {
   private readonly map = new Map<string, PendingConversation>();
   private filePath = '';
@@ -296,6 +316,7 @@ class ConversationStateManager {
 
   restore(
     schedule: (jid: string, state: PersistablePendingConversation) => NodeJS.Timeout | undefined,
+    resolveDecisionFlow?: DecisionFlowResolver,
   ): number {
     try {
       const parsed = this.backend?.loadConversationStateSnapshot()
@@ -310,9 +331,10 @@ class ConversationStateManager {
       for (const [jid, state] of entries) {
         if (!state || typeof state !== 'object') continue;
         if (state.kind !== 'name' && state.kind !== 'pre-name-prompt' && state.kind !== 'decision' && state.kind !== 'wait-reply' && state.kind !== 'expired-decision' && state.kind !== 'contact-card-confirmation' && state.kind !== 'handoff') continue;
-        const timeoutHandle = schedule(jid, state);
+        const hydrated = hydrateDecisionFlow(state, resolveDecisionFlow);
+        const timeoutHandle = schedule(jid, hydrated);
         if (!timeoutHandle) continue;
-        this.map.set(jid, { ...state, timeoutHandle } as PendingConversation);
+        this.map.set(jid, { ...hydrated, timeoutHandle } as PendingConversation);
       }
       this.hydrationComplete = true;
       this.persist();
@@ -338,7 +360,13 @@ class ConversationStateManager {
       const conversations: Record<string, PersistablePendingConversation> = {};
       for (const [jid, state] of this.map.entries()) {
         const { timeoutHandle: _timeoutHandle, ...persistable } = state;
-        conversations[jid] = persistable;
+        // The campaign flow is an identical copy in every conversation on the
+        // same campaign and dominates the snapshot (measured ~7.0 KB of a
+        // ~7.6 KB conversation - 13 MB across ~1,200 live conversations).
+        // persist() runs synchronously on every conversation change, so that
+        // size is paid as event-loop blocking on each step transition.
+        // It is rebuilt from the campaign in restore(), so it is not stored.
+        conversations[jid] = stripDecisionFlow(persistable);
       }
       const snapshot: ConversationStateSnapshot = {
         version: 1,
@@ -355,6 +383,36 @@ class ConversationStateManager {
 
 function normalizePhone(phone: string | undefined): string {
   return String(phone ?? '').replace(/\D/g, '');
+}
+
+/** Drops the campaign flow from a conversation before it is written to disk/Postgres. */
+function stripDecisionFlow(state: PersistablePendingConversation): PersistablePendingConversation {
+  const field = flowFieldFor((state as { kind?: unknown }).kind);
+  if (!field) return state;
+  const lean = { ...(state as unknown as Record<string, unknown>) };
+  delete lean[field];
+  return lean as unknown as PersistablePendingConversation;
+}
+
+/**
+ * Puts the campaign flow back after a restore. Snapshots written before this
+ * optimization still carry their own copy and are left untouched. When the
+ * campaign is gone (deleted, or its flow emptied) the conversation is restored
+ * with an empty flow: every reader already treats "step not found" as a stale
+ * conversation and ends it cleanly, which is the correct outcome here too.
+ */
+function hydrateDecisionFlow(
+  state: PersistablePendingConversation,
+  resolve?: DecisionFlowResolver,
+): PersistablePendingConversation {
+  const field = flowFieldFor((state as { kind?: unknown }).kind);
+  if (!field) return state;
+  const raw = state as unknown as Record<string, unknown>;
+  const existing = raw[field];
+  if (Array.isArray(existing) && existing.length) return state;
+  const campaignId = typeof raw.campaignId === 'string' ? raw.campaignId : undefined;
+  const resolved = resolve?.(campaignId);
+  return { ...raw, [field]: Array.isArray(resolved) ? resolved : [] } as unknown as PersistablePendingConversation;
 }
 
 export const conversationState = new ConversationStateManager();
