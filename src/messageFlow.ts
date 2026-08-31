@@ -47,11 +47,13 @@ const FLOW_STEP_FAILURE_CONTINUE_DELAY_MS = 60_000;
 const RECENT_DECISION_REPLY_TTL_MS = 15_000;
 const FLOW_RECOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
 const FLOW_RECOVERY_SETTLE_MS = 0;
+const INITIAL_REPLY_FAST_LANE_TTL_MS = 60_000;
 const recentDecisionReplies = new Map<string, number>();
 const flowRecoveriesInProgress = new Set<string>();
 const senderWorkQueues = new Map<string, Promise<void>>();
 const senderInboundVersions = new Map<string, number>();
 const pendingSenderInbounds = new Map<string, number>();
+const initialReplyFastLane = new Map<string, number>();
 const timeoutContinuationScope = new AsyncLocalStorage<{ senderKey: string; inboundVersion: number }>();
 
 class TimeoutContinuationCancelledError extends Error {}
@@ -476,6 +478,24 @@ async function waitBeforeBotReply(delayMs = BOT_REPLY_DELAY_MS): Promise<void> {
   assertTimeoutContinuationActive();
 }
 
+function armInitialReplyFastLane(sender: string | undefined): void {
+  const key = senderWorkKey(sender);
+  if (!key || key === 'unknown') return;
+  initialReplyFastLane.set(key, Date.now() + INITIAL_REPLY_FAST_LANE_TTL_MS);
+}
+
+function consumeInitialReplyDelay(sender: string | undefined, delayMs: number): number {
+  const key = senderWorkKey(sender);
+  const expiresAt = initialReplyFastLane.get(key);
+  if (!expiresAt) return delayMs;
+  initialReplyFastLane.delete(key);
+  return expiresAt >= Date.now() ? 0 : delayMs;
+}
+
+async function waitBeforeBotReplyTo(sender: string | undefined, delayMs = BOT_REPLY_DELAY_MS): Promise<void> {
+  await waitBeforeBotReply(consumeInitialReplyDelay(sender, delayMs));
+}
+
 async function sendTrackedOutboxMessage(
   storage: Storage,
   input: Omit<OutboxMessage, 'id' | 'status' | 'attempts' | 'createdAt' | 'updatedAt'>,
@@ -528,7 +548,7 @@ async function sendBotMessage(transport: WhatsAppTransport, to: string, text: st
   let lastError: unknown;
   for (let attempt = 1; attempt <= TEXT_SEND_ATTEMPTS; attempt += 1) {
     try {
-      await waitBeforeBotReply(delayMs);
+      await waitBeforeBotReplyTo(to, delayMs);
     } catch (err) {
       if (storage && outbox) {
         storage.markOutboxFailed(outbox.id, err);
@@ -1092,6 +1112,7 @@ async function handleMessage(
     return;
   }
   console.log(`[MSG] trigger matched via=${source} age=${Math.round(messageAgeMs / 1000)}s campaign="${trigger.campaignName}" from=${senderJid}`);
+  armInitialReplyFastLane(senderJid);
   clearRecentDecisionRepliesForPhone(senderPhone);
   clearTimedOutDecision(senderPhone);
 
@@ -1794,7 +1815,7 @@ async function sendCompletionContactCards(
       .filter((contact): contact is { displayName: string; vcard: string } => Boolean(contact));
     if (combinedContacts.length > 1) {
       try {
-        await waitBeforeBotReply();
+        await waitBeforeBotReplyTo(senderJid);
         await sendTrackedOutboxMessage(storage, {
           kind: 'contacts',
           to: senderJid,
@@ -1854,7 +1875,7 @@ async function sendCompletionContactCard(
   const displayFileName = `${(displayName).replace(/[\/:*?"<>|]+/g, '-').slice(0, 80)}.vcf`;
   if (transport.sendContactCard) {
     try {
-      await waitBeforeBotReply();
+      await waitBeforeBotReplyTo(senderJid);
       await sendTrackedOutboxMessage(storage, {
         kind: 'contacts',
         to: senderJid,
@@ -2463,7 +2484,7 @@ async function sendDecisionStep(
           });
         }
       } else {
-        await waitBeforeBotReply(stepDelayMs);
+        await waitBeforeBotReplyTo(senderJid, stepDelayMs);
       }
       const campaign = campaignId ? storage.getCampaigns().find((item) => item.id === campaignId) : undefined;
       const settings = campaign ? storage.getCampaignConversationSettings(campaign) : storage.getAdminSettings();
@@ -2509,7 +2530,7 @@ async function sendDecisionStep(
         if (sendTextSeparately && step.text.trim()) {
           await sendBotMessage(transport, senderJid, step.text.trim(), stepDelayMs);
         } else {
-          await waitBeforeBotReply(stepDelayMs);
+          await waitBeforeBotReplyTo(senderJid, stepDelayMs);
         }
         const fileSent = await sendDecisionFile(
           transport,
@@ -2644,7 +2665,7 @@ async function sendDecisionStep(
   try {
     if (presentation === 'list' && transport.sendInteractiveList && step.options?.length) {
       try {
-        await waitBeforeBotReply(stepDelayMs);
+        await waitBeforeBotReplyTo(senderJid, stepDelayMs);
         const listButtonText = buildInteractiveListButtonText(step);
         const items = step.options.slice(0, 10).map((option, optionIndex) => buildInteractiveListItem(step, option, optionIndex));
         const listBodyText = hasLongOptions ? formatQuestion(step) : step.text.trim();
@@ -2666,7 +2687,7 @@ async function sendDecisionStep(
     }
     if (!hasLongOptions && presentation === 'buttons' && transport.sendInteractiveButtons && step.options?.length) {
       try {
-        await waitBeforeBotReply(stepDelayMs);
+        await waitBeforeBotReplyTo(senderJid, stepDelayMs);
         const options = step.options.slice(0, 3);
         const needsFullOptionText = options.some((option) =>
           Boolean(option.buttonLabel?.trim()) || Array.from(option.text.trim()).length > 20
@@ -2846,7 +2867,7 @@ async function sendReferralShareStep(
   const message = formatReferralShareMessage(step.text, link, code);
   const delayMs = Number.isFinite(step.delayMs) ? Math.max(0, step.delayMs ?? BOT_REPLY_DELAY_MS) : BOT_REPLY_DELAY_MS;
   if (step.fileId) {
-    await waitBeforeBotReply(delayMs);
+    await waitBeforeBotReplyTo(senderJid, delayMs);
     await sendDecisionFile(
       transport,
       storage,
@@ -3159,7 +3180,7 @@ async function sendFileWithRetry(
   }
 
   try {
-    await waitBeforeBotReply();
+    await waitBeforeBotReplyTo(to);
   } catch (err) {
     if (storage && outbox) {
       storage.markOutboxFailed(outbox.id, err);
@@ -3191,7 +3212,7 @@ async function sendFileWithRetry(
     await storage.flush();
   }
   try {
-    await waitBeforeBotReply();
+    await waitBeforeBotReplyTo(to);
   } catch (err) {
     if (storage && outbox) {
       storage.markOutboxFailed(outbox.id, err);

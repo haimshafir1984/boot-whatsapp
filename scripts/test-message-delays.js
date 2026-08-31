@@ -17,7 +17,13 @@ class FakeTransport {
   async sendMessage(to, text) { this.sent.push({ to, text, sentAt: Date.now() }); }
 }
 
-function addCampaign(storage, trigger, text, delayMs) {
+function addCampaign(storage, trigger, text, delayMs, nextDelayMs) {
+  const firstStep = { id: `${trigger}-step`, kind: 'message', text, ...(delayMs === undefined ? {} : { delayMs }) };
+  if (nextDelayMs !== undefined) firstStep.nextStepId = `${trigger}-second-step`;
+  const decisionFlow = [
+    firstStep,
+    ...(nextDelayMs === undefined ? [] : [{ id: `${trigger}-second-step`, kind: 'message', text: 'Second delayed message', delayMs: nextDelayMs }]),
+  ];
   return storage.addCampaign({
     name: trigger,
     triggerType: 1,
@@ -30,7 +36,7 @@ function addCampaign(storage, trigger, text, delayMs) {
       askNameText: '',
       replyText: '',
       followupMessages: [],
-      decisionFlow: [{ id: `${trigger}-step`, kind: 'message', text, ...(delayMs === undefined ? {} : { delayMs }) }],
+      decisionFlow,
     },
   });
 }
@@ -52,15 +58,21 @@ async function inbound(storage, transport, phone, body, id) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'message-delay-test-'));
   const storage = new Storage(path.join(directory, 'storage.json'));
   const transport = new FakeTransport();
-  const phones = ['972500000201', '972500000202'];
+  const phones = ['972500000201', '972500000202', '972500000203'];
   try {
     addCampaign(storage, 'default-delay', 'Default delayed message');
     addCampaign(storage, 'custom-delay', 'Custom delayed message', 140);
+    addCampaign(storage, 'second-delay', 'First fast message', 0, 140);
     const defaultElapsed = await inbound(storage, transport, phones[0], 'default-delay', 'delay-default');
     const customElapsed = await inbound(storage, transport, phones[1], 'custom-delay', 'delay-custom');
-    assert.ok(defaultElapsed >= 50, `default campaign delay was skipped (${defaultElapsed}ms)`);
-    assert.ok(customElapsed >= 125, `configured step delay was skipped (${customElapsed}ms)`);
-    assert.ok(customElapsed > defaultElapsed, 'configured delay should remain longer than the default delay');
+    const secondPhone = phones[2];
+    await inbound(storage, transport, secondPhone, 'second-delay', 'delay-second');
+    const secondSends = transport.sent.filter((item) => item.to === `whatsapp:${secondPhone}`);
+    assert.equal(secondSends.length, 2, 'second-delay campaign should send two messages');
+    const secondGap = secondSends[1].sentAt - secondSends[0].sentAt;
+    assert.ok(defaultElapsed < 50, `default initial reply should use the fast lane (${defaultElapsed}ms)`);
+    assert.ok(customElapsed < 80, `configured first step should still use the fast lane (${customElapsed}ms)`);
+    assert.ok(secondGap >= 125, `configured delay after the first reply should be preserved (${secondGap}ms)`);
     console.log('Campaign message delay tests passed.');
   } finally {
     for (const phone of phones) conversationState.remove(`whatsapp:${phone}`);
