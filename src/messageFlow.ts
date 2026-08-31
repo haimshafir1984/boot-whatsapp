@@ -2155,15 +2155,12 @@ async function handleReferralMenuAction(transport: WhatsAppTransport, storage: S
       }
     }
     const rows = [...rowsByName.values()]
-      .sort((a, b) => b.invited - a.invited || b.saved - a.saved || a.name.localeCompare(b.name, 'he'))
+      .sort((a, b) => b.invited - a.invited || b.saved - a.saved || a.name.localeCompare(b.name, 'he') || a.phone.localeCompare(b.phone))
       .slice(0, 10);
     const header = option.endText?.trim() || '\u05d4\u05de\u05d5\u05d1\u05d9\u05dc\u05d5\u05ea \u05db\u05e8\u05d2\u05e2:';
     const showCounts = option.referralLeaderboardDisplay !== 'names_only';
     const nameDisplay = option.referralLeaderboardNameDisplay === 'full' ? 'full' : 'short';
-    const lines = rows.map((row, index, all) => {
-      const rank = all.findIndex((candidate) => candidate.invited === row.invited && candidate.saved === row.saved) + 1;
-      return formatReferralLeaderboardRow(row, rank, showCounts, nameDisplay);
-    });
+    const lines = rows.map((row, index) => formatReferralLeaderboardRow(row, index + 1, showCounts, nameDisplay));
     message = rows.length
       ? `${header}\n\n${lines.join('\n')}`
       : option.referralLeaderboardEmptyText?.trim() || '\u05e2\u05d3\u05d9\u05d9\u05df \u05d0\u05d9\u05df \u05e0\u05ea\u05d5\u05e0\u05d9 \u05e9\u05d9\u05ea\u05d5\u05e3 \u05d1\u05e7\u05de\u05e4\u05d9\u05d9\u05df.';

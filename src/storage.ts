@@ -1466,7 +1466,7 @@ export class Storage {
       const invitedResults = [...(invitedByReferrer.get(phoneKey)?.values() || [])];
       return { referralCode: referrer.referralCode || '', name: this.resultDisplayName(referrer), phone: referrer.phone, invited: invitedResults.length, saved: invitedResults.filter((result) => result.status === 'saved').length, lastReferralAt: invitedResults.map((result) => result.triggeredAt).sort().at(-1) };
     });
-    return rows.sort((a, b) => b.invited - a.invited || b.saved - a.saved || a.name.localeCompare(b.name));
+    return rows.sort((a, b) => b.invited - a.invited || b.saved - a.saved || a.name.localeCompare(b.name) || a.phone.localeCompare(b.phone));
   }
 
   getCampaignReferralRank(campaignId: string, phone: string, resultBatchId?: string): { rank: number; participants: number; invited: number; saved: number; nextGap: number } | null {
