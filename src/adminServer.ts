@@ -1840,6 +1840,7 @@ export function startAdminServer(storage: Storage): void {
   // being stale. All 10 attempts now fit inside ~38s, well within that window.
   const metaInboxRetryDelayMs = (attempts: number): number =>
     Math.min(500 * (2 ** Math.max(0, attempts - 1)), 5_000);
+  const META_INBOX_DRAIN_MS = 500;
 
   let metaGatewayInboxRunning = false;
   const processMetaGatewayInbox = async (): Promise<void> => {
@@ -1885,7 +1886,12 @@ export function startAdminServer(storage: Storage): void {
       metaGatewayInboxRunning = false;
     }
   };
-  setInterval(() => { void processMetaGatewayInbox(); }, 500);
+  // Printed at startup so a deploy can be confirmed from the log alone. These
+  // are the numbers that decide how long a participant waits after a routing
+  // miss, and there is otherwise nothing in the banner that identifies which
+  // build is running.
+  console.log(`  Gateway retry: base ${metaInboxRetryDelayMs(1)}ms, cap ${metaInboxRetryDelayMs(99)}ms, drain every ${META_INBOX_DRAIN_MS}ms`);
+  setInterval(() => { void processMetaGatewayInbox(); }, META_INBOX_DRAIN_MS);
   void processMetaGatewayInbox();
 
   let metaClientInboxRunning = false;
@@ -1918,7 +1924,7 @@ export function startAdminServer(storage: Storage): void {
       metaClientInboxRunning = false;
     }
   };
-  setInterval(() => { void processMetaClientInbox(); }, 500);
+  setInterval(() => { void processMetaClientInbox(); }, META_INBOX_DRAIN_MS);
   void processMetaClientInbox();
 
   // Broadcast a delivery-status webhook to every managed Meta client; each ignores wamids it
