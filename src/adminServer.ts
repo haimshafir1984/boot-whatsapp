@@ -51,13 +51,14 @@ import {
 import {
   decideMetaFallbackRoute,
   groupMetaItemsBySender,
+  createSenderDrainer,
   metaPayloadSenderKey,
   retryTransientMetaOperation,
   splitMetaWebhookMessages,
   splitMetaWebhookStatuses,
 } from './metaGatewayReliability';
 
-import { MetaGatewayInbox } from './metaGatewayInbox';
+import { MetaGatewayInbox, MetaGatewayInboxItem } from './metaGatewayInbox';
 interface TwilioGatewaySession {
   from: string;
   clientId: string;
@@ -1841,16 +1842,19 @@ export function startAdminServer(storage: Storage): void {
   const metaInboxRetryDelayMs = (attempts: number): number =>
     Math.min(500 * (2 ** Math.max(0, attempts - 1)), 5_000);
   const META_INBOX_DRAIN_MS = 500;
+  // How many participants may be mid-flow at once. A campaign flow runs for
+  // tens of seconds because each step waits for its delivery confirmation, so
+  // without real concurrency the queue moves at one flow at a time. This is the
+  // cap the old await-the-whole-batch loop provided implicitly, stated outright.
+  const META_MAX_CONCURRENT_SENDERS = 50;
 
-  let metaGatewayInboxRunning = false;
-  const processMetaGatewayInbox = async (): Promise<void> => {
-    if (metaGatewayInboxRunning) return;
-    metaGatewayInboxRunning = true;
-    try {
-      while (true) {
-        const batch = metaGatewayInbox.claimBatch(20, (item) => metaPayloadSenderKey(item.payload));
-        if (!batch.length) break;
-        await Promise.all(groupMetaItemsBySender(batch).map(async (items) => {
+  const metaGatewayDrainer = createSenderDrainer<MetaGatewayInboxItem>({
+    claim: (limit) => metaGatewayInbox.claimBatch(limit, (item) => metaPayloadSenderKey(item.payload)),
+    groupBySender: (items) => groupMetaItemsBySender(items),
+    maxConcurrentSenders: META_MAX_CONCURRENT_SENDERS,
+    batchSize: 20,
+    onGroupError: (err) => console.error('[META_GATEWAY_INBOX_GROUP_FAILED]', err),
+    runGroup: async (items) => {
           for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
             const item = items[itemIndex];
             try {
@@ -1880,12 +1884,9 @@ export function startAdminServer(storage: Storage): void {
               }
             }
           }
-        }));
-      }
-    } finally {
-      metaGatewayInboxRunning = false;
-    }
-  };
+    },
+  });
+  const processMetaGatewayInbox = (): Promise<void> => metaGatewayDrainer.drain();
   // Printed at startup so a deploy can be confirmed from the log alone. These
   // are the numbers that decide how long a participant waits after a routing
   // miss, and there is otherwise nothing in the banner that identifies which
@@ -1894,15 +1895,13 @@ export function startAdminServer(storage: Storage): void {
   setInterval(() => { void processMetaGatewayInbox(); }, META_INBOX_DRAIN_MS);
   void processMetaGatewayInbox();
 
-  let metaClientInboxRunning = false;
-  const processMetaClientInbox = async (): Promise<void> => {
-    if (metaClientInboxRunning) return;
-    metaClientInboxRunning = true;
-    try {
-      while (true) {
-        const batch = metaClientInbox.claimBatch(20, (item) => metaPayloadSenderKey(item.payload));
-        if (!batch.length) break;
-        await Promise.all(groupMetaItemsBySender(batch).map(async (items) => {
+  const metaClientDrainer = createSenderDrainer<MetaGatewayInboxItem>({
+    claim: (limit) => metaClientInbox.claimBatch(limit, (item) => metaPayloadSenderKey(item.payload)),
+    groupBySender: (items) => groupMetaItemsBySender(items),
+    maxConcurrentSenders: META_MAX_CONCURRENT_SENDERS,
+    batchSize: 20,
+    onGroupError: (err) => console.error('[META_CLIENT_INBOX_GROUP_FAILED]', err),
+    runGroup: async (items) => {
           for (const item of items) {
             try {
               await handleMetaInboundForStorage(item.payload);
@@ -1918,12 +1917,9 @@ export function startAdminServer(storage: Storage): void {
               }
             }
           }
-        }));
-      }
-    } finally {
-      metaClientInboxRunning = false;
-    }
-  };
+    },
+  });
+  const processMetaClientInbox = (): Promise<void> => metaClientDrainer.drain();
   setInterval(() => { void processMetaClientInbox(); }, META_INBOX_DRAIN_MS);
   void processMetaClientInbox();
 

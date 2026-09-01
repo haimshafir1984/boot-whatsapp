@@ -179,3 +179,70 @@ export async function retryTransientMetaOperation<T extends MetaOperationResult>
 
   throw new Error('Meta retry loop ended unexpectedly.');
 }
+
+export interface SenderDrainerOptions<T> {
+  /** Claim up to `limit` items. Must offer at most one item per sender. */
+  claim: (limit: number) => T[];
+  groupBySender: (items: T[]) => T[][];
+  runGroup: (items: T[]) => Promise<void>;
+  /** Upper bound on senders being worked on at once. */
+  maxConcurrentSenders: number;
+  batchSize: number;
+  onGroupError?: (err: unknown) => void;
+}
+
+/**
+ * Drains an inbox without letting one slow sender hold back everyone else.
+ *
+ * The previous loop awaited an entire batch before claiming the next one. A
+ * campaign flow legitimately takes tens of seconds - each step waits for its
+ * delivery confirmation before the next is sent - so a participant who arrived
+ * while someone else's flow was running was not even looked at until that flow
+ * finished. Trigger ages climbed to 79s in production while the client itself
+ * matched each trigger in about 130ms.
+ *
+ * That gate never provided the per-sender ordering it appeared to: ordering
+ * comes from claimBatch, which offers at most one item per sender and refuses
+ * to hand out a sender whose earlier message is still processing or is waiting
+ * on a retry boundary. A second message from the same person is therefore
+ * unclaimable until the first finishes, no matter how many senders run at once.
+ * The only thing the gate really bought was a cap on concurrent work, which
+ * maxConcurrentSenders now states outright instead of implying.
+ */
+export function createSenderDrainer<T>(options: SenderDrainerOptions<T>): {
+  drain: () => Promise<void>;
+  inflight: () => number;
+} {
+  let draining = false;
+  let inflight = 0;
+
+  const drain = async (): Promise<void> => {
+    if (draining) return;
+    draining = true;
+    try {
+      while (true) {
+        const capacity = options.maxConcurrentSenders - inflight;
+        if (capacity <= 0) break;
+        // One item per sender, so an item of capacity is a sender of capacity.
+        const batch = options.claim(Math.min(options.batchSize, capacity));
+        if (!batch.length) break;
+        for (const group of options.groupBySender(batch)) {
+          inflight += 1;
+          void (async () => {
+            try {
+              await options.runGroup(group);
+            } catch (err) {
+              options.onGroupError?.(err);
+            } finally {
+              inflight -= 1;
+            }
+          })();
+        }
+      }
+    } finally {
+      draining = false;
+    }
+  };
+
+  return { drain, inflight: () => inflight };
+}
