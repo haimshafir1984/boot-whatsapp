@@ -291,7 +291,7 @@ class PostgresStorageBackend implements StorageBackend {
         // since merge('all', anything) is always 'all'.
         this.queuedDirtyTables = new Set();
         this.queuedDirtyRowIds = {};
-        const snapshot = cloneSnapshot(source);
+        const snapshot = cloneSnapshotForTables(this.persistedSnapshot, source, dirtyTables);
         await writeSnapshotDelta(this.pool, this.persistedSnapshot, snapshot, dirtyTables, dirtyRowIds);
         this.persistedSnapshot = snapshot;
         this.lastError = undefined;
@@ -336,6 +336,71 @@ class PostgresStorageBackend implements StorageBackend {
 
 function cloneSnapshot(data: StorageData): StorageData {
   return sanitizeJsonForPostgres(JSON.parse(JSON.stringify(data))) as StorageData;
+}
+
+/**
+ * Which StorageData fields make up each logical table. Used to clone only what
+ * a write actually touched. Keep in sync with writeSnapshotDelta.
+ */
+const TABLE_FIELDS: Record<StorageTableName, ReadonlyArray<keyof StorageData>> = {
+  adminSettings: ['adminSettings'],
+  clientProfile: ['clientProfile'],
+  campaigns: ['campaigns'],
+  campaignResults: ['campaignResults'],
+  campaignEvents: ['campaignEvents'],
+  contactQueue: ['contactQueue'],
+  contactsList: ['contactsList'],
+  uploadedFiles: ['uploadedFiles'],
+  twilioTemplates: ['twilioTemplates'],
+  outboxMessages: ['outboxMessages'],
+  conversationStateSnapshot: ['conversationStateSnapshot'],
+  scheduledJobs: ['scheduledJobs'],
+  serviceBotState: ['serviceBots', 'serviceBot', 'serviceBotSessions', 'serviceBotRecords', 'serviceBotFollowUps'],
+};
+
+const MAPPED_FIELDS = new Set<string>(
+  Object.values(TABLE_FIELDS).flatMap((fields) => fields.map((field) => field as string)),
+);
+
+/**
+ * The persisted snapshot exists to be diffed against on the next write, so it
+ * must be a frozen copy - without it, the live data would mutate underneath and
+ * the delta would miss real changes. But copying ALL of it on every write is
+ * expensive: measured at 98ms of event-loop blocking at production scale
+ * (13k outbox rows, 18k events, 13k results), on every single write cycle.
+ * That was enough to make the client miss the gateway's 3s routing query and
+ * fall into a ~50s retry backoff.
+ *
+ * A table that was not touched still holds the copy made when it last changed,
+ * which by definition still matches what is in PostgreSQL - so only the tables
+ * this write actually touched need copying. Carrying the untouched ones as
+ * *references to live data* would be wrong (they would mutate and the next
+ * diff would see no change), which is why the previous copy is reused instead.
+ *
+ * 'all' and the first write copy everything, exactly as before.
+ */
+export function cloneSnapshotForTables(
+  previous: StorageData | null,
+  data: StorageData,
+  dirtyTables: DirtyTables,
+): StorageData {
+  if (!previous || dirtyTables === 'all') return cloneSnapshot(data);
+  const source = data as unknown as Record<string, unknown>;
+  const next = { ...previous } as unknown as Record<string, unknown>;
+  const copy = (field: string) => {
+    next[field] = sanitizeJsonForPostgres(JSON.parse(JSON.stringify(source[field] ?? null)));
+  };
+  for (const table of dirtyTables) {
+    for (const field of TABLE_FIELDS[table] ?? []) copy(field as string);
+  }
+  // Anything TABLE_FIELDS does not claim is copied every time. Those fields are
+  // small and currently unpersisted, so this costs almost nothing - and it means
+  // a field added to StorageData without a TABLE_FIELDS entry stays correct
+  // instead of silently freezing at its first value.
+  for (const field of Object.keys(source)) {
+    if (!MAPPED_FIELDS.has(field)) copy(field);
+  }
+  return next as unknown as StorageData;
 }
 
 // Exported for test scripts that verify the dirty-table skip logic against a
