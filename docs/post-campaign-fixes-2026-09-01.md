@@ -1,8 +1,10 @@
 # תיקונים לביצוע אחרי הקמפיין
 
-נכתב ב-01/09/2026, אחרי אירוע ההשהיות של 31/8–1/9.
+נכתב ב-01/09/2026, אחרי אירוע ההשהיות של 31/8–1/9. עודכן באותו יום עם ממצאי QA מקיף (מסלולים B, G, F).
 
 המסמך מרכז את מה שנמצא ולא בוצע, כי הסיכון לבצע אותו תוך כדי קמפיין חי גדול מהתועלת. כל סעיף כולל את הראיה שעליה הוא מבוסס, כדי שאפשר יהיה לאמת אותו מחדש ולא לסמוך על הזיכרון של המסמך הזה.
+
+דוחות המקור המלאים: [docs/qa-track-b-results.md](qa-track-b-results.md) (נתונים ומסד), [docs/qa-track-gf-results.md](qa-track-gf-results.md) (הגדרות, תשתית, Docker, פריסה).
 
 ## מה כן בוצע ונפרס
 
@@ -69,6 +71,14 @@
 
 עוקף את התור לגמרי — קורא ל-`handleIncomingWhatsAppMessage` ישירות עם `CONCURRENCY_CAP = 20` שנבחר כדי "להתאים ל-claimBatch". ההנחה הזאת כבר לא נכונה. הבדיקה גם לא מסיימת ב-250 שניות (1000 משתתפים עם שלב וידאו), וזה קדם לכל השינויים.
 
+### 1.6 `FILE_DELIVERY_WAIT_TIMEOUT_MS`=20s חוסם slot שולח (G3-3, QA מסלול G)
+
+כל שלב שמשגר קובץ ממתין עד 20 שניות לאישור מסירה (`messageFlow.ts:33-36`, `:3157`) לפני שהוא ממשיך — וההמתנה מחזיקה את ה-slot של אותו שולח בתור. עם 1,000 משתתפים שמגיעים לשלב וידאו יחד ותקרת `META_MAX_CONCURRENT_SENDERS=50` (סעיף 1.5), זה `20s × 20 סבבים ≈ 400 שניות` תור מצטבר — אותו סוג תופעה שנמדדה בפועל (11 שניות לזרימה אחת אצל 972586507027 מול 10ms אצל 972507451175).
+
+**חשוב:** התיקון של היום (`7344c9b`) חושף את זה יותר, לא פחות — תקרה גבוהה יותר אומרת יותר שולחים שמחכים ל-webhook בו-זמנית. לא דחוף כשלעצמו, אבל קשור ישירות לתיקון 1.1/1.5.
+
+**תיקון מוצע:** להוריד ברירת מחדל ל-8-10s, ולשקול לשחרר את ה-slot במקום לחסום אותו (להמשיך את הזרימה מ-callback כשה-webhook מגיע). סיכון: נמוך, עלול להגדיל אי-סדר נתפס בהודעות במקרי transcoding איטי מאוד.
+
 ## עדיפות 2 — צווארי בקבוק שנשארו
 
 ### 2.1 `campaignEvents` ו-`campaignResults` הן הטבלאות הגדולות
@@ -80,49 +90,178 @@
 2. מסלול append-only — אירועים כמעט אף פעם לא מתעדכנים, רק נוספים.
 3. מעקב ברמת שורה גם לשתיהן, כמו שנעשה ל-`conversation_state`.
 
-### 2.2 שמירת מצבי שיחה פגי תוקף ל-24 שעות
+### 2.2 שמירת מצבי שיחה פגי תוקף ל-24 שעות — **מאומת כחוסם ע"י QA עצמאי (G3-2)**
 
-`FLOW_RECOVERY_WINDOW_MS` שומר מצב `expired-decision` 24 שעות כדי לאפשר חידוש של תשובה מאוחרת (`TIMED_OUT_REPLY_RESUMED`). זו הסיבה שנמדדו 1,075 מצבי `expired-decision` מול 144 `decision` פעילים.
+`FLOW_RECOVERY_WINDOW_MS` שומר מצב `expired-decision` 24 שעות כדי לאפשר חידוש של תשובה מאוחרת (`TIMED_OUT_REPLY_RESUMED`). זו הסיבה שנמדדו 1,075 מצבי `expired-decision` מול 144 `decision` פעילים. הערך קבוע מקומפל (`messageFlow.ts:53`), אין `env` שמכוון אותו.
 
-זו התנהגות מכוונת עם ערך מוצרי אמיתי, אז זה לא באג — אבל שווה להחליט אם 24 שעות זה הערך הנכון, או שחלון קצר יותר נותן את אותה תועלת ברבע מהנפח.
+סוכן QA נפרד (מסלול G, בלי הקשר לשיחה הזו) הגיע לאותה מסקנה באופן עצמאי וסימן זאת **חוסם**: "מנוע ההצטברות שזוהה כשורש אירוע 31/8… טרם בוצע".
+
+**עלות פריסת השינוי גדלה עם הזמן ולא קטנה** — כל שיחה שתוסר בשחזור מפעילה `persist()` שהוא O(n) (ראה 3.7). היום (~1,366 שיחות) העלות החד-פעמית ~4 שניות; אחרי הקמפיין הגדול (~6,000) היא ~82 שניות. **דחיית התיקון מייקרת אותו פי 20.** לכן: לפרוס בחלון שקט **לפני** הקמפיין הגדול, לא אחריו.
+
+**תיקון מוצע (מ-G3-2):** `const FLOW_RECOVERY_WINDOW_MS = Number(process.env.FLOW_RECOVERY_WINDOW_MS) || (4 * 60 * 60 * 1000);` + להוסיף את המשתנה לסביבת ההקמה (`dokployProvisioner.ts`). יש שתי שכבות 24 שעות שצריך לעדכן יחד (מצב `expired-decision` + מנגנון ההתאוששות בזיכרון) — לוודא עקביות בין restart-ים. סיכון: נמוך-בינוני; לוודא שאין תרחיש לגיטימי של חזרה אחרי >4h.
 
 ### 2.3 ה-timeout של 3 שניות לשאילתת הניתוב
 
 `AbortSignal.timeout(3_000)` בשאילתת `meta-routing-snapshot`. עכשיו יש ניסיון חוזר מיידי, אז פספוס בודד כבר לא יקר. אבל שווה למדוד כמה זמן הלקוח באמת לוקח בשיא עומס לפני שמחליטים אם 3 שניות זה הערך הנכון.
 
+### 2.4 פגם רדום ברשת הביטחון של מעקב-השורות (B1-1, QA מסלול B)
+
+**איפה:** `src/database.ts:717-750` (`syncRowsDeltaTracked`), אותו דפוס ב-`:864-876` (`syncConversationStateDelta`).
+
+כש-`touchedIds` הוא קבוצה קונקרטית, הרשת בודקת רק את **מספר** השורות הלא-נגועות בין `previous` ל-`next`. שינוי **תוכן** בשורה לא-מתויגת ששומר על מספר השורות לא נתפס — ה-DB יתפצל מהזיכרון בשקט, בלי fallback.
+
+**אין באג פעיל היום** — כל 15 הקוראים הקיימים ל-`persist([...])` מעבירים סט מזהים מלא או משמיטים אותו לגמרי (→ `'all'` → סריקה מלאה). זה מוקש לכל קריאת `persist()` עתידית שתתייג תת-קבוצה חלקית.
+
+**ראיה (probe):** `previous=[r1:pending, r2:pending]`, שניהם עברו ל-`saved` בזיכרון, אבל תויג רק `['r1']`. הספירה זהה (1=1) → אין fallback → `r2` לא נכתב.
+
+**תיקון מוצע:** checksum זול על השורות הלא-מתויגות (למשל hash של `updated_at` לכל שורה) והשוואתו בין `previous` ל-`next`; אי-התאמה → `fullSync()`. חלופה: `fullSync` תמיד כשאורך הטבלה מתחת לסף (למשל 200 שורות). סיכון: נמוך — רק מוסיף בדיקה, לא משנה את המסלול הקיים.
+
+### 2.5 טרנזקציות דרך `pool.query()` במקום client נעול (B2-1, QA מסלול B)
+
+**איפה:** `applyMigrations` (`database.ts:405-420`), `writeSnapshot` (`:536-573`), `writeSnapshotDelta` (`:579-661` — הנתיב החם). לשם השוואה, `loadRuntimeSnapshot` (`:488-501`) עושה זאת נכון עם `pool.connect()`.
+
+`pg` מבודד טרנזקציה ל-client בודד. `pool.query('begin')` יכולה לקבל חיבור אחר מ-`pool.query(sql)` הבאה — אז ה-`BEGIN` "פתוח" על חיבור אחד וה-DDL רץ על חיבור אחר בלי טרנזקציה בפועל, ו-`ROLLBACK` שמגיע לחיבור בלי טרנזקציה פתוחה הוא no-op שקט.
+
+**כרגע מחזיק במקרה** — בעליית המערכת השימוש ב-pool מסודר טורית על חיבור idle בודד. נשבר ברגע ששאילתה שנייה משתלבת על אותו pool בזמן מיגרציה/כתיבה. אז מיגרציה שנופלת באמצע (B2-3) עלולה להתקומיט חלקית.
+
+**תיקון מוצע:** `pool.connect()` → `client.query('begin'/…/'commit')` בתוך `try`/`finally` עם `client.release()`, בדיוק כמו `loadRuntimeSnapshot`. סיכון: נמוך, מכני.
+
 ---
 
 ## עדיפות 3 — תשתית ופריסה
 
-### 3.1 אין מטפל `SIGTERM` בשום מקום
+### 3.1 אין מטפל `SIGTERM` בשום מקום — **מנגנון האובדן מפורט (F2, QA מסלול F)**
 
-מאומת: אפס תוצאות ל-`SIGTERM`/`SIGINT` בכל `src/*.ts`. יש רק `unhandledRejection`.
+מאומת: אפס תוצאות ל-`SIGTERM`/`SIGINT` בכל `src/*.ts` (`grep -rn "SIGTERM\|SIGINT\|process.on(" src/`). יש רק `unhandledRejection` ב-`index.ts:23`. `backend.close()` (`database.ts:321-324`, קורא ל-`flush()` ואז `pool.end()`) **לא נקרא משום מקום**.
 
-המשמעות: כל פריסה הורגת את התהליך בלי לרוקן כתיבות ממתינות. עם כתיבות מקובצות ל-PostgreSQL, זה חלון אמיתי לאיבוד מידע בדיוק ברגע הפריסה. זה כנראה הפריט הכי חשוב ברשימה הזו.
+המשמעות: כל פריסה הורגת את התהליך בלי לרוקן כתיבות ממתינות. QA מסלול F פירק את זה לשני נזקים נפרדים, לא רק "אובדן מידע":
 
-### 3.2 אין `HEALTHCHECK` ב-Dockerfile
+1. **אובדן שקט:** `drainPendingSnapshots` (`database.ts:282-311`) רץ אסינכרונית. קטיעה באמצע `writeSnapshotDelta` מתגלגלת אחורה נקי בצד Postgres (transaction), אבל `queuedSnapshot` — שינויים שהצטברו וטרם נכתבו — אבד לחלוטין בזיכרון.
+2. **כפילות שליחה למשתמש אמיתי:** `sendBotMessage` (`messageFlow.ts:542`) קורא ל-`storage.flush()` **אחרי** כל שלב. אם SIGTERM מגיע בין השליחה ל-flush, ההודעה כבר נשלחה אבל המצב ("שלב X הושלם") לא נשמר. אחרי restart, `restore()` משחזר בשלב X-1 → **שלב X נשלח פעמיים** לאותו משתתף.
 
-מאומת: אפס תוצאות. בלי זה, Dokploy לא יודע להבדיל בין קונטיינר חי לקונטיינר שה-event loop שלו חסום — וזה בדיוק המצב שייצר את שגיאות ה-502 בלוג הגייטווי.
+`conversationState.persist()` נכתב סינכרונית (ראה 3.7), כך שהוא בדרך כלל ניצל לפני SIGTERM — אבל `outbox_messages` ו-`campaign_events` שעוברים רק דרך ה-backend האסינכרוני חשופים.
+
+זה כנראה הפריט הכי חשוב ברשימה הזו — הוא היחיד שגורם לכפילות הודעה שהמשתתף רואה בעצמו.
+
+**תיקון מוצע:**
+```js
+let shuttingDown = false;
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  server.close();
+  try { await storage.flush(); } catch (e) { console.error('flush on shutdown failed', e); }
+  try { await backend?.close(); } catch {}
+  process.exit(0);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+```
+דורש ש-`main()`/`startAdminServer` יחשפו את `storage` ואת ה-`http.Server`. חייב timeout קשיח (`setTimeout(() => process.exit(1), 8000).unref()`) כדי לא להיתקע אם `flush()` לא חוזר. סיכון: נמוך-בינוני.
+
+### 3.2 אין `HEALTHCHECK` ב-Dockerfile — **זה מקור ה-502 שנמדד היום (F4-1, QA מסלול F)**
+
+מאומת: אפס תוצאות. QA מסלול F חקר ישירות את ה-502 שנמדד היום (1 מ-4 בקשות ל-`/health`, בזמן שהמערכת עצמה דיווחה בריאה) ומצא שלוש סיבות משתלבות:
+
+1. **חלון הפריסה עצמו** — קונטיינר יחיד פר לקוח, בלי rolling deploy: `application.redeploy` מוריד את הישן ומעלה חדש, ובין השניים Traefik מקבל 502 כי אין backend.
+2. **`/health` עצמו כבד וסינכרוני** — `getCampaigns()` + 5 `.filter()`, `getContactQueueStats()`, `getFailedDeliveries(100)`, `conversationState.size()`. כש-event loop רווי (בדיוק תרחיש 31/8), הבקשה ל-`/health` ממתינה מאחורי כל זה — הפרוקסי מקבל timeout ומחזיר 502 **גם כשהתהליך "בריא"**.
+3. **מיצוי `pg` pool** (ראה 3.3) — 10 חיבורי ברירת מחדל תחת `META_MAX_CONCURRENT_SENDERS=50` + `drainPendingSnapshots` + דשבורד, בלי `connectionTimeoutMillis` → בקשה תלויה לנצח → proxy timeout.
+
+**תיקון מוצע:** `HEALTHCHECK` ב-Dockerfile שקורא ל-`/health`; להוסיף `/health/live` זול (מחזיר 200 בלי לגעת ב-storage) לשימוש הפרוקסי/HEALTHCHECK, ולהשאיר את `/health` הכבד לדשבורד בלבד; להגדיר `pg` Pool כמו ב-3.3. סיכון: נמוך.
+
+**נוהל פריסה בטוחה עד אז (F4-3):** לוודא ב-`/health` שהלקוח: `storage.pendingWrites === 0`, `outbox` יציב, אין קמפיין פעיל עם תעבורה חיה; לפרוס רק בחלון שקט; לוודא אחרי הפריסה `storage.ready === true` ואין `stale trigger` בלוג; לעולם לא `redeploy-all` תוך כדי קמפיין חי של אף לקוח.
 
 ### 3.3 `new Pool` בלי הגדרות
 
-מאומת: 4 מופעים של `new Pool({ connectionString: databaseUrl })` ב-[src/database.ts](src/database.ts), בלי `max`, בלי `connectionTimeoutMillis`, בלי `idleTimeoutMillis`. ברירות המחדל של `pg` לא בהכרח מתאימות לעומס קמפיין.
+מאומת ומעודכן: **5 מופעים** (לא 4) של `new Pool({ connectionString: … })` — `database.ts:226, 233, 509, 527` **וגם** `adminServer.ts:3593`. אף אחד לא מעביר `max`/`connectionTimeoutMillis`/`idleTimeoutMillis`. זו אחת משלוש הסיבות ל-502 (ראה 3.2).
 
 ### 3.4 Chromium מותקן תמיד ולא בשימוש
 
-מאומת: 4 אזכורים ב-Dockerfile. `BAILEYS_FALLBACK_TO_WEBJS=false` אצל כל הלקוחות, כלומר הנתיב הזה לא ניתן להגעה. עלות: כ-128 שניות בנייה ו-759MB לתמונה.
+מאומת: 4 אזכורים ב-Dockerfile (`:15-21`, `:23-24`). `BAILEYS_FALLBACK_TO_WEBJS=false` אצל כל הלקוחות (`dokployProvisioner.ts:395`), כלומר הנתיב הזה לא ניתן להגעה. עלות: כ-128 שניות בנייה ו-759MB לתמונה (מכפיל אחסון ורוחב פס לכל לקוח).
 
-### 3.5 `npm ci` רץ פעמיים
+**הערה:** ההסרה היא **החלטה מוצרית**, לא רק טכנית — היא מבטלת את ה-fallback החירומי ל-`whatsapp-web.js`. אם מקבלים את זה, להסיר גם את `PUPPETEER_*`.
 
-מאומת: 2 מופעים ב-Dockerfile. כ-210 שניות. יחד עם 3.4, זמן הבנייה יכול לרדת משמעותית.
+### 3.5 `npm ci` רץ פעמיים, ו-`COPY` לא ממוקד
+
+מאומת: `npm ci` פעמיים (`Dockerfile:6, :33`) — כ-75 שניות לחיסכון (להעתיק `node_modules` מה-builder + `npm prune --omit=dev`, או `npm ci --omit=dev` עם cache mount). `COPY . .` (`:7`) לפני `npm run build` מבטל cache build בכל שינוי קובץ, כולל `docs/` — להעתיק ממוקד (`tsconfig.json`, `src/`) לפני ה-build. יחד עם 3.4: בנייה יורדת מ-~7 דקות ל-~2-2.5. סיכון: אפסי-נמוך.
 
 ### 3.6 `pruneCompleted` לא מנקה `failed`
 
-ב-[src/metaGatewayInbox.ts:124](src/metaGatewayInbox.ts:124) הסינון הוא `item.status !== 'completed'`, כלומר פריטי `failed` נשמרים לנצח. נמצאו 76 פריטים תקועים מ-27–28/8.
+ב-[src/metaGatewayInbox.ts:124](src/metaGatewayInbox.ts:124) הסינון הוא `item.status !== 'completed'`, כלומר פריטי `failed` נשמרים לנצח. נמצאו 76 פריטים תקועים מ-27–28/8. `persist()` כותב מחדש את **כל** הקובץ בכל `enqueue`/`claimBatch`/`update` — כל פריט `failed` שנשמר מנפח כל כתיבה עתידית. תיקון מוצע: age-out ל-`failed` (למשל 24 שעות). סיכון: נמוך — הנכונות מוגנת ע"י `rememberMessage()` ב-`messageFlow.ts`.
+
+### 3.7 `conversation-state.json` נכתב לא-אטומית, בלי `.bak` (B4-1, QA מסלול B)
+
+**איפה:** `src/conversationState.ts:392` — `fs.writeFileSync(this.filePath, JSON.stringify(snapshot, null, 2), 'utf-8')` ישירות, בלי temp+rename. השוו ל-`storage.ts:897-903` ול-`metaGatewayInbox.ts:147-155` ששניהם עושים temp → `copyFileSync`(→`.bak`) → `renameSync`.
+
+**מה:** קריסה/SIGKILL באמצע הכתיבה (ראה 3.1) משאירה קובץ קטוע. `restore()` תופס את שגיאת ה-parse, מדפיס אזהרה, ומחזיר 0 — **כל שיחה ממתינה אובדת ב-restart הזה**, בלי `.bak` ליפול אליו.
+
+**ראיה (probe, קובץ קטוע ל-60%):** `JSON.parse` זורק ("Unexpected end of JSON input"); אין `.bak`; `restore()` תופס ומחזיר 0 → כל השיחות הממתינות אבדו.
+
+במצב Postgres זה ממוסך חלקית (`restore` קורא קודם מה-backend), אבל הכתיבה הקטועה עדיין קורית בכל פעם.
+
+**תיקון מוצע:** לכתוב ל-`${filePath}.tmp` ואז `renameSync`, עם `.bak` כמו שני הכותבים האחרים; או לדלג על כתיבת הקובץ לגמרי כשיש backend Postgres (המקור-אמת הוא הטבלה). סיכון: נמוך.
+
+**בנוסף (B4-2, מאומת):** אותה כתיבה היא גם O(n) סינכרונית בכל שינוי, כולל במצב Postgres — קומיט `46e40db` אופטימז רק את נתיב הדלתא ל-DB, לא את כתיבת הקובץ. נמדד: 1.68ms/200 שיחות → 7.37ms/1,366 → 15.05ms/3,000. תואם למדידה הקודמת (7.7ms/1,366). תיקון מוצע: לדלג על כתיבת הקובץ כשיש backend Postgres, או debounce. סיכון: נמוך אם רק מדלגים במצב Postgres.
+
+### 3.8 `META_APP_SECRET` לא נדרש בהקמת לקוח Meta חדש (G2-1, אבטחה)
+
+**איפה:** `dokployProvisioner.ts:489-497` (`assertClientProvisioningConfig` — דורש `metaAccessToken`/`metaPhoneNumberId`/`metaDisplayPhoneNumber`/`metaVerifyToken` אבל **לא** `metaAppSecret`), `:440` (נכתב ל-env רק `if` קיים).
+
+**מה:** אם `DOKPLOY_META_APP_SECRET` לא מוגדר בשירות המנהל, לקוח Meta מוקם ונפרס בהצלחה עם webhook עובד — **בלי** `META_APP_SECRET`. אימות חתימת `X-Hub-Signature-256` מושבת. כל גורם שמכיר את כתובת ה-webhook יכול להזריק הודעות מזויפות.
+
+**נוגע רק להקמת לקוחות עתידיים**, לא ללקוח הפעיל היום.
+
+**תיקון מוצע:** להוסיף `metaAppSecret` לרשימת `missing` ב-`assertClientProvisioningConfig`. סיכון: נמוך — מונע הקמה לא-מאובטחת.
+
+### 3.9 הקמת לקוח — שני מסלולי כשל-אמצע (G2-2, G2-3)
+
+**G2-2 — הקמה שנעצרת בין `postgres.create` ל-`postgres.deploy` → crash loop.** אם ה-deploy נכשל אחרי שה-DB כבר נרשם ב-owner storage, ניסיון חוזר מדלג על `postgres.deploy` כולו (כי `hasRecordedPostgres` כבר `true`) — הלקוח נפרס עם `DATABASE_URL` תקין-תחבירית ל-DB **שמעולם לא נפרס**, נכשל ב-`pool.query('select 1')`, ונכנס ל-crash loop אינסופי. `dokployProvisioner.ts:335-357`.
+
+**G2-3 — תגובת HTTP אבודה → Service יתום.** `post()` (`:511-532`) בלי timeout/retry. אם `application.create` מבוצע בצד Dokploy אך התגובה אובדת, ה-ID לא נשמר, וניסיון חוזר יוצר Service **שני** — הראשון נשאר יתום, לא ינוקה ע"י `deleteClientResources`. אותו דפוס ב-`mounts.create`, `postgres.create`, `domain.create`.
+
+**תיקון מוצע:** להפריד את `postgres.deploy` לדגל retry נפרד (כמו `dokployDeploymentRequested` הקיים); להוסיף `AbortSignal.timeout(15_000)` ל-`post()`; לפני יצירת משאב לבדוק אם כבר קיים בשם הצפוי לפני יצירה כפולה. סיכון: בינוני — דורש בדיקה מול Dokploy אמיתי.
 
 ---
 
 ## עדיפות 4 — היגיינה
+
+### 4.0 גידול בלתי מוגבל בטבלאות ה"לוג" (B3, QA מסלול B)
+
+מדד ייחוס: קמפיין יחיד, 4,000 משתתפים × 6 שלבים → `campaignResults`=4,000, `campaignEvents`=24,000, `outboxMessages`=4,000. שום דבר לא מנוקה, לא ב-Postgres ולא בזיכרון, מלבד ב-`resetCampaignData`/`deleteCampaign` הידני.
+
+| טבלה | מה לא מנוקה | סריקה נמדדת | ל-12 חודשים (קמפיין שבועי, ~1,000/קמפיין) |
+| --- | --- | --- | --- |
+| `outbox_messages` | `sent`/`failed` נשארים לצמיתות; `getPendingOutboxMessages` סורק הכל בכל tick | 6ms/4,000 | ~312k שורות |
+| `campaign_events` | append-only, נמחק רק ב-reset/delete | 42ms/24,000 | ~312k–1.8M |
+| `contact_queue` | `saved`/`failed` נשארים לצמיתות | — | ~52k |
+| `campaign_results` | לצמיתות בין קמפיינים | 9.83ms/4,000 | ~52k |
+| `meta-*-inbox.json` `failed` | `pruneCompleted` לא נוגע ב-`failed` (ראה 3.6) | — | ללא הגבלה |
+
+כל הטבלאות האלה גם נטענות במלואן לזיכרון בכל `readRuntimeSnapshot` (restart), וגם נסרקות בנתיבים חמים (דשבורד, dispatcher). לינארי וקבוע היום, אבל מצטבר ללא תקרה.
+
+**תיקון מוצע:** ג'וב תקופתי ל-`outbox_messages` (`delete … where status='sent' and updated_at < now() - interval '72 hours'`, האינדקס כבר קיים) + לספלַיס גם מהזיכרון; תקרה פר-`campaignResult` ל-`campaign_events` או קיפול קמפיין שהסתיים לשורת aggregate; מחיקת ג'ובי `contact_queue` שנשמרו אחרי חלון חסד. סיכון: בינוני — צריך לוודא שאין קורא שמצפה למצוא רשומה ישנה (למשל delivery receipts לפי `providerMessageId`).
+
+### 4.0.1 ולידציית config חסרה (G1, QA מסלול G)
+
+`config.ts` לא כושל בעלייה על שום דבר חוץ מ-`DATABASE_URL` שגוי. שדות קריטיים אחרים נופלים בשקט:
+
+| משתנה | מה קורה כשחסר/שגוי |
+| --- | --- |
+| `META_ACCESS_TOKEN`/`META_PHONE_NUMBER_ID`/`META_VERIFY_TOKEN` | `''` — אין כשל בעלייה; webhook נכשל באימות רק ב-runtime |
+| `WHATSAPP_PROVIDER` שגוי (לא ברשימה סגורה) | נופל למסלול Baileys עם Chromium scheduler, בלי אזהרה |
+| `DATABASE_URL` חסר על לקוח Meta | נופל ל-JSON storage בשקט — מחזיר את כל באגי הסריקה-המלאה |
+| `FILE_DELIVERY_WAIT_TIMEOUT_MS=""` | `Number("")=0` → המתנה לאישור מסירת קבצים מבוטלת לגמרי |
+| `CLIENT_MAX_CAMPAIGNS="0"` | `0 \|\| 7` = 7 — אי אפשר להגדיר "אפס קמפיינים" |
+
+**תיקון מוצע:** `validateConfig()` שנקראת לפני `createStorage()` — לאמת `WHATSAPP_PROVIDER` מול רשימה סגורה, לדרוש את שדות ה-Meta כש-`META_CLOUD_API`, ולהחליף `Number(x) || default` ב-`Number.isFinite` מפורש. סיכון: נמוך — הופך כשל שקט לכשל רועש בעלייה, מה שעדיף.
+
+### 4.0.2 `redeploy-all` בלי retry/rollback (F4-2)
+
+`runBulkRedeploy` (`adminServer.ts:2284-2313`) עובר על כל הלקוחות ברצף; כשל של אחד לא עוצר את השאר (טוב) אבל גם אין ניסיון חוזר ואין rollback — הלקוח נשאר במצב לא-דטרמיניסטי. תרחיש חמור יותר: כשל **אחרי** `saveEnvironment` ולפני `redeploy` משאיר env חדש שמור ב-Dokploy כשהקוד עדיין ישן — deploy עתידי (כולל אוטומטי מ-git push) יריץ קוד חדש עם env שלא נבדק יחד. תיקון מוצע: retry יחיד עם השהיה + דוח כשלים מרוכז; לתעד runbook rollback ב-CLAUDE.md. סיכון: נמוך.
+
+### 4.0.3 `CLAUDE.md` מתאר Railway; הפריסה בפועל היא Dokploy (DOC-1)
+
+כל סעיף "פריסה"/"משתני סביבה"/"הקמת לקוחות מבודדות" ב-CLAUDE.md כתוב סביב Railway (`RAILWAY_PROJECT_TOKEN`, `RAILWAY_API_URL` וכו') בזמן שההקמה בפועל היא `src/dokployProvisioner.ts` דרך `DOKPLOY_API_TOKEN`/`DOKPLOY_ENVIRONMENT_ID`/`DOKPLOY_GIT_URL`. אין `railwayProvisioner` בקוד. מטעה כל סוכן/מפתח חדש שיחפש Volume או Token ב-Railway UI. תיקון: לשכתב את שלושת הסעיפים ל-Dokploy. סיכון: אפס (תיעוד בלבד).
 
 ### 4.1 סוויטת הבדיקות
 
