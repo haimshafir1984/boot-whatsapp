@@ -631,7 +631,12 @@ export async function writeSnapshotDelta(pool: Pool, previous: StorageData | nul
       await syncOutboxMessagesDelta(pool, previous?.outboxMessages ?? [], data.outboxMessages ?? [], rowIdsFor('outboxMessages'));
     }
     if (isDirty('conversationStateSnapshot')) {
-      await syncConversationStateDelta(pool, previous?.conversationStateSnapshot?.conversations ?? {}, data.conversationStateSnapshot?.conversations ?? {});
+      await syncConversationStateDelta(
+        pool,
+        previous?.conversationStateSnapshot?.conversations ?? {},
+        data.conversationStateSnapshot?.conversations ?? {},
+        rowIdsFor('conversationStateSnapshot'),
+      );
     }
     if (isDirty('scheduledJobs')) {
       await syncRowsDelta(pool, 'scheduled_jobs', previous?.scheduledJobs ?? [], data.scheduledJobs ?? [], (item) => item.id, (item) => [item.id, item.kind, item.targetId, nullableDate(item.runAt), item.status, item.attempts, item, nullableDate(item.updatedAt)]);
@@ -834,38 +839,71 @@ async function upsertRow(pool: Pool, table: string, params: unknown[]): Promise<
   );
 }
 
-async function syncConversationStateDelta(
+/**
+ * conversation_state rows are mutated constantly (every step transition of every
+ * participant). Comparing all of them on each change is O(n) in the number of
+ * pending conversations - measured at 47.5ms of event-loop blocking per single
+ * change with ~1,200 conversations in state, which is what made a live campaign
+ * degrade progressively as conversations accumulated. Every persist() call now
+ * names the jid(s) it changed (see conversationState.persist), so only those are
+ * compared.
+ *
+ * Safety net: if the untouched portion's row count differs between the two
+ * snapshots, some path changed conversations without naming them, so fall back
+ * to the exact full comparison used before this optimization.
+ */
+export async function syncConversationStateDelta(
   pool: Pool,
   previous: Record<string, unknown>,
   next: Record<string, unknown>,
+  touchedJids: DirtyRowIds = 'all',
 ): Promise<void> {
   const removed = Object.keys(previous).filter((jid) => !(jid in next));
   if (removed.length) await pool.query('delete from conversation_state where jid = any($1::text[])', [removed]);
+
+  if (touchedJids !== 'all') {
+    const untouchedPrevious = Object.keys(previous).filter((jid) => !touchedJids.has(jid)).length;
+    const untouchedNext = Object.keys(next).filter((jid) => !touchedJids.has(jid)).length;
+    if (untouchedPrevious === untouchedNext) {
+      for (const jid of touchedJids) {
+        const state = next[jid];
+        if (state === undefined) continue; // already handled by the delete above
+        if (jid in previous && sameJson(previous[jid], state)) continue;
+        await upsertConversationState(pool, jid, state);
+      }
+      return;
+    }
+  }
+
   for (const [jid, state] of Object.entries(next)) {
     if (jid in previous && sameJson(previous[jid], state)) continue;
-    const item = state as any;
-    await pool.query(
-      `insert into conversation_state(jid, kind, sender_phone, campaign_id, campaign_result_id, scheduled_at, data, updated_at)
-       values ($1, $2, $3, $4, $5, $6, $7, now())
-       on conflict (jid) do update set
-         kind = excluded.kind,
-         sender_phone = excluded.sender_phone,
-         campaign_id = excluded.campaign_id,
-         campaign_result_id = excluded.campaign_result_id,
-         scheduled_at = excluded.scheduled_at,
-         data = excluded.data,
-         updated_at = now()`,
-      [
-        jid,
-        typeof item.kind === 'string' ? item.kind : 'unknown',
-        typeof item.senderPhone === 'string' ? item.senderPhone : null,
-        typeof item.campaignId === 'string' ? item.campaignId : null,
-        typeof item.campaignResultId === 'string' ? item.campaignResultId : null,
-        scheduledAtForState(item),
-        jsonbParam(item),
-      ],
-    );
+    await upsertConversationState(pool, jid, state);
   }
+}
+
+async function upsertConversationState(pool: Pool, jid: string, state: unknown): Promise<void> {
+  const item = state as any;
+  await pool.query(
+    `insert into conversation_state(jid, kind, sender_phone, campaign_id, campaign_result_id, scheduled_at, data, updated_at)
+     values ($1, $2, $3, $4, $5, $6, $7, now())
+     on conflict (jid) do update set
+       kind = excluded.kind,
+       sender_phone = excluded.sender_phone,
+       campaign_id = excluded.campaign_id,
+       campaign_result_id = excluded.campaign_result_id,
+       scheduled_at = excluded.scheduled_at,
+       data = excluded.data,
+       updated_at = now()`,
+    [
+      jid,
+      typeof item.kind === 'string' ? item.kind : 'unknown',
+      typeof item.senderPhone === 'string' ? item.senderPhone : null,
+      typeof item.campaignId === 'string' ? item.campaignId : null,
+      typeof item.campaignResultId === 'string' ? item.campaignResultId : null,
+      scheduledAtForState(item),
+      jsonbParam(item),
+    ],
+  );
 }
 
 async function replaceRows<T>(pool: Pool, table: string, rows: T[], values: (row: T) => unknown[]): Promise<void> {

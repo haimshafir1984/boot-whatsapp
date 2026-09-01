@@ -740,7 +740,7 @@ export function emptyStorageData(): StorageData {
 /** The tables that support row-level dirty tracking - each of their rows is
  * mutated in place after creation, so pinpointing exactly which id(s) changed
  * lets the backend skip re-comparing the rest of a potentially large table. */
-const ROW_TRACKED_TABLES: readonly StorageTableName[] = ['outboxMessages', 'campaignResults', 'contactQueue', 'contactsList'];
+const ROW_TRACKED_TABLES: readonly StorageTableName[] = ['outboxMessages', 'campaignResults', 'contactQueue', 'contactsList', 'conversationStateSnapshot'];
 
 export interface StoragePersistBackend {
   mode: 'postgres';
@@ -1085,9 +1085,15 @@ export class Storage {
       : undefined;
   }
 
-  saveConversationStateSnapshot(snapshot: ConversationStateSnapshot): void {
+  saveConversationStateSnapshot(
+    snapshot: ConversationStateSnapshot,
+    changedJids: readonly string[] | 'all' = 'all',
+  ): void {
     this.data.conversationStateSnapshot = JSON.parse(JSON.stringify(snapshot)) as ConversationStateSnapshot;
-    this.persist(['conversationStateSnapshot']);
+    this.persist(
+      ['conversationStateSnapshot'],
+      changedJids === 'all' ? {} : { conversationStateSnapshot: changedJids },
+    );
   }
 
   getDurableTimerHealth(): { scheduled: number; jobs: number } {

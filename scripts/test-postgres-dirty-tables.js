@@ -13,6 +13,7 @@ const assert = require('assert');
 const {
   writeSnapshotDelta, syncCampaignEventsDelta, syncOutboxMessagesDelta,
   syncCampaignResultsDelta, syncContactQueueDelta, syncContactsListDelta,
+  syncConversationStateDelta,
   mergeDirtyTables, mergeDirtyOutboxRows, mergeDirtyRowIdsByTable,
 } = require('../dist/database');
 const { emptyStorageData } = require('../dist/storage');
@@ -281,6 +282,61 @@ function campaignEvent(id, overrides = {}) {
     const deletes = pool.calls.filter((c) => /^delete from saved_contacts/i.test(c.sql));
     assert.strictEqual(deletes.length, 1, 'the untracked phone removal must still be caught by the fallback');
     assert.deepStrictEqual(deletes[0].params[0], ['untracked-removed-phone']);
+  }
+
+  function conversation(jid, overrides = {}) {
+    return {
+      kind: 'expired-decision', senderJid: jid, senderPhone: jid.replace(/\D/g, ''),
+      campaignId: 'c1', campaignResultId: 'r-' + jid.slice(-4), stepId: 'step-1',
+      timestamp: Date.now(), ...overrides,
+    };
+  }
+
+  // 18. conversation_state row-level fast path: only the tagged jid is compared
+  //     and upserted, even with thousands of other pending conversations. This
+  //     runs on every step transition of every participant, so an O(n) scan here
+  //     degraded a live campaign progressively as conversations accumulated.
+  {
+    const pool = makeMockPool();
+    const previous = {};
+    for (let i = 0; i < 3000; i += 1) previous['whatsapp:other' + i] = conversation('whatsapp:other' + i);
+    previous['whatsapp:j1'] = conversation('whatsapp:j1', { stepId: 'step-1' });
+    const next = JSON.parse(JSON.stringify(previous));
+    next['whatsapp:j1'].stepId = 'step-2';
+    const t0 = Date.now();
+    await syncConversationStateDelta(pool, previous, next, new Set(['whatsapp:j1']));
+    const ms = Date.now() - t0;
+    const inserts = pool.calls.filter((c) => /^insert into conversation_state/i.test(c.sql));
+    assert.strictEqual(inserts.length, 1, `only the touched conversation should be upserted, got ${inserts.length}`);
+    assert.strictEqual(inserts[0].params[0], 'whatsapp:j1');
+    assert.ok(ms < 50, `row-level sync of 3000 conversations with 1 touched jid should be near-instant, took ${ms}ms`);
+  }
+
+  // 19. Safety net: a conversation removed without being tagged must still be
+  //     caught by the untouched-count check and deleted, not silently missed.
+  {
+    const pool = makeMockPool();
+    const previous = {
+      'whatsapp:j1': conversation('whatsapp:j1'),
+      'whatsapp:untracked': conversation('whatsapp:untracked'),
+    };
+    const next = { 'whatsapp:j1': conversation('whatsapp:j1', { stepId: 'step-2' }) };
+    await syncConversationStateDelta(pool, previous, next, new Set(['whatsapp:j1']));
+    const deletes = pool.calls.filter((c) => /^delete from conversation_state/i.test(c.sql));
+    assert.strictEqual(deletes.length, 1, 'an untagged removal must still be deleted');
+    assert.deepStrictEqual(deletes[0].params[0], ['whatsapp:untracked']);
+  }
+
+  // 20. 'all' (bulk paths such as restore) keeps the exact full comparison.
+  {
+    const pool = makeMockPool();
+    const previous = { 'whatsapp:j1': conversation('whatsapp:j1'), 'whatsapp:j2': conversation('whatsapp:j2') };
+    const next = JSON.parse(JSON.stringify(previous));
+    next['whatsapp:j2'].stepId = 'step-changed';
+    await syncConversationStateDelta(pool, previous, next, 'all');
+    const inserts = pool.calls.filter((c) => /^insert into conversation_state/i.test(c.sql));
+    assert.strictEqual(inserts.length, 1, "'all' must still detect the one real change via full comparison");
+    assert.strictEqual(inserts[0].params[0], 'whatsapp:j2');
   }
 
   console.log('PostgreSQL dirty-table skip logic tests passed.');
