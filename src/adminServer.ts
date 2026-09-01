@@ -1633,11 +1633,23 @@ export function startAdminServer(storage: Storage): void {
       try {
         // Correct isolation requires a fresh answer from every client. Cached
         // route data could hide a container that has just gone offline.
-        const snapshotResult = await fetchClientAsOwner<MetaRoutingSnapshotResponse>(client, '/owner-api/meta-routing-snapshot', {
+        const fetchRoutingSnapshot = () => fetchClientAsOwner<MetaRoutingSnapshotResponse>(client, '/owner-api/meta-routing-snapshot', {
           method: 'POST',
           body: JSON.stringify({ phone: fromKey }),
           signal: AbortSignal.timeout(3_000),
         });
+        // A healthy client can still miss the window while it is mid-write or
+        // serving another request. One immediate retry is far cheaper than
+        // sending the message back to the inbox, where nothing would try again
+        // until a whole backoff round has passed. A client that is genuinely
+        // unreachable throws again here and is skipped exactly as before.
+        let snapshotResult: Awaited<ReturnType<typeof fetchRoutingSnapshot>>;
+        try {
+          snapshotResult = await fetchRoutingSnapshot();
+        } catch (firstAttemptError) {
+          console.warn('[META_GATEWAY_ROUTING_RETRY]', client.id, firstAttemptError);
+          snapshotResult = await fetchRoutingSnapshot();
+        }
         let campaigns: MetaGatewayRoute[];
         if (snapshotResult.ok && Array.isArray(snapshotResult.body?.routes)) {
           campaigns = snapshotResult.body.routes;
@@ -1821,6 +1833,14 @@ export function startAdminServer(storage: Storage): void {
     return { handled: true };
   };
 
+  // A routing miss is usually a client that was busy for a moment, not one that
+  // is down, so the first retries are near-instant and the curve tops out fast.
+  // The old curve started at 5s and doubled to a 5min cap, which put the 7th
+  // retry past MAX_TRIGGER_AGE_MS - messages came back only to be dropped for
+  // being stale. All 10 attempts now fit inside ~38s, well within that window.
+  const metaInboxRetryDelayMs = (attempts: number): number =>
+    Math.min(500 * (2 ** Math.max(0, attempts - 1)), 5_000);
+
   let metaGatewayInboxRunning = false;
   const processMetaGatewayInbox = async (): Promise<void> => {
     if (metaGatewayInboxRunning) return;
@@ -1841,7 +1861,7 @@ export function startAdminServer(storage: Storage): void {
                 metaGatewayInbox.markFailed(item.id, err);
                 console.error('[META_GATEWAY_INBOX_FAILED]', item.id, err);
               } else {
-                const retryDelayMs = Math.min(5_000 * (2 ** Math.max(0, item.attempts - 1)), 5 * 60_000);
+                const retryDelayMs = metaInboxRetryDelayMs(item.attempts);
                 const nextAttemptAt = new Date(Date.now() + retryDelayMs);
                 metaGatewayInbox.markRetry(item.id, err, nextAttemptAt);
                 // The remaining items were already claimed as part of this
@@ -1865,7 +1885,7 @@ export function startAdminServer(storage: Storage): void {
       metaGatewayInboxRunning = false;
     }
   };
-  setInterval(() => { void processMetaGatewayInbox(); }, 2_000);
+  setInterval(() => { void processMetaGatewayInbox(); }, 500);
   void processMetaGatewayInbox();
 
   let metaClientInboxRunning = false;
@@ -1886,7 +1906,7 @@ export function startAdminServer(storage: Storage): void {
                 metaClientInbox.markFailed(item.id, err);
                 console.error('[META_CLIENT_INBOX_FAILED]', item.id, err);
               } else {
-                const retryDelayMs = Math.min(5_000 * (2 ** Math.max(0, item.attempts - 1)), 5 * 60_000);
+                const retryDelayMs = metaInboxRetryDelayMs(item.attempts);
                 metaClientInbox.markRetry(item.id, err, new Date(Date.now() + retryDelayMs));
                 console.warn('[META_CLIENT_INBOX_RETRY]', item.id, `attempt=${item.attempts}`, err);
               }
@@ -1898,7 +1918,7 @@ export function startAdminServer(storage: Storage): void {
       metaClientInboxRunning = false;
     }
   };
-  setInterval(() => { void processMetaClientInbox(); }, 2_000);
+  setInterval(() => { void processMetaClientInbox(); }, 500);
   void processMetaClientInbox();
 
   // Broadcast a delivery-status webhook to every managed Meta client; each ignores wamids it
