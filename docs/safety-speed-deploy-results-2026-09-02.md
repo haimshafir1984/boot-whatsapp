@@ -261,7 +261,8 @@ EXIT: 0
 
 ### קומיט
 
-`9dcb139` — "Delete campaign before detaching its live conversations"
+- `9dcb139` — "Delete campaign before detaching its live conversations" (DELETE fix)
+- `d42337a` — "Ask before ending live conversations on a campaign flow edit" (PUT modal)
 
 ---
 
