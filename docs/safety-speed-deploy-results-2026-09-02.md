@@ -186,7 +186,7 @@ EXIT: 0
 
 ### קומיט
 
-`<יתווסף אחרי commit>`
+`5f9589b` — "Ordered SIGTERM/SIGINT drain with stoppable workers"
 
 ---
 
