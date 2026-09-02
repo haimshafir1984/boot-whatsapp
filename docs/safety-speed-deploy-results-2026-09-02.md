@@ -441,8 +441,65 @@ EXIT: 0
 4. ~~עריכת flow — בחירה מפורשת ב-UI (ב.2)~~ — **הוכרע:** האונר בחר "ממש עכשיו, מודאל מלא".
    מומש בשלב 3 (מודאל `#flowEditConfirmOverlay` + דגל `endActiveConversations`).
 
+**אף אחת מ-1-3 אינה "בוצע" — כולן דורשות בדיקה של האונר מול Dokploy/פרודקשן.**
+
+---
+
+## כל הקומיטים בענף `safety-speed-deploy-plan` (מעל `9e03f99`)
+
+| hash | שלב | תיאור |
+|---|---|---|
+| `3889b68` | 1 | Verify X-Hub-Signature-256 on the Meta webhook gateway route |
+| `1977b32` | 1 | Record step 1 commit hash in results doc |
+| `5f9589b` | 2 | Ordered SIGTERM/SIGINT drain with stoppable workers |
+| `d695cfb` | 2 | Record step 2 commit hash in results doc |
+| `9dcb139` | 3 | Delete campaign before detaching its live conversations |
+| `8487f2c` | 3 | Record step 3 commit hash in results doc |
+| `d42337a` | 3 | Ask before ending live conversations on a campaign flow edit |
+| (doc) | 3 | Record step 3 part 2 commit hash |
+| `10a4b01` | 4 | Add a storage-free /health/live probe and container HEALTHCHECK |
+| (doc) | 4 | Record step 4 commit hash |
+| `a506b7b` | 5 | Atomic conversation-state file write in JSON mode + .bak restore fallback |
+| (doc) | 5 | Record step 5 commit hash |
+| `78b9ad8` | 6 | Copy only tsconfig+src into the builder, static dirs from context |
+| (doc) | 6 | Record step 6 commit hash |
+
+## בדיקות — ריכוז
+
+בדיקות חדשות (כולן exit 0):
+
+| קובץ | שלב | מכסה |
+|---|---|---|
+| `scripts/test-meta-webhook-signature.js` | 1 | פונקציה טהורה (10 assertions, כולל גוף ~1MB עברי) + middleware אמיתי מעל HTTP: 403 על חתימה שגויה/חסרה, 200+enqueue על תקינה, 200 בלי secret |
+| `scripts/test-graceful-shutdown.js` | 2 | 9 מקרים: סדר drain, forced-timeout exit(1), אות כפול, `storage.close()` שזורק, המתנה לבקשת HTTP בטיסה, שרת סגור מסרב חיבורים, race של `contactQueue.stop()`, dispatch שנעצר באמצע send, service-bot tick |
+| `scripts/test-campaign-delete-conversations.js` | 3 | DELETE: כשל→conversationState לא נוגע, הצלחה→מנוקה. PUT: בלי דגל→0, `endActiveConversations:true`→ניתוק כל שיחות הקמפיין |
+| `scripts/test-health-live.js` | 4 | `/health/live` 200; 200 גם כש-5 מתודות storage זורקות (`/health`→500); 40 קריאות תחת burst של 30×`/health` — כולן 200, p95≈2ms |
+| `scripts/test-conversation-state-atomic-write.js` | 5 | JSON mode: כתיבה אטומית, `.bak`=snapshot קודם, אין `.tmp`. שחזור מ-`.bak` על קובץ קטוע. קטוע בלי `.bak`→0 בלי לזרוק. non-primary backend→כתיבה רגילה בלי `.bak`/`.tmp` |
+
+רגרסיה (כולן exit 0): `test-outbox-claim`, `test-outbox-durability`, `test-outbox-ordering`
+(עודכנו ל-`await timer.stop()`), `test-service-bot-flow`, `test-flow-concurrency`,
+`test-flow-recovery`, `test-conversation-state-flow-rehydration`, `test-meta-gateway-inbox`,
+`test-meta-gateway-reliability`, `test-meta-campaign-routing`.
+
+בדיקות שלא הורצו: כל מה שדורש Postgres חי (`test-postgres-*`, `test-migration-safety`)
+— אין DB מקומי בסביבה. `docker build` — אין docker בסביבה.
+
+`npm run build` — עבר נקי (exit 0) אחרי כל שלב ובסוף.
+
+## מה לא נכלל במשימה (מפורש בתוכנית/הוראות)
+
+- **א.3 Chromium דרך Build Arg (`INCLUDE_CHROMIUM`)** — "בפריסה נפרדת לגמרי, אחרי שכל השאר יציב".
+- **ב.3 Postgres-mode fallback write** — דורש עיצוב נפרד, לא "אותו תיקון".
+- **החלפת `npm ci --omit=dev` ב-`npm prune`** — ההוראה: להשאיר.
+- **BuildKit npm cache mount** — אופטימיזציה עתידית.
+- הפיכת אימות חתימת Meta לחובה (`assertClientProvisioningConfig`) — תלוי ב-audit (שאלה פתוחה 1).
+
 ---
 
 ## סטטוס כללי
+
+כל ששת השלבים בסדר הביצוע המחייב הושלמו: קוד + בדיקות + תיעוד. שלוש שאלות פתוחות
+(audit של `META_APP_SECRET`, grace period ב-Dokploy, שימוש בפועל ב-HEALTHCHECK לניתוב)
+מסומנות **"לא ידוע — דורש בדיקה נוספת"** ולא כ"בוצע".
 
 **לא בוצעה פריסה. ממתין לאישור.**
