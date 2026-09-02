@@ -425,7 +425,7 @@ EXIT: 0
 
 ### קומיט
 
-`<יתווסף אחרי commit>`
+`78b9ad8` — "Copy only tsconfig+src into the builder, static dirs from context"
 
 ---
 
