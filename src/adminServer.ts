@@ -4376,8 +4376,13 @@ export function startAdminServer(storage: Storage): import('http').Server {
   });
 
   app.delete('/api/campaigns/:id', requireWritableClient, (req, res) => {
-    const ok = storage.deleteCampaign(String(req.params.id));
-    res.json({ ok });
+    const id = String(req.params.id);
+    // Delete first; only detach live conversations if the campaign was actually
+    // removed. The reverse order can strand active conversations when the delete
+    // then fails — damage with no benefit.
+    const ok = storage.deleteCampaign(id);
+    const conversations = ok ? conversationState.removeByCampaign(id) : 0;
+    res.json({ ok, conversations });
   });
 
   app.get('/api/campaigns/:id/dry-run', (req, res) => {

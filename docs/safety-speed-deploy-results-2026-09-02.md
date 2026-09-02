@@ -190,9 +190,70 @@ EXIT: 0
 
 ---
 
-## שלבים 3-6
+## שלב 3 — תיקון מחיקת קמפיין (ב.2)
 
-טרם בוצעו.
+### מה בוצע
+
+| שינוי | מיקום |
+|---|---|
+| `DELETE /api/campaigns/:id`: `storage.deleteCampaign(id)` **קודם**; `conversationState.removeByCampaign(id)` רק אם `ok === true`. מחזיר גם `conversations` (מספר השיחות שנותקו) | `src/adminServer.ts:4383-4390` |
+| ערך `test:campaign-delete-conversations` ב-scripts | `package.json` |
+
+### התאמה לתוכנית
+
+תואם בדיוק לקטע ב.2: הסדר ההפוך (ניקוי שיחות לפני המחיקה) חשוף למצב שבו המחיקה
+נכשלת אחרי שכבר נותקו שיחות פעילות — נזק בלי תועלת. עכשיו: מחיקה, ואם הצליחה — ניקוי.
+
+### עריכת flow (PUT) — לא מומש, דורש אישור עיצוב UI נפרד
+
+התוכנית (ב.2) דורשת שבמקום היוריסטיקת "שינוי מהותי", עריכה שמשנה את
+`conversation.decisionFlow` תציג למשתמש **בחירה מפורשת** ("לסיים שיחות פעילות של קמפיין
+זה?"). זה דורש שינוי UI ב-`public/index.html` (קובץ מונוליטי, 5987 שורות, אשף קמפיין):
+זיהוי שינוי flow בצד לקוח (השוואת flow ישן מול חדש), מודאל אישור, העברת דגל חדש
+(`endActiveConversations`) דרך `submitCampaign()` → גוף `PUT /api/campaigns/:id`, וענף
+שרת תואם שקורא `conversationState.removeByCampaign(id)` רק כשהדגל דלוק.
+
+**זו תוספת פיצ'ר UI ממשית באשף מורכב.** לפי הוראות המשימה ("אם זה דורש שינוי UI
+משמעותי, תעד את ההיקף ותשאל לפני שמממשים UI חדש בלי אישור נפרד על העיצוב") —
+**לא מומש. ממתין להחלטת האונר על העיצוב/ההיקף.**
+
+מצב ביניים: `PUT /api/campaigns/:id` הנוכחי **לא** מנתק שיחות בכלל (כמו במאסטר).
+המשמעות המעשית (A4-1): משתתף שהתחיל לפני עריכת flow ממשיך על ה-flow הישן עד restart.
+לא רגרסיה — התנהגות זהה למאסטר; פשוט לא שופרה בשלב הזה.
+
+### בדיקות — `scripts/test-campaign-delete-conversations.js` (חדש)
+
+מריץ את ה-route האמיתי של admin-server מעל HTTP (התחברות לקוח → cookie → `DELETE`).
+
+```
+$ node scripts/test-campaign-delete-conversations.js
+OWNER_ACCESS_TOKEN is not configured. Temporary owner access code: cVuJVRogNaVkQhfJ7ThiWPFH
+  Gateway retry: base 500ms, cap 5000ms, drain every 500ms
+🖥️  Admin dashboard → http://localhost:38339
+  failure path — delete fails, conversationState untouched (no stranded conversations)
+  success path — campaign deleted first, then its conversations cleared
+Campaign delete / conversation cleanup tests passed.
+EXIT: 0
+```
+
+- **מסלול כשל:** `storage.deleteCampaign` מוחלף למוק שמחזיר `false`. `DELETE` →
+  `200 { ok:false, conversations:0 }`; שתי השיחות עדיין קיימות; השיחה של הקמפיין
+  ה"נמחק" **לא** הוסרה. (מכסה "מחיקה שנכשלת → conversationState לא נוגע".)
+- **מסלול הצלחה:** `deleteCampaign` אמיתי. `DELETE` → `200 { ok:true, conversations:1 }`;
+  בדיוק השיחה של אותו קמפיין הוסרה; השיחה של הקמפיין השני נשארה; הקמפיין נעלם
+  מ-storage. (מכסה "מחיקה מוצלחת → conversationState מנוקה".)
+
+`npm run build` אחרי השינוי: עבר נקי (exit 0).
+
+### קומיט
+
+`<יתווסף אחרי commit>`
+
+---
+
+## שלבים 4-6
+
+טרם בוצעו. שלב 4 (`/health/live` + HEALTHCHECK) — ראה שאלה פתוחה 3.
 
 ---
 
@@ -205,6 +266,8 @@ EXIT: 0
    את ה-drain הפנימי.
 3. **Dokploy / HEALTHCHECK routing** (א.2) — האם Dokploy/Swarm בפועל משתמשים ב-HEALTHCHECK
    לניתוב תעבורה / rolling replace, או רק כאינדיקציה תפעולית. (רלוונטי לשלב 4.)
+4. **עריכת flow — בחירה מפורשת ב-UI** (ב.2) — האם לממש את מודאל האישור ב-`public/index.html`
+   במסגרת המשימה הזו, ובאיזה עיצוב, או לפצל לפריט נפרד. (חוסם את החלק השני של שלב 3.)
 
 ---
 
