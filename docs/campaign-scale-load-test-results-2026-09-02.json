@@ -1,0 +1,201 @@
+{
+  "seed": {
+    "outboxMessages": 17000,
+    "campaignResults": 13000,
+    "campaignEvents": 18000,
+    "conversationState": 1500,
+    "savedContacts": 2000,
+    "seedSeconds": 130.398
+  },
+  "run": {
+    "durationMinutes": 10,
+    "wallMs": 600938,
+    "launched": 182,
+    "completed": 182,
+    "failures": 0,
+    "p50": 2025,
+    "p95": 2882,
+    "p99": 2969,
+    "max": 2980
+  },
+  "safety": {
+    "idleTransactionEpisodes": 32,
+    "stuckForever": 0,
+    "longestEpisodeS": 31.88,
+    "expectedSends": 182,
+    "durableRows": 182
+  },
+  "snapshots": [
+    {
+      "atS": 30,
+      "launched": 3,
+      "completed": 3,
+      "failures": 0,
+      "inFlight": 0,
+      "recentP50": 988,
+      "recentMax": 988
+    },
+    {
+      "atS": 60,
+      "launched": 6,
+      "completed": 6,
+      "failures": 0,
+      "inFlight": 0,
+      "recentP50": 801,
+      "recentMax": 943
+    },
+    {
+      "atS": 90,
+      "launched": 8,
+      "completed": 8,
+      "failures": 0,
+      "inFlight": 0,
+      "recentP50": 1009,
+      "recentMax": 1009
+    },
+    {
+      "atS": 121,
+      "launched": 36,
+      "completed": 11,
+      "failures": 0,
+      "inFlight": 25,
+      "recentP50": 896,
+      "recentMax": 896
+    },
+    {
+      "atS": 151,
+      "launched": 39,
+      "completed": 39,
+      "failures": 0,
+      "inFlight": 0,
+      "recentP50": 912,
+      "recentMax": 918
+    },
+    {
+      "atS": 181,
+      "launched": 41,
+      "completed": 41,
+      "failures": 0,
+      "inFlight": 0,
+      "recentP50": 933,
+      "recentMax": 933
+    },
+    {
+      "atS": 211,
+      "launched": 44,
+      "completed": 44,
+      "failures": 0,
+      "inFlight": 0,
+      "recentP50": 913,
+      "recentMax": 979
+    },
+    {
+      "atS": 241,
+      "launched": 75,
+      "completed": 47,
+      "failures": 0,
+      "inFlight": 28,
+      "recentP50": 917,
+      "recentMax": 966
+    },
+    {
+      "atS": 271,
+      "launched": 77,
+      "completed": 77,
+      "failures": 0,
+      "inFlight": 0,
+      "recentP50": 899,
+      "recentMax": 899
+    },
+    {
+      "atS": 301,
+      "launched": 80,
+      "completed": 80,
+      "failures": 0,
+      "inFlight": 0,
+      "recentP50": 887,
+      "recentMax": 968
+    },
+    {
+      "atS": 331,
+      "launched": 83,
+      "completed": 83,
+      "failures": 0,
+      "inFlight": 0,
+      "recentP50": 967,
+      "recentMax": 1001
+    },
+    {
+      "atS": 361,
+      "launched": 131,
+      "completed": 85,
+      "failures": 0,
+      "inFlight": 46,
+      "recentP50": 939,
+      "recentMax": 939
+    },
+    {
+      "atS": 391,
+      "launched": 134,
+      "completed": 134,
+      "failures": 0,
+      "inFlight": 0,
+      "recentP50": 957,
+      "recentMax": 1755
+    },
+    {
+      "atS": 422,
+      "launched": 137,
+      "completed": 137,
+      "failures": 0,
+      "inFlight": 0,
+      "recentP50": 936,
+      "recentMax": 1040
+    },
+    {
+      "atS": 452,
+      "launched": 139,
+      "completed": 139,
+      "failures": 0,
+      "inFlight": 0,
+      "recentP50": 989,
+      "recentMax": 989
+    },
+    {
+      "atS": 482,
+      "launched": 171,
+      "completed": 171,
+      "failures": 0,
+      "inFlight": 0,
+      "recentP50": 2073,
+      "recentMax": 2264
+    },
+    {
+      "atS": 512,
+      "launched": 174,
+      "completed": 174,
+      "failures": 0,
+      "inFlight": 0,
+      "recentP50": 840,
+      "recentMax": 1032
+    },
+    {
+      "atS": 542,
+      "launched": 176,
+      "completed": 176,
+      "failures": 0,
+      "inFlight": 0,
+      "recentP50": 908,
+      "recentMax": 908
+    },
+    {
+      "atS": 573,
+      "launched": 179,
+      "completed": 179,
+      "failures": 0,
+      "inFlight": 0,
+      "recentP50": 976,
+      "recentMax": 977
+    }
+  ]
+}
