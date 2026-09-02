@@ -24,7 +24,14 @@ export interface ShutdownDeps {
   server: { close: (cb: (err?: Error) => void) => void };
   workers: ShutdownWorker[];
   storage: { close: () => Promise<void> };
-  /** Hard cap before process.exit(1). Default 22s — see plan A.1.1 (not 8s). */
+  /**
+   * Hard cap before process.exit(1). Default 8s, matching Docker's real
+   * `stop_grace_period` default (10s) with a safety margin — see
+   * docs/safety-speed-deploy-plan-2026-09-02.md and the grace-period
+   * discussion in docs/safety-speed-deploy-results-2026-09-02.md. The
+   * platform's actual configured value is unverified; 8s is the safe,
+   * immediately-actionable choice given that.
+   */
   graceMs?: number;
   exit?: (code: number) => void;
   log?: (msg: string) => void;
@@ -36,7 +43,7 @@ export function createShutdownHandler(deps: ShutdownDeps): (signal: string) => P
     server,
     workers,
     storage,
-    graceMs = 22_000,
+    graceMs = 8_000,
     exit = (code: number) => process.exit(code),
     log = (msg: string) => console.log(msg),
     errorLog = (msg: string, err?: unknown) => console.error(msg, err),

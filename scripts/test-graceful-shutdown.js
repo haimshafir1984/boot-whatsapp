@@ -73,7 +73,7 @@ async function testForcedTimeout() {
   const elapsed = Date.now() - started;
   // storage.close() never resolves, so the only path to exit is the forced timer.
   assert.deepEqual(exits, [1], 'a wedged storage.close() forces exit(1)');
-  assert.ok(elapsed < 2000, `forced exit fired via graceMs, not the 22s default (elapsed=${elapsed}ms)`);
+  assert.ok(elapsed < 2000, `forced exit fired via graceMs, not the 8s default (elapsed=${elapsed}ms)`);
   assert.match(forcedMsg, /grace period exceeded/i, 'forced exit is logged');
   console.log('  2. forced timeout: wedged storage.close() -> exit(1) after graceMs, no hang');
 }
