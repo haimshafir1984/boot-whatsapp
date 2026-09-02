@@ -4,7 +4,11 @@ WORKDIR /app
 COPY package*.json ./
 COPY scripts/patch-baileys-prelogin-ack.js ./scripts/patch-baileys-prelogin-ack.js
 RUN npm ci
-COPY . .
+# tsc only needs tsconfig + src (tsconfig "include": ["src/**/*"]). Copying just
+# those keeps this layer's cache from being busted by unrelated root files
+# (.migration/, root *.md, .tmp-*, design-prototype/, tmp/).
+COPY tsconfig.json ./
+COPY src ./src
 RUN npm run build
 
 # ── Production stage ─────────────────────────────────────────────────────────
@@ -24,11 +28,13 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV NODE_ENV=production
 
+# dist is built in the builder; the static asset dirs come straight from the
+# build context now that the builder no longer does `COPY . .`.
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/owner-public ./owner-public
-COPY --from=builder /app/site-public ./site-public
-COPY --from=builder /app/scripts ./scripts
+COPY public ./public
+COPY owner-public ./owner-public
+COPY site-public ./site-public
+COPY scripts ./scripts
 COPY package*.json ./
 RUN npm ci --omit=dev
 

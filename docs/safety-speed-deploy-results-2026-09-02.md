@@ -386,9 +386,46 @@ EXIT: 0
 
 ---
 
-## שלב 6
+## שלב 6 — אופטימיזציות build קטנות (א.3, החלק שבהיקף)
 
-טרם בוצע.
+### מה בוצע — `Dockerfile`
+
+| לפני | אחרי |
+|---|---|
+| builder: `COPY . .` | `COPY tsconfig.json ./` + `COPY src ./src` (זה כל מה ש-`tsc` צריך — `tsconfig` עם `"include": ["src/**/*"]`) |
+| prod: `COPY --from=builder /app/{public,owner-public,site-public,scripts}` | `COPY {public,owner-public,site-public,scripts}` ישירות מה-build context (ה-builder כבר לא מכיל אותם) |
+| `dist` | ללא שינוי — עדיין `COPY --from=builder /app/dist ./dist` |
+| `npm ci --omit=dev` | **ללא שינוי** (לפי ההוראה — לא להחליף ב-`npm prune`) |
+
+**תועלת:** שכבת ה-`COPY src` בבילדר כבר לא נפסלת מ-cache בגלל קבצי root לא-קשורים
+(`.migration/`, `*.md` ברמת השורש, `.tmp-*`, `design-prototype/`, `tmp/`). אלה גם כבר
+לא נכנסים לתמונת ה-builder בכלל.
+
+**נכונות:** `tsc` צורך רק `tsconfig.json`+`src/` (אומת: אף קובץ ב-`src/*.ts` לא מייבא
+מחוץ ל-`src/`). `scripts/` מועתק ב-prod **לפני** `npm ci --omit=dev`, כך ש-`postinstall`
+(`node scripts/patch-baileys-prelogin-ack.js`) עדיין רץ. `.dockerignore` ממשיך לסנן את
+כל תיקיות ה-`COPY` הישירות.
+
+### מה לא נעשה (מחוץ להיקף לפי התוכנית וההוראות)
+
+- **Chromium דרך Build Arg (`INCLUDE_CHROMIUM`)** — התוכנית: "בפריסה נפרדת לגמרי, אחרי
+  שכל השאר יציב". לא נגעתי.
+- **BuildKit npm cache mount** — התוכנית מסמנת כאופטימיזציה עתידית שדורשת בדיקה נפרדת.
+- **החלפת `npm ci --omit=dev` ב-`npm prune`** — ההוראה: להשאיר כמו שהוא.
+
+### בדיקות
+
+אין בדיקה אוטומטית לשינוי Dockerfile. `docker` לא זמין בסביבה המקומית — **לא הורץ
+`docker build`**. אימות בעין: הבילדר מקבל בדיוק את מה ש-`tsc` צריך; ה-prod מקבל `dist`
+מהבילדר ואת תיקיות הסטטיק מה-context בסדר הנכון (`scripts` לפני `npm ci --omit=dev`).
+`npm run build` מקומי (שמשתמש באותם `tsconfig`+`src`) — עבר נקי (exit 0).
+
+**הנחה לא-מאומתת:** שרשרת ה-`COPY` החדשה תעבור ב-`docker build` של Dokploy. סבירות
+גבוהה (כל הקבצים קיימים ולא-מוחרגים), אבל לא נבדק מול Docker אמיתי.
+
+### קומיט
+
+`<יתווסף אחרי commit>`
 
 ---
 
