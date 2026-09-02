@@ -57,6 +57,13 @@ class MockPool {
     if (this.queryLatencyMs) await sleep(this.queryLatencyMs);
     return { rows: [], rowCount: 0 };
   }
+  // writeSnapshotDelta pins its transaction to one dedicated client via
+  // pool.connect() (B2-1 fix, commit ff47ebb) - this mock predates that and
+  // only had .query(), which broke silently since this script isn't part of
+  // npm run build. release() is a no-op; the same query() backs both paths.
+  async connect() {
+    return { query: (...args) => this.query(...args), release: () => {} };
+  }
 }
 
 // ── Mirrors PostgresStorageBackend's real coalescing/draining behavior
