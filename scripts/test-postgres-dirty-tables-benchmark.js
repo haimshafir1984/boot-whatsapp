@@ -47,7 +47,11 @@ async function originalFullDiff(pool, previous, data) {
 }
 
 function makeMockPool() {
-  return { query: () => Promise.resolve({ rows: [], rowCount: 0 }) };
+  const pool = {
+    query: () => Promise.resolve({ rows: [], rowCount: 0 }),
+    connect: async () => ({ query: (...args) => pool.query(...args), release: () => {} }),
+  };
+  return pool;
 }
 
 function buildLargeSnapshot(outboxCount, eventCount, resultCount) {

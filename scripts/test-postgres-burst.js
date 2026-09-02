@@ -15,7 +15,8 @@ async function clearData(pool) {
   await pool.query(`truncate table
     scheduled_jobs, conversation_state, outbox_messages, twilio_templates,
     uploaded_files, saved_contacts, contact_queue, campaign_events,
-    campaign_results, campaigns, client_profile, admin_settings, app_state
+    campaign_results, campaigns, client_profile, admin_settings, app_state,
+    service_bot_state
     restart identity`);
 }
 
