@@ -33,6 +33,7 @@ import {
   getGoogleRelayReturnUrl,
 } from './googleContacts';
 import { createAccessControl } from './accessControl';
+import { createMetaSignatureVerifier } from './metaWebhookSignature';
 import { ManagedClient, OwnerStorage } from './ownerStorage';
 import { DokployProvisioner } from './dokployProvisioner';
 import { conversationState } from './conversationState';
@@ -1257,8 +1258,20 @@ export function startAdminServer(storage: Storage): void {
   const metaClientInbox = new MetaGatewayInbox(path.join(path.dirname(config.STORAGE_PATH), 'meta-client-inbox.json'));
 
   app.set('trust proxy', 1);
-  app.use(express.json({ limit: '24mb' }));
+  app.use(express.json({
+    limit: '24mb',
+    // Capture the raw body so Meta webhook HMAC verification can run on the exact
+    // bytes Meta signed. Without this the parser consumes the stream first.
+    verify: (req, _res, buf) => { (req as express.Request & { rawBody?: Buffer }).rawBody = buf; },
+  }));
   app.use(express.urlencoded({ extended: false }));
+
+  // Gate for POST /webhooks/meta/whatsapp — the route that takes traffic straight
+  // from Meta. Rejects any request whose X-Hub-Signature-256 does not match an
+  // HMAC of the raw body keyed by META_APP_SECRET, before it reaches enqueue.
+  // When META_APP_SECRET is unset we do NOT block (pending the rollout audit of
+  // existing clients — see docs/safety-speed-deploy-plan-2026-09-02.md B.1 step 3).
+  const verifyMetaSignature = createMetaSignatureVerifier(() => config.META_APP_SECRET);
 
   const managedClientForOwnerToken = (provided: unknown): ManagedClient | null => {
     if (typeof provided !== 'string' || !provided.trim()) return null;
@@ -1937,7 +1950,7 @@ export function startAdminServer(storage: Storage): void {
     }
   };
 
-  app.post('/webhooks/meta/whatsapp', (req, res) => {
+  app.post('/webhooks/meta/whatsapp', verifyMetaSignature, (req, res) => {
     const statusPayloads = splitMetaWebhookStatuses(req.body);
     const messagePayloads = splitMetaWebhookMessages(req.body);
     if (!statusPayloads.length && !messagePayloads.length) {
