@@ -251,7 +251,40 @@ class PostgresStorageBackend implements StorageBackend {
   private queuedDirtyRowIds: DirtyRowIdsByTable = {};
   private draining = false;
 
-  constructor(private readonly pool: Pool) {}
+  // flush() must wait only for the writes that existed when it was called, not
+  // for the persistence layer to go globally quiet. Under sustained traffic the
+  // old `while (draining || queuedSnapshot)` loop could wait tens of seconds for
+  // a lull that other senders kept pushing away - measured at ~40s end-to-end
+  // for a single participant, sitting right before the send to Meta.
+  //
+  // writeSeq counts every persistSnapshot() call. durableSeq is the highest
+  // writeSeq value a drain cycle has actually committed. batchSignal is a
+  // one-shot latch re-armed after every cycle (success or failure) so waiters
+  // re-check. batchError / batchErrorThroughSeq remember the last failed cycle
+  // so a caller whose own write was in that batch throws, while a caller of a
+  // later generation that has since committed does not inherit the stale error.
+  private writeSeq = 0;
+  private durableSeq = 0;
+  private batchSignal: Promise<void>;
+  private resolveBatchSignal!: () => void;
+  private batchError: string | undefined;
+  private batchErrorThroughSeq = 0;
+
+  constructor(private readonly pool: Pool) {
+    // Always a genuinely pending latch. Awaiting an already-resolved promise in
+    // a re-checking loop would spin the microtask queue and starve the drain's
+    // I/O, so it must only resolve via signalBatchComplete().
+    this.batchSignal = new Promise((res) => { this.resolveBatchSignal = res; });
+  }
+
+  private signalBatchComplete(): void {
+    const resolve = this.resolveBatchSignal;
+    // Install a fresh latch for the *next* cycle before releasing the old one,
+    // so a waiter that wakes and immediately loops back starts listening for
+    // the next completion instead of racing a half-swapped signal.
+    this.batchSignal = new Promise((res) => { this.resolveBatchSignal = res; });
+    resolve();
+  }
 
   async initialize(): Promise<void> {
     await this.pool.query('select 1');
@@ -266,6 +299,7 @@ class PostgresStorageBackend implements StorageBackend {
   }
 
   persistSnapshot(data: StorageData, dirtyTables: DirtyTables, dirtyRowIds: DirtyRowIdsByTable): void {
+    this.writeSeq += 1;
     this.queuedSnapshot = data;
     // Union dirty tables across coalesced writes. If either this call or an
     // earlier still-queued one is 'all', the whole coalesced batch must be
@@ -280,11 +314,18 @@ class PostgresStorageBackend implements StorageBackend {
   }
 
   private async drainPendingSnapshots(): Promise<void> {
+    // Visible to the catch: on failure it names the generation that failed.
+    let batchSeq = this.durableSeq;
     try {
       while (this.queuedSnapshot) {
         const source = this.queuedSnapshot;
         const dirtyTables = this.queuedDirtyTables;
         const dirtyRowIds = this.queuedDirtyRowIds;
+        // Captured after every persistSnapshot() merged so far is in
+        // queuedSnapshot, before the queue is reset. A write that arrives
+        // during the await below bumps writeSeq past this and is carried by
+        // the next loop iteration - it does not belong to this cycle.
+        batchSeq = this.writeSeq;
         this.queuedSnapshot = null;
         // Reset to empty, not 'all': this starts the *next* accumulation
         // round clean. Resetting to 'all' would poison every future write forever,
@@ -294,12 +335,24 @@ class PostgresStorageBackend implements StorageBackend {
         const snapshot = cloneSnapshotForTables(this.persistedSnapshot, source, dirtyTables);
         await writeSnapshotDelta(this.pool, this.persistedSnapshot, snapshot, dirtyTables, dirtyRowIds);
         this.persistedSnapshot = snapshot;
+        // Only a successful commit advances durability.
+        this.durableSeq = batchSeq;
         this.lastError = undefined;
+        // A retry that has now caught up past an earlier failure clears it, so
+        // late callers for that range stop throwing once their data is durable.
+        if (this.batchError !== undefined && this.durableSeq >= this.batchErrorThroughSeq) {
+          this.batchError = undefined;
+        }
         this.lastWriteAt = new Date().toISOString();
+        this.signalBatchComplete();
       }
     } catch (err) {
       this.lastError = err instanceof Error ? err.message : String(err);
+      this.batchError = this.lastError;
+      this.batchErrorThroughSeq = batchSeq;
       console.error('PostgreSQL storage write failed:', err);
+      // Wake waiters so the one whose generation just failed can throw.
+      this.signalBatchComplete();
     } finally {
       this.draining = false;
       this.pendingWrites = this.queuedSnapshot ? 1 : 0;
@@ -311,15 +364,29 @@ class PostgresStorageBackend implements StorageBackend {
   }
 
   async flush(): Promise<void> {
-    do {
-      const pending = this.pending;
-      await pending;
-    } while (this.draining || this.queuedSnapshot);
-    if (this.lastError) throw new Error(this.lastError);
+    // Everything requested up to now - nothing queued after this line.
+    const targetSeq = this.writeSeq;
+    while (this.durableSeq < targetSeq) {
+      // This caller's own write was in a batch that failed and no retry has
+      // covered it yet: surface the error instead of hanging or (worse)
+      // returning as if the write were durable.
+      if (this.batchError !== undefined && targetSeq <= this.batchErrorThroughSeq) {
+        throw new Error(this.batchError);
+      }
+      // Grab the latch reference, then await it. signalBatchComplete() swaps in
+      // a new latch before resolving this one, so a completion between the read
+      // and the await still resolves the promise we hold - no missed wake-up.
+      await this.batchSignal;
+    }
   }
 
   async close(): Promise<void> {
-    await this.flush();
+    // Shutdown wants global quiet, not one generation: every queued write must
+    // land before the pool closes.
+    while (this.draining || this.queuedSnapshot) {
+      await this.pending;
+    }
+    if (this.lastError) throw new Error(this.lastError);
     await this.pool.end();
   }
 
