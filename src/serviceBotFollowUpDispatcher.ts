@@ -10,32 +10,44 @@ export function startServiceBotFollowUpDispatcher(
   storage: Storage,
   getTransport: TransportResolver,
   intervalMs = SERVICE_BOT_FOLLOW_UP_POLL_MS,
-): NodeJS.Timeout {
-  let running = false;
+): { stop: () => Promise<void> } {
+  let stopping = false;
+  let inFlight: Promise<void> | null = null;
+
   const tick = async () => {
-    if (running) return;
-    running = true;
-    try {
-      const transport = getTransport();
-      if (!transport) return;
-      for (const due of storage.getDueServiceBotFollowUps()) {
-        const claimed = storage.claimServiceBotFollowUp(due.id);
-        if (!claimed) continue;
-        try {
-          await deliverServiceBotFollowUp(claimed, storage, transport);
-          storage.completeServiceBotFollowUp(claimed.id);
-          await storage.flush();
-        } catch (err) {
-          storage.failServiceBotFollowUp(claimed.id, err);
-          await storage.flush();
-          console.warn('[SERVICE_BOT_FOLLOW_UP_FAILED]', claimed.id, err);
-        }
+    const transport = getTransport();
+    if (!transport) return;
+    for (const due of storage.getDueServiceBotFollowUps()) {
+      if (stopping) break;
+      const claimed = storage.claimServiceBotFollowUp(due.id);
+      if (!claimed) continue;
+      try {
+        await deliverServiceBotFollowUp(claimed, storage, transport);
+        storage.completeServiceBotFollowUp(claimed.id);
+        await storage.flush();
+      } catch (err) {
+        storage.failServiceBotFollowUp(claimed.id, err);
+        await storage.flush();
+        console.warn('[SERVICE_BOT_FOLLOW_UP_FAILED]', claimed.id, err);
       }
-    } finally {
-      running = false;
     }
   };
-  const handle = setInterval(() => { void tick(); }, intervalMs);
-  void tick();
-  return handle;
+
+  const runTick = (): Promise<void> => {
+    if (inFlight || stopping) return inFlight ?? Promise.resolve();
+    inFlight = tick().finally(() => { inFlight = null; });
+    return inFlight;
+  };
+
+  const handle = setInterval(() => { void runTick(); }, intervalMs);
+  void runTick();
+
+  return {
+    stop: async () => {
+      stopping = true;
+      clearInterval(handle);
+      // Let the current tick finish its claim → deliver → flush before storage closes.
+      await (inFlight ?? Promise.resolve());
+    },
+  };
 }

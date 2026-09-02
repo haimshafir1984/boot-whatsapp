@@ -113,7 +113,80 @@ EXIT: 0
 
 ## שלב 2 — SIGTERM תקין (א.1)
 
-**ממתין לאישור להמשך** — ראה "החלטה נדרשת מהאונר" למטה.
+האונר אישר להמשיך לשלב 2 (ה-audit של `META_APP_SECRET` נשאר שאלה פתוחה — ראה למטה).
+
+### מה בוצע
+
+| שינוי | מיקום |
+|---|---|
+| מודול חדש `createShutdownHandler({ server, workers, storage, graceMs?, exit?, log?, errorLog? })` — drain מסודר: `server.close()` → `Promise.all(workers.stop())` → `storage.close()` ב-try/catch → `exit(0)`. טיימר כפוי `graceMs` (ברירת מחדל **22_000**) → `exit(1)`. דגל `shuttingDown` לחסימת אות שני. **בלי** `storage.flush()` נפרד. | `src/shutdown.ts` (חדש) |
+| `startContactSaveQueue` מחזיר `{ stop: () => Promise<void> }`; `while (!stopping)` במקום `while (true)`; `if (stopping) break;` אחרי שליפת job (לפני `processOne`); `stop()` קובע `stopping = true`, ממתין ל-`loop`, ומאפס `workerStarted` | `src/contactQueue.ts:9,56-84` |
+| `startOutboxDispatcher` מחזיר `{ stop }` (במקום `NodeJS.Timeout`); `inFlight` מחזיק את ה-tick הרץ; `if (stopping) break;` בתוך לולאת ה-tick; `stop()` קובע `stopping`, `clearInterval`, וממתין ל-`inFlight` | `src/outboxDispatcher.ts:81-125` |
+| `startServiceBotFollowUpDispatcher` — אותו דפוס בדיוק; `if (stopping) break;` בתוך לולאת ה-`for` | `src/serviceBotFollowUpDispatcher.ts:9-49` |
+| `startAdminServer` מחזיר `import('http').Server` (`return app.listen(...)`) במקום `void` | `src/adminServer.ts:1245,4437` |
+| `index.ts` — לוכד את ארבעת ה-handles, בונה `createShutdownHandler`, רושם `process.on('SIGTERM'|'SIGINT')` | `src/index.ts:16,97-108` |
+| עדכון קוראים קיימים: `clearInterval(timer)` → `await timer.stop()` | `scripts/test-outbox-claim.js:54`, `test-outbox-durability.js:102`, `test-outbox-ordering.js:51` |
+| ערך `test:graceful-shutdown` ב-scripts | `package.json` |
+
+### התאמה לתוכנית (A.1) וסטיות מכוונות
+
+- סדר ה-shutdown תואם בדיוק לתוכנית: HTTP (עם `await` אמיתי דרך Promise) → שלושת ה-workers עם המתנה לעבודה בטיסה → רק אז `storage.close()`. grace 22s. `storage.flush()` נפרד לא נוסף (מאושר בתוכנית — `close()` כבר עושה שקט מלא).
+- **חילוץ ל-`src/shutdown.ts`** במקום קוד inline ב-`index.ts` — כדי שסדר ה-drain ייבדק ב-unit עם fakes. הלוגיקה זהה לקטע בתוכנית (אין outer try/catch מסביב לשלבים 1-2, כמו בתוכנית; רק `storage.close()` עטוף).
+- **`contactQueue.stop()` מאפס `workerStarted = false`** (ו-`stopping = false` בכניסה) — תוספת קטנה מעבר לקטע בתוכנית, כדי לאפשר restart של ה-worker בתוך אותו תהליך (נדרש לבדיקות; לא מזיק בפרודקשן כי דבר לא מפעיל מחדש worker תוך כדי shutdown).
+- **`startWhatsAppScheduler` לא נעצר ב-shutdown** — A.1 מגדיר במפורש שלושה workers + server + storage. ה-scheduler רלוונטי רק ל-BAILEYS; לקוחות Meta/Twilio (אלה עם כאב הפריסה) לא מפעילים אותו. מחוץ להיקף A.1.
+
+### שאלות פתוחות — לא ידוע, דורש בדיקה נוספת
+
+1. **grace period ב-Dokploy (א.1.1):** ה-timeout הפנימי 22s עוזר רק אם ה-stop grace period של Dokploy ≥ 22s (עדיף ≥ 30s). אין לי גישה להגדרות Dokploy. **סטטוס: לא ידוע — דורש בדיקה/הגדרה של האונר ב-Dokploy לפני שמסתמכים על ה-drain המלא.**
+2. **דיוק ציפייה (exactly-once):** shutdown מסודר מקטין משמעותית כפילויות אבל לא מבטיח אפס — החלון בין `send()` בפועל ל-Meta לבין `markOutboxSent`+`flush` נשאר. הבדיקה למטה מאמתת שהחלון נסגר כשה-tick מספיק להשלים, ושהודעה שהושלמה לא נשלחת שוב.
+
+### בדיקות — `scripts/test-graceful-shutdown.js` (חדש)
+
+פלט מלא:
+
+```
+$ node scripts/test-graceful-shutdown.js
+  1. ordering: server.close -> workers.stop -> storage.close -> exit(0)
+  2. forced timeout: wedged storage.close() -> exit(1) after graceMs, no hang
+  3. double signal is a no-op
+  4. storage.close() throwing is logged, shutdown still exits 0
+  5. shutdown waits for in-flight HTTP before stopping workers
+  6. a closed http.Server refuses new connections
+   Contact queue worker started.
+   Manual mode: contact recorded locally (9720000000001).
+   Contact queue: saved 9720000000001 as "x".
+   Contact queue worker started.
+   Manual mode: contact recorded locally (9720000000001).
+   Contact queue: saved 9720000000001 as "x".
+  7. contactQueue.stop() ends the loop; no processing after it resolves
+  8. outboxDispatcher.stop() waits for a mid-send dispatch; no write races close()
+  9. serviceBotFollowUpDispatcher.stop() waits for the current tick
+Graceful shutdown tests passed.
+EXIT: 0
+```
+
+מיפוי מול דרישות הבדיקה בתוכנית:
+
+| דרישה בתוכנית | בדיקה |
+|---|---|
+| SIGTERM באמצע `sendTrackedOutboxMessage` (בין `send()` ל-`markOutboxSent`+`flush`) — אחרי "restart" אין כפילות שליחה מעבר לחלון הקצר | בדיקה 8: dispatcher נעצר כשהוא תקוע בתוך `send()`. `stop()` לא מתרסולב עד ש-`send` מסתיים; אחרי כן `markOutboxSent` + ה-`flush` הסופי מתועדים **לפני** ש-`stop()` חוזר (הסדר: `flush, send:start, send:end, markOutboxSent, flush`). לאחר `storage.close()` — שום כתיבה נוספת (ה-fake זורק אם נכתב אחרי close). |
+| SIGTERM כש-`outboxDispatcher` באמצע tick — ה-tick מסתיים לפני `storage.close()`, שום כתיבה לא נכשלת מול pool סגור | בדיקה 8 (אותו תרחיש) + בדיקה 1 (הסדר `worker.stop` לפני `storage.close`). |
+| `server.close()` חוסם בקשות HTTP חדשות בפועל (לא רק תיאורטי) | בדיקה 6: `http.Server` אמיתי, בקשה מצליחה (200), `await server.close()`, בקשה חדשה → `ECONNREFUSED`/`ECONNRESET`. בדיקה 5: ה-handler לא עוצר workers עד ש-callback של `server.close` נורה (בקשה בטיסה). |
+| timeout כפוי (20-22s) עובד אם `flush()`/`close()` נתקע (מוק שתקוע לנצח) — `process.exit(1)`, לא נתקע | בדיקה 2: `storage.close` שמחזיר Promise שלא נפתר לעולם; עם `graceMs=150` — לפני 120ms אין `exit`, אחרי — `exit([1])`, elapsed < 2000ms (כלומר דרך `graceMs` ולא ברירת המחדל 22s). |
+| `contactQueue.stop()` — אין race שבו job נתפס אבל `stop()` קרה לפני `processOne` | בדיקה 7: fake storage עם אספקת jobs אינסופית; אחרי `stop()` שמתרסולב — מספר ה-`markContactSaveAttempt` קפוא ל-200ms; `stop()` לא נתקע (race מול `sleep` של 2.5s). כולל אימות ש-worker חדש עולה אחרי עצירה (איפוס דגל). |
+| (נוסף) סדר, אות כפול, `storage.close()` שזורק | בדיקות 1, 3, 4. |
+
+### רגרסיה על קוראים קיימים
+
+`test-outbox-claim`, `test-outbox-durability`, `test-outbox-ordering` (עודכנו ל-`await timer.stop()`),
+`test-service-bot-flow`, `test-flow-concurrency`, `test-meta-gateway-inbox`, `test-meta-gateway-reliability` —
+כולם עברו נקי (exit 0). `test-outbox-ordering` שקודם תועד כ"נתקע ב-teardown" עכשיו יוצא נקי בזכות `await timer.stop()`.
+
+`npm run build` אחרי כל שינויי שלב 2: עבר נקי (exit 0).
+
+### קומיט
+
+`<יתווסף אחרי commit>`
 
 ---
 
@@ -123,16 +196,15 @@ EXIT: 0
 
 ---
 
-## החלטה נדרשת מהאונר לפני שלב 2
+## שאלות פתוחות מרוכזות (מצב: לא ידוע — דורש בדיקה נוספת)
 
-לפי הוראות המשימה: "אם אין לך גישה לבדוק את זה [audit של `META_APP_SECRET`]
-בפועל, תעד את זה כחסם ותשאל אותי לפני שממשיכים לשלב 2 - אל תניח."
-
-אין לי גישה ל-Dokploy / owner storage של הפרודקשן. שלב 1 (קוד + בדיקות) הושלם
-ובטוח לפריסה עתידית (fail-open בלי secret), אבל ה-audit עצמו לא בוצע.
-
-**שאלה:** האם להמשיך לשלב 2 (SIGTERM), או שברצונך קודם לבצע/לספק את תוצאות
-ה-audit של `META_APP_SECRET` בלקוחות הפעילים?
+1. **Audit של `META_APP_SECRET` בלקוחות פעילים** (ב.1 שלב 3) — אילו לקוחות רצים בלי הסוד.
+   חוסם את הפיכת האימות לחובה (`assertClientProvisioningConfig`), שאינו במשימה זו.
+   הקוד הנוכחי fail-open ולכן בטוח בלי ה-audit.
+2. **Dokploy stop grace period** (א.1.1) — האם ≥ 22-30s. אם קצר יותר, SIGKILL יקדים
+   את ה-drain הפנימי.
+3. **Dokploy / HEALTHCHECK routing** (א.2) — האם Dokploy/Swarm בפועל משתמשים ב-HEALTHCHECK
+   לניתוב תעבורה / rolling replace, או רק כאינדיקציה תפעולית. (רלוונטי לשלב 4.)
 
 ---
 

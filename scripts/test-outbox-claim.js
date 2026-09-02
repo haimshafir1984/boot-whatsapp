@@ -52,7 +52,7 @@ async function main() {
     storage.markOutboxRetry(locked.id, 'planned retry', new Date(Date.now() - 1000).toISOString());
     await waitFor(() => storage.getOutboxHealth().sent === 2);
   } finally {
-    clearInterval(timer);
+    await timer.stop();
   }
 
   const messages = storage.getOutboxMessages();

@@ -35,7 +35,8 @@
     "test:score-result-preface": "npm run build && node scripts/test-score-result-preface.js",
     "test:email-capture": "npm run build && node scripts/test-email-capture.js && node scripts/test-email-export.js",
     "test:whatsapp-links": "npm run build && node scripts/test-whatsapp-link-normalization.js",
-    "test:meta-webhook-signature": "npm run build && node scripts/test-meta-webhook-signature.js"
+    "test:meta-webhook-signature": "npm run build && node scripts/test-meta-webhook-signature.js",
+    "test:graceful-shutdown": "npm run build && node scripts/test-graceful-shutdown.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc14",

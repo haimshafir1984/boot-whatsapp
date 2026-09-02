@@ -1242,7 +1242,7 @@ function buildCampaignDryRun(campaign: Campaign, storage: Storage) {
   };
 }
 
-export function startAdminServer(storage: Storage): void {
+export function startAdminServer(storage: Storage): import('http').Server {
   const app = express();
   const publicDir = path.join(__dirname, '..', 'public');
   const ownerPublicDir = path.join(__dirname, '..', 'owner-public');
@@ -4444,7 +4444,7 @@ export function startAdminServer(storage: Storage): void {
   });
   app.use('/client', access.requireClient, express.static(publicDir));
 
-  app.listen(config.ADMIN_PORT, () => {
+  return app.listen(config.ADMIN_PORT, () => {
     console.log(`🖥️  Admin dashboard → http://localhost:${config.ADMIN_PORT}`);
   });
 }
