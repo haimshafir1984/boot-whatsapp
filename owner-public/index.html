@@ -218,13 +218,13 @@
     const liveClientSummaries = new Map();
     const ownerClientRows = new Map();
 
-    /** Israeli input in any common shape -> the local form wa.me expects (no country code). */
-    function normalizeIsraeliLocalPhone(raw) {
+    /** Israeli input in any common shape -> wa.me's required international format. */
+    function normalizeIsraeliWhatsappPhone(raw) {
       let digits = String(raw || '').replace(/\D/g, '');
-      if (digits.startsWith('00972')) digits = digits.slice(5);
-      else if (digits.startsWith('972')) digits = digits.slice(3);
+      if (digits.startsWith('00972')) return digits.slice(2);
+      if (digits.startsWith('972')) return digits;
       else if (digits.startsWith('0')) digits = digits.slice(1);
-      return digits;
+      return `972${digits}`;
     }
 
     /** Mirrors encodeReadableWhatsappText() on the server: Hebrew stays readable, spaces become "+". */
@@ -246,12 +246,12 @@
       errEl.textContent = '';
       resultEl.classList.remove('on');
 
-      const phone = normalizeIsraeliLocalPhone(document.getElementById('waLinkPhone').value);
+      const phone = normalizeIsraeliWhatsappPhone(document.getElementById('waLinkPhone').value);
       if (!phone) {
         errEl.textContent = 'חסר מספר טלפון.';
         return;
       }
-      if (!/^[2-9]\d{7,8}$/.test(phone)) {
+      if (!/^972[2-9]\d{7,8}$/.test(phone)) {
         errEl.textContent = 'מספר לא תקין. אפשר להזין 0529771002, 972529771002 או ‎+972529771002.';
         return;
       }

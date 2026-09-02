@@ -33,6 +33,16 @@ assert.equal(publicSandbox.formatWaMePhone('0529771002'), '972529771002');
 assert.equal(publicSandbox.formatWaMePhone('529771002'), '972529771002');
 assert.equal(publicSandbox.formatWaMePhone('+1 (202) 555-0123'), '12025550123');
 
+const ownerHtml = fs.readFileSync(path.join(__dirname, '..', 'owner-public', 'index.html'), 'utf8');
+const ownerNormalizeFn = extractFunction(ownerHtml, 'normalizeIsraeliWhatsappPhone');
+const ownerSandbox = {};
+Function('sandbox', `${ownerNormalizeFn}\nsandbox.normalizeIsraeliWhatsappPhone = normalizeIsraeliWhatsappPhone;`)(ownerSandbox);
+
+assert.equal(ownerSandbox.normalizeIsraeliWhatsappPhone('0523222931'), '972523222931');
+assert.equal(ownerSandbox.normalizeIsraeliWhatsappPhone('532322931'), '972532322931');
+assert.equal(ownerSandbox.normalizeIsraeliWhatsappPhone('+972 53 232 2931'), '972532322931');
+assert.equal(ownerSandbox.normalizeIsraeliWhatsappPhone('00972532322931'), '972532322931');
+
 const adminSource = fs.readFileSync(path.join(__dirname, '..', 'dist', 'adminServer.js'), 'utf8');
 const adminNormalizeFn = extractFunction(adminSource, 'normalizeSharePhone');
 const adminSandbox = {};
