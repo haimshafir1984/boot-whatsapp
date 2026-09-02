@@ -28,6 +28,17 @@
  *   3. A failure mid-transaction (NOT NULL violation on the second table of
  *      a delta) rolls the whole delta back - the first table's write does
  *      not survive - and the connection is returned to the pool healthy.
+ *   4. applyMigrations (via migrateDatabase) under the same kind of
+ *      contention - not just writeSnapshotDelta, the hot path.
+ *   5. writeSnapshot, the full-rewrite path (via replaceStorageSnapshot),
+ *      under contention too.
+ *
+ * Checks 4 and 5 close a gap flagged in code review: the fix applies the
+ * same pool.connect()-plus-dedicated-client pattern to all three entry
+ * points, but the original test only put load-bearing pressure on
+ * writeSnapshotDelta. The code path is identical for all three, so this is
+ * confirmatory rather than exploratory - but it's cheap and it means nothing
+ * is asserted purely by code-reading.
  *
  * The mutation proof (revert one client.query to pool.query, watch check 1
  * fail) is done by hand and recorded in
@@ -42,6 +53,8 @@ const {
   createPostgresBackend,
   loadStorageSnapshot,
   writeSnapshotDelta,
+  migrateDatabase,
+  replaceStorageSnapshot,
 } = require('../dist/database');
 const { emptyStorageData, Storage } = require('../dist/storage');
 
@@ -223,6 +236,76 @@ async function main() {
 
       console.log('3. mid-delta NOT NULL violation -> full rollback (0 partial rows), 0 idle-in-transaction, pool still usable.');
       await pool.end();
+    }
+
+    // ---- 4. applyMigrations under contention -----------------------------
+    // migrateDatabase opens its own pool and runs the whole migration set
+    // (each one begin..DDL..insert into schema_migrations..commit on one
+    // dedicated client). Drop schema_migrations first so every migration
+    // actually executes its transaction instead of short-circuiting on the
+    // "already applied" check - otherwise this would test nothing.
+    {
+      await setupPool.query('drop table if exists schema_migrations cascade');
+
+      const pressureUrl = withAppName(baseUrl, 'flowsbiz_txn_test_pressure_migrate');
+      const pressurePool = new Pool({ connectionString: pressureUrl, max: 4 });
+      const pressure = Array.from({ length: 4 }, () => (async () => {
+        for (let i = 0; i < 25; i += 1) await pressurePool.query('select pg_sleep(0.01)');
+      })());
+
+      const migrateUrl = withAppName(baseUrl, APP_NAME);
+      await migrateDatabase(migrateUrl);
+      await Promise.all(pressure);
+      await pressurePool.end();
+
+      const leak = await waitForQuiet(diagPool, '4. after applyMigrations under contention');
+      assert.equal(leak.idle_in_txn, 0);
+      assert.equal(leak.locks_held_by_idle_txn, 0);
+
+      const applied = await diagPool.query('select count(*)::int as n from schema_migrations');
+      assert.ok(applied.rows[0].n > 0, 'every migration must have committed its schema_migrations row');
+      const tableExists = await diagPool.query("select to_regclass('public.outbox_messages') as name");
+      assert.ok(tableExists.rows[0].name, 'migrated schema must actually be present (not just the registry row)');
+
+      console.log(`4. applyMigrations under contention -> 0 idle-in-transaction, ${applied.rows[0].n} migrations committed, schema present.`);
+    }
+
+    // ---- 5. writeSnapshot (full rewrite) under contention -----------------
+    // replaceStorageSnapshot opens its own pool and calls writeSnapshot,
+    // which rewrites every table in one begin..commit on one dedicated
+    // client - the path used by import/restore, not the per-message hot path.
+    {
+      await clearData(setupPool);
+
+      const pressureUrl = withAppName(baseUrl, 'flowsbiz_txn_test_pressure_snapshot');
+      const pressurePool = new Pool({ connectionString: pressureUrl, max: 4 });
+      const pressure = Array.from({ length: 4 }, () => (async () => {
+        for (let i = 0; i < 25; i += 1) await pressurePool.query('select pg_sleep(0.01)');
+      })());
+
+      const snapshotUrl = withAppName(baseUrl, APP_NAME);
+      const data = emptyStorageData();
+      data.campaigns.push({ id: 'c-full-snapshot', triggerPhrase: 'full', active: true });
+      for (let i = 0; i < 20; i += 1) {
+        data.outboxMessages.push({
+          id: `ob-full-${i}`, kind: 'text', to: `whatsapp:9725222${String(i).padStart(4, '0')}`,
+          status: 'queued', attempts: 0, text: 'x',
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        });
+      }
+      await replaceStorageSnapshot(snapshotUrl, data, { force: true });
+      await Promise.all(pressure);
+      await pressurePool.end();
+
+      const leak = await waitForQuiet(diagPool, '5. after writeSnapshot under contention');
+      assert.equal(leak.idle_in_txn, 0);
+      assert.equal(leak.locks_held_by_idle_txn, 0);
+
+      const reloaded = await loadStorageSnapshot(baseUrl);
+      assert.equal(reloaded.campaigns.length, 1, 'the full-rewrite snapshot must have landed');
+      assert.equal(reloaded.outboxMessages.length, 20, 'every row from the full-rewrite snapshot must have landed');
+
+      console.log('5. writeSnapshot (full rewrite) under contention -> 0 idle-in-transaction, full snapshot durable.');
     }
 
     console.log('\nPostgreSQL transaction test passed: transactions are pinned to one connection, nothing is stranded, failures roll back whole.');
