@@ -2221,6 +2221,9 @@
     botSuffix: '',
   };
   let editingId = null;
+  // Snapshot of the decision flow as loaded into the editor, so a save can tell
+  // whether the flow was changed and ask the user what to do with live conversations.
+  let editingOriginalFlowJson = null;
   let lastWizardLink = '';
   let wizardDraftReady = false;
   let wizardDraftDirty = false;
@@ -2981,6 +2984,7 @@
       return;
     }
     editingId = null;
+    editingOriginalFlowJson = null;
     document.getElementById('modalTitle').textContent = 'יצירת קמפיין חדש';
     document.getElementById('fName').value      = '';
     document.getElementById('fPhrase').value    = '';
@@ -3023,6 +3027,9 @@
     document.getElementById('fNoEndAt').checked = !c.endAt;
     updateCampaignEndMode();
     populateCampaignConversation(c.conversation || appSettings);
+    // Capture the flow exactly as the editor now renders it, so the save-time
+    // comparison is against the same normalised shape getCampaignConversation() emits.
+    editingOriginalFlowJson = JSON.stringify(getDecisionFlow());
     loadCampaignFiles();
     document.getElementById('modalError').textContent = '';
     setWizardSavedState(false);
@@ -3087,6 +3094,34 @@
     updateCampaignConversationPreview();
   }
 
+  // Resolves to 'end' (close this campaign's live conversations), 'keep' (leave
+  // them running on the old flow until they finish or the service restarts), or
+  // 'cancel' (abort the save).
+  function askEndActiveConversationsChoice() {
+    return new Promise(resolve => {
+      const overlay = document.getElementById('flowEditConfirmOverlay');
+      if (!overlay) { resolve('keep'); return; }
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        overlay.classList.remove('open');
+        overlay.removeEventListener('click', onOverlayClick);
+        document.removeEventListener('keydown', onKey);
+        resolve(value);
+      };
+      const onOverlayClick = (e) => { if (e.target === overlay) finish('cancel'); };
+      const onKey = (e) => { if (e.key === 'Escape') finish('cancel'); };
+      overlay.querySelector('[data-flow-confirm="end"]').onclick = () => finish('end');
+      overlay.querySelector('[data-flow-confirm="keep"]').onclick = () => finish('keep');
+      overlay.querySelector('[data-flow-confirm="cancel"]').onclick = () => finish('cancel');
+      overlay.addEventListener('click', onOverlayClick);
+      document.addEventListener('keydown', onKey);
+      overlay.classList.add('open');
+      overlay.querySelector('[data-flow-confirm="keep"]').focus();
+    });
+  }
+
   async function submitCampaign() {
     if (!canEditCampaigns()) return;
     const name        = document.getElementById('fName').value.trim();
@@ -3145,6 +3180,15 @@
       body = { name, triggerType, basePhrase, referrerName, startAt, endAt, conversation, twilio: { mode: 'link', optInConfirmed: true, audienceNotes: 'הלקוח פתח את שיחת ה-WhatsApp דרך לינק הקמפיין; אין צורך בטמפלייט מאושר.' } };
     }
 
+    // When an existing campaign's conversation flow was changed, ask explicitly
+    // what should happen to participants who are mid-conversation on the old flow.
+    if (editingId && editingOriginalFlowJson !== null
+        && JSON.stringify(conversation.decisionFlow || []) !== editingOriginalFlowJson) {
+      const choice = await askEndActiveConversationsChoice();
+      if (choice === 'cancel') return;
+      body.endActiveConversations = choice === 'end';
+    }
+
     const draftIdBeforeSave = editingId;
     const url    = editingId ? `/api/campaigns/${editingId}` : '/api/campaigns';
     const method = editingId ? 'PUT' : 'POST';
@@ -3173,6 +3217,9 @@
     clearWizardDraft(draftIdBeforeSave);
     editingId = data.id || editingId;
     clearWizardDraft(editingId);
+    // Baseline the flow to what was just saved, so a further edit in the same
+    // session only re-prompts if it changes again.
+    editingOriginalFlowJson = JSON.stringify(conversation.decisionFlow || []);
     const savedTrigger = data.triggerPhrase || currentTriggerText();
     await ensureSharePhone();
     const link = buildCampaignShareLink(savedTrigger, data.id || editingId);
@@ -5981,6 +6028,31 @@
         <tbody id="referralLeaderboardBody"></tbody>
       </table>
       <p id="referralLeaderboardEmpty" style="display:none;color:#6b7280;text-align:center;margin-top:16px;">אין נתוני שיתופים עדיין</p>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="flowEditConfirmOverlay" style="z-index:300;">
+    <div class="modal" style="width:min(460px,100%);padding:24px;">
+      <h2>שינית את שלבי השיחה</h2>
+      <div class="modal-subtitle" style="margin-bottom:18px;">
+        יש משתתפים שנמצאים כרגע באמצע שיחה על הגרסה הקודמת של הקמפיין הזה.
+        מה לעשות איתם?
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <button class="btn-confirm" type="button" data-flow-confirm="keep" style="width:100%;">
+          להשאיר אותם על השלבים הישנים (מומלץ)
+        </button>
+        <button class="btn-cancel" type="button" data-flow-confirm="end" style="width:100%;">
+          לסיים עכשיו את השיחות הפעילות של הקמפיין הזה
+        </button>
+        <button class="btn-cancel" type="button" data-flow-confirm="cancel" style="width:100%;background:none;border:none;color:#6b7280;">
+          ביטול — לחזור לעריכה
+        </button>
+      </div>
+      <p style="color:#9ca3af;font-size:.78rem;margin-top:14px;">
+        שיחה שתסתיים תפסיק לענות למשתתף מהנקודה שבה הוא נמצא. שיחה שתישאר תמשיך על
+        השלבים הישנים עד שתסתיים או עד הפעלה מחדש של השירות.
+      </p>
     </div>
   </div>
 </body>

@@ -4372,7 +4372,14 @@ export function startAdminServer(storage: Storage): import('http').Server {
       res.status(404).json({ error: 'קמפיין לא נמצא' });
       return;
     }
-    res.json(withMetaTriggerWarning(updated, triggerAvailability));
+    // The dashboard asks the user explicitly ("end this campaign's active
+    // conversations?") when they change the decision flow. We honour that choice
+    // as sent — no server-side heuristic about whether the change was "material".
+    let endedConversations = 0;
+    if (req.body?.endActiveConversations === true) {
+      endedConversations = conversationState.removeByCampaign(existing.id);
+    }
+    res.json({ ...withMetaTriggerWarning(updated, triggerAvailability), endedConversations });
   });
 
   app.delete('/api/campaigns/:id', requireWritableClient, (req, res) => {

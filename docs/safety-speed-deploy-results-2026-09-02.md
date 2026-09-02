@@ -204,22 +204,31 @@ EXIT: 0
 תואם בדיוק לקטע ב.2: הסדר ההפוך (ניקוי שיחות לפני המחיקה) חשוף למצב שבו המחיקה
 נכשלת אחרי שכבר נותקו שיחות פעילות — נזק בלי תועלת. עכשיו: מחיקה, ואם הצליחה — ניקוי.
 
-### עריכת flow (PUT) — לא מומש, דורש אישור עיצוב UI נפרד
+### עריכת flow (PUT) — מומש עם מודאל מלא (אושר ע"י האונר: "ממש עכשיו, מודאל מלא")
 
-התוכנית (ב.2) דורשת שבמקום היוריסטיקת "שינוי מהותי", עריכה שמשנה את
-`conversation.decisionFlow` תציג למשתמש **בחירה מפורשת** ("לסיים שיחות פעילות של קמפיין
-זה?"). זה דורש שינוי UI ב-`public/index.html` (קובץ מונוליטי, 5987 שורות, אשף קמפיין):
-זיהוי שינוי flow בצד לקוח (השוואת flow ישן מול חדש), מודאל אישור, העברת דגל חדש
-(`endActiveConversations`) דרך `submitCampaign()` → גוף `PUT /api/campaigns/:id`, וענף
-שרת תואם שקורא `conversationState.removeByCampaign(id)` רק כשהדגל דלוק.
+**שרת** — `PUT /api/campaigns/:id` (`src/adminServer.ts:4370-4383`): אחרי `updateCampaign`
+מוצלח, אם `req.body.endActiveConversations === true` → `conversationState.removeByCampaign(existing.id)`,
+ומחזיר `endedConversations`. **בלי היוריסטיקה בצד שרת** — השרת מכבד את הדגל כפי שנשלח.
 
-**זו תוספת פיצ'ר UI ממשית באשף מורכב.** לפי הוראות המשימה ("אם זה דורש שינוי UI
-משמעותי, תעד את ההיקף ותשאל לפני שמממשים UI חדש בלי אישור נפרד על העיצוב") —
-**לא מומש. ממתין להחלטת האונר על העיצוב/ההיקף.**
+**לקוח** — `public/index.html`:
+| שינוי | מיקום |
+|---|---|
+| `let editingOriginalFlowJson` — snapshot של ה-flow כפי שנטען לעורך | `public/index.html:2224-2226` |
+| `openEditModal`: `editingOriginalFlowJson = JSON.stringify(getDecisionFlow())` מיד אחרי `populateCampaignConversation` (אותה נורמליזציה כמו בשמירה) | `public/index.html:~3029` |
+| `openNewModal`: `editingOriginalFlowJson = null` | `public/index.html:~2986` |
+| `askEndActiveConversationsChoice()` — Promise שמחזיר `'end'` / `'keep'` / `'cancel'`; overlay-click ו-Escape = `'cancel'`; focus על "keep" | `public/index.html:~3092` |
+| `submitCampaign`: אם `editingId` **וגם** `JSON.stringify(conversation.decisionFlow) !== editingOriginalFlowJson` → פותח מודאל; `'cancel'` → מבטל שמירה; אחרת `body.endActiveConversations = choice === 'end'` | `public/index.html:~3163` |
+| אחרי שמירה מוצלחת: `editingOriginalFlowJson` מתאפס ל-flow שנשמר (עריכה נוספת באותו סשן תשאל שוב רק אם ישתנה שוב) | `public/index.html:~3188` |
+| מודאל `#flowEditConfirmOverlay` (מחלקות `.modal-overlay`/`.modal` הקיימות, `z-index:300`) — כותרת "שינית את שלבי השיחה", שלושה כפתורים: השאר (ברירת מחדל, מומלץ) / סיים עכשיו / ביטול, + הערת הסבר | `public/index.html` (לפני `</body>`) |
 
-מצב ביניים: `PUT /api/campaigns/:id` הנוכחי **לא** מנתק שיחות בכלל (כמו במאסטר).
-המשמעות המעשית (A4-1): משתתף שהתחיל לפני עריכת flow ממשיך על ה-flow הישן עד restart.
-לא רגרסיה — התנהגות זהה למאסטר; פשוט לא שופרה בשלב הזה.
+**התאמה לתוכנית:** "פעולה מפורשת" ולא "ניחוש היוריסטי" — הלקוח מזהה שינוי flow אמיתי
+(השוואת JSON מול ה-snapshot שנטען) ומציג בחירה; ברירת המחדל היא **לא** לנתק ("להשאיר").
+אם המשתמש לא שינה את ה-flow — אין מודאל, אין דגל, התנהגות זהה למאסטר.
+
+**בדיקה ידנית בדפדפן:** הופעל `dist/index.js` (JSON mode), התחברות לקוח, המודאל אולץ
+פתוח דרך console — נרנדר ממורכז, מעוצב תואם-דשבורד, `z-index:300`, שלושת הכפתורים
+והכותרת נכונים, `typeof askEndActiveConversationsChoice === 'function'`. (צילום מסך נלקח.)
+בדיקת תחביר: `new Function()` על גוש ה-`<script>` היחיד — 0 שגיאות.
 
 ### בדיקות — `scripts/test-campaign-delete-conversations.js` (חדש)
 
@@ -227,21 +236,26 @@ EXIT: 0
 
 ```
 $ node scripts/test-campaign-delete-conversations.js
-OWNER_ACCESS_TOKEN is not configured. Temporary owner access code: cVuJVRogNaVkQhfJ7ThiWPFH
+OWNER_ACCESS_TOKEN is not configured. Temporary owner access code: k61la4HG7zrYbAIGpKR2vvxg
   Gateway retry: base 500ms, cap 5000ms, drain every 500ms
-🖥️  Admin dashboard → http://localhost:38339
+🖥️  Admin dashboard → http://localhost:41655
   failure path — delete fails, conversationState untouched (no stranded conversations)
   success path — campaign deleted first, then its conversations cleared
+  flow edit (PUT) — endActiveConversations flag honoured as sent, no server-side guessing
 Campaign delete / conversation cleanup tests passed.
 EXIT: 0
 ```
 
-- **מסלול כשל:** `storage.deleteCampaign` מוחלף למוק שמחזיר `false`. `DELETE` →
+- **DELETE מסלול כשל:** `storage.deleteCampaign` מוחלף למוק שמחזיר `false`. `DELETE` →
   `200 { ok:false, conversations:0 }`; שתי השיחות עדיין קיימות; השיחה של הקמפיין
   ה"נמחק" **לא** הוסרה. (מכסה "מחיקה שנכשלת → conversationState לא נוגע".)
-- **מסלול הצלחה:** `deleteCampaign` אמיתי. `DELETE` → `200 { ok:true, conversations:1 }`;
+- **DELETE מסלול הצלחה:** `deleteCampaign` אמיתי. `DELETE` → `200 { ok:true, conversations:1 }`;
   בדיוק השיחה של אותו קמפיין הוסרה; השיחה של הקמפיין השני נשארה; הקמפיין נעלם
   מ-storage. (מכסה "מחיקה מוצלחת → conversationState מנוקה".)
+- **PUT בלי הדגל:** עריכת flow עם `conversation` חדש בלי `endActiveConversations` →
+  `200 { endedConversations:0 }`; השיחה הפעילה נשארה.
+- **PUT עם `endActiveConversations:true`:** →`200 { endedConversations:2 }`; **כל** השיחות
+  הפעילות של אותו קמפיין (2) נותקו; שיחות של קמפיינים אחרים לא נגעו.
 
 `npm run build` אחרי השינוי: עבר נקי (exit 0).
 
@@ -266,8 +280,8 @@ EXIT: 0
    את ה-drain הפנימי.
 3. **Dokploy / HEALTHCHECK routing** (א.2) — האם Dokploy/Swarm בפועל משתמשים ב-HEALTHCHECK
    לניתוב תעבורה / rolling replace, או רק כאינדיקציה תפעולית. (רלוונטי לשלב 4.)
-4. **עריכת flow — בחירה מפורשת ב-UI** (ב.2) — האם לממש את מודאל האישור ב-`public/index.html`
-   במסגרת המשימה הזו, ובאיזה עיצוב, או לפצל לפריט נפרד. (חוסם את החלק השני של שלב 3.)
+4. ~~עריכת flow — בחירה מפורשת ב-UI (ב.2)~~ — **הוכרע:** האונר בחר "ממש עכשיו, מודאל מלא".
+   מומש בשלב 3 (מודאל `#flowEditConfirmOverlay` + דגל `endActiveConversations`).
 
 ---
 

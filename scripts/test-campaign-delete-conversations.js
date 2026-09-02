@@ -74,6 +74,34 @@ const base = () => `http://127.0.0.1:${process.env.PORT}`;
     assert.equal(storage.getCampaigns().find((c) => c.id === drop.id), undefined, 'campaign is actually gone from storage');
     console.log('  success path — campaign deleted first, then its conversations cleared');
 
+    // ── PUT /api/campaigns/:id honours the explicit endActiveConversations flag ──
+    const putBody = (extra) => JSON.stringify({
+      name: 'Keep', triggerType: 1, triggerPhrase: 'keep-trigger',
+      conversation: { decisionFlow: [{ id: 's1', kind: 'message', text: 'changed', nextStepId: '__NEXT__' }] },
+      ...extra,
+    });
+
+    // flag omitted -> conversations left alone
+    conversationState.set('9720000000012@c.us', { kind: 'handoff', senderJid: '9720000000012@c.us', campaignId: keep.id, timestamp: Date.now() });
+    const putKeepRes = await fetch(`${base()}/api/campaigns/${keep.id}`, {
+      method: 'PUT', headers: { cookie, 'content-type': 'application/json' }, body: putBody({}),
+    });
+    const putKeepBody = await putKeepRes.json();
+    assert.equal(putKeepRes.status, 200, 'PUT without the flag succeeds');
+    assert.equal(putKeepBody.endedConversations, 0, 'no conversations ended when the flag is omitted');
+    assert.ok(conversationState.get('9720000000012@c.us'), 'conversation still running after a flow edit with no flag');
+
+    // flag true -> this campaign's live conversations are ended
+    const putEndRes = await fetch(`${base()}/api/campaigns/${keep.id}`, {
+      method: 'PUT', headers: { cookie, 'content-type': 'application/json' }, body: putBody({ endActiveConversations: true }),
+    });
+    const putEndBody = await putEndRes.json();
+    assert.equal(putEndRes.status, 200);
+    assert.equal(putEndBody.endedConversations, 2, 'both live conversations on the campaign were ended');
+    assert.equal(conversationState.get('9720000000012@c.us'), undefined, 'flow-edit conversation ended');
+    assert.equal(conversationState.get('9720000000010@c.us'), undefined, 'the other keep-campaign conversation ended too');
+    console.log('  flow edit (PUT) — endActiveConversations flag honoured as sent, no server-side guessing');
+
     void server;
     fs.rmSync(dir, { recursive: true, force: true });
     console.log('Campaign delete / conversation cleanup tests passed.');
