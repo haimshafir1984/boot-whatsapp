@@ -107,7 +107,7 @@ EXIT: 0
 
 ### קומיט
 
-`<יתווסף אחרי commit>`
+`3889b68` — "Verify X-Hub-Signature-256 on the Meta webhook gateway route"
 
 ---
 
