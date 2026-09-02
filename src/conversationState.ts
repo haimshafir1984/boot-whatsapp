@@ -210,6 +210,13 @@ interface ConversationStatePersistenceBackend {
     snapshot: ConversationStateSnapshot,
     changedJids: readonly string[] | 'all',
   ): void;
+  /**
+   * True only in JSON mode, where the on-disk conversation-state file is the
+   * sole source of truth and therefore must be written atomically. In Postgres
+   * mode the DB owns the data and the file is a secondary copy — that write
+   * path is left unchanged here (a fallback redesign is a separate task).
+   */
+  isPrimaryConversationStore?(): boolean;
 }
 
 /**
@@ -328,9 +335,7 @@ class ConversationStateManager {
   ): number {
     try {
       const parsed = this.backend?.loadConversationStateSnapshot()
-        ?? (this.filePath && fs.existsSync(this.filePath)
-          ? JSON.parse(fs.readFileSync(this.filePath, 'utf-8')) as Partial<ConversationStateSnapshot>
-          : undefined);
+        ?? this.readSnapshotFile();
       if (!parsed) {
         this.hydrationComplete = true;
         return 0;
@@ -352,6 +357,25 @@ class ConversationStateManager {
       this.hydrationComplete = true;
       return 0;
     }
+  }
+
+  /**
+   * Reads the on-disk snapshot, falling back to the .bak copy if the main file
+   * is missing or truncated (e.g. a crash mid-write before atomic writes existed,
+   * or a .tmp that never got renamed). Returns undefined when nothing parses.
+   */
+  private readSnapshotFile(): Partial<ConversationStateSnapshot> | undefined {
+    if (!this.filePath) return undefined;
+    for (const candidate of [this.filePath, `${this.filePath}.bak`]) {
+      if (!fs.existsSync(candidate)) continue;
+      try {
+        return JSON.parse(fs.readFileSync(candidate, 'utf-8')) as Partial<ConversationStateSnapshot>;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`Conversation state file ${candidate} is unreadable (${message}); trying fallback.`);
+      }
+    }
+    return undefined;
   }
 
   private clearTimer(state: PendingConversation | undefined): void {
@@ -389,7 +413,25 @@ class ConversationStateManager {
         conversations,
       };
       this.backend?.saveConversationStateSnapshot(snapshot, changedJids);
-      if (this.filePath) fs.writeFileSync(this.filePath, JSON.stringify(snapshot, null, 2), 'utf-8');
+      if (this.filePath) {
+        const json = JSON.stringify(snapshot, null, 2);
+        if (this.backend?.isPrimaryConversationStore?.() === true) {
+          // JSON mode: the file is the only source of truth. Write to a temp
+          // file, keep the previous good copy as .bak, then rename over — a
+          // crash mid-write can no longer leave a truncated file with nothing
+          // to fall back to. Mirrors storage.ts / metaGatewayInbox.ts.
+          const tempPath = `${this.filePath}.tmp`;
+          const backupPath = `${this.filePath}.bak`;
+          fs.writeFileSync(tempPath, json, 'utf-8');
+          if (fs.existsSync(this.filePath)) fs.copyFileSync(this.filePath, backupPath);
+          fs.renameSync(tempPath, this.filePath);
+        } else {
+          // Postgres mode (or a synthetic test backend): DB is the source of
+          // truth, this file is a secondary copy. Left as a plain write on
+          // purpose — see docs/safety-speed-deploy-plan-2026-09-02.md B.3.
+          fs.writeFileSync(this.filePath, json, 'utf-8');
+        }
+      }
     } catch (err) {
       console.warn('Could not persist conversation state:', err);
     }

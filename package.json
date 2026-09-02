@@ -38,7 +38,8 @@
     "test:meta-webhook-signature": "npm run build && node scripts/test-meta-webhook-signature.js",
     "test:graceful-shutdown": "npm run build && node scripts/test-graceful-shutdown.js",
     "test:campaign-delete-conversations": "npm run build && node scripts/test-campaign-delete-conversations.js",
-    "test:health-live": "npm run build && node scripts/test-health-live.js"
+    "test:health-live": "npm run build && node scripts/test-health-live.js",
+    "test:conversation-state-atomic-write": "npm run build && node scripts/test-conversation-state-atomic-write.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc14",

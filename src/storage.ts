@@ -1079,6 +1079,11 @@ export class Storage {
     return counts;
   }
 
+  /** JSON mode has no DB backend, so the conversation-state file is authoritative. */
+  isPrimaryConversationStore(): boolean {
+    return !this.backend;
+  }
+
   loadConversationStateSnapshot(): ConversationStateSnapshot | undefined {
     return this.data.conversationStateSnapshot
       ? JSON.parse(JSON.stringify(this.data.conversationStateSnapshot)) as ConversationStateSnapshot

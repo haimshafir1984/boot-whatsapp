@@ -325,9 +325,70 @@ EXIT: 0
 
 ---
 
-## שלבים 5-6
+## שלב 5 — Atomic write, JSON mode בלבד (ב.3)
 
-טרם בוצעו.
+### מה בוצע
+
+| שינוי | מיקום |
+|---|---|
+| `ConversationStatePersistenceBackend` — נוסף `isPrimaryConversationStore?(): boolean` (true רק ב-JSON mode, כשקובץ ה-state הוא מקור האמת היחיד) | `src/conversationState.ts:202-220` |
+| `Storage.isPrimaryConversationStore()` → `return !this.backend` (אין backend = JSON mode) | `src/storage.ts:1082-1085` |
+| `persist()`: אם `this.backend?.isPrimaryConversationStore?.() === true` → כתיבה אטומית (`.tmp` → `copyFileSync` ל-`.bak` → `renameSync`), בדיוק כמו `storage.ts:897-903` / `metaGatewayInbox.ts`. אחרת → `fs.writeFileSync` הרגיל (**ללא שינוי**) | `src/conversationState.ts:~395-415` |
+| `restore()`: קריאת הקובץ עברה ל-`readSnapshotFile()` שמנסה קודם את הקובץ הראשי ואז `${filePath}.bak`; מחזיר `undefined` אם שום דבר לא מתפרסר (במקום לזרוק/לאבד הכל) | `src/conversationState.ts:357-372` |
+
+### התאמה לתוכנית (ב.3) והיקף מצומצם
+
+- **רק JSON mode** מקבל כתיבה אטומית. הסימן הוודאי: `Storage` בלי backend של Postgres.
+  לא הנחתי — ה-mode נקבע מפורשות: `storageFactory.ts` יוצר `Storage` עם `backend` רק
+  כש-`config.DATABASE_URL` מוגדר; `isPrimaryConversationStore()` מחזיר `!this.backend`.
+- **נתיב הכתיבה של Postgres mode לא נגע** — כשיש backend (או backend סינתטי בבדיקות),
+  הענף הוא בדיוק `fs.writeFileSync(this.filePath, json, 'utf-8')` כמו במאסטר. עיצוב
+  ה-fallback ל-Postgres mode (כתיבה מדי N דקות / רק ב-shutdown / רק בכשל DB) — **לא**
+  נכלל, כפי שהתוכנית מציינת שהוא דורש עיצוב נפרד.
+- ה-`.bak` fallback ב-`restore()` פועל בשני המצבים (זול, לא מזיק) — אם הקובץ הראשי
+  קטוע והיה `.bak` תקין, הוא ישוחזר.
+
+### בדיקות — `scripts/test-conversation-state-atomic-write.js` (חדש)
+
+```
+$ node scripts/test-conversation-state-atomic-write.js
+  1. JSON mode — atomic write, .bak = previous good snapshot, no .tmp left behind
+Conversation state file ...\p2.json is unreadable (Unexpected end of JSON input); trying fallback.
+  2. restore — truncated main file, recovers cleanly from .bak
+Conversation state file ...\p3.json is unreadable (Expected property name or '}' ...); trying fallback.
+  3. restore — truncated main, no .bak -> returns 0, no throw
+  4. non-primary backend (no isPrimaryConversationStore()) — plain write, no .bak/.tmp (Postgres path unchanged)
+  4. non-primary backend (isPrimaryConversationStore() === false) — plain write, no .bak/.tmp (Postgres path unchanged)
+Conversation-state atomic write tests passed.
+EXIT: 0
+```
+
+- **JSON mode (בדיקה 1):** `Storage` בלי backend, `isPrimaryConversationStore() === true`.
+  אחרי `set()` — הקובץ קיים ומתפרסר, **אין `.tmp` שנשאר**. אחרי `set()` שני — `.bak`
+  נוצר ומכיל את ה-snapshot הקודם (שיחה אחת) בעוד הראשי מכיל שתיים.
+- **קריסה מדומה (בדיקה 2):** הקובץ הראשי = JSON קטוע (`'{"version":1,"conversations":{"x@c.us":'`),
+  `.bak` = snapshot תקין. `restore()` → `1` (שוחזר מ-`.bak`), השיחה בזיכרון. **restore
+  נכשל בצורה נקייה על הקובץ הישן התקין, לא על הקטוע.**
+- **קטוע בלי `.bak` (בדיקה 3):** `restore()` → `0`, **בלי לזרוק**.
+- **Postgres mode / regression (בדיקה 4):** backend סינתטי בלי `isPrimaryConversationStore`
+  ו-backend עם `isPrimaryConversationStore: () => false` — אחרי `set()` הקובץ נכתב
+  (התנהגות קיימת נשמרת) אבל **אין `.bak` ואין `.tmp`** — הענף האטומי לא נכנס לפעולה
+  ב-non-JSON mode. מכסה "לוודא אין שינוי בהתנהגות הכתיבה הקיימת".
+
+**רגרסיה:** `test-conversation-state-flow-rehydration` ו-`test-flow-recovery` — עברו נקי (exit 0).
+בדיקות שדורשות Postgres חי (`test-postgres-no-lost-writes`) לא הורצו — אין DB מקומי בסביבה.
+
+`npm run build` אחרי השינוי: עבר נקי (exit 0).
+
+### קומיט
+
+`<יתווסף אחרי commit>`
+
+---
+
+## שלב 6
+
+טרם בוצע.
 
 ---
 
