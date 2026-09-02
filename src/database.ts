@@ -468,18 +468,26 @@ function bindJsonbParams(table: string, params: unknown[]): unknown[] {
 }
 
 async function applyMigrations(pool: Pool): Promise<void> {
+  // The registry table itself is idempotent DDL and needs no transaction.
   await pool.query('create table if not exists schema_migrations (id text primary key, applied_at timestamptz not null default now())');
   for (const migration of MIGRATIONS) {
     const existing = await pool.query('select 1 from schema_migrations where id = $1', [migration.id]);
     if (existing.rowCount) continue;
-    await pool.query('begin');
+    // Each migration - its DDL and its schema_migrations row - runs start to
+    // finish on one dedicated connection. pool.query('begin') then
+    // pool.query(sql) can land on different pooled connections, leaving the
+    // BEGIN open on an idle connection and every statement autocommitting.
+    const client = await pool.connect();
     try {
-      await pool.query(migration.sql);
-      await pool.query('insert into schema_migrations(id) values ($1) on conflict do nothing', [migration.id]);
-      await pool.query('commit');
+      await client.query('begin');
+      await client.query(migration.sql);
+      await client.query('insert into schema_migrations(id) values ($1) on conflict do nothing', [migration.id]);
+      await client.query('commit');
     } catch (err) {
-      await pool.query('rollback');
+      await client.query('rollback').catch(() => {});
       throw err;
+    } finally {
+      client.release();
     }
   }
 }
@@ -600,40 +608,46 @@ export async function loadStorageSnapshot(databaseUrl: string): Promise<StorageD
 
 async function writeSnapshot(pool: Pool, data: StorageData): Promise<void> {
   data = sanitizeJsonForPostgres(data) as StorageData;
-  await pool.query('begin');
+  // One dedicated connection carries BEGIN..COMMIT and every statement between
+  // them. pool.query() per statement can spread the transaction across several
+  // pooled connections, so BEGIN/COMMIT/ROLLBACK would each hit a different one.
+  const client = await pool.connect();
   try {
-    await pool.query(
+    await client.query('begin');
+    await client.query(
       `insert into app_state(key, data, updated_at) values ($1, $2, now())
        on conflict (key) do update set data = excluded.data, updated_at = now()`,
       ['storage', jsonbParam(data)],
     );
 
-    await pool.query('delete from admin_settings');
-    await pool.query('insert into admin_settings(id, data, updated_at) values ($1, $2, now())', ['current', jsonbParam(data.adminSettings)]);
+    await client.query('delete from admin_settings');
+    await client.query('insert into admin_settings(id, data, updated_at) values ($1, $2, now())', ['current', jsonbParam(data.adminSettings)]);
 
-    await pool.query('delete from client_profile');
-    await pool.query('insert into client_profile(id, data, updated_at) values ($1, $2, now())', ['current', jsonbParam(data.clientProfile)]);
+    await client.query('delete from client_profile');
+    await client.query('insert into client_profile(id, data, updated_at) values ($1, $2, now())', ['current', jsonbParam(data.clientProfile)]);
 
-    await replaceRows(pool, 'campaigns', data.campaigns, (item) => [item.id, item.triggerPhrase, item.active, item.runtimeStatus ?? null, item]);
-    await replaceRows(pool, 'campaign_results', data.campaignResults, (item) => [item.id, item.campaignId, item.resultBatchId ?? null, item.phone, item.status, item.lastStage ?? null, nullableDate(item.triggeredAt), nullableDate(item.updatedAt), item]);
-    await replaceRows(pool, 'campaign_events', data.campaignEvents, (item) => [item.id, item.campaignId, item.campaignResultId ?? null, item.resultBatchId ?? null, item.phone ?? null, item.type, item.dedupeKey ?? null, nullableDate(item.createdAt), item]);
-    await replaceRows(pool, 'contact_queue', data.contactQueue, (item) => [item.id, item.phone, item.status, nullableDate(item.nextAttemptAt), item.attempts, item, nullableDate(item.updatedAt)]);
-    await replaceRows(pool, 'saved_contacts', data.contactsList, (item) => [item.phone, item.name, nullableDate(item.savedAt), item]);
-    await replaceRows(pool, 'uploaded_files', data.uploadedFiles, (item) => [item.id, item.filename, item.mimeType, item.size, item, nullableDate(item.createdAt)]);
-    await replaceRows(pool, 'twilio_templates', data.twilioTemplates, (item) => [item.id, item.status, item, nullableDate(item.updatedAt)]);
-    await replaceRows(pool, 'outbox_messages', data.outboxMessages ?? [], (item) => [item.id, item.kind, item.to, item.status, item.attempts, item.providerMessageId ?? null, item.idempotencyKey ?? null, nullableDate(item.processingStartedAt), nullableDate(item.nextAttemptAt), nullableDate(item.createdAt), nullableDate(item.updatedAt), item]);
-    await replaceConversationStateRows(pool, data.conversationStateSnapshot?.conversations ?? {});
-    await replaceRows(pool, 'scheduled_jobs', data.scheduledJobs ?? [], (item) => [item.id, item.kind, item.targetId, nullableDate(item.runAt), item.status, item.attempts, item, nullableDate(item.updatedAt)]);
-    await pool.query(
+    await replaceRows(client, 'campaigns', data.campaigns, (item) => [item.id, item.triggerPhrase, item.active, item.runtimeStatus ?? null, item]);
+    await replaceRows(client, 'campaign_results', data.campaignResults, (item) => [item.id, item.campaignId, item.resultBatchId ?? null, item.phone, item.status, item.lastStage ?? null, nullableDate(item.triggeredAt), nullableDate(item.updatedAt), item]);
+    await replaceRows(client, 'campaign_events', data.campaignEvents, (item) => [item.id, item.campaignId, item.campaignResultId ?? null, item.resultBatchId ?? null, item.phone ?? null, item.type, item.dedupeKey ?? null, nullableDate(item.createdAt), item]);
+    await replaceRows(client, 'contact_queue', data.contactQueue, (item) => [item.id, item.phone, item.status, nullableDate(item.nextAttemptAt), item.attempts, item, nullableDate(item.updatedAt)]);
+    await replaceRows(client, 'saved_contacts', data.contactsList, (item) => [item.phone, item.name, nullableDate(item.savedAt), item]);
+    await replaceRows(client, 'uploaded_files', data.uploadedFiles, (item) => [item.id, item.filename, item.mimeType, item.size, item, nullableDate(item.createdAt)]);
+    await replaceRows(client, 'twilio_templates', data.twilioTemplates, (item) => [item.id, item.status, item, nullableDate(item.updatedAt)]);
+    await replaceRows(client, 'outbox_messages', data.outboxMessages ?? [], (item) => [item.id, item.kind, item.to, item.status, item.attempts, item.providerMessageId ?? null, item.idempotencyKey ?? null, nullableDate(item.processingStartedAt), nullableDate(item.nextAttemptAt), nullableDate(item.createdAt), nullableDate(item.updatedAt), item]);
+    await replaceConversationStateRows(client, data.conversationStateSnapshot?.conversations ?? {});
+    await replaceRows(client, 'scheduled_jobs', data.scheduledJobs ?? [], (item) => [item.id, item.kind, item.targetId, nullableDate(item.runAt), item.status, item.attempts, item, nullableDate(item.updatedAt)]);
+    await client.query(
       `insert into service_bot_state(id, data, updated_at) values ('current', $1, now())
        on conflict (id) do update set data = excluded.data, updated_at = now()`,
       [jsonbParam(serviceBotStateFromSnapshot(data))],
     );
 
-    await pool.query('commit');
+    await client.query('commit');
   } catch (err) {
-    await pool.query('rollback');
+    await client.query('rollback').catch(() => {});
     throw err;
+  } finally {
+    client.release();
   }
 }
 
@@ -653,18 +667,22 @@ export async function writeSnapshotDelta(pool: Pool, previous: StorageData | nul
   // baseline to compare specific rows against - always do the full sync then.
   const rowIdsFor = (table: StorageTableName): DirtyRowIds => (previous ? (dirtyRowIds[table] ?? 'all') : 'all');
 
-  await pool.query('begin');
+  // One dedicated connection for the whole delta. pool.query('begin') then
+  // pool.query(...) can land on different pooled connections, leaving a
+  // connection stuck `idle in transaction` holding row locks forever.
+  const client = await pool.connect();
   try {
+    await client.query('begin');
 
     if (isDirty('adminSettings') && (!previous || !sameJson(previous.adminSettings, data.adminSettings))) {
-      await pool.query(
+      await client.query(
         `insert into admin_settings(id, data, updated_at) values ('current', $1, now())
          on conflict (id) do update set data = excluded.data, updated_at = now()`,
         [jsonbParam(data.adminSettings)],
       );
     }
     if (isDirty('clientProfile') && (!previous || !sameJson(previous.clientProfile, data.clientProfile))) {
-      await pool.query(
+      await client.query(
         `insert into client_profile(id, data, updated_at) values ('current', $1, now())
          on conflict (id) do update set data = excluded.data, updated_at = now()`,
         [jsonbParam(data.clientProfile)],
@@ -672,45 +690,45 @@ export async function writeSnapshotDelta(pool: Pool, previous: StorageData | nul
     }
 
     if (isDirty('campaigns')) {
-      await syncRowsDelta(pool, 'campaigns', previous?.campaigns ?? [], data.campaigns, (item) => item.id, (item) => [item.id, item.triggerPhrase, item.active, item.runtimeStatus ?? null, item]);
+      await syncRowsDelta(client, 'campaigns', previous?.campaigns ?? [], data.campaigns, (item) => item.id, (item) => [item.id, item.triggerPhrase, item.active, item.runtimeStatus ?? null, item]);
     }
     if (isDirty('campaignResults')) {
-      await syncCampaignResultsDelta(pool, previous?.campaignResults ?? [], data.campaignResults, rowIdsFor('campaignResults'));
+      await syncCampaignResultsDelta(client, previous?.campaignResults ?? [], data.campaignResults, rowIdsFor('campaignResults'));
     }
     if (isDirty('campaignEvents')) {
-      await syncCampaignEventsDelta(pool, previous?.campaignEvents ?? [], data.campaignEvents);
+      await syncCampaignEventsDelta(client, previous?.campaignEvents ?? [], data.campaignEvents);
     }
     if (isDirty('contactQueue')) {
-      await syncContactQueueDelta(pool, previous?.contactQueue ?? [], data.contactQueue, rowIdsFor('contactQueue'));
+      await syncContactQueueDelta(client, previous?.contactQueue ?? [], data.contactQueue, rowIdsFor('contactQueue'));
     }
     if (isDirty('contactsList')) {
-      await syncContactsListDelta(pool, previous?.contactsList ?? [], data.contactsList, rowIdsFor('contactsList'));
+      await syncContactsListDelta(client, previous?.contactsList ?? [], data.contactsList, rowIdsFor('contactsList'));
     }
     if (isDirty('uploadedFiles')) {
-      await syncRowsDelta(pool, 'uploaded_files', previous?.uploadedFiles ?? [], data.uploadedFiles, (item) => item.id, (item) => [item.id, item.filename, item.mimeType, item.size, item, nullableDate(item.createdAt)]);
+      await syncRowsDelta(client, 'uploaded_files', previous?.uploadedFiles ?? [], data.uploadedFiles, (item) => item.id, (item) => [item.id, item.filename, item.mimeType, item.size, item, nullableDate(item.createdAt)]);
     }
     if (isDirty('twilioTemplates')) {
-      await syncRowsDelta(pool, 'twilio_templates', previous?.twilioTemplates ?? [], data.twilioTemplates, (item) => item.id, (item) => [item.id, item.status, item, nullableDate(item.updatedAt)]);
+      await syncRowsDelta(client, 'twilio_templates', previous?.twilioTemplates ?? [], data.twilioTemplates, (item) => item.id, (item) => [item.id, item.status, item, nullableDate(item.updatedAt)]);
     }
     if (isDirty('outboxMessages')) {
-      await syncOutboxMessagesDelta(pool, previous?.outboxMessages ?? [], data.outboxMessages ?? [], rowIdsFor('outboxMessages'));
+      await syncOutboxMessagesDelta(client, previous?.outboxMessages ?? [], data.outboxMessages ?? [], rowIdsFor('outboxMessages'));
     }
     if (isDirty('conversationStateSnapshot')) {
       await syncConversationStateDelta(
-        pool,
+        client,
         previous?.conversationStateSnapshot?.conversations ?? {},
         data.conversationStateSnapshot?.conversations ?? {},
         rowIdsFor('conversationStateSnapshot'),
       );
     }
     if (isDirty('scheduledJobs')) {
-      await syncRowsDelta(pool, 'scheduled_jobs', previous?.scheduledJobs ?? [], data.scheduledJobs ?? [], (item) => item.id, (item) => [item.id, item.kind, item.targetId, nullableDate(item.runAt), item.status, item.attempts, item, nullableDate(item.updatedAt)]);
+      await syncRowsDelta(client, 'scheduled_jobs', previous?.scheduledJobs ?? [], data.scheduledJobs ?? [], (item) => item.id, (item) => [item.id, item.kind, item.targetId, nullableDate(item.runAt), item.status, item.attempts, item, nullableDate(item.updatedAt)]);
     }
     if (isDirty('serviceBotState')) {
       const previousServiceBotState = previous ? serviceBotStateFromSnapshot(previous) : null;
       const nextServiceBotState = serviceBotStateFromSnapshot(data);
       if (!previousServiceBotState || !sameJson(previousServiceBotState, nextServiceBotState)) {
-        await pool.query(
+        await client.query(
           `insert into service_bot_state(id, data, updated_at) values ('current', $1, now())
            on conflict (id) do update set data = excluded.data, updated_at = now()`,
           [jsonbParam(nextServiceBotState)],
@@ -718,10 +736,12 @@ export async function writeSnapshotDelta(pool: Pool, previous: StorageData | nul
       }
     }
 
-    await pool.query('commit');
+    await client.query('commit');
   } catch (err) {
-    await pool.query('rollback');
+    await client.query('rollback').catch(() => {});
     throw err;
+  } finally {
+    client.release();
   }
 }
 
@@ -736,7 +756,7 @@ export async function writeSnapshotDelta(pool: Pool, previous: StorageData | nul
  * exact same full comparison used before this optimization - always correct,
  * just not fast for that one case.
  */
-export async function syncCampaignEventsDelta(pool: Pool, previousRows: StorageData['campaignEvents'], nextRows: StorageData['campaignEvents']): Promise<void> {
+export async function syncCampaignEventsDelta(pool: Pool | PoolClient, previousRows: StorageData['campaignEvents'], nextRows: StorageData['campaignEvents']): Promise<void> {
   const isAppendOnly = nextRows.length >= previousRows.length
     && previousRows.every((row, index) => nextRows[index]?.id === row.id);
   const rowsToUpsert = isAppendOnly ? nextRows.slice(previousRows.length) : nextRows;
@@ -780,7 +800,7 @@ function contactsListParams(item: StorageData['contactsList'][number]): unknown[
  * this optimization - always correct, just not fast for that one case.
  */
 async function syncRowsDeltaTracked<T extends Record<string, any>>(
-  pool: Pool,
+  pool: Pool | PoolClient,
   table: string,
   previousRows: T[],
   nextRows: T[],
@@ -814,19 +834,19 @@ async function syncRowsDeltaTracked<T extends Record<string, any>>(
   }
 }
 
-export async function syncOutboxMessagesDelta(pool: Pool, previousRows: StorageData['outboxMessages'], nextRows: StorageData['outboxMessages'], touchedIds: DirtyRowIds): Promise<void> {
+export async function syncOutboxMessagesDelta(pool: Pool | PoolClient, previousRows: StorageData['outboxMessages'], nextRows: StorageData['outboxMessages'], touchedIds: DirtyRowIds): Promise<void> {
   return syncRowsDeltaTracked(pool, 'outbox_messages', previousRows, nextRows, (item) => item.id, outboxMessageParams, touchedIds);
 }
 
-export async function syncCampaignResultsDelta(pool: Pool, previousRows: StorageData['campaignResults'], nextRows: StorageData['campaignResults'], touchedIds: DirtyRowIds): Promise<void> {
+export async function syncCampaignResultsDelta(pool: Pool | PoolClient, previousRows: StorageData['campaignResults'], nextRows: StorageData['campaignResults'], touchedIds: DirtyRowIds): Promise<void> {
   return syncRowsDeltaTracked(pool, 'campaign_results', previousRows, nextRows, (item) => item.id, campaignResultParams, touchedIds);
 }
 
-export async function syncContactQueueDelta(pool: Pool, previousRows: StorageData['contactQueue'], nextRows: StorageData['contactQueue'], touchedIds: DirtyRowIds): Promise<void> {
+export async function syncContactQueueDelta(pool: Pool | PoolClient, previousRows: StorageData['contactQueue'], nextRows: StorageData['contactQueue'], touchedIds: DirtyRowIds): Promise<void> {
   return syncRowsDeltaTracked(pool, 'contact_queue', previousRows, nextRows, (item) => item.id, contactQueueParams, touchedIds);
 }
 
-export async function syncContactsListDelta(pool: Pool, previousRows: StorageData['contactsList'], nextRows: StorageData['contactsList'], touchedIds: DirtyRowIds): Promise<void> {
+export async function syncContactsListDelta(pool: Pool | PoolClient, previousRows: StorageData['contactsList'], nextRows: StorageData['contactsList'], touchedIds: DirtyRowIds): Promise<void> {
   return syncRowsDeltaTracked(pool, 'saved_contacts', previousRows, nextRows, (item) => item.phone, contactsListParams, touchedIds);
 }
 
@@ -858,7 +878,7 @@ function canonicalJsonValue(value: unknown): unknown {
 }
 
 async function syncRowsDelta<T extends Record<string, any>>(
-  pool: Pool,
+  pool: Pool | PoolClient,
   table: string,
   previousRows: T[],
   nextRows: T[],
@@ -878,7 +898,7 @@ async function syncRowsDelta<T extends Record<string, any>>(
   }
 }
 
-async function upsertRow(pool: Pool, table: string, params: unknown[]): Promise<void> {
+async function upsertRow(pool: Pool | PoolClient, table: string, params: unknown[]): Promise<void> {
   const columns = tableColumns(table).split(',').map((column) => column.trim());
   const boundParams = bindJsonbParams(table, params);
   const placeholders = boundParams.map((_, index) => `$${index + 1}`).join(', ');
@@ -918,7 +938,7 @@ async function upsertRow(pool: Pool, table: string, params: unknown[]): Promise<
  * to the exact full comparison used before this optimization.
  */
 export async function syncConversationStateDelta(
-  pool: Pool,
+  pool: Pool | PoolClient,
   previous: Record<string, unknown>,
   next: Record<string, unknown>,
   touchedJids: DirtyRowIds = 'all',
@@ -946,7 +966,7 @@ export async function syncConversationStateDelta(
   }
 }
 
-async function upsertConversationState(pool: Pool, jid: string, state: unknown): Promise<void> {
+async function upsertConversationState(pool: Pool | PoolClient, jid: string, state: unknown): Promise<void> {
   const item = state as any;
   await pool.query(
     `insert into conversation_state(jid, kind, sender_phone, campaign_id, campaign_result_id, scheduled_at, data, updated_at)
@@ -971,7 +991,7 @@ async function upsertConversationState(pool: Pool, jid: string, state: unknown):
   );
 }
 
-async function replaceRows<T>(pool: Pool, table: string, rows: T[], values: (row: T) => unknown[]): Promise<void> {
+async function replaceRows<T>(pool: Pool | PoolClient, table: string, rows: T[], values: (row: T) => unknown[]): Promise<void> {
   await pool.query(`delete from ${table}`);
   for (const row of rows) {
     const params = values(row);
@@ -997,7 +1017,7 @@ function tableColumns(table: string): string {
   }
 }
 
-async function replaceConversationStateRows(pool: Pool, conversations: Record<string, unknown>): Promise<void> {
+async function replaceConversationStateRows(pool: Pool | PoolClient, conversations: Record<string, unknown>): Promise<void> {
   await pool.query('delete from conversation_state');
   for (const [jid, state] of Object.entries(conversations)) {
     const item = state as any;

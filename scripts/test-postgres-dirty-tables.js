@@ -20,12 +20,17 @@ const { emptyStorageData } = require('../dist/storage');
 
 function makeMockPool() {
   const calls = [];
+  const query = (sql, params) => {
+    calls.push({ sql: String(sql).trim().split('\n')[0].trim(), params });
+    return Promise.resolve({ rows: [], rowCount: 0 });
+  };
+  // writeSnapshotDelta now pins the transaction to one client via pool.connect().
+  // The client shares the same recorder so begin/commit and every statement
+  // still land in `calls`.
   return {
     calls,
-    query(sql, params) {
-      calls.push({ sql: String(sql).trim().split('\n')[0].trim(), params });
-      return Promise.resolve({ rows: [], rowCount: 0 });
-    },
+    query,
+    connect: () => Promise.resolve({ query, release() {} }),
   };
 }
 

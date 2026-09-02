@@ -35,9 +35,7 @@ function makeShadowPool() {
     if (!tables.has(t)) tables.set(t, new Map());
     return tables.get(t);
   };
-  return {
-    tables,
-    async query(sql, params) {
+  const query = async (sql, params) => {
       const text = String(sql).replace(/\s+/g, ' ').trim();
       let m = text.match(/^insert into (\w+)\(([^)]*)\)/i);
       if (m) {
@@ -67,7 +65,13 @@ function makeShadowPool() {
         return { rows: [], rowCount: 0 };
       }
       return { rows: [], rowCount: 0 };
-    },
+  };
+  // writeSnapshotDelta pins its transaction to one client via pool.connect();
+  // the client replays SQL into the same shadow tables.
+  return {
+    tables,
+    query,
+    connect: async () => ({ query, release() {} }),
   };
 }
 
