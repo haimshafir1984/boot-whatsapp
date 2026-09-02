@@ -247,7 +247,7 @@ EXIT: 0
 
 ### קומיט
 
-`<יתווסף אחרי commit>`
+`9dcb139` — "Delete campaign before detaching its live conversations"
 
 ---
 
