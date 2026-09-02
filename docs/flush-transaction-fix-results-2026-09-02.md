@@ -273,3 +273,30 @@ AssertionError: flush() must return while the flood is still arriving
 4. ✅ מדידת לפני/אחרי: `flush()` תחת burst ~3,015ms → ~250ms; אפס `idle in transaction`; parity
    זיכרון/DB אומת.
 5. ✅ תוכנית rollback כתובה; אושר שאין שינוי סכימה בלתי-הפיך.
+
+## עדכון — סקירה נוספת (קודקס), קומיט `88a4e60`
+
+קודקס אישר מיזוג, עם הערה לא-חוסמת אחת: `scripts/test-postgres-transactions.js` שם לחץ תחרותי אמיתי
+רק על `writeSnapshotDelta` (הנתיב החם) — לא על `applyMigrations` ו-`writeSnapshot` המלא, שקיבלו את
+אותו תיקון אבל לא נבדקו תחת אותם תנאים.
+
+**טופל** (קומיט `88a4e60`): שתי בדיקות נוספו לאותו קובץ —
+
+- **בדיקה 4** — `migrateDatabase` (עוטפת את `applyMigrations`) תחת לחץ תחרותי אמיתי על ה-pool,
+  אחרי `drop table schema_migrations` כדי שהמיגרציות באמת ירוצו (לא ידלגו על עצמן). מאמת:
+  אפס `idle in transaction`, כל המיגרציות נרשמו, הסכימה בפועל קיימת.
+- **בדיקה 5** — `replaceStorageSnapshot`/`writeSnapshot` (נתיב הייבוא/שחזור המלא) תחת אותו לחץ.
+  מאמת: אפס `idle in transaction`, כל הטבלאות שוחזרו נכון.
+
+**מוטציה עצמאית על שתי הבדיקות החדשות**: החזרת `client.connect()`/`client.query` ל-`pool.query('begin')`
+משותף גורמת לכשל מיידי וברור (`client.release is not a function`) — הוכחה שהן בודקות את הנתיב האמיתי,
+לא רק "רצות בלי לבדוק כלום".
+
+**הערת שקיפות:** בריצת רגרסיה אחת (מתוך ~9 ריצות עוקבות ברצף מהיר על אותו DB מקומי), `test-postgres-transactions.js`
+נכשל פעם אחת ב-249/250 שורות. נוסה שחזור ב-6 ניסיונות נוספים (3 בבידוד, 3 מיד אחרי
+`test-flush-scoped-wait.js`) — לא שוחזר אף פעם. מוערך כרעש מריצות DB רבות ברצף מהיר על אותו מסד
+מקומי (התנגשות ידועה ומתועדת, §4.1 ב-`docs/post-campaign-fixes-2026-09-01.md`), לא רגרסיה בלוגיקה —
+אך מתועד כאן כדי לא להסתיר.
+
+**עדיין נדרש לפני בקשת פריסה בפועל** (מהסקירה): לוודא שהקמפיין שקט, שאין `processing`/`retry` חריגים
+ב-`outbox` דרך `/health`, ושיש אפשרות redeploy מיידית במקרה חריג.
