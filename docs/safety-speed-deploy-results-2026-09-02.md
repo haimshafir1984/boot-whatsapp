@@ -382,7 +382,7 @@ EXIT: 0
 
 ### קומיט
 
-`<יתווסף אחרי commit>`
+`a506b7b` — "Atomic conversation-state file write in JSON mode + .bak restore fallback"
 
 ---
 
