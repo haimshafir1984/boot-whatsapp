@@ -100,7 +100,7 @@ async function main() {
   try {
     await waitFor(() => storage.getOutboxHealth().sent === 5);
   } finally {
-    clearInterval(timer);
+    await timer.stop();
   }
 
   const messages = storage.getOutboxMessages();

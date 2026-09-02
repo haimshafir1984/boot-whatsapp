@@ -33,6 +33,7 @@ import {
   getGoogleRelayReturnUrl,
 } from './googleContacts';
 import { createAccessControl } from './accessControl';
+import { createMetaSignatureVerifier } from './metaWebhookSignature';
 import { ManagedClient, OwnerStorage } from './ownerStorage';
 import { DokployProvisioner } from './dokployProvisioner';
 import { conversationState } from './conversationState';
@@ -1241,7 +1242,7 @@ function buildCampaignDryRun(campaign: Campaign, storage: Storage) {
   };
 }
 
-export function startAdminServer(storage: Storage): void {
+export function startAdminServer(storage: Storage): import('http').Server {
   const app = express();
   const publicDir = path.join(__dirname, '..', 'public');
   const ownerPublicDir = path.join(__dirname, '..', 'owner-public');
@@ -1257,8 +1258,20 @@ export function startAdminServer(storage: Storage): void {
   const metaClientInbox = new MetaGatewayInbox(path.join(path.dirname(config.STORAGE_PATH), 'meta-client-inbox.json'));
 
   app.set('trust proxy', 1);
-  app.use(express.json({ limit: '24mb' }));
+  app.use(express.json({
+    limit: '24mb',
+    // Capture the raw body so Meta webhook HMAC verification can run on the exact
+    // bytes Meta signed. Without this the parser consumes the stream first.
+    verify: (req, _res, buf) => { (req as express.Request & { rawBody?: Buffer }).rawBody = buf; },
+  }));
   app.use(express.urlencoded({ extended: false }));
+
+  // Gate for POST /webhooks/meta/whatsapp — the route that takes traffic straight
+  // from Meta. Rejects any request whose X-Hub-Signature-256 does not match an
+  // HMAC of the raw body keyed by META_APP_SECRET, before it reaches enqueue.
+  // When META_APP_SECRET is unset we do NOT block (pending the rollout audit of
+  // existing clients — see docs/safety-speed-deploy-plan-2026-09-02.md B.1 step 3).
+  const verifyMetaSignature = createMetaSignatureVerifier(() => config.META_APP_SECRET);
 
   const managedClientForOwnerToken = (provided: unknown): ManagedClient | null => {
     if (typeof provided !== 'string' || !provided.trim()) return null;
@@ -1412,6 +1425,14 @@ export function startAdminServer(storage: Storage): void {
   app.get('/owner/login', (_req, res) => {
     res.sendFile(path.join(ownerPublicDir, 'login.html'));
   });
+  // Cheap liveness probe for the container HEALTHCHECK / proxy. Deliberately
+  // touches nothing — no storage, no getCampaigns()/queue stats/failed deliveries —
+  // so it still answers 200 fast when the event loop is busy or storage is mid
+  // migration. The heavy /health below stays for the dashboard.
+  app.get('/health/live', (_req, res) => {
+    res.status(200).json({ ok: true, live: true });
+  });
+
   app.get('/health', (_req, res) => {
     const campaigns = storage.getCampaigns();
     const activeCampaigns = campaigns.filter((campaign) => campaign.runtimeStatus === 'active');
@@ -1937,7 +1958,7 @@ export function startAdminServer(storage: Storage): void {
     }
   };
 
-  app.post('/webhooks/meta/whatsapp', (req, res) => {
+  app.post('/webhooks/meta/whatsapp', verifyMetaSignature, (req, res) => {
     const statusPayloads = splitMetaWebhookStatuses(req.body);
     const messagePayloads = splitMetaWebhookMessages(req.body);
     if (!statusPayloads.length && !messagePayloads.length) {
@@ -4359,12 +4380,24 @@ export function startAdminServer(storage: Storage): void {
       res.status(404).json({ error: 'קמפיין לא נמצא' });
       return;
     }
-    res.json(withMetaTriggerWarning(updated, triggerAvailability));
+    // The dashboard asks the user explicitly ("end this campaign's active
+    // conversations?") when they change the decision flow. We honour that choice
+    // as sent — no server-side heuristic about whether the change was "material".
+    let endedConversations = 0;
+    if (req.body?.endActiveConversations === true) {
+      endedConversations = conversationState.removeByCampaign(existing.id);
+    }
+    res.json({ ...withMetaTriggerWarning(updated, triggerAvailability), endedConversations });
   });
 
   app.delete('/api/campaigns/:id', requireWritableClient, (req, res) => {
-    const ok = storage.deleteCampaign(String(req.params.id));
-    res.json({ ok });
+    const id = String(req.params.id);
+    // Delete first; only detach live conversations if the campaign was actually
+    // removed. The reverse order can strand active conversations when the delete
+    // then fails — damage with no benefit.
+    const ok = storage.deleteCampaign(id);
+    const conversations = ok ? conversationState.removeByCampaign(id) : 0;
+    res.json({ ok, conversations });
   });
 
   app.get('/api/campaigns/:id/dry-run', (req, res) => {
@@ -4431,7 +4464,7 @@ export function startAdminServer(storage: Storage): void {
   });
   app.use('/client', access.requireClient, express.static(publicDir));
 
-  app.listen(config.ADMIN_PORT, () => {
+  return app.listen(config.ADMIN_PORT, () => {
     console.log(`🖥️  Admin dashboard → http://localhost:${config.ADMIN_PORT}`);
   });
 }

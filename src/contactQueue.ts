@@ -7,6 +7,7 @@ const SUCCESS_DELAY_MS = 750;
 const RETRY_DELAYS_MS = [30_000, 2 * 60_000, 10 * 60_000];
 
 let workerStarted = false;
+let stopping = false;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -52,21 +53,33 @@ async function processOne(storage: Storage, job: ContactSaveJob): Promise<void> 
   }
 }
 
-export function startContactSaveQueue(storage: Storage): void {
-  if (workerStarted) return;
+export function startContactSaveQueue(storage: Storage): { stop: () => Promise<void> } {
+  if (workerStarted) return { stop: async () => {} };
   workerStarted = true;
+  stopping = false;
 
-  void (async () => {
+  const loop = (async () => {
     console.log('   Contact queue worker started.');
-    while (true) {
+    while (!stopping) {
       const job = storage.getDueContactSaveJob(new Date(), { includeGoogle: isGoogleConnected() });
       if (!job) {
         await sleep(IDLE_DELAY_MS);
         continue;
       }
+      // stop() may have been requested between fetching the job (a read, nothing
+      // claimed) and starting to process it — bail before touching it.
+      if (stopping) break;
 
       await processOne(storage, job);
       await sleep(SUCCESS_DELAY_MS);
     }
   })();
+
+  return {
+    stop: async () => {
+      stopping = true;
+      await loop;
+      workerStarted = false;
+    },
+  };
 }

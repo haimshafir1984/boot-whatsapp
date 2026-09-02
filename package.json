@@ -34,7 +34,12 @@
     "test:group-join-flow": "npm run build && node scripts/test-group-join-flow.js",
     "test:score-result-preface": "npm run build && node scripts/test-score-result-preface.js",
     "test:email-capture": "npm run build && node scripts/test-email-capture.js && node scripts/test-email-export.js",
-    "test:whatsapp-links": "npm run build && node scripts/test-whatsapp-link-normalization.js"
+    "test:whatsapp-links": "npm run build && node scripts/test-whatsapp-link-normalization.js",
+    "test:meta-webhook-signature": "npm run build && node scripts/test-meta-webhook-signature.js",
+    "test:graceful-shutdown": "npm run build && node scripts/test-graceful-shutdown.js",
+    "test:campaign-delete-conversations": "npm run build && node scripts/test-campaign-delete-conversations.js",
+    "test:health-live": "npm run build && node scripts/test-health-live.js",
+    "test:conversation-state-atomic-write": "npm run build && node scripts/test-conversation-state-atomic-write.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc14",

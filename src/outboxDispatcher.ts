@@ -78,16 +78,21 @@ async function sendOutboxFile(transport: WhatsAppTransport, message: OutboxMessa
   return await transport.sendFile(message.to, message.filePath, message.caption, message.fileOptions);
 }
 
-export function startOutboxDispatcher(storage: Storage, getTransport: TransportResolver, intervalMs = OUTBOX_POLL_MS): NodeJS.Timeout {
-  let running = false;
+export function startOutboxDispatcher(
+  storage: Storage,
+  getTransport: TransportResolver,
+  intervalMs = OUTBOX_POLL_MS,
+): { stop: () => Promise<void> } {
+  let stopping = false;
+  let inFlight: Promise<void> | null = null;
+
   const tick = async () => {
-    if (running) return;
-    running = true;
     try {
       const transport = getTransport();
       if (!transport) return;
       let processed = 0;
       while (processed < OUTBOX_MAX_MESSAGES_PER_TICK) {
+        if (stopping) break;
         // Storage returns at most the head message for each recipient. Process
         // different recipients in parallel, then ask again so the next message
         // for a recipient starts only after its predecessor completed.
@@ -100,11 +105,25 @@ export function startOutboxDispatcher(storage: Storage, getTransport: TransportR
       }
     } catch (err) {
       console.warn('Outbox dispatcher failed:', err);
-    } finally {
-      running = false;
     }
   };
-  const handle = setInterval(() => { void tick(); }, intervalMs);
-  void tick();
-  return handle;
+
+  const runTick = (): Promise<void> => {
+    if (inFlight || stopping) return inFlight ?? Promise.resolve();
+    inFlight = tick().finally(() => { inFlight = null; });
+    return inFlight;
+  };
+
+  const handle = setInterval(() => { void runTick(); }, intervalMs);
+  void runTick();
+
+  return {
+    stop: async () => {
+      stopping = true;
+      clearInterval(handle);
+      // Wait for whatever tick is mid-flight so no dispatchMessage() write races
+      // storage.close().
+      await (inFlight ?? Promise.resolve());
+    },
+  };
 }

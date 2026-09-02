@@ -49,7 +49,7 @@ async function main() {
     try {
       await waitFor(() => storage.getOutboxHealth().sent === 3);
     } finally {
-      clearInterval(timer);
+      await timer.stop();
     }
 
     const fileEnd = events.findIndex((event) => event.startsWith('file-end:'));

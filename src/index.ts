@@ -13,6 +13,7 @@ import { startContactSaveQueue } from './contactQueue';
 import { startOutboxDispatcher } from './outboxDispatcher';
 import { startServiceBotFollowUpDispatcher } from './serviceBotFollowUpDispatcher';
 import { startWhatsAppScheduler } from './whatsappLifecycle';
+import { createShutdownHandler } from './shutdown';
 import { conversationState } from './conversationState';
 import { scheduleRestoredConversationTimeout } from './messageFlow';
 import { botState } from './botState';
@@ -93,11 +94,19 @@ async function main(): Promise<void> {
   const storage = await createStorage();
   restoreConversationState(storage);
 
-  startContactSaveQueue(storage);
-  startOutboxDispatcher(storage, currentOutboundTransport);
-  startServiceBotFollowUpDispatcher(storage, currentOutboundTransport);
+  const contactQueue = startContactSaveQueue(storage);
+  const outbox = startOutboxDispatcher(storage, currentOutboundTransport);
+  const followUps = startServiceBotFollowUpDispatcher(storage, currentOutboundTransport);
 
-  startAdminServer(storage);
+  const server = startAdminServer(storage);
+
+  const shutdown = createShutdownHandler({
+    server,
+    workers: [contactQueue, outbox, followUps],
+    storage,
+  });
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  process.on('SIGINT', () => void shutdown('SIGINT'));
 
   if (config.WHATSAPP_PROVIDER === 'TWILIO_API') {
     console.log('  WhatsApp provider: Twilio API (webhook mode, no Chromium scheduler)');
