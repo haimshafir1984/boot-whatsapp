@@ -1425,6 +1425,14 @@ export function startAdminServer(storage: Storage): import('http').Server {
   app.get('/owner/login', (_req, res) => {
     res.sendFile(path.join(ownerPublicDir, 'login.html'));
   });
+  // Cheap liveness probe for the container HEALTHCHECK / proxy. Deliberately
+  // touches nothing — no storage, no getCampaigns()/queue stats/failed deliveries —
+  // so it still answers 200 fast when the event loop is busy or storage is mid
+  // migration. The heavy /health below stays for the dashboard.
+  app.get('/health/live', (_req, res) => {
+    res.status(200).json({ ok: true, live: true });
+  });
+
   app.get('/health', (_req, res) => {
     const campaigns = storage.getCampaigns();
     const activeCampaigns = campaigns.filter((campaign) => campaign.runtimeStatus === 'active');

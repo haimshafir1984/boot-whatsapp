@@ -266,9 +266,68 @@ EXIT: 0
 
 ---
 
-## שלבים 4-6
+## שלב 4 — `/health/live` + HEALTHCHECK (א.2)
 
-טרם בוצעו. שלב 4 (`/health/live` + HEALTHCHECK) — ראה שאלה פתוחה 3.
+### הנחה לא-מאומתת (לפי הוראות המשימה — לתעד ולהמשיך)
+
+**לא נבדק אם Dokploy/Swarm בפועל משתמשים ב-HEALTHCHECK לניתוב תעבורה / rolling
+replace, או רק כאינדיקציה תפעולית.** אין לי גישה לממשק/תיעוד Dokploy. גם אם זו רק
+אינדיקציה תפעולית — זה עדיין שיפור: מבדיל קונטיינר חי מתקוע, ו-`/health/live` זול
+מספיק כדי לא להיתקע מאחורי `/health` הכבד. **סטטוס: לא ידוע — דורש בדיקה נוספת**
+(שאלה פתוחה 3).
+
+### מה בוצע
+
+| שינוי | מיקום |
+|---|---|
+| `GET /health/live` — מחזיר `200 {ok:true,live:true}` בלי לגעת ב-`storage` בכלל (לא `getCampaigns`, לא queue stats, לא failed deliveries). ה-`/health` הכבד נשאר לדשבורד | `src/adminServer.ts:1415-1421` |
+| `HEALTHCHECK --interval=15s --timeout=5s --start-period=100s --retries=3` עם probe `node -e "require('http').get('.../health/live', ...)"` | `Dockerfile` (לפני `CMD`) |
+| ערך `test:health-live` ב-scripts | `package.json` |
+
+`start-period=100s` (לא 40s) — לפי התוכנית המעודכנת; DB גדול צריך זמן ל-`applyMigrations`+
+`loadSnapshot`. הערה ב-Dockerfile: לכייל מחדש אחרי מדידת boot→ready אמיתית בפריסה הבאה.
+
+### בדיקות — `scripts/test-health-live.js` (חדש)
+
+```
+$ node scripts/test-health-live.js
+OWNER_ACCESS_TOKEN is not configured. Temporary owner access code: LEdTrGWafbDXEhFHBkYfFc03
+  Gateway retry: base 500ms, cap 5000ms, drain every 500ms
+🖥️  Admin dashboard → http://localhost:44272
+  1. /health/live -> 200 {ok:true,live:true}
+  2. storage broken -> /health/live 200, /health 500
+  3. under a 30x /health burst: 40x /health/live all 200, p95=2ms max=69ms
+Health liveness probe tests passed.
+EXIT: 0
+```
+
+- **בדיקה 1:** `/health/live` → `200 {ok:true,live:true}`.
+- **בדיקה 2:** חמש מתודות storage (`getCampaigns`/`getContactQueueStats`/`getFailedDeliveries`/
+  `getOutboxHealth`/`getStorageHealth`) מוחלפות למוקים שזורקים ("storage not ready /
+  migration"). `/health/live` → `200`; `/health` הכבד → `500`. מכסה "מחזיר 200 גם
+  כש-storage לא ready".
+- **בדיקה 3:** 300 שורות campaignResults נזרעות כדי ש-`/health` יעשה עבודה אמיתית;
+  30 בקשות `/health` במקביל + 40 בקשות `/health/live` סדרתיות ביניהן — כולן `200`,
+  **p95=2ms, max=69ms**. מכסה "לא עושה קריאת DB — חוזרת מהר גם תחת עומס מדומה על ה-event loop".
+
+**אימות ה-probe עצמו:** הורץ הקוד המדויק מה-Dockerfile (`node -e "require('http')
+.get('http://127.0.0.1:3001/health/live', r=>process.exit(r.statusCode===200?0:1))..."`)
+מול `dist/index.js` חי — `status 200, exit 0`.
+
+**אימות Dockerfile:** `docker` לא זמין בסביבה המקומית — לא הורץ `docker build`. תחביר
+ה-HEALTHCHECK (המשך שורה עם `\`, shell-form `CMD`) נבדק בעין; הקוד ב-`node -e` הורץ בנפרד.
+
+`npm run build` אחרי השינוי: עבר נקי (exit 0).
+
+### קומיט
+
+`<יתווסף אחרי commit>`
+
+---
+
+## שלבים 5-6
+
+טרם בוצעו.
 
 ---
 
