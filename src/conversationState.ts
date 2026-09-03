@@ -432,6 +432,16 @@ class ConversationStateManager {
    * existing key never moves it). Two jids sharing a phone is rare, but a
    * refresh of one of them while the sibling still exists is not - it is
    * exactly what happens on every normal flow-step transition.
+   *
+   * When an EXISTING jid's phone actually changes, a plain append to the new
+   * phone's Set is wrong: it would place `jid` after every jid already on that
+   * phone, even if `jid` was inserted into `map` earlier than some of them. The
+   * old full scan always returned the first match in `map`'s own insertion
+   * order, independent of when each entry acquired its current phone - so the
+   * target phone's Set must be rebuilt from a fresh scan to preserve that.
+   * A real phone reassignment on an existing jid is rare (unlike a same-phone
+   * refresh, which is the hot path this index exists to avoid scanning on), so
+   * an O(n) rebuild here does not reintroduce the cost this fix removes.
    */
   private reindexPhone(jid: string, phone: string | undefined): void {
     const existing = this.map.get(jid);
@@ -439,12 +449,38 @@ class ConversationStateManager {
     if (existing && normalizePhone(existing.senderPhone) === normalized) return;
     if (existing) this.unindexPhone(jid, existing.senderPhone);
     if (!normalized) return;
+    if (existing) {
+      this.rebuildPhoneIndexEntryForReassignment(normalized, jid);
+      return;
+    }
+    // A brand-new jid is, by definition, being appended to the end of map's own
+    // insertion order too, so appending it to the end of its phone's Set is
+    // already correct - no rebuild needed.
     let jids = this.phoneIndex.get(normalized);
     if (!jids) {
       jids = new Set();
       this.phoneIndex.set(normalized, jids);
     }
     jids.add(jid);
+  }
+
+  /**
+   * Rebuilds `normalizedPhone`'s Set from `map`'s actual insertion order, for
+   * the rare case where an existing jid is being reassigned to this phone.
+   * `jid`'s own entry in `map` still holds its OLD phone at this point (this is
+   * called before `map.set` writes the new state) - its position in `map`'s
+   * iteration order is what matters here, not its stale phone value, so `jid`
+   * is force-included alongside every entry whose CURRENT phone already
+   * matches.
+   */
+  private rebuildPhoneIndexEntryForReassignment(normalizedPhone: string, jid: string): void {
+    const ordered: string[] = [];
+    for (const [mapJid, state] of this.map.entries()) {
+      if (mapJid === jid || normalizePhone(state.senderPhone) === normalizedPhone) {
+        ordered.push(mapJid);
+      }
+    }
+    this.phoneIndex.set(normalizedPhone, new Set(ordered));
   }
 
   private unindexPhone(jid: string, phone: string | undefined): void {

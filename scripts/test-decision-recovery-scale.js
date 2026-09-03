@@ -393,6 +393,47 @@ function testRefreshDoesNotDemote() {
 }
 
 // ---------------------------------------------------------------------------
+// Test 3c - reassigning an existing jid onto another jid's phone must respect
+// map's own insertion order, not "order joined this phone" (Codex, round 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * The old full scan iterates map.values() in map's OWN insertion order and
+ * returns the first entry whose CURRENT phone matches - independent of when
+ * each entry acquired that phone. So: jidA inserted first (phone X), jidB
+ * inserted second (phone Y), then jidA's phone is changed to Y - the old scan
+ * still returns jidA (it comes first in map's order and now matches), not
+ * jidB. A naive "append jid to its new phone's Set" would wrongly return jidB
+ * instead, because jidA would land at the END of phone Y's Set even though it
+ * was inserted into `map` before jidB.
+ */
+function testPhoneReassignmentPreservesMapOrder() {
+  clearAllConversations();
+  const phoneX = '972530000010';
+  const phoneY = '972530000011';
+  const jidA = 'whatsapp:972530000010@c.us'; // inserted first, starts on phoneX
+  const jidB = 'whatsapp:972530000011';      // inserted second, on phoneY from the start
+
+  conversationState.set(jidA, decisionState(jidA, phoneX));
+  conversationState.set(jidB, decisionState(jidB, phoneY));
+  assertIndexMatchesOracle('before reassignment');
+
+  // jidA's phone changes to Y - jidA was inserted into `map` before jidB, so it
+  // must still win findByPhone(Y), exactly like the old full scan would.
+  conversationState.set(jidA, decisionState(jidA, phoneY));
+  assertIndexMatchesOracle('after reassigning jidA onto jidB\'s phone');
+  assert.equal(
+    conversationState.findByPhone(phoneY).senderJid,
+    jidA,
+    'findByPhone(Y) must return jidA (map-order first), not jidB, after jidA is reassigned onto Y',
+  );
+  assert.equal(conversationState.findByPhone(phoneX), undefined, 'phoneX must no longer resolve to anything');
+
+  clearAllConversations();
+  console.log('3c. reassigning an existing jid onto another jid\'s phone preserves map insertion order, not join-order.');
+}
+
+// ---------------------------------------------------------------------------
 // Test 4 - restore() builds the index without any fresh message
 // ---------------------------------------------------------------------------
 
@@ -483,6 +524,7 @@ function testNoIndexLeak() {
   testIndexConsistency();
   testFirstNotLast();
   testRefreshDoesNotDemote();
+  testPhoneReassignmentPreservesMapOrder();
   testRestoreBuildsIndex();
   testNoIndexLeak();
   console.log('\nDecision-recovery scale tests passed.');
