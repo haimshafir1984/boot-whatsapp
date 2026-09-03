@@ -328,8 +328,61 @@ B.3 סומן במפורש כאופציונלי בתוכנית ("אופציונל
 | `db3a3e4` | Part A: make decision-recovery hot path O(1) instead of O(n) |
 | `d9694ef` | Part B: safe bulk redeploy - separate path, polled to real completion |
 | `eb48af2` | Part A: fix method name in test-hook doc comment |
+| `7661497` | Document decision-recovery scale fix implementation and results |
+| `9580b8c` | Fix phoneIndex reorder-on-refresh bug found during independent verification |
 
-(hash של קומיט מסמך התוצאה הזה יתווסף בעת ה-commit.)
+(hash של קומיט עדכון המסמך הזה עצמו יתווסף בעת ה-commit.)
 
 לא בוצע `git push` ולא מיזוג ל-`master`. קבצים לא-קשורים (`ZOMEE service bot`, `.migration/`,
 `.tmp-zomee-*`, מסמכי docs אחרים) לא נגעו בהם ולא נוספו ל-git.
+
+---
+
+## 8. אימות עצמאי (קומיט `9580b8c`) — נמצא ותוקן באג אמיתי
+
+עברתי על כל הדיפים מול התוכנית, בניתי מחדש, והרצתי כל מה שדווח בעצמי — לא רק את שלוש הסוויטות
+החדשות, אלא סבב רגרסיה מלא (48 סוויטות, לא כולל load tests). **מוטציה עצמאית על B.0** (הזרקת קריאה
+ל-`application.saveGitProvider` ל-`redeployExistingClient` בתוך `dist/dokployProvisioner.js` המקומפל)
+אישרה של-`test-redeploy-existing-client.js` יש שיניים אמיתיות — נכשל בדיוק כמצופה, לא רק "רץ".
+
+**מצאתי באג אמיתי ב-A.2, שלא נתפס ע"י בדיקות ה-מימוש עצמן:**
+
+`reindexPhone()` מוחק-ומוסיף מחדש את ה-jid ל-`Set` של הטלפון שלו **בכל קריאה**, גם כשהטלפון לא
+השתנה. `Set.add` על איבר שכבר קיים לא מזיז אותו — אבל `delete` ואז `add` כן מזיז אותו לסוף. המשמעות:
+כל עדכון-במקום (כל `set()` חוזר על אותו jid — בדיוק מה שקורה בכל מעבר שלב בשיחה רגילה, ו-`pause()`)
+היה **מזיז את ה-jid לסוף ה-Set** של הטלפון שלו, גם אם הטלפון עצמו לא השתנה. זה שובר בדיוק את הדרישה
+שקודקס הדגיש פעמיים: "התנהגות זהה לסריקה המקורית" — כי `Map.set` על מפתח קיים **לא** מזיז אותו
+ב-`this.map` עצמו (מאומת ישירות: `node -e` על `Map`/`Set` אמיתיים), אז ה-scan המקורי היה תמיד מחזיר
+את אותו jid לאורך זמן, בעוד האינדקס החדש היה יכול "לשכוח" אותו אחרי עדכון רגיל.
+
+**שיחזור ישיר מול dist מקומפל (לא רק תיאוריה):**
+
+```
+after both inserted -> whatsapp:972530000002@c.us (jidA, נכון)
+after re-set(jidA) in place -> whatsapp:972530000002 (jidB — שגוי! jidA "נשכח")
+```
+
+**למה בדיקות ה-מימוש לא תפסו את זה:** `testFirstNotLast` (3א) בודקת מיד אחרי יצירת שני ה-jid, לפני כל
+עדכון נוסף. `testIndexConsistency` (3) בודקת עדכון-טלפון-שונה על jid קיים (מקרה אחר), לא רענון-באותו-
+טלפון כששני jid חולקים אותו. הרצף הספציפי הזה — jidA נוצר, jidB חולק איתו טלפון, jidA מתעדכן שוב —
+לא נבדק באף אחד מהתרחישים הקיימים.
+
+**התיקון:** `reindexPhone` הפך ל-no-op כשהטלפון המנורמל של ה-jid לא השתנה — תואם בדיוק את התנהגות
+`Map.set` על מפתח קיים. אומת מחדש מול ה-repro (jidA נשאר ראשון גם אחרי `set()`/`pause()` חוזרים).
+
+**בדיקה חדשה** (`test-decision-recovery-scale.js`, תרחיש 3ב "refresh does not demote") — מכסה בדיוק
+את הרצף הזה. **מוטציה עצמאית**: החזרתי את הבאג ב-`dist/conversationState.js` המקומפל (לא ב-`src`),
+הרצתי שוב — 3ב נכשל בדיוק עם ה-assertion הצפוי (`expected 'whatsapp:972530000002@c.us', got
+'whatsapp:972530000002'`), שחזרתי את הגרסה המתוקנת — עבר נקי. זה מוכיח שהבדיקה החדשה באמת תופסת
+רגרסיה, לא רק "עוברת".
+
+**סבב רגרסיה מלא אחרי התיקון** (48 סוויטות, לא כולל load tests): כולן ירוקות חוץ משני מקרים ידועים,
+שאומתו כבר מוקדם יותר בסשן הזה כלא-קשורים למשהו כאן:
+- `test-postgres-migration-pilot.js` — דורש `DATABASE_URL` ידני, לא כשל אמיתי.
+- `test-referral-ranking.js` — נתקע אחרי "passed" בגלל timer שלא נסגר; **אומת קודם בסשן הזה שזה קיים
+  גם ב-`master` הישן**, לפני הענף הזה בכלל.
+
+**מסקנה:** שאר המימוש (A.1, B.0, B.1, B.2) תואם את התוכנית במדויק, כולל כל הפרטים העדינים שקודקס
+דרש (delete-לפני-set ב-A.1, `Set<jid>` לא `Map<phone,jid>`, אי-נגיעה ב-Git Provider/Environment ב-B.0,
+GET לא POST + polling לפי title→deploymentId ב-B.1, retry רק ל-transient מזוהה ב-B.2). הבאג היחיד
+שנמצא היה עדין וממוקד (A.2 בלבד), תוקן, ואומת בשיטת המוטציה כנהוג.
