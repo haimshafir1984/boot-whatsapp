@@ -341,10 +341,10 @@ class ConversationStateManager {
   }
 
   /**
-   * Test-only introspection. `entries` lists conversations in live insertion
-   * order so a test can run the pre-index full scan as an oracle against
-   * findByPhone(); `phoneIndexEntries` exposes the index itself for leak checks
-   * (no empty Sets, no stale jids). Not used by production code.
+   * Test-only introspection. `__debugEntriesForTest` lists conversations in live
+   * insertion order so a test can run the pre-index full scan as an oracle
+   * against findByPhone(); `__debugPhoneIndexForTest` exposes the index itself
+   * for leak checks (no empty Sets, no stale jids). Not used by production code.
    */
   __debugEntriesForTest(): Array<{ jid: string; senderPhone: string | undefined }> {
     return [...this.map.entries()].map(([jid, state]) => ({ jid, senderPhone: state.senderPhone }));
