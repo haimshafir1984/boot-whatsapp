@@ -423,11 +423,21 @@ class ConversationStateManager {
    * Points `jid` at its current normalized phone in phoneIndex, dropping any
    * stale entry under the phone it was previously indexed by. Call before
    * writing the new state into `map` (or right after, for restore()).
+   *
+   * A no-op when the phone is unchanged: Set.add on a member already present
+   * does not move it, but unindexPhone-then-add (delete + re-add) does - so
+   * unconditionally reindexing on every set()/pause() refresh of an existing
+   * jid would silently reorder that phone's Set on every conversation-step
+   * update, diverging from the original full-scan's order (Map.set on an
+   * existing key never moves it). Two jids sharing a phone is rare, but a
+   * refresh of one of them while the sibling still exists is not - it is
+   * exactly what happens on every normal flow-step transition.
    */
   private reindexPhone(jid: string, phone: string | undefined): void {
     const existing = this.map.get(jid);
-    if (existing) this.unindexPhone(jid, existing.senderPhone);
     const normalized = normalizePhone(phone);
+    if (existing && normalizePhone(existing.senderPhone) === normalized) return;
+    if (existing) this.unindexPhone(jid, existing.senderPhone);
     if (!normalized) return;
     let jids = this.phoneIndex.get(normalized);
     if (!jids) {

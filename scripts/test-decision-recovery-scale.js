@@ -360,6 +360,39 @@ function testFirstNotLast() {
 }
 
 // ---------------------------------------------------------------------------
+// Test 3b - refreshing the first jid in place must not demote it
+// ---------------------------------------------------------------------------
+
+/**
+ * A plain Map.set() on an EXISTING key never moves it in iteration order - so
+ * the original full-scan oracle always kept returning the same jid across
+ * repeated updates (every normal flow-step transition calls set() again on the
+ * same jid). The phoneIndex must match that: refreshing jidA in place, with
+ * jidB still sharing its phone, must not silently move jidA behind jidB.
+ */
+function testRefreshDoesNotDemote() {
+  clearAllConversations();
+  const phone = '972530000002';
+  const jidA = 'whatsapp:972530000002@c.us';
+  const jidB = 'whatsapp:972530000002';
+
+  conversationState.set(jidA, decisionState(jidA, phone));
+  conversationState.set(jidB, decisionState(jidB, phone));
+  assert.equal(conversationState.findByPhone(phone).senderJid, jidA, 'baseline: jidA is first');
+
+  // A normal in-place update - same jid, same phone - must not reorder the index.
+  conversationState.set(jidA, decisionState(jidA, phone));
+  assert.equal(conversationState.findByPhone(phone).senderJid, jidA, 'set() refresh of jidA must not demote it behind jidB');
+
+  // pause() is the other path that rewrites an existing jid's state.
+  conversationState.pause(jidA);
+  assert.equal(conversationState.findByPhone(phone).senderJid, jidA, 'pause() of jidA must not demote it behind jidB');
+
+  clearAllConversations();
+  console.log('3b. refreshing the first jid in place (set/pause) does not demote it behind a sibling on the same phone.');
+}
+
+// ---------------------------------------------------------------------------
 // Test 4 - restore() builds the index without any fresh message
 // ---------------------------------------------------------------------------
 
@@ -449,6 +482,7 @@ function testNoIndexLeak() {
   testRefreshedEntryTrim();
   testIndexConsistency();
   testFirstNotLast();
+  testRefreshDoesNotDemote();
   testRestoreBuildsIndex();
   testNoIndexLeak();
   console.log('\nDecision-recovery scale tests passed.');
