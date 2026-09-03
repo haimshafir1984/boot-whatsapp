@@ -524,10 +524,16 @@
         error.textContent = `פריסה מחדש מתקדמת: ${completed} מתוך ${total} לקוחות.${current}`;
         loadClients();
         if (!body.running) {
+          const skipped = (body.results || []).filter(r => r.skipped).length;
           const failedText = body.failed
             ? ` ${body.failed} נכשלו וצריך לבדוק ידנית.`
             : '';
-          error.textContent = `הפריסה הסתיימה: ${body.succeeded || 0} מתוך ${body.total || 0} לקוחות עודכנו.${failedText}`;
+          const skippedText = skipped
+            ? ` ${skipped} דולגו (אין עדיין יחידת Dokploy).`
+            : '';
+          // "עודכנו" now means the build actually reached a successful terminal
+          // status, not just that Dokploy accepted the request.
+          error.textContent = `הפריסה הסתיימה: ${body.succeeded || 0} מתוך ${body.total || 0} לקוחות הסתיימו בהצלחה.${failedText}${skippedText}`;
           return;
         }
         button.textContent = `פורס מחדש ${completed}/${total}`;

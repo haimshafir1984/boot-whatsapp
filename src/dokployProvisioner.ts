@@ -72,6 +72,57 @@ interface DokployPostgres {
   databasePassword: string;
 }
 
+/**
+ * One row of `GET /api/deployment.all?applicationId=...`. Field names are copied
+ * from the Dokploy plan (docs/decision-recovery-scale-fix-plan-2026-09-03.md
+ * §B.1) and were NOT independently re-verified against a live Dokploy instance
+ * here - see the results doc. `status` is 'running' | 'done' | 'error' | ...
+ */
+interface DokployDeployment {
+  deploymentId: string;
+  title: string;
+  description?: string;
+  status: string;
+  createdAt?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  errorMessage?: string;
+}
+
+export interface RedeployExistingClientResult {
+  ok: boolean;
+  /** true when the client has no Dokploy application yet - nothing was called. */
+  skipped?: boolean;
+  error?: string;
+  /** true when the transient-clone retry path ran. */
+  retried?: boolean;
+}
+
+export interface RedeployExistingClientOptions {
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+  /** Delay before the single transient-clone retry. */
+  retryDelayMs?: number;
+  /** Test seam - defaults to a real setTimeout-based sleep. */
+  sleepFn?: (ms: number) => Promise<void>;
+}
+
+/**
+ * A redeploy failure that is safe to retry once: an anonymous `git clone` that
+ * lost the race with GitHub's rate limiter, not a real auth/config problem.
+ * A genuine permission error (revoked token, deleted repo) must NOT match here -
+ * a blind retry only hides it.
+ */
+const TRANSIENT_CLONE_ERROR = /could not read Username|fatal: could not read/i;
+
+const DEFAULT_REDEPLOY_TIMEOUT_MS = 5 * 60_000;
+const DEFAULT_REDEPLOY_POLL_INTERVAL_MS = 5_000;
+const DEFAULT_REDEPLOY_RETRY_DELAY_MS = 45_000;
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 const HEBREW_SERVICE_SLUGS: Record<string, string> = {
   '\u05d0': 'a', '\u05d1': 'b', '\u05d2': 'g', '\u05d3': 'd', '\u05d4': 'h', '\u05d5': 'v', '\u05d6': 'z', '\u05d7': 'h', '\u05d8': 't', '\u05d9': 'y',
   '\u05db': 'k', '\u05da': 'k', '\u05dc': 'l', '\u05de': 'm', '\u05dd': 'm', '\u05e0': 'n', '\u05df': 'n', '\u05e1': 's', '\u05e2': 'a', '\u05e4': 'p', '\u05e3': 'p',
@@ -262,6 +313,110 @@ export class DokployProvisioner {
     }
 
     return { deleted, warnings };
+  }
+
+  /**
+   * Rebuilds an already-provisioned client with the current code and waits for
+   * the build to actually finish. This path deliberately touches NOTHING but
+   * `application.redeploy` - no saveGitProvider / saveEnvironment / saveBuildType
+   * / mounts.create / postgres.create / domain.create / application.deploy. The
+   * bulk "redeploy every client" button used to call provisionClient(), whose
+   * unconditional saveGitProvider reset every client's Git provider to "Custom"
+   * with no credentials and broke `git clone` fleet-wide (2026-09-03). Config
+   * changes are a separate, explicit action (provisionClient / the "update
+   * configuration" flow), never a side effect of a redeploy.
+   */
+  async redeployExistingClient(
+    client: ManagedClient,
+    options: RedeployExistingClientOptions = {},
+  ): Promise<RedeployExistingClientResult> {
+    if (!this.config) throw new Error(this.configurationError ?? 'Dokploy is not configured');
+    if (!client.dokployApplicationId) {
+      return {
+        ok: false,
+        skipped: true,
+        error: 'Client has no Dokploy application yet - provision it explicitly before redeploying.',
+      };
+    }
+
+    const applicationId = client.dokployApplicationId;
+    const timeoutMs = options.timeoutMs ?? DEFAULT_REDEPLOY_TIMEOUT_MS;
+    const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_REDEPLOY_POLL_INTERVAL_MS;
+    const retryDelayMs = options.retryDelayMs ?? DEFAULT_REDEPLOY_RETRY_DELAY_MS;
+    const sleepFn = options.sleepFn ?? defaultSleep;
+
+    let attemptSeq = 0;
+    const runOnce = async (): Promise<{ ok: boolean; error?: string }> => {
+      // Unique per attempt (timestamp + per-call counter + random) so polling
+      // can identify OUR deployment by title even if an unrelated
+      // manual/Autodeploy build starts on the same application at the same
+      // moment, and so the retry can never collide with the first attempt.
+      attemptSeq += 1;
+      const title = `Bulk redeploy ${client.id} ${Date.now()}-${attemptSeq}-${crypto.randomBytes(4).toString('hex')}`;
+      await this.post('application.redeploy', {
+        applicationId,
+        title,
+        description: 'Redeploy existing client with current code - no configuration changes',
+      });
+      return this.waitForTitledDeployment(applicationId, title, timeoutMs, pollIntervalMs, sleepFn);
+    };
+
+    const first = await runOnce();
+    if (first.ok) return { ok: true };
+    if (!first.error || !TRANSIENT_CLONE_ERROR.test(first.error)) {
+      return { ok: false, error: first.error };
+    }
+
+    console.warn(`Bulk redeploy: transient clone failure for client ${client.id}, retrying once after ${retryDelayMs}ms: ${first.error}`);
+    await sleepFn(retryDelayMs);
+    const second = await runOnce();
+    return second.ok
+      ? { ok: true, retried: true }
+      : { ok: false, retried: true, error: second.error };
+  }
+
+  /**
+   * Polls `GET /api/deployment.all` for the deployment whose title we sent.
+   * Two-phase: first resolve `title` -> `deploymentId`, then follow only that
+   * id to a terminal `status`. Anything newer or unrelated on the same
+   * application is ignored, so a parallel build cannot make us report success
+   * (or failure) early.
+   */
+  private async waitForTitledDeployment(
+    applicationId: string,
+    title: string,
+    timeoutMs: number,
+    pollIntervalMs: number,
+    sleepFn: (ms: number) => Promise<void>,
+  ): Promise<{ ok: boolean; error?: string }> {
+    const deadline = Date.now() + timeoutMs;
+    let trackedId: string | undefined;
+    while (Date.now() < deadline) {
+      let deployments: DokployDeployment[];
+      try {
+        deployments = await this.getJson<DokployDeployment[]>('deployment.all', { applicationId });
+      } catch (err: any) {
+        // A transient API hiccup should not abort the wait; keep polling until
+        // the deadline.
+        console.warn(`Bulk redeploy: deployment.all poll failed for ${applicationId}: ${err?.message ?? String(err)}`);
+        await sleepFn(pollIntervalMs);
+        continue;
+      }
+      const rows = Array.isArray(deployments) ? deployments : [];
+      if (!trackedId) {
+        const match = rows.find((row) => row.title === title);
+        if (match) trackedId = match.deploymentId;
+      }
+      if (trackedId) {
+        const tracked = rows.find((row) => row.deploymentId === trackedId);
+        if (tracked?.status === 'done') return { ok: true };
+        if (tracked?.status === 'error') {
+          return { ok: false, error: tracked.errorMessage || 'Deployment failed' };
+        }
+      }
+      await sleepFn(pollIntervalMs);
+    }
+    return { ok: false, error: `Deployment did not finish within ${Math.round(timeoutMs / 1000)}s` };
   }
 
   getMetaRoutingConfig(): { phoneNumberId: string; displayPhoneNumber: string } | null {
@@ -520,6 +675,27 @@ export class DokployProvisioner {
     const text = await response.text();
     if (!response.ok) {
       let message = text || `Dokploy API request failed (${response.status})`;
+      try {
+        const parsed = JSON.parse(text) as { message?: string; error?: string };
+        message = parsed.message || parsed.error || message;
+      } catch {
+        // Keep text response when it is not JSON.
+      }
+      throw new Error(message);
+    }
+    return text ? JSON.parse(text) as T : undefined as T;
+  }
+
+  private async getJson<T = unknown>(route: string, query: Record<string, string>): Promise<T> {
+    const url = new URL(`${this.config!.endpoint}/${route}`);
+    for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { 'x-api-key': this.config!.token },
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      let message = text || `Dokploy API GET ${route} failed (${response.status})`;
       try {
         const parsed = JSON.parse(text) as { message?: string; error?: string };
         message = parsed.message || parsed.error || message;

@@ -2292,7 +2292,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
     }
   };
 
-  type BulkRedeployResult = { id: string; name: string; ok: boolean; error?: string };
+  type BulkRedeployResult = { id: string; name: string; ok: boolean; error?: string; skipped?: boolean; retried?: boolean };
   let bulkRedeployJob: {
     running: boolean;
     startedAt: string;
@@ -2301,6 +2301,12 @@ export function startAdminServer(storage: Storage): import('http').Server {
     current?: string;
     results: BulkRedeployResult[];
   } | null = null;
+
+  // Small gap between clients so a rate-limit / worker-load window is not hit by
+  // every client back-to-back. The real protection is redeployExistingClient()
+  // polling each build to a genuine terminal status, not this stagger.
+  const BULK_REDEPLOY_STAGGER_MS = 8_000;
+  const bulkRedeploySleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
   const runBulkRedeploy = async () => {
     const clients = ownerStorage
@@ -2313,11 +2319,22 @@ export function startAdminServer(storage: Storage): import('http').Server {
       results: [],
     };
 
-    for (const client of clients) {
+    for (let i = 0; i < clients.length; i += 1) {
+      const client = clients[i];
       bulkRedeployJob.current = client.name;
       try {
-        await provisionClient(client.id);
-        bulkRedeployJob.results.push({ id: client.id, name: client.name, ok: true });
+        // NOTE: redeployExistingClient - NOT provisionClient. The bulk button
+        // must never rewrite Git provider / environment / build type; it only
+        // rebuilds what is already configured and waits for the real result.
+        const result = await dokployProvisioner.redeployExistingClient(client);
+        bulkRedeployJob.results.push({
+          id: client.id,
+          name: client.name,
+          ok: result.ok,
+          error: result.error,
+          skipped: result.skipped,
+          retried: result.retried,
+        });
       } catch (err: any) {
         bulkRedeployJob.results.push({
           id: client.id,
@@ -2326,6 +2343,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
           error: err?.message ?? String(err),
         });
       }
+      if (i < clients.length - 1) await bulkRedeploySleep(BULK_REDEPLOY_STAGGER_MS);
     }
 
     bulkRedeployJob.running = false;
@@ -2347,7 +2365,8 @@ export function startAdminServer(storage: Storage): import('http').Server {
     return {
       ...job,
       succeeded: job.results.filter((item) => item.ok).length,
-      failed: job.results.filter((item) => !item.ok).length,
+      failed: job.results.filter((item) => !item.ok && !item.skipped).length,
+      skipped: job.results.filter((item) => item.skipped).length,
     };
   };
 

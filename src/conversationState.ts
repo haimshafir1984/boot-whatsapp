@@ -241,12 +241,21 @@ function flowFieldFor(kind: unknown): 'flow' | 'decisionFlow' | null {
 
 class ConversationStateManager {
   private readonly map = new Map<string, PendingConversation>();
+  /**
+   * normalizedPhone -> jids that share it, in insertion order. Lets findByPhone
+   * skip the full-map scan while preserving its exact semantics: it returned the
+   * first matching conversation in insertion order, so we return the first jid in
+   * this Set (Set keeps insertion order like Map). Every mutator of `map` keeps
+   * this in sync via reindexPhone / unindexPhone.
+   */
+  private readonly phoneIndex = new Map<string, Set<string>>();
   private filePath = '';
   private backend?: ConversationStatePersistenceBackend;
   private hydrationComplete = false;
 
   set(jid: string, state: PendingConversation): void {
     this.clearTimer(this.map.get(jid));
+    this.reindexPhone(jid, state.senderPhone);
     this.map.set(jid, state);
     this.persist([jid]);
   }
@@ -266,6 +275,9 @@ class ConversationStateManager {
     this.clearTimer(state);
     state.timestamp = Date.now();
     (state as PendingConversation & { timeoutHandle?: NodeJS.Timeout }).timeoutHandle = undefined;
+    // pause() does not change senderPhone today, but keep the index in sync so a
+    // future change here cannot silently desync it.
+    this.reindexPhone(jid, state.senderPhone);
     this.map.set(jid, state);
     this.persist([jid]);
     return true;
@@ -274,14 +286,16 @@ class ConversationStateManager {
   findByPhone(phone: string | undefined): PendingConversation | undefined {
     const normalized = normalizePhone(phone);
     if (!normalized) return undefined;
-    for (const state of this.map.values()) {
-      if (normalizePhone(state.senderPhone) === normalized) return state;
-    }
-    return undefined;
+    const jids = this.phoneIndex.get(normalized);
+    if (!jids) return undefined;
+    const firstJid = jids.values().next().value;
+    return firstJid ? this.map.get(firstJid) : undefined;
   }
 
   remove(jid: string): void {
-    this.clearTimer(this.map.get(jid));
+    const existing = this.map.get(jid);
+    this.clearTimer(existing);
+    if (existing) this.unindexPhone(jid, existing.senderPhone);
     this.map.delete(jid);
     this.persist([jid]);
   }
@@ -301,6 +315,7 @@ class ConversationStateManager {
     for (const [jid, state] of this.map.entries()) {
       if (normalizePhone(state.senderPhone) !== normalized) continue;
       this.clearTimer(state);
+      this.unindexPhone(jid, state.senderPhone);
       this.map.delete(jid);
       touched.push(jid);
     }
@@ -313,6 +328,7 @@ class ConversationStateManager {
     for (const [jid, state] of this.map.entries()) {
       if (state.campaignId !== campaignId) continue;
       this.clearTimer(state);
+      this.unindexPhone(jid, state.senderPhone);
       this.map.delete(jid);
       touched.push(jid);
     }
@@ -322,6 +338,20 @@ class ConversationStateManager {
 
   size(): number {
     return this.map.size;
+  }
+
+  /**
+   * Test-only introspection. `__debugEntriesForTest` lists conversations in live
+   * insertion order so a test can run the pre-index full scan as an oracle
+   * against findByPhone(); `__debugPhoneIndexForTest` exposes the index itself
+   * for leak checks (no empty Sets, no stale jids). Not used by production code.
+   */
+  __debugEntriesForTest(): Array<{ jid: string; senderPhone: string | undefined }> {
+    return [...this.map.entries()].map(([jid, state]) => ({ jid, senderPhone: state.senderPhone }));
+  }
+
+  __debugPhoneIndexForTest(): Array<{ phone: string; jids: string[] }> {
+    return [...this.phoneIndex.entries()].map(([phone, jids]) => ({ phone, jids: [...jids] }));
   }
 
   configurePersistence(filePath: string, backend?: ConversationStatePersistenceBackend): void {
@@ -347,6 +377,11 @@ class ConversationStateManager {
         const hydrated = hydrateDecisionFlow(state, resolveDecisionFlow);
         const timeoutHandle = schedule(jid, hydrated);
         if (!timeoutHandle) continue;
+        // restore() writes straight to `map` instead of going through set(), so
+        // build the phone index here too - otherwise it stays empty after every
+        // restart until a fresh message touches each conversation, which is the
+        // original full-scan fallback all over again.
+        this.reindexPhone(jid, (hydrated as { senderPhone?: string }).senderPhone);
         this.map.set(jid, { ...hydrated, timeoutHandle } as PendingConversation);
       }
       this.hydrationComplete = true;
@@ -382,6 +417,79 @@ class ConversationStateManager {
     if (state?.timeoutHandle) {
       clearTimeout(state.timeoutHandle);
     }
+  }
+
+  /**
+   * Points `jid` at its current normalized phone in phoneIndex, dropping any
+   * stale entry under the phone it was previously indexed by. Call before
+   * writing the new state into `map` (or right after, for restore()).
+   *
+   * A no-op when the phone is unchanged: Set.add on a member already present
+   * does not move it, but unindexPhone-then-add (delete + re-add) does - so
+   * unconditionally reindexing on every set()/pause() refresh of an existing
+   * jid would silently reorder that phone's Set on every conversation-step
+   * update, diverging from the original full-scan's order (Map.set on an
+   * existing key never moves it). Two jids sharing a phone is rare, but a
+   * refresh of one of them while the sibling still exists is not - it is
+   * exactly what happens on every normal flow-step transition.
+   *
+   * When an EXISTING jid's phone actually changes, a plain append to the new
+   * phone's Set is wrong: it would place `jid` after every jid already on that
+   * phone, even if `jid` was inserted into `map` earlier than some of them. The
+   * old full scan always returned the first match in `map`'s own insertion
+   * order, independent of when each entry acquired its current phone - so the
+   * target phone's Set must be rebuilt from a fresh scan to preserve that.
+   * A real phone reassignment on an existing jid is rare (unlike a same-phone
+   * refresh, which is the hot path this index exists to avoid scanning on), so
+   * an O(n) rebuild here does not reintroduce the cost this fix removes.
+   */
+  private reindexPhone(jid: string, phone: string | undefined): void {
+    const existing = this.map.get(jid);
+    const normalized = normalizePhone(phone);
+    if (existing && normalizePhone(existing.senderPhone) === normalized) return;
+    if (existing) this.unindexPhone(jid, existing.senderPhone);
+    if (!normalized) return;
+    if (existing) {
+      this.rebuildPhoneIndexEntryForReassignment(normalized, jid);
+      return;
+    }
+    // A brand-new jid is, by definition, being appended to the end of map's own
+    // insertion order too, so appending it to the end of its phone's Set is
+    // already correct - no rebuild needed.
+    let jids = this.phoneIndex.get(normalized);
+    if (!jids) {
+      jids = new Set();
+      this.phoneIndex.set(normalized, jids);
+    }
+    jids.add(jid);
+  }
+
+  /**
+   * Rebuilds `normalizedPhone`'s Set from `map`'s actual insertion order, for
+   * the rare case where an existing jid is being reassigned to this phone.
+   * `jid`'s own entry in `map` still holds its OLD phone at this point (this is
+   * called before `map.set` writes the new state) - its position in `map`'s
+   * iteration order is what matters here, not its stale phone value, so `jid`
+   * is force-included alongside every entry whose CURRENT phone already
+   * matches.
+   */
+  private rebuildPhoneIndexEntryForReassignment(normalizedPhone: string, jid: string): void {
+    const ordered: string[] = [];
+    for (const [mapJid, state] of this.map.entries()) {
+      if (mapJid === jid || normalizePhone(state.senderPhone) === normalizedPhone) {
+        ordered.push(mapJid);
+      }
+    }
+    this.phoneIndex.set(normalizedPhone, new Set(ordered));
+  }
+
+  private unindexPhone(jid: string, phone: string | undefined): void {
+    const normalized = normalizePhone(phone);
+    if (!normalized) return;
+    const jids = this.phoneIndex.get(normalized);
+    if (!jids) return;
+    jids.delete(jid);
+    if (jids.size === 0) this.phoneIndex.delete(normalized); // don't leak empty Sets
   }
 
   /**
