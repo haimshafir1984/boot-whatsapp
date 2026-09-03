@@ -217,10 +217,21 @@ function scheduleSerializedPendingTimeout(
 
 function rememberTimedOutDecision(context: Omit<TimedOutDecisionContext, 'expiresAt'>): void {
   const now = Date.now();
-  for (const [key, item] of timedOutDecisions.entries()) {
-    if (item.expiresAt <= now) timedOutDecisions.delete(key);
+  // Map preserves insertion order, and every entry gets the same fixed TTL from
+  // its own insertion time - so insertion order === expiry order. Trimming from
+  // the front while the oldest entry has expired is equivalent to a full sweep,
+  // but O(1) amortized instead of O(n) per call.
+  let oldest = timedOutDecisions.entries().next();
+  while (!oldest.done && oldest.value[1].expiresAt <= now) {
+    timedOutDecisions.delete(oldest.value[0]);
+    oldest = timedOutDecisions.entries().next();
   }
   const key = senderWorkKey(context.senderPhone || context.senderJid);
+  // A repeat timeout for the same sender must move to the end of the insertion
+  // order, or the trim above could drop this refreshed entry by its stale
+  // position instead of its new expiresAt. Map.set alone does not reorder an
+  // existing key, so delete first.
+  timedOutDecisions.delete(key);
   timedOutDecisions.set(key, { ...context, expiresAt: now + FLOW_RECOVERY_WINDOW_MS });
   if (timedOutDecisions.size > 5000) {
     const oldestKey = timedOutDecisions.keys().next().value;
@@ -231,6 +242,23 @@ function rememberTimedOutDecision(context: Omit<TimedOutDecisionContext, 'expire
 function clearTimedOutDecision(sender: string | undefined): void {
   timedOutDecisions.delete(senderWorkKey(sender));
 }
+
+/**
+ * Test-only handles for the timed-out-decision recovery map. Kept here so the
+ * scale benchmark in scripts/test-decision-recovery-scale.js can exercise
+ * rememberTimedOutDecision() directly with thousands of entries without
+ * standing up the full inbound pipeline. Not used by production code.
+ */
+export const __recoveryScaleTestHooks = {
+  rememberTimedOutDecision,
+  timedOutDecisionsSize: (): number => timedOutDecisions.size,
+  timedOutDecisionKeysInOrder: (): string[] => [...timedOutDecisions.keys()],
+  hasTimedOutDecision: (sender: string | undefined): boolean =>
+    timedOutDecisions.has(senderWorkKey(sender)),
+  peekTimedOutDecision: (sender: string | undefined): TimedOutDecisionContext | undefined =>
+    timedOutDecisions.get(senderWorkKey(sender)),
+  clearAllTimedOutDecisions: (): void => timedOutDecisions.clear(),
+};
 
 function findMatchingDecisionOption(step: DecisionFlowStep, rawAnswer: string): DecisionFlowOption | undefined {
   if (step.kind !== 'question' && step.kind !== 'score_question') return undefined;

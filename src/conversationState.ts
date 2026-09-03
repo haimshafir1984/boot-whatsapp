@@ -241,12 +241,21 @@ function flowFieldFor(kind: unknown): 'flow' | 'decisionFlow' | null {
 
 class ConversationStateManager {
   private readonly map = new Map<string, PendingConversation>();
+  /**
+   * normalizedPhone -> jids that share it, in insertion order. Lets findByPhone
+   * skip the full-map scan while preserving its exact semantics: it returned the
+   * first matching conversation in insertion order, so we return the first jid in
+   * this Set (Set keeps insertion order like Map). Every mutator of `map` keeps
+   * this in sync via reindexPhone / unindexPhone.
+   */
+  private readonly phoneIndex = new Map<string, Set<string>>();
   private filePath = '';
   private backend?: ConversationStatePersistenceBackend;
   private hydrationComplete = false;
 
   set(jid: string, state: PendingConversation): void {
     this.clearTimer(this.map.get(jid));
+    this.reindexPhone(jid, state.senderPhone);
     this.map.set(jid, state);
     this.persist([jid]);
   }
@@ -266,6 +275,9 @@ class ConversationStateManager {
     this.clearTimer(state);
     state.timestamp = Date.now();
     (state as PendingConversation & { timeoutHandle?: NodeJS.Timeout }).timeoutHandle = undefined;
+    // pause() does not change senderPhone today, but keep the index in sync so a
+    // future change here cannot silently desync it.
+    this.reindexPhone(jid, state.senderPhone);
     this.map.set(jid, state);
     this.persist([jid]);
     return true;
@@ -274,14 +286,16 @@ class ConversationStateManager {
   findByPhone(phone: string | undefined): PendingConversation | undefined {
     const normalized = normalizePhone(phone);
     if (!normalized) return undefined;
-    for (const state of this.map.values()) {
-      if (normalizePhone(state.senderPhone) === normalized) return state;
-    }
-    return undefined;
+    const jids = this.phoneIndex.get(normalized);
+    if (!jids) return undefined;
+    const firstJid = jids.values().next().value;
+    return firstJid ? this.map.get(firstJid) : undefined;
   }
 
   remove(jid: string): void {
-    this.clearTimer(this.map.get(jid));
+    const existing = this.map.get(jid);
+    this.clearTimer(existing);
+    if (existing) this.unindexPhone(jid, existing.senderPhone);
     this.map.delete(jid);
     this.persist([jid]);
   }
@@ -301,6 +315,7 @@ class ConversationStateManager {
     for (const [jid, state] of this.map.entries()) {
       if (normalizePhone(state.senderPhone) !== normalized) continue;
       this.clearTimer(state);
+      this.unindexPhone(jid, state.senderPhone);
       this.map.delete(jid);
       touched.push(jid);
     }
@@ -313,6 +328,7 @@ class ConversationStateManager {
     for (const [jid, state] of this.map.entries()) {
       if (state.campaignId !== campaignId) continue;
       this.clearTimer(state);
+      this.unindexPhone(jid, state.senderPhone);
       this.map.delete(jid);
       touched.push(jid);
     }
@@ -322,6 +338,20 @@ class ConversationStateManager {
 
   size(): number {
     return this.map.size;
+  }
+
+  /**
+   * Test-only introspection. `entries` lists conversations in live insertion
+   * order so a test can run the pre-index full scan as an oracle against
+   * findByPhone(); `phoneIndexEntries` exposes the index itself for leak checks
+   * (no empty Sets, no stale jids). Not used by production code.
+   */
+  __debugEntriesForTest(): Array<{ jid: string; senderPhone: string | undefined }> {
+    return [...this.map.entries()].map(([jid, state]) => ({ jid, senderPhone: state.senderPhone }));
+  }
+
+  __debugPhoneIndexForTest(): Array<{ phone: string; jids: string[] }> {
+    return [...this.phoneIndex.entries()].map(([phone, jids]) => ({ phone, jids: [...jids] }));
   }
 
   configurePersistence(filePath: string, backend?: ConversationStatePersistenceBackend): void {
@@ -347,6 +377,11 @@ class ConversationStateManager {
         const hydrated = hydrateDecisionFlow(state, resolveDecisionFlow);
         const timeoutHandle = schedule(jid, hydrated);
         if (!timeoutHandle) continue;
+        // restore() writes straight to `map` instead of going through set(), so
+        // build the phone index here too - otherwise it stays empty after every
+        // restart until a fresh message touches each conversation, which is the
+        // original full-scan fallback all over again.
+        this.reindexPhone(jid, (hydrated as { senderPhone?: string }).senderPhone);
         this.map.set(jid, { ...hydrated, timeoutHandle } as PendingConversation);
       }
       this.hydrationComplete = true;
@@ -382,6 +417,33 @@ class ConversationStateManager {
     if (state?.timeoutHandle) {
       clearTimeout(state.timeoutHandle);
     }
+  }
+
+  /**
+   * Points `jid` at its current normalized phone in phoneIndex, dropping any
+   * stale entry under the phone it was previously indexed by. Call before
+   * writing the new state into `map` (or right after, for restore()).
+   */
+  private reindexPhone(jid: string, phone: string | undefined): void {
+    const existing = this.map.get(jid);
+    if (existing) this.unindexPhone(jid, existing.senderPhone);
+    const normalized = normalizePhone(phone);
+    if (!normalized) return;
+    let jids = this.phoneIndex.get(normalized);
+    if (!jids) {
+      jids = new Set();
+      this.phoneIndex.set(normalized, jids);
+    }
+    jids.add(jid);
+  }
+
+  private unindexPhone(jid: string, phone: string | undefined): void {
+    const normalized = normalizePhone(phone);
+    if (!normalized) return;
+    const jids = this.phoneIndex.get(normalized);
+    if (!jids) return;
+    jids.delete(jid);
+    if (jids.size === 0) this.phoneIndex.delete(normalized); // don't leak empty Sets
   }
 
   /**
