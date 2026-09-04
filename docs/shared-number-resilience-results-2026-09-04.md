@@ -202,3 +202,17 @@ PASS=46  FAIL=1   (skips: scale-load ×2, load-burst ×2, decision-recovery-scal
 - `dcab4fa` — `A5-1: generation-aware AsyncExpiringCache + invalidate()` — הרחבת המחלקה הכללית ב-`src/metaGatewayReliability.ts`.
 - `e469a14` — `A5-1: route gateway inbound through a background-refreshed routes cache` — חיבור ה-cache ל-`routeMetaGatewayInbound`, רענון ברקע, invalidation פר-שינוי-סטטוס-לקוח, לוגים.
 - `A5-1: tests for the routes cache + results doc` (הקומיט האחרון בענף) — `scripts/test-meta-routes-cache.js` + מסמך זה.
+
+---
+
+## 7. אימות עצמאי (קומיט `05b1c54`)
+
+עברתי על כל הדיפים מול התוכנית (`git diff 049f0f6..05b1c54`), בניתי מחדש, והרצתי בעצמי את `scripts/test-meta-routes-cache.js` וסבב רגרסיה מלא (49 סוויטות, לא כולל load tests) — **תוצאה זהה למדווח**: הכל ירוק חוץ מאותם שני מקרים ידועים ולא-קשורים (`test-postgres-migration-pilot.js` דורש `DATABASE_URL`; `test-referral-ranking.js` חורג מעטיפת ה-timeout שלי אבל מסתיים `EXIT:0` בפועל — אושר קודם בסשן הזה כקיים גם ב-`master` הישן).
+
+**מוטציה עצמאית** — הסרתי את בדיקת ה-generation מ-`load().then(...)` ישירות ב-`dist/metaGatewayReliability.js` המקומפל, הרצתי מחדש: נכשל עם בדיוק אותו assertion שדווח (`1 !== 2`, "a fetch from before invalidate() must not repopulate the cache"). שחזרתי — עבר נקי. מאשר שהמוטציה שדווחה אמיתית, לא רק "רצה".
+
+**קריאת קוד ישירה מול הדיף** אישרה: כל 7 מקומות ה-`routesCache.invalidate()` תואמים בדיוק את מה שדווח (הצלחה/כשל של `provisionClient`, `runBulkRedeploy`, disable/enable/check-ready/delete). בדקתי גם את `PATCH /owner/api/clients/:id` (הנתיב הגנרי היחיד שמעדכן `ManagedClient` עם `patch` דינמי) — הוא מגביל את השדות שמותר לעדכן ל-`maxCampaigns`/`twilioFrom`/`botReplyDelayMs` בלבד, אף אחד מהם לא רלוונטי לניתוב — **אין מקום חסר ל-invalidation**.
+
+**פער בכיסוי בדיקות שמצאתי (לא חוסם, אבל שווה לתעד):** `scripts/test-meta-routes-cache.js` בונה מחדש `getCachedRoutes`/`refreshAllRoutesCaches` כ"מראה" נאמנה (`makeRoutesCache`, שורות 27-46 בקובץ) שמריצה מול מחלקת `AsyncExpiringCache` האמיתית — לא קוראת בפועל ל-closures האמיתיים בתוך `startAdminServer()` (שאינם exported, אז אי אפשר לבדוק אותם ישירות בלי להריץ שרת מלא). חיפשתי גם בסוויטות הקיימות (`test-meta-gateway-inbox.js`, `test-meta-campaign-routing.js`, `test-meta-gateway-reliability.js`) — אף אחת מהן לא מרימה `startAdminServer` בפועל או בודקת את `routeMetaGatewayInbound` מקצה-לקצה; כולן בודקות פונקציות טהורות ברמה נמוכה יותר. **המשמעות: אין שום בדיקה אוטומטית שמריצה את הקוד המחובר בפועל ב-`adminServer.ts` מקצה לקצה (HTTP webhook → cache → routing decision).** בדקתי ידנית את החיווט מול הדיף (סעיף למעלה) ונראה נכון, אבל זו לא תחליף לבדיקת אינטגרציה אמיתית. **המלצה לעתיד, לא חוסמת להיום:** בדיקת אינטגרציה שמרימה `startAdminServer` אמיתי עם `fetchClientAsOwner` מדומה ומכה על `/webhooks/meta/whatsapp` ישירות.
+
+**מסקנה:** המימוש תואם את התוכנית המאושרת במדויק, כולל כל דרישות סבב 2 (stale-while-revalidate, generation-aware invalidation). לא נמצא באג. הפער היחיד הוא כיסוי-בדיקות (אינטגרציה חסרה), לא נכונות — מתועד לעיל, לא חוסם למיזוג.
