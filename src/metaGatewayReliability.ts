@@ -109,6 +109,7 @@ interface CacheEntry<T> {
   value?: T;
   expiresAt?: number;
   pending?: Promise<T>;
+  generation: number;
 }
 
 export class AsyncExpiringCache<T> {
@@ -119,6 +120,15 @@ export class AsyncExpiringCache<T> {
     private readonly now: () => number = Date.now,
   ) {}
 
+  /**
+   * True when a non-expired value is already cached for this key - i.e. get()
+   * would return it without waiting on load(). Used only for hit/miss logging.
+   */
+  isFresh(key: string): boolean {
+    const existing = this.entries.get(key);
+    return existing?.value !== undefined && (existing.expiresAt ?? 0) > this.now();
+  }
+
   async get(key: string, load: () => Promise<T>): Promise<T> {
     const existing = this.entries.get(key);
     if (existing?.value !== undefined && (existing.expiresAt ?? 0) > this.now()) {
@@ -126,18 +136,35 @@ export class AsyncExpiringCache<T> {
     }
     if (existing?.pending) return existing.pending;
 
+    const generation = existing?.generation ?? 0;
     const pending = load().then(
       (value) => {
-        this.entries.set(key, { value, expiresAt: this.now() + this.ttlMs });
+        const current = this.entries.get(key);
+        // invalidate() bumped the generation while this fetch was in flight -
+        // this result is already stale by the time it lands. Return it to the
+        // caller (they still get an answer) but do not resurrect it in cache.
+        if (current && current.generation !== generation) return value;
+        this.entries.set(key, { value, expiresAt: this.now() + this.ttlMs, generation });
         return value;
       },
       (error) => {
-        this.entries.delete(key);
+        const current = this.entries.get(key);
+        if (current && current.generation === generation) this.entries.delete(key);
         throw error;
       },
     );
-    this.entries.set(key, { pending });
+    this.entries.set(key, { pending, generation });
     return pending;
+  }
+
+  /**
+   * Bumps the key's generation and clears its value/pending pointer. Any fetch
+   * already in flight for the OLD generation will not be allowed to write its
+   * result back once it lands - see get().
+   */
+  invalidate(key: string): void {
+    const existing = this.entries.get(key);
+    this.entries.set(key, { generation: (existing?.generation ?? 0) + 1 });
   }
 }
 

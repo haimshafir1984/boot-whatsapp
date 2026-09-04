@@ -50,6 +50,8 @@ import {
   selectMetaRouteCandidate,
 } from './metaCampaignRouting';
 import {
+  AsyncExpiringCache,
+  META_CAMPAIGN_CACHE_TTL_MS,
   decideMetaFallbackRoute,
   groupMetaItemsBySender,
   createSenderDrainer,
@@ -1602,6 +1604,60 @@ export function startAdminServer(storage: Storage): import('http').Server {
     res.status(403).send('Meta webhook verification failed');
   });
 
+  // Campaign route lists for gateway routing are read through a short-lived
+  // cache with stale-while-revalidate semantics. On a shared Meta number every
+  // inbound message fans out to every managed client; without this, a burst of
+  // traffic means tens of concurrent /owner-api/meta-routes calls landing on
+  // each client exactly while it is busy running its own campaign flow, which
+  // is how one loaded client drags routing down for every quiet client sharing
+  // the number. A background refresh keeps entries warm so the hot path almost
+  // never waits on the network; the existing fail-closed behaviour still
+  // applies whenever no fresh value is available.
+  const ROUTES_REFRESH_INTERVAL_MS = 2_000;
+  const routesCache = new AsyncExpiringCache<MetaGatewayRoute[]>(META_CAMPAIGN_CACHE_TTL_MS);
+
+  const fetchRoutesForClient = async (client: ManagedClient): Promise<MetaGatewayRoute[]> => {
+    const result = await fetchClientAsOwner<MetaGatewayRoute[]>(client, '/owner-api/meta-routes', {
+      signal: AbortSignal.timeout(3_000),
+    });
+    if (!result.ok || !Array.isArray(result.body)) {
+      throw new Error('meta-routes fetch failed with status ' + result.status);
+    }
+    return result.body;
+  };
+
+  const getCachedRoutes = async (client: ManagedClient): Promise<MetaGatewayRoute[] | 'unavailable'> => {
+    const cacheHit = routesCache.isFresh(client.id);
+    try {
+      const routes = await routesCache.get(client.id, () => fetchRoutesForClient(client));
+      console.log(cacheHit ? '[META_ROUTES_CACHE_HIT]' : '[META_ROUTES_CACHE_MISS]', client.id);
+      return routes;
+    } catch {
+      // Same fail-closed contract as a routing lookupFailure today: a client we
+      // cannot get a fresh route list for must not be routed past.
+      return 'unavailable';
+    }
+  };
+
+  // Runs in the background, not inside routeMetaGatewayInbound, so route lists
+  // are refreshed well before their TTL expires and the hot path keeps hitting
+  // a fresh cache instead of a live fetch. A refresh failure here is logged and
+  // otherwise ignored - the entry simply ages out and the hot path falls back
+  // to the same fail-closed path it uses today.
+  const refreshAllRoutesCaches = (): void => {
+    const clients = ownerStorage.getClients().filter((client) =>
+      client.whatsappProvider === 'META_CLOUD_API'
+      && client.managementUrl
+      && client.ownerAccessToken
+      && client.provisioningStatus !== 'disabled');
+    for (const client of clients) {
+      void routesCache.get(client.id, () => fetchRoutesForClient(client)).catch((err) => {
+        console.warn('[META_ROUTES_CACHE_REFRESH_FAILED]', client.id, err);
+      });
+    }
+  };
+  setInterval(refreshAllRoutesCaches, ROUTES_REFRESH_INTERVAL_MS);
+
   const routeMetaGatewayInbound = async (payload: any): Promise<{ handled: boolean; reason?: string }> => {
     const value = payload?.entry?.[0]?.changes?.[0]?.value;
     const message = value?.messages?.[0];
@@ -1647,53 +1703,40 @@ export function startAdminServer(storage: Storage): import('http').Server {
     const normalizedBody = normalizeGatewayText(body);
     const campaignsByClient = new Map<string, MetaGatewayRoute[]>();
     const pendingByClient = new Map<string, MetaPendingRouteResponse>();
-    const legacyRoutingClients = new Set<string>();
     const routingStartedAt = Date.now();
     let lookupFailures = 0;
     const candidates: Array<{ client: ManagedClient; clientId: string; campaign: MetaGatewayRoute; triggerText: string }> = [];
     await Promise.all(clients.map(async (client) => {
       try {
-        // Correct isolation requires a fresh answer from every client. Cached
-        // route data could hide a container that has just gone offline.
-        const fetchRoutingSnapshot = () => fetchClientAsOwner<MetaRoutingSnapshotResponse>(client, '/owner-api/meta-routing-snapshot', {
+        // Route lists come from the background-refreshed cache so a burst on a
+        // shared Meta number does not fan out a live /owner-api/meta-routes
+        // call to every client at once. A client we cannot get a fresh list
+        // for counts as a lookup failure, exactly as an unreachable client did
+        // before.
+        const campaigns = await getCachedRoutes(client);
+        if (campaigns === 'unavailable') throw new Error('Cached Meta routes unavailable');
+        // Pending-conversation state stays exactly as today: a live per-sender
+        // lookup, never cached - it grows with the participant count and would
+        // leak needless information to the gateway. A 404 just means this
+        // client predates the endpoint. As with the old routing-snapshot call,
+        // one immediate retry covers a client that was mid-write for a moment,
+        // which is far cheaper than bouncing the whole message to the inbox.
+        const fetchPendingRoute = () => fetchClientAsOwner<MetaPendingRouteResponse>(client, '/owner-api/meta-pending-route', {
           method: 'POST',
           body: JSON.stringify({ phone: fromKey }),
           signal: AbortSignal.timeout(3_000),
         });
-        // A healthy client can still miss the window while it is mid-write or
-        // serving another request. One immediate retry is far cheaper than
-        // sending the message back to the inbox, where nothing would try again
-        // until a whole backoff round has passed. A client that is genuinely
-        // unreachable throws again here and is skipped exactly as before.
-        let snapshotResult: Awaited<ReturnType<typeof fetchRoutingSnapshot>>;
+        let pendingResult: Awaited<ReturnType<typeof fetchPendingRoute>>;
         try {
-          snapshotResult = await fetchRoutingSnapshot();
+          pendingResult = await fetchPendingRoute();
         } catch (firstAttemptError) {
           console.warn('[META_GATEWAY_ROUTING_RETRY]', client.id, firstAttemptError);
-          snapshotResult = await fetchRoutingSnapshot();
+          pendingResult = await fetchPendingRoute();
         }
-        let campaigns: MetaGatewayRoute[];
-        if (snapshotResult.ok && Array.isArray(snapshotResult.body?.routes)) {
-          campaigns = snapshotResult.body.routes;
-          pendingByClient.set(client.id, snapshotResult.body.pendingRoute ?? { pending: false });
-        } else {
-          if (snapshotResult.status !== 404) throw new Error('Meta routing snapshot failed with status ' + snapshotResult.status);
-          legacyRoutingClients.add(client.id);
-          const routeResult = await fetchClientAsOwner<MetaGatewayRoute[]>(client, '/owner-api/meta-routes', {
-            signal: AbortSignal.timeout(3_000),
-          });
-          if (routeResult.ok && Array.isArray(routeResult.body)) {
-            campaigns = routeResult.body;
-          } else {
-            if (routeResult.status !== 404) throw new Error('Meta route lookup failed with status ' + routeResult.status);
-            const campaignResult = await fetchClientAsOwner<Campaign[]>(client, '/owner-api/campaigns', {
-              signal: AbortSignal.timeout(3_000),
-            });
-            if (!campaignResult.ok || !Array.isArray(campaignResult.body)) {
-              throw new Error('Campaign fallback lookup failed with status ' + campaignResult.status);
-            }
-            campaigns = campaignsToMetaGatewayRoutes(campaignResult.body);
-          }
+        if (pendingResult.ok && pendingResult.body) {
+          pendingByClient.set(client.id, pendingResult.body);
+        } else if (pendingResult.status !== 404) {
+          throw new Error('Meta pending-route lookup failed with status ' + pendingResult.status);
         }
         campaignsByClient.set(client.id, campaigns);
         for (const campaign of campaigns) {
@@ -1765,20 +1808,11 @@ export function startAdminServer(storage: Storage): import('http').Server {
       let pendingLookupFailures = 0;
       const pendingMatches = (await Promise.all(clients.map(async (client) => {
         try {
-          let pendingRoute = pendingByClient.get(client.id);
-          if (legacyRoutingClients.has(client.id)) {
-            const result = await fetchClientAsOwner<MetaPendingRouteResponse>(client, '/owner-api/meta-pending-route', {
-              method: 'POST',
-              body: JSON.stringify({ phone: fromKey }),
-              signal: AbortSignal.timeout(3_000),
-            });
-            if (!result.ok) {
-              pendingLookupFailures += 1;
-              console.warn('[META_GATEWAY_PENDING_LOOKUP_FAILED]', client.id, `status=${result.status}`);
-              return null;
-            }
-            pendingRoute = result.body;
-          }
+          // pendingByClient was populated by the live per-sender lookup in the
+          // discovery loop above, for every client - and a client that failed
+          // that lookup already bumped lookupFailures and made us throw before
+          // reaching here.
+          const pendingRoute = pendingByClient.get(client.id);
           if (!pendingRoute?.pending || !pendingRoute.campaignId) return null;
           const routes = campaignsByClient.get(client.id) ?? [];
           const campaign = routes.find((route) => route.id === pendingRoute.campaignId);
@@ -2277,10 +2311,14 @@ export function startAdminServer(storage: Storage): import('http').Server {
       current = await dokployProvisioner.provision(current, (patch) => {
         return ownerStorage.updateClient(id, patch)!;
       });
-      return ownerStorage.updateClient(id, {
+      const updated = ownerStorage.updateClient(id, {
         provisioningStatus: 'deploying',
         provisioningError: undefined,
       })!;
+      // The client's provider/URL/token may have just changed - drop any cached
+      // route list so gateway routing re-reads it on the next inbound message.
+      routesCache.invalidate(id);
+      return updated;
     } catch (err: any) {
       const message = err?.message ?? String(err);
       console.error(`Dokploy provisioning failed for client ${id}: ${message}`);
@@ -2288,6 +2326,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
         provisioningStatus: 'failed',
         provisioningError: message,
       });
+      routesCache.invalidate(id);
       throw new Error(message);
     }
   };
@@ -2327,6 +2366,9 @@ export function startAdminServer(storage: Storage): import('http').Server {
         // must never rewrite Git provider / environment / build type; it only
         // rebuilds what is already configured and waits for the real result.
         const result = await dokployProvisioner.redeployExistingClient(client);
+        // A redeploy can swap the running build; drop the cached route list so
+        // the gateway re-reads it rather than trusting a pre-redeploy snapshot.
+        routesCache.invalidate(client.id);
         bulkRedeployJob.results.push({
           id: client.id,
           name: client.name,
@@ -2515,6 +2557,9 @@ export function startAdminServer(storage: Storage): import('http').Server {
       disabledAt: new Date().toISOString(),
       disabledReason: String(req.body?.reason || 'הושבתה ידנית מדשבורד המנהלים').trim().slice(0, 240),
     });
+    // A disabled client must drop out of gateway routing immediately, not only
+    // once its cached route list ages out.
+    routesCache.invalidate(client.id);
     console.log('[OWNER_CLIENT_DISABLED]', client.id, client.name);
     res.json(updated ? exposeOwnerClient(updated) : null);
   });
@@ -2566,6 +2611,9 @@ export function startAdminServer(storage: Storage): import('http').Server {
         disabledAt: undefined,
         disabledReason: undefined,
       });
+      // Re-enabled: force a fresh route read on the next inbound message rather
+      // than serving whatever was cached before it was disabled.
+      routesCache.invalidate(client.id);
       console.log('[OWNER_CLIENT_ENABLED]', client.id, client.name);
       res.json(updated ? exposeOwnerClient(updated) : null);
     } catch (err) {
@@ -2680,6 +2728,8 @@ export function startAdminServer(storage: Storage): import('http').Server {
       const health = await response.json().catch(() => null) as { clientConfigured?: boolean } | null;
       if (response.ok && health?.clientConfigured === true) {
         const updated = ownerStorage.updateClient(client.id, { provisioningStatus: 'ready' });
+        // Now live for routing - drop any stale cached route list.
+        routesCache.invalidate(client.id);
         res.json(updated ? exposeOwnerClient(updated) : null);
         return;
       }
@@ -2822,6 +2872,8 @@ export function startAdminServer(storage: Storage): import('http').Server {
     }
 
     const removed = ownerStorage.deleteClient(client.id);
+    // Nothing must keep routing to a client that no longer exists.
+    routesCache.invalidate(client.id);
     res.json({ ok: removed, deletedResources, warnings });
   });
 
