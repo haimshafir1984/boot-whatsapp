@@ -141,3 +141,22 @@
 (מסמך זה עצמו, `docs/silent-data-loss-fix-results-2026-09-05.md`, נוסף ב-commit נפרד לאחר מכן.)
 
 לא בוצע push, לא בוצע merge ל-`master`.
+
+---
+
+## 8. אימות עצמאי
+
+עברתי על **כל** הדיפים (`git diff b5b338c..667e265`) מול שני המסמכים — התוכנית המקורית והכרעת קודקס — סעיף אחר סעיף, לא רק קריאה כללית. הממצא המרכזי: **המימוש תואם את כל הדרישות הקונקרטיות בהכרעה במדויק**, כולל הניואנסים העדינים ביותר. פירוט:
+
+- **`ownerStorage.ts` (ממצא 11)** — אומת ישירות בקוד ש-`persistClients()` מעתיק main→`.bak` **רק** כש-`isFileValidRegistry(this.filePath)` מחזיר `true`, וש-`load()` בודק את `.bak` **לפני** קביעת "התקנה חדשה". **הרצתי תרחיש שחזור אמיתי בעצמי** (`.bak` תקין + ראשי פגום → קונסטרוקטור → `addClient()`): אחרי המוטציה, ה-`.bak` נשאר תקין עם הנתונים המקוריים בלבד; הראשי החדש מכיל גם את הלקוח הישן וגם את החדש. **מיטטתי באופן עצמאי** (לא הסתמכתי על המוטציה של המימוש) — הסרתי את תנאי ה-`isFileValidRegistry` מ-`dist/ownerStorage.js` המקומפל, הרצתי את אותו תרחיש שחזור בדיוק — **אישרתי שה-`.bak` התקין באמת נהרס** (בדיוק כמו שקודקס חזה), שחזרתי את הקוד המתוקן ואישרתי שהוא שוב לא נהרס.
+- **`database.ts` (ממצא 02)** — אומת: backoff `[500,1000,2000,4000,8000,30000]`, `consecutiveFailures` מתאפס רק בהצלחה, `queuedSnapshot ?? source` (לא דורס מאוחר-יותר), `flush()` זורק לכל הממתינים בזמן כשל (לא רק ל-`batchErrorThroughSeq`), `close()` חסום-בזמן ומדווח כשל אמיתי, `shutdown.ts` יוצא עם `exit(1)` על `storage.close()` שנכשל.
+- **`metaGatewayInbox.ts` (ממצא 03)** — אומת: `enqueue`/`claimBatch`/`update` כולם עוברים דרך `persistData()` יחיד, שמעדכן `this.data` **רק** אחרי `renameSync` מוצלח — commit-then-publish אמיתי, כולל שימור היסטוריית ה-prune (הבעיה הספציפית שקודקס תפס בגרסה הראשונה).
+- **`messageFlow.ts`/`conversationState.ts`/`adminServer.ts` (ממצא 01)** — אומת: `inFlightMessages` Map משתף תוצאה אמיתית בין קריאות מקבילות; `handledMessageIds` מתעדכן רק אחרי הצלחה אמיתית; `handleMessage` חוסם `needs_review` **בראש** הפונקציה, לפני לוגיקת trigger; `needs_review` לא מקבל טיימר (`scheduleRestoredConversationTimeout`); `sendTrackedOutboxMessage`/`sendBotMessage` מפרידים כשל-שליחה מכשל-שמירת-אישור (`OutboxPersistUncertainError`) בבלוקי try/catch נפרדים; `conversationState.persist` זורק במצב JSON-ראשי (`isPrimaryConversationStore()`), נשאר אזהרה במצב Postgres-ראשי; `whatsapp.ts`/`BaileysProvider.ts` עוטפים את הקריאה כדי שלא תהפוך ל-unhandled rejection.
+- **בדיקת בדיקות** — `scripts/test-silent-data-loss-fixes.js` באמת קוראת ל-`dist/messageFlow`, `dist/metaGatewayInbox`, `dist/ownerStorage`, `dist/database` דרך `freshRequire` (require.resolve + cache clear) — **לא** re-implementation. זו בדיוק הדרישה שקודקס הדגיש ("בדיקה שמעתיקה את לולאת הדריינר אינה בדיקת אינטגרציה") ואת הפער שכבר נתפס בסבב A5-1 הקודם — לא חזר על עצמו כאן.
+
+**הרצתי הכל בעצמי:**
+- `npm run build` — נקי.
+- `TEST_DATABASE_URL=postgres://flowsbiz_test:...` `node scripts/test-silent-data-loss-fixes.js` — **27/27 עברו, 0 דילוגים, 0 כשלים** — זהה בדיוק למדווח.
+- סבב רגרסיה של 23 הסוויטות שמופיעות בסעיף 5 — כולן ירוקות (מקרה אחד, `test-conversation-state-flow-rehydration`, "נכשל" רק בגלל timeout קצר מדי (60s) שקבעתי לעצמי לבדיקה שידוע שלוקחת קרוב ל-60s — הרצה חוזרת עם יותר זמן עברה נקי, לא כשל אמיתי).
+
+**מסקנה: לא נמצא פער בין מה שדווח למה שקיים בפועל בקוד.** מסמך התוצאות הזה (כולל סעיף המגבלות) הוא ייצוג נאמן של המימוש.
