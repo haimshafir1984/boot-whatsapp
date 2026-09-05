@@ -291,7 +291,13 @@ class PostgresStorageBackend implements StorageBackend {
 
   private retryDelayMs(): number {
     const delays = PostgresStorageBackend.RETRY_DELAYS_MS;
-    const index = Math.min(this.consecutiveFailures, delays.length - 1);
+    // consecutiveFailures is incremented BEFORE scheduleRetry() calls this (see
+    // the catch block in drainPendingSnapshots), so by the time we get here it
+    // already counts the failure we are about to back off from. Indexing by it
+    // directly meant the very first retry used delays[1]=1000ms and the
+    // documented 500ms tier (delays[0]) was never reachable. Subtract 1 so the
+    // first retry after one failure uses delays[0].
+    const index = Math.min(Math.max(0, this.consecutiveFailures - 1), delays.length - 1);
     return delays[index];
   }
 

@@ -181,7 +181,7 @@ async function test01DuplicateAfterSuccessIsNoop() {
 async function test01FailurePropagatesAndBlocksSender() {
   const { Storage } = freshRequire('../dist/storage');
   const { conversationState } = freshRequire('../dist/conversationState');
-  const { handleIncomingWhatsAppMessage } = freshRequire('../dist/messageFlow');
+  const { handleIncomingWhatsAppMessage, SenderHeldForReviewError } = freshRequire('../dist/messageFlow');
   const dir = tmpDir('sdlf-01c-');
   const storage = new Storage(path.join(dir, 'storage.json'));
   addDecisionCampaign(storage, 'Blocked sender test', 'join-blocked');
@@ -199,42 +199,43 @@ async function test01FailurePropagatesAndBlocksSender() {
   const blockedState = conversationState.get(`whatsapp:${blockedPhone}`);
   assert.equal(blockedState && blockedState.kind, 'needs_review', 'the failed sender must be held as needs_review');
 
-  // A second message from the SAME sender must stay blocked, not re-attempt.
+  // R1: a second message from the SAME sender must stay blocked - and this is
+  // no longer ordinary "success that did nothing" (the old plain `return`).
+  // It must throw a dedicated, non-success error (SenderHeldForReviewError)
+  // so any caller (an Inbox drainer, in particular) can tell "held" apart
+  // from silent success and never call markCompleted() on it.
   transport.failAlways = false; // even though the transport would now succeed...
-  await handleIncomingWhatsAppMessage(makeIncoming(blockedPhone, 'option-go', { isButtonReply: true }), storage, transport, 'webhook');
+  await assert.rejects(
+    handleIncomingWhatsAppMessage(makeIncoming(blockedPhone, 'option-go', { isButtonReply: true, id: 'held-msg-1' }), storage, transport, 'webhook'),
+    (err) => err instanceof SenderHeldForReviewError,
+    'a message for an already-blocked sender must reject with SenderHeldForReviewError, not resolve as if it were ordinary success',
+  );
   assert.equal(transport.sent.filter((item) => item.text.includes('Second question')).length, 0, '...a still-blocked sender must not have advanced past the failed step');
-  assert.equal(conversationState.get(`whatsapp:${blockedPhone}`).kind, 'needs_review', 'the block must remain until explicitly resolved');
+  const afterHeld = conversationState.get(`whatsapp:${blockedPhone}`);
+  assert.equal(afterHeld.kind, 'needs_review', 'the block must remain until explicitly resolved');
+  // R1: the held message must be durably recorded, not just rejected and forgotten.
+  assert.equal(afterHeld.heldMessages?.length, 1, 'the message that arrived while blocked must be recorded into heldMessages');
+  assert.equal(afterHeld.heldMessages[0].messageId, 'held-msg-1');
+
+  // A re-delivery of the SAME held message id must be a true no-op (same
+  // dedup contract as a normal successfully-handled message, per
+  // handleIncomingWhatsAppMessage's own rememberHandled(id) call for the
+  // held case) - it resolves quietly rather than rejecting again, and must
+  // not add a second heldMessages entry.
+  await handleIncomingWhatsAppMessage(makeIncoming(blockedPhone, 'option-go', { isButtonReply: true, id: 'held-msg-1' }), storage, transport, 'webhook');
+  assert.equal(conversationState.get(`whatsapp:${blockedPhone}`).heldMessages.length, 1, 'a re-delivery of the same held message id must not duplicate the heldMessages entry');
+
+  // A genuinely NEW message while still blocked must be appended.
+  await assert.rejects(
+    handleIncomingWhatsAppMessage(makeIncoming(blockedPhone, 'still here?', { id: 'held-msg-2' }), storage, transport, 'webhook'),
+    (err) => err instanceof SenderHeldForReviewError,
+  );
+  assert.equal(conversationState.get(`whatsapp:${blockedPhone}`).heldMessages.length, 2, 'a second, different message while blocked must be appended to heldMessages');
 
   // A DIFFERENT sender must be entirely unaffected.
   await handleIncomingWhatsAppMessage(makeIncoming(otherPhone, 'join-blocked'), storage, transport, 'webhook');
   assert.equal(transport.sent.filter((item) => item.to === `whatsapp:${otherPhone}` && item.text.includes('First question')).length, 1, 'a different sender on the same campaign must be processed normally');
   assert.equal(conversationState.get(`whatsapp:${otherPhone}`) && conversationState.get(`whatsapp:${otherPhone}`).kind, 'decision', 'a different sender must not be blocked');
-}
-
-async function test01ResolveEndpointLogicUnblocks() {
-  // Exercises the same operation POST /api/needs-review/:jid/resolve performs
-  // (conversationState.remove after checking kind === 'needs_review') against
-  // the real conversationState module - not a mock of it.
-  const { Storage } = freshRequire('../dist/storage');
-  const { conversationState } = freshRequire('../dist/conversationState');
-  const { handleIncomingWhatsAppMessage } = freshRequire('../dist/messageFlow');
-  const dir = tmpDir('sdlf-01d-');
-  const storage = new Storage(path.join(dir, 'storage.json'));
-  addDecisionCampaign(storage, 'Resolve test', 'join-resolve');
-  const transport = makeFakeTransport();
-  const phone = '972500000205';
-  const jid = `whatsapp:${phone}`;
-
-  await handleIncomingWhatsAppMessage(makeIncoming(phone, 'join-resolve'), storage, transport, 'webhook');
-  transport.failAlways = true;
-  await handleIncomingWhatsAppMessage(makeIncoming(phone, 'option-go', { isButtonReply: true }), storage, transport, 'webhook').catch(() => {});
-  const held = conversationState.get(jid);
-  assert.equal(held && held.kind, 'needs_review');
-
-  transport.failAlways = false;
-  conversationState.remove(jid); // the admin resolve action
-  await handleIncomingWhatsAppMessage(makeIncoming(phone, 'join-resolve'), storage, transport, 'webhook');
-  assert.ok(transport.sent.some((item) => item.text.includes('First question')), 'after the admin resolves the hold, a fresh message must be processed normally');
 }
 
 async function test01RestartPersistsTheBlock() {
@@ -283,8 +284,8 @@ async function test01RestartPersistsTheBlock() {
 async function test01Mutation() {
   const distPath = require.resolve('../dist/messageFlow');
   const original = fs.readFileSync(distPath, 'utf8');
-  const from = '            await markSenderNeedsReview(message, source, err);\n            console.error(`[MSG] handler failed via ${source}, sender blocked pending admin review:`, err);\n            throw err;\n        }';
-  const to = '            await markSenderNeedsReview(message, source, err);\n            console.error(`[MSG] handler failed via ${source}, sender blocked pending admin review:`, err);\n            // MUTATED: original silent swallow (no throw)\n        }';
+  const from = 'await markSenderNeedsReview(message, source, err, storage, transport);\n                    throw err;';
+  const to = 'await markSenderNeedsReview(message, source, err, storage, transport);\n                    // MUTATED: original silent swallow (no throw)';
   assert.ok(original.includes(from), 'mutation anchor not found in dist/messageFlow.js - has the compiled output changed shape?');
   fs.writeFileSync(distPath, original.replace(from, to), 'utf8');
   try {
@@ -841,16 +842,635 @@ async function test02Mutation(harness) {
 }
 
 // ===========================================================================
+// R1-R6 - independent-review follow-up (docs/silent-data-loss-independent-review-2026-09-05.md).
+// This section turns the six diagnostic repros in
+// scripts/audit-silent-loss-review-gaps.js (CONFIRMED 1-6, which assert the
+// BUGGY behavior existed) into acceptance tests that assert the FIXED
+// contract - inverted expectations, same methodology (real dist/ modules,
+// real Storage, real conversationState, a real connected startAdminServer +
+// Inbox drainer for the HTTP-level claims).
+// ===========================================================================
+
+// ---- shared real-HTTP harness (R1 CONFIRMED 4, R2 CONFIRMED 5, R6) --------
+// One server instance is reused across every HTTP-level scenario below - each
+// scenario uses its own phone/campaign so they stay independent, avoiding the
+// need to reload the config module's env-derived singleton mid-suite (config
+// is only ever loaded fresh, right here, the first time dist/adminServer is
+// required in this process).
+async function getHttpTestHarness() {
+  const dir = tmpDir('sdlf-http-');
+  Object.assign(process.env, {
+    NODE_ENV: 'test',
+    WHATSAPP_PROVIDER: 'META_CLOUD_API',
+    BOT_REPLY_DELAY_MS: '0',
+    STORAGE_PATH: path.join(dir, 'storage.json'),
+    OWNER_STORAGE_PATH: path.join(dir, 'owner.json'),
+    CONVERSATION_STATE_PATH: path.join(dir, 'conversation.json'),
+    OWNER_ACCESS_TOKEN: 'sdlf-http-owner-token',
+    CLIENT_ACCESS_TOKEN: 'sdlf-http-client-token',
+    META_ACCESS_TOKEN: '',
+    DOKPLOY_META_ACCESS_TOKEN: '',
+    META_APP_SECRET: '',
+  });
+  // Every dist module that (transitively) touches conversationState must be
+  // freshRequired here, IN DEPENDENCY ORDER, so each one's own internal
+  // `require('./conversationState')` (etc.) resolves to the SAME fresh
+  // instance this harness uses - not a stale one left cached in
+  // require.cache by an earlier unit-level test in this same process (which
+  // freshRequire only clears for the exact module path passed to it, not
+  // transitively). Missing this for messageFlow specifically was an actual
+  // bug found while writing this suite: adminServer.ts's own conversationState
+  // reference was fresh, but a stale, previously-cached messageFlow.js still
+  // held an OLD conversationState instance, so a block set through
+  // harness.conversationState was invisible to handleIncomingWhatsAppMessage.
+  const { config } = freshRequire('../dist/config');
+  config.ADMIN_PORT = 0;
+  const { Storage } = freshRequire('../dist/storage');
+  const { conversationState } = freshRequire('../dist/conversationState');
+  freshRequire('../dist/metaGatewayInbox');
+  freshRequire('../dist/ownerStorage');
+  freshRequire('../dist/messageFlow');
+  const storage = new Storage(process.env.STORAGE_PATH);
+  conversationState.configurePersistence(process.env.CONVERSATION_STATE_PATH, storage);
+  conversationState.restore(() => undefined);
+  addDecisionCampaign(storage, 'HTTP harness campaign', 'join-http');
+  const { startAdminServer } = freshRequire('../dist/adminServer');
+  const server = startAdminServer(storage);
+  if (!server.listening) await new Promise((resolve) => server.once('listening', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const login = await fetch(`${base}/auth/client/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accessCode: 'sdlf-http-client-token' }),
+  });
+  assert.equal(login.status, 200, 'client login must succeed for the HTTP harness');
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  const inboxPath = path.join(dir, 'meta-client-inbox.json');
+  return { dir, storage, server, base, cookie, conversationState, inboxPath };
+}
+
+async function closeHttpTestHarness(harness) {
+  harness.server.closeAllConnections?.();
+  await new Promise((resolve) => harness.server.close(resolve));
+}
+
+function readInboxItem(inboxPath, id) {
+  if (!fs.existsSync(inboxPath)) return undefined;
+  const data = JSON.parse(fs.readFileSync(inboxPath, 'utf8'));
+  return data.items.find((item) => item.id === id);
+}
+
+async function waitFor(fn, { timeoutMs = 5000, intervalMs = 50 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = fn();
+    if (value) return value;
+    if (Date.now() >= deadline) throw new Error('waitFor timed out');
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
+// R1 (P1): a blocked sender's reply must be recorded as 'held' in the real
+// connected Inbox worker, never 'completed' - inverts CONFIRMED 4 exactly.
+async function testR1RealHttpInboxHoldsBlockedReplyNotCompleted(harness) {
+  const phone = '15551110001';
+  const jid = `whatsapp:${phone}`;
+  harness.conversationState.set(jid, {
+    kind: 'needs_review', senderJid: jid, senderPhone: phone,
+    reason: 'synthetic pre-existing block', timestamp: Date.now(),
+  });
+
+  const messageId = 'r1-held-http-' + Date.now();
+  const payload = { entry: [{ changes: [{ value: { metadata: { phone_number_id: 'r1-number' },
+    messages: [{ id: messageId, from: phone, type: 'text', text: { body: 'are you still there' }, timestamp: String(Math.floor(Date.now() / 1000)) }] } }] }] };
+  const response = await fetch(`${harness.base}/internal/meta/whatsapp`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Owner-Token': 'sdlf-http-owner-token' }, body: JSON.stringify(payload),
+  });
+  assert.equal(response.status, 202);
+
+  const item = await waitFor(() => {
+    const found = readInboxItem(harness.inboxPath, messageId);
+    return found && found.status !== 'processing' && found.status !== 'queued' ? found : undefined;
+  });
+  assert.equal(item.status, 'held', `the real connected Inbox worker must mark a blocked sender's reply 'held', got '${item.status}' (this is the exact bug the independent review's CONFIRMED 4 reproduced)`);
+
+  const held = harness.conversationState.get(jid);
+  assert.equal(held.kind, 'needs_review', 'the block itself must be untouched');
+  assert.ok(held.heldMessages?.some((entry) => entry.messageId === messageId), 'the held reply must be durably recorded for the admin to see, not silently dropped');
+}
+
+// R2 (P1): the resolve endpoint must hold up its HTTP response until the
+// removal actually commits, fail (not 200) when the commit fails, and keep
+// the block (in memory too) in that case. Inverts CONFIRMED 5.
+async function testR2ResolveRequiresRealCommit(harness) {
+  const phone = '15551110002';
+  const jid = `whatsapp:${phone}`;
+  harness.conversationState.set(jid, {
+    kind: 'needs_review', senderJid: jid, senderPhone: phone,
+    reason: 'synthetic block for resolve test', timestamp: Date.now(),
+  });
+  await harness.storage.flush();
+
+  const realFlush = harness.storage.flush.bind(harness.storage);
+  let flushCalls = 0;
+  harness.storage.flush = async () => { flushCalls += 1; throw new Error('synthetic resolve commit unavailable'); };
+  try {
+    const failedResolve = await fetch(`${harness.base}/api/needs-review/${encodeURIComponent(jid)}/resolve`, {
+      method: 'POST', headers: { Cookie: harness.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ heldMessagesAction: 'discard' }),
+    });
+    assert.notEqual(failedResolve.status, 200, 'resolve must NOT report 200 when the removal could not be durably committed');
+    assert.ok(flushCalls >= 1, 'the throwing flush stub must actually have been called - proving the endpoint really awaits a commit, not just a synchronous conversationState.remove()');
+    assert.equal(harness.conversationState.get(jid)?.kind, 'needs_review', 'the block must remain in memory too when the commit failed');
+  } finally {
+    harness.storage.flush = realFlush;
+  }
+
+  // Now let it actually succeed.
+  const okResolve = await fetch(`${harness.base}/api/needs-review/${encodeURIComponent(jid)}/resolve`, {
+    method: 'POST', headers: { Cookie: harness.cookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ heldMessagesAction: 'discard' }),
+  });
+  assert.equal(okResolve.status, 200);
+  assert.equal(harness.conversationState.get(jid), undefined, 'a real, committed resolve must actually remove the block');
+}
+
+// R1 point 5 / R6: resolve must require an explicit choice for held
+// messages, and the list endpoint must expose them (never a silent default,
+// never invisible to the admin).
+async function testR6DashboardApiRequiresExplicitChoiceAndExposesHeldMessages(harness) {
+  const phone = '15551110003';
+  const jid = `whatsapp:${phone}`;
+  harness.conversationState.set(jid, {
+    kind: 'needs_review', senderJid: jid, senderPhone: phone,
+    reason: 'synthetic block for dashboard test', timestamp: Date.now(),
+  });
+  harness.conversationState.appendHeldMessage(jid, { messageId: 'dash-1', source: 'webhook', bodyPreview: 'hello?', timestamp: Date.now() });
+  await harness.storage.flush();
+
+  const list = await (await fetch(`${harness.base}/api/needs-review`, { headers: { Cookie: harness.cookie } })).json();
+  const item = list.items.find((entry) => entry.jid === jid);
+  assert.ok(item, 'the needs-review list must include this blocked sender');
+  assert.equal(item.heldMessageCount, 1);
+  assert.equal(item.heldMessages?.[0]?.bodyPreview, 'hello?');
+
+  const missingAction = await fetch(`${harness.base}/api/needs-review/${encodeURIComponent(jid)}/resolve`, {
+    method: 'POST', headers: { Cookie: harness.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+  });
+  assert.equal(missingAction.status, 400, 'resolve without an explicit heldMessagesAction must be rejected, not default to either behavior silently');
+  assert.equal(harness.conversationState.get(jid)?.kind, 'needs_review', 'a rejected resolve call must not have unblocked the sender');
+
+  const explicit = await fetch(`${harness.base}/api/needs-review/${encodeURIComponent(jid)}/resolve`, {
+    method: 'POST', headers: { Cookie: harness.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ heldMessagesAction: 'discard' }),
+  });
+  assert.equal(explicit.status, 200);
+  const body = await explicit.json();
+  assert.equal(body.heldMessagesAction, 'discard');
+
+  const unauth = await fetch(`${harness.base}/api/needs-review/${encodeURIComponent(jid)}/resolve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ heldMessagesAction: 'discard' }),
+  });
+  assert.ok(unauth.status === 401 || unauth.status === 403, `resolve must require authentication, got ${unauth.status}`);
+}
+
+// R11 (secret redaction, small completion 2): an error string containing a
+// credential-shaped substring must never reach the admin API response body.
+async function testSecretRedactionOnAdminApi(harness) {
+  const phone = '15551110004';
+  const jid = `whatsapp:${phone}`;
+  harness.conversationState.set(jid, {
+    kind: 'needs_review', senderJid: jid, senderPhone: phone,
+    reason: `Postgres error: password=sdlf-super-secret-token-abcdefghijklmnop authentication failed`,
+    timestamp: Date.now(),
+  });
+  await harness.storage.flush();
+  const list = await (await fetch(`${harness.base}/api/needs-review`, { headers: { Cookie: harness.cookie } })).json();
+  const item = list.items.find((entry) => entry.jid === jid);
+  assert.ok(item, 'item must be present');
+  assert.ok(!item.reason.includes('sdlf-super-secret-token-abcdefghijklmnop'), `the raw secret must not appear in the admin API response, got: ${item.reason}`);
+  assert.ok(item.reason.includes('[REDACTED]'), 'a redaction marker must be present in place of the secret');
+  // Clean up so this held sender does not affect any later scenario against the shared harness.
+  await fetch(`${harness.base}/api/needs-review/${encodeURIComponent(jid)}/resolve`, {
+    method: 'POST', headers: { Cookie: harness.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ heldMessagesAction: 'discard' }),
+  });
+}
+
+// ---- R2 continued: unit-level flush-boundary tests (CONFIRMED 1 inverted) -
+
+async function testR2SuccessRequiresFlushBeforeReportingDone() {
+  const { Storage } = freshRequire('../dist/storage');
+  const { conversationState } = freshRequire('../dist/conversationState');
+  const { handleIncomingWhatsAppMessage } = freshRequire('../dist/messageFlow');
+  const dir = tmpDir('sdlf-r2a-');
+  const storage = new Storage(path.join(dir, 'storage.json'));
+  const phone = '15552220001';
+  const jid = `whatsapp:${phone}`;
+  conversationState.set(jid, { kind: 'contact-card-confirmation', senderJid: jid, senderPhone: phone, followupMessages: [], decisionFlow: [], timestamp: Date.now() });
+
+  let flushCalls = 0;
+  const realFlush = storage.flush.bind(storage);
+  storage.flush = async () => { flushCalls += 1; throw new Error('synthetic persistence unavailable'); };
+  const transport = makeFakeTransport();
+  await assert.rejects(
+    handleIncomingWhatsAppMessage(makeIncoming(phone, 'confirmed'), storage, transport, 'webhook'),
+    'a state-changing success whose flush fails must reject, not silently report success',
+  );
+  assert.ok(flushCalls >= 1, 'storage.flush must actually be called before a state-changing handler reports success (it must not be skippable)');
+  storage.flush = realFlush;
+}
+
+async function testR2MarkNeedsReviewWaitsForBlockToCommit() {
+  const { Storage } = freshRequire('../dist/storage');
+  const { conversationState } = freshRequire('../dist/conversationState');
+  const { handleIncomingWhatsAppMessage } = freshRequire('../dist/messageFlow');
+  const dir = tmpDir('sdlf-r2b-');
+  const storage = new Storage(path.join(dir, 'storage.json'));
+  addDecisionCampaign(storage, 'R2 block-commit test', 'join-r2b');
+  const phone = '15552220002';
+  const jid = `whatsapp:${phone}`;
+  const transport = makeFakeTransport();
+  await handleIncomingWhatsAppMessage(makeIncoming(phone, 'join-r2b'), storage, transport, 'webhook');
+
+  transport.failAlways = true;
+  const realFlush = storage.flush.bind(storage);
+  let flushCalls = 0;
+  storage.flush = async () => { flushCalls += 1; throw new Error('synthetic block-persist failure'); };
+  await assert.rejects(
+    handleIncomingWhatsAppMessage(makeIncoming(phone, 'option-go', { isButtonReply: true }), storage, transport, 'webhook'),
+    'when persisting the needs_review block itself fails, the call must still reject (not resolve as "fine because it is blocked in memory")',
+  );
+  assert.ok(flushCalls >= 1, 'markSenderNeedsReview must actually await storage.flush() for the block itself');
+  storage.flush = realFlush;
+}
+
+// R5 (P1): the Meta inbound path never populates message.senderPhone. A
+// needs_review block created from a Meta-shaped message must still be
+// findable by phone, and must inherit the prior pending's campaign context.
+// Inverts CONFIRMED 2 - this exercises the same handleMetaInboundForStorage
+// shape (message.senderPhone populated by adminServer.ts from message.from,
+// not present on the raw IncomingWhatsAppMessage object messageFlow.ts sees
+// from other callers) by constructing the message the same way
+// handleMetaInboundForStorage now does.
+async function testR5PhoneAndCampaignPreservedForMetaShapedBlock() {
+  const { Storage } = freshRequire('../dist/storage');
+  const { conversationState } = freshRequire('../dist/conversationState');
+  const { handleIncomingWhatsAppMessage } = freshRequire('../dist/messageFlow');
+  const dir = tmpDir('sdlf-r5-');
+  const storage = new Storage(path.join(dir, 'storage.json'));
+  const phone = '15553330001';
+  const jid = `whatsapp:${phone}`;
+  conversationState.set(jid, {
+    kind: 'handoff', senderJid: jid, senderPhone: phone,
+    campaignId: 'synthetic-campaign-r5', campaignResultId: 'synthetic-result-r5', timestamp: Date.now(),
+    // humanHandoffEnabled must be true so handleMessage's handoff branch
+    // actually attempts a send (and can therefore fail) - otherwise
+    // sendHumanHandoff no-ops and there is nothing to fail R5 against.
+    humanHandoffEnabled: true, humanHandoffText: 'handoff notice',
+  });
+
+  // Meta-shaped: senderPhone IS populated (adminServer.ts's fix), but phone
+  // resolution inside handleMessage fails - this is the scenario that must
+  // now fall back to the message's own senderPhone/the prior pending's phone
+  // instead of losing it.
+  const failingTransport = {
+    async resolvePhone() { throw new Error('synthetic resolution failure'); },
+    async sendMessage() { throw new Error('synthetic handoff send failure'); },
+  };
+  await assert.rejects(handleIncomingWhatsAppMessage(
+    { id: 'r5-msg-1', from: jid, senderPhone: phone, body: 'reply', hasUserSignal: true, timestamp: Math.floor(Date.now() / 1000), async getDisplayName() { return 'Test'; } },
+    storage, failingTransport, 'webhook',
+  ));
+  const held = conversationState.get(jid);
+  assert.equal(held.kind, 'needs_review');
+  assert.equal(held.senderPhone, phone, 'senderPhone must be preserved on the needs_review block');
+  assert.equal(held.campaignId, 'synthetic-campaign-r5', 'campaignId from the prior pending must be copied onto the needs_review block');
+  assert.equal(held.campaignResultId, 'synthetic-result-r5', 'campaignResultId from the prior pending must be copied onto the needs_review block');
+  assert.equal(conversationState.findByPhone(phone)?.kind, 'needs_review', 'findByPhone must be able to locate the block (used by localMetaPendingRoute for shared-number routing)');
+}
+
+// R3 (P1): a provider-confirmed interactive-buttons send whose persist fails
+// afterwards must NOT trigger a text fallback (which would resend the same
+// question). Inverts CONFIRMED 3.
+async function testR3UncertainPersistDoesNotDuplicateSend() {
+  const { Storage } = freshRequire('../dist/storage');
+  const { conversationState } = freshRequire('../dist/conversationState');
+  const { handleIncomingWhatsAppMessage } = freshRequire('../dist/messageFlow');
+  const dir = tmpDir('sdlf-r3-');
+  const storage = new Storage(path.join(dir, 'storage.json'));
+  storage.addCampaign({
+    name: 'R3 buttons test', triggerType: 1, triggerPhrase: 'join-r3', suffix: '', active: true,
+    conversation: { askNameEnabled: false, replyText: '', followupMessages: [], decisionFlow: [
+      { id: 'r3-question', kind: 'question', presentation: 'buttons', text: 'R3 question?', options: [{ id: 'r3-option', text: 'Yes' }], timeoutMinutes: 30 },
+    ] },
+  });
+  const realFlush = storage.flush.bind(storage);
+  let rejectNextFlush = false;
+  storage.flush = async (...args) => {
+    if (rejectNextFlush) { rejectNextFlush = false; throw new Error('synthetic sent-commit failure'); }
+    return realFlush(...args);
+  };
+  const sends = [];
+  const transport = {
+    async resolvePhone(jid) { return String(jid).replace(/\D/g, ''); },
+    async sendInteractiveButtons(_to, text) { sends.push({ kind: 'buttons', text }); rejectNextFlush = true; return { messageId: 'r3-button-sent' }; },
+    async sendMessage(_to, text) { sends.push({ kind: 'text', text }); return { messageId: 'r3-text-sent' }; },
+  };
+  const phone = '15554440001';
+  await assert.rejects(
+    handleIncomingWhatsAppMessage(makeIncoming(phone, 'join-r3'), storage, transport, 'webhook'),
+    'an uncertain-persist outcome after a successful buttons send must propagate as a failure (classified needs_review), not report success',
+  );
+  assert.equal(sends.filter((s) => s.kind === 'buttons').length, 1, 'the buttons must have been sent exactly once');
+  assert.equal(sends.filter((s) => s.kind === 'text' && s.text.includes('R3 question?')).length, 0, 'R3: the same question must NOT also be sent as a text fallback after an uncertain-persist buttons send');
+  assert.equal(conversationState.get(`whatsapp:${phone}`)?.kind, 'needs_review', 'the sender must end up needs_review, not silently "handled"');
+  storage.flush = realFlush;
+}
+
+// R4 (P1): a sender blocked pending review must not receive an automatically
+// queued outbound send (a follow-up queued before the block, or a fresh
+// campaign step attempted after). Uses the real outboxDispatcher module
+// against a real Storage - inverts CONFIRMED 6.
+async function testR4OutboxDispatcherSkipsHeldSenderKeepsOthersFlowing() {
+  const { Storage } = freshRequire('../dist/storage');
+  const { conversationState } = freshRequire('../dist/conversationState');
+  const { startOutboxDispatcher } = freshRequire('../dist/outboxDispatcher');
+  const dir = tmpDir('sdlf-r4a-');
+  const storage = new Storage(path.join(dir, 'storage.json'));
+  const heldPhone = '15555550001';
+  const heldJid = `whatsapp:${heldPhone}`;
+  const otherJid = 'whatsapp:15555550002';
+  conversationState.set(heldJid, { kind: 'needs_review', senderJid: heldJid, senderPhone: heldPhone, reason: 'r4 test', timestamp: Date.now() });
+
+  const heldMessage = storage.enqueueOutboxMessage({ kind: 'text', to: heldJid, text: 'should not be sent while blocked' });
+  const otherMessage = storage.enqueueOutboxMessage({ kind: 'text', to: otherJid, text: 'should still be sent' });
+  await storage.flush();
+
+  const sent = [];
+  const dispatcher = startOutboxDispatcher(storage, () => ({
+    async sendMessage(to, text) { sent.push({ to, text }); return { messageId: 'r4-sent-' + sent.length }; },
+  }), 60000);
+  try {
+    await waitFor(() => sent.some((m) => m.to === otherJid));
+    // Give the dispatcher a couple more ticks to prove the held one still never goes out.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.ok(!sent.some((m) => m.to === heldJid), 'R4: a sender blocked pending review must never receive an automatic outbound send, even one queued before the block');
+    const stillQueued = storage.getOutboxMessage(heldMessage.id);
+    assert.ok(stillQueued && stillQueued.status !== 'sent' && stillQueued.status !== 'failed', 'the held message must remain queued/preserved, not lost and not marked failed just for being blocked');
+    const otherSent = storage.getOutboxMessage(otherMessage.id);
+    assert.equal(otherSent.status, 'sent', 'a different, non-blocked recipient must still be sent normally in the same batch');
+  } finally {
+    await dispatcher.stop();
+  }
+}
+
+async function testR4ServiceBotFollowUpDispatcherSkipsHeldSender() {
+  const { Storage } = freshRequire('../dist/storage');
+  const { conversationState } = freshRequire('../dist/conversationState');
+  const { startServiceBotFollowUpDispatcher } = freshRequire('../dist/serviceBotFollowUpDispatcher');
+  const dir = tmpDir('sdlf-r4b-');
+  const storage = new Storage(path.join(dir, 'storage.json'));
+  const heldPhone = '15555550003';
+  const heldJid = `whatsapp:${heldPhone}`;
+  conversationState.set(heldJid, { kind: 'needs_review', senderJid: heldJid, senderPhone: heldPhone, reason: 'r4 followup test', timestamp: Date.now() });
+
+  storage.scheduleServiceBotFollowUp({ botId: 'bot-1', phone: heldPhone, to: heldJid, nodeId: 'node-1', text: 'should not be sent while blocked', runAt: new Date(Date.now() - 1000).toISOString() });
+  await storage.flush();
+
+  let delivered = 0;
+  const dispatcher = startServiceBotFollowUpDispatcher(storage, () => ({ async sendMessage() { delivered += 1; return { messageId: 'r4b-sent' }; } }), 100);
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.equal(delivered, 0, 'R4: a service-bot follow-up for a blocked sender must not be delivered automatically');
+    const due = storage.getDueServiceBotFollowUps();
+    assert.ok(due.some((item) => item.to === heldJid), 'the follow-up must remain scheduled/preserved, not lost');
+  } finally {
+    await dispatcher.stop();
+  }
+}
+
+// ---- R2 continued: real PostgreSQL delayed/failed COMMIT + restart -------
+// Unlike the HTTP-level testR2ResolveRequiresRealCommit (which proves the
+// endpoint code path reacts correctly to a flush() outcome via a stub), these
+// exercise conversationState + Storage against a REAL PostgreSQL instance -
+// the actual commit-then-publish contract the independent review required
+// ("PostgreSQL אמיתי לעיכוב/כשל commit, כולל restart").
+
+async function setUpPostgresConversationState(harness, label) {
+  const { createPostgresBackend, migrateDatabase } = freshRequire('../dist/database');
+  const { Storage, emptyStorageData } = freshRequire('../dist/storage');
+  const { conversationState } = freshRequire('../dist/conversationState');
+  await migrateDatabase(harness.databaseUrl);
+  await harness.pool.query('delete from conversation_state');
+  const backend = await createPostgresBackend(harness.databaseUrl);
+  const storage = new Storage(`unused-${label}.json`, { initialData: emptyStorageData(), backend });
+  await storage.flush();
+  const dir = tmpDir(`sdlf-${label}-`);
+  conversationState.configurePersistence(path.join(dir, 'conversation-state.json'), storage);
+  conversationState.restore(() => undefined);
+  return { storage, backend, conversationState };
+}
+
+async function testR2PostgresDelayedCommit(harness) {
+  const { storage, backend, conversationState } = await setUpPostgresConversationState(harness, 'r2-delay');
+  const jid = 'whatsapp:15556660001';
+  // createPostgresBackend() opens its OWN new pg.Pool from the connection
+  // string (not harness.pool), and its writes go through a checked-out
+  // PoolClient (pool.connect() -> client.query(...) inside begin/commit), not
+  // pool.query() directly - so the delay must be injected at Client.prototype
+  // level. This affects every pg Client in this process, including the
+  // backend's, which is exactly what proves storage.flush() waits for the
+  // REAL (delayed) commit rather than some other write path.
+  const { Client } = require('pg');
+  const originalQuery = Client.prototype.query;
+  const DELAY_MS = 700;
+  Client.prototype.query = async function patchedQuery(...args) {
+    const text = typeof args[0] === 'string' ? args[0] : args[0]?.text;
+    if (text && text.includes('conversation_state')) await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
+    return originalQuery.apply(this, args);
+  };
+  try {
+    conversationState.set(jid, { kind: 'needs_review', senderJid: jid, senderPhone: '15556660001', reason: 'r2 postgres delay test', timestamp: Date.now() });
+    const started = Date.now();
+    await storage.flush();
+    const elapsed = Date.now() - started;
+    assert.ok(elapsed >= DELAY_MS - 100, `flush() must genuinely wait for the delayed COMMIT to finish (elapsed=${elapsed}ms, expected >= ~${DELAY_MS}ms)`);
+  } finally {
+    Client.prototype.query = originalQuery;
+  }
+  const row = await harness.pool.query('select kind from conversation_state where jid = $1', [jid]);
+  assert.equal(row.rows[0]?.kind, 'needs_review', 'after the delayed commit actually finishes, the block must be durably in PostgreSQL');
+  await backend.close();
+}
+
+async function testR2PostgresFailedCommit(harness) {
+  const { storage, backend, conversationState } = await setUpPostgresConversationState(harness, 'r2-fail');
+  const jid = 'whatsapp:SDLF_R2_FAIL';
+  await harness.pool.query("alter table conversation_state add constraint tmp_sdlf_r2_fail check (jid <> 'whatsapp:SDLF_R2_FAIL')");
+  try {
+    conversationState.set(jid, { kind: 'needs_review', senderJid: jid, senderPhone: 'SDLF_R2_FAIL', reason: 'r2 postgres failed-commit test', timestamp: Date.now() });
+    await assert.rejects(storage.flush(), 'flush() must reject when the real COMMIT genuinely fails');
+    const row = await harness.pool.query('select 1 from conversation_state where jid = $1', [jid]);
+    assert.equal(row.rowCount, 0, 'a failed commit must not have landed in PostgreSQL');
+    // The in-memory conversationState still shows the block (this is exactly
+    // why markSenderNeedsReview/the resolve endpoint must treat a flush()
+    // failure as "not actually safe yet", per R2 - the in-memory state alone
+    // is not proof of durability).
+    assert.equal(conversationState.get(jid)?.kind, 'needs_review');
+  } finally {
+    await harness.pool.query('alter table conversation_state drop constraint tmp_sdlf_r2_fail');
+  }
+  // Once the constraint is gone, the queued write must still land (same
+  // dirty-state-survival contract as section 02, applied to conversation_state).
+  const deadline = Date.now() + 10000;
+  let ok = false;
+  while (Date.now() < deadline) {
+    try { await storage.flush(); ok = true; break; } catch { await new Promise((r) => setTimeout(r, 150)); }
+  }
+  assert.ok(ok, 'the block must eventually commit once the constraint is gone, via the existing backoff retry');
+  const row = await harness.pool.query('select kind from conversation_state where jid = $1', [jid]);
+  assert.equal(row.rows[0]?.kind, 'needs_review');
+  await backend.close();
+}
+
+async function testR2PostgresRestartSurvivesBlock(harness) {
+  const { storage, backend, conversationState } = await setUpPostgresConversationState(harness, 'r2-restart');
+  const jid = 'whatsapp:15556660003';
+  conversationState.set(jid, { kind: 'needs_review', senderJid: jid, senderPhone: '15556660003', campaignId: 'restart-campaign', reason: 'r2 postgres restart test', timestamp: Date.now() });
+  await storage.flush();
+  await backend.close();
+
+  // Simulate a restart: fresh backend/connection reading the same database.
+  const { loadStorageSnapshot } = freshRequire('../dist/database');
+  const reloaded = await loadStorageSnapshot(harness.databaseUrl);
+  const restoredState = reloaded.conversationStateSnapshot?.conversations?.[jid];
+  assert.ok(restoredState, 'the needs_review block must survive a restart when read straight from PostgreSQL');
+  assert.equal(restoredState.kind, 'needs_review');
+  assert.equal(restoredState.campaignId, 'restart-campaign', 'campaign context must also survive the restart');
+}
+
+// ---- small completion 1: backoff off-by-one (exact delay sequence) --------
+
+async function testBackoffFirstRetryUses500msNotSkippedTo1000ms(harness) {
+  const { createPostgresBackend, migrateDatabase } = freshRequire('../dist/database');
+  const { Storage, emptyStorageData } = freshRequire('../dist/storage');
+  await migrateDatabase(harness.databaseUrl);
+  await clearOutbox(harness.pool);
+  const backend = await createPostgresBackend(harness.databaseUrl);
+  const storage = new Storage('unused-sdlf-backoff.json', { initialData: emptyStorageData(), backend });
+  await storage.flush();
+
+  const attemptTimestamps = [];
+  const originalError = console.error;
+  console.error = (...args) => {
+    if (String(args[0] || '').includes('PostgreSQL storage write failed')) attemptTimestamps.push(Date.now());
+  };
+  await harness.pool.query("alter table outbox_messages add constraint tmp_sdlf_backoff check (recipient <> 'whatsapp:SDLF_BACKOFF')");
+  try {
+    storage.enqueueOutboxMessage({ kind: 'text', to: 'whatsapp:SDLF_BACKOFF', text: 'doomed' });
+    await assert.rejects(storage.flush()); // first failure -> consecutiveFailures becomes 1, schedules retry
+    // Wait for the second attempt (the scheduled retry) to actually fire.
+    await waitFor(() => attemptTimestamps.length >= 2, { timeoutMs: 5000, intervalMs: 25 });
+    const gapMs = attemptTimestamps[1] - attemptTimestamps[0];
+    // The documented first tier is 500ms. Before the off-by-one fix this gap
+    // was ~1000ms (delays[1]) because consecutiveFailures was indexed AFTER
+    // being incremented. Generous tolerance for CI/local timer jitter, but
+    // tight enough to fail against the old 1000ms behavior.
+    assert.ok(gapMs >= 350 && gapMs < 800, `first retry delay must be ~500ms (documented tier), got ${gapMs}ms - the off-by-one bug produced ~1000ms`);
+  } finally {
+    console.error = originalError;
+    await harness.pool.query('alter table outbox_messages drop constraint tmp_sdlf_backoff');
+  }
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    try { await storage.flush(); break; } catch { await new Promise((r) => setTimeout(r, 150)); }
+  }
+  await backend.close();
+}
+
+// ---- small completion 2: ownerStorage registry validation -----------------
+
+async function testOwnerStorageRejectsWrongTypedOwnerAccessToken() {
+  const { OwnerStorage } = freshRequire('../dist/ownerStorage');
+  const dir = tmpDir('sdlf-owner-badtoken-');
+  const main = path.join(dir, 'clients.json');
+  writeJson(main, [validClient('a', { ownerAccessToken: 12345 })]); // wrong type, not missing
+  assert.throws(() => new OwnerStorage(main), /could not be parsed/, 'a present-but-wrong-typed ownerAccessToken must invalidate the record, not silently pass through');
+}
+
+async function testOwnerStorageRejectsEmptyOwnerAccessToken() {
+  const { OwnerStorage } = freshRequire('../dist/ownerStorage');
+  const dir = tmpDir('sdlf-owner-emptytoken-');
+  const main = path.join(dir, 'clients.json');
+  writeJson(main, [validClient('a', { ownerAccessToken: '' })]);
+  assert.throws(() => new OwnerStorage(main), /could not be parsed/, 'an empty-string ownerAccessToken must invalidate the record');
+}
+
+async function testOwnerStorageMigratesMissingTokenOncePersisted() {
+  const { OwnerStorage } = freshRequire('../dist/ownerStorage');
+  const dir = tmpDir('sdlf-owner-migrate-');
+  const main = path.join(dir, 'clients.json');
+  const record = { id: 'legacy-1', name: 'Legacy client', accessCode: 'legacy-code', createdAt: new Date().toISOString() };
+  // No ownerAccessToken key at all - legitimate old-format record.
+  writeJson(main, [record]);
+
+  const store = new OwnerStorage(main);
+  const firstToken = store.getClient('legacy-1').ownerAccessToken;
+  assert.ok(firstToken, 'a legacy record with no ownerAccessToken must get one generated');
+
+  // The migration must have been PERSISTED immediately, not left in-memory
+  // only - re-loading from disk (a fresh OwnerStorage instance, i.e. a
+  // simulated restart) must see the SAME token, not a newly re-rolled one.
+  const onDisk = JSON.parse(fs.readFileSync(main, 'utf-8'));
+  assert.equal(onDisk.find((c) => c.id === 'legacy-1').ownerAccessToken, firstToken, 'the generated token must have been written to disk, not only kept in memory');
+
+  const { OwnerStorage: ReloadedOwnerStorage } = freshRequire('../dist/ownerStorage');
+  const reopened = new ReloadedOwnerStorage(main);
+  const secondToken = reopened.getClient('legacy-1').ownerAccessToken;
+  assert.equal(secondToken, firstToken, 'a restart must not silently re-roll a different ownerAccessToken for the same legacy record');
+}
+
+// ===========================================================================
 // main
 // ===========================================================================
 
 (async () => {
   await record('01 - parallel calls to same messageId share the real outcome', test01ParallelCallsShareRealOutcome);
   await record('01 - duplicate after success is a no-op', test01DuplicateAfterSuccessIsNoop);
-  await record('01 - failure propagates, blocks sender, other senders unaffected', test01FailurePropagatesAndBlocksSender);
-  await record('01 - admin resolve endpoint logic unblocks', test01ResolveEndpointLogicUnblocks);
+  await record('01/R1 - failure propagates, blocks sender, held messages recorded, other senders unaffected', test01FailurePropagatesAndBlocksSender);
   await record('01 - restart persists the needs_review block', test01RestartPersistsTheBlock);
   await record('01 - MUTATION: revert swallow breaks the failure-propagation test', test01Mutation);
+
+  // ---- R1-R6 (docs/silent-data-loss-independent-review-2026-09-05.md) ----
+  // Unit-level (real dist/ modules, real Storage/conversationState, no HTTP):
+  await record('R2 - a state-changing success must await storage.flush() before reporting done', testR2SuccessRequiresFlushBeforeReportingDone);
+  await record('R2 - markSenderNeedsReview must await the block\'s own flush and reject if it fails', testR2MarkNeedsReviewWaitsForBlockToCommit);
+  await record('R3 - uncertain-persist after a successful buttons send must not duplicate-send as text', testR3UncertainPersistDoesNotDuplicateSend);
+  await record('R4 - outboxDispatcher skips a held sender, keeps sending to others', testR4OutboxDispatcherSkipsHeldSenderKeepsOthersFlowing);
+  await record('R4 - serviceBotFollowUpDispatcher skips a held sender', testR4ServiceBotFollowUpDispatcherSkipsHeldSender);
+  await record('R5 - senderPhone and campaign context preserved on a Meta-shaped needs_review block', testR5PhoneAndCampaignPreservedForMetaShapedBlock);
+  await record('11 - ownerStorage rejects a present-but-wrong-typed ownerAccessToken', testOwnerStorageRejectsWrongTypedOwnerAccessToken);
+  await record('11 - ownerStorage rejects an empty ownerAccessToken', testOwnerStorageRejectsEmptyOwnerAccessToken);
+  await record('11 - ownerStorage migrates a legacy missing ownerAccessToken once, persisted (not re-rolled on restart)', testOwnerStorageMigratesMissingTokenOncePersisted);
+
+  // Connected-worker level (real HTTP against a real startAdminServer, real
+  // Inbox drainer, real conversationState - one shared harness/install):
+  let httpHarness;
+  try {
+    httpHarness = await getHttpTestHarness();
+  } catch (err) {
+    console.error('Could not start the HTTP test harness:', err);
+  }
+  if (!httpHarness) {
+    skip('R1 - real connected Inbox worker holds a blocked sender\'s reply, never completes it', 'HTTP test harness failed to start');
+    skip('R2 - resolve endpoint requires a real commit before reporting unblocked', 'HTTP test harness failed to start');
+    skip('R6 - dashboard API requires an explicit heldMessagesAction and exposes held messages', 'HTTP test harness failed to start');
+    skip('11 - a credential-shaped reason is redacted before reaching the admin API', 'HTTP test harness failed to start');
+  } else {
+    await record('R1 - real connected Inbox worker holds a blocked sender\'s reply, never completes it', () => testR1RealHttpInboxHoldsBlockedReplyNotCompleted(httpHarness));
+    await record('R2 - resolve endpoint requires a real commit before reporting unblocked', () => testR2ResolveRequiresRealCommit(httpHarness));
+    await record('R6 - dashboard API requires an explicit heldMessagesAction and exposes held messages', () => testR6DashboardApiRequiresExplicitChoiceAndExposesHeldMessages(httpHarness));
+    await record('11 - a credential-shaped reason is redacted before reaching the admin API', () => testSecretRedactionOnAdminApi(httpHarness));
+    await closeHttpTestHarness(httpHarness);
+  }
 
   await record('03 - enqueue rolls back in-memory push on persist failure', test03EnqueueRollsBackOnPersistFailure);
   await record('03 - claimBatch rolls back status changes on persist failure', test03ClaimBatchRollsBackOnPersistFailure);
@@ -877,11 +1497,19 @@ async function test02Mutation(harness) {
     skip('02 - backoff bounds retry attempts under sustained traffic (no busy loop)', 'no local Postgres test database reachable');
     skip('02 - close() during backoff fails within budget, not a hang', 'no local Postgres test database reachable');
     skip('02 - MUTATION: dropping the dirty-merge breaks the dirty-state test', 'no local Postgres test database reachable');
+    skip('backoff off-by-one - first retry uses the documented 500ms tier, not 1000ms', 'no local Postgres test database reachable');
+    skip('R2 - Postgres: resolve endpoint survives a delayed COMMIT', 'no local Postgres test database reachable');
+    skip('R2 - Postgres: resolve endpoint fails cleanly on a failed COMMIT and keeps the block', 'no local Postgres test database reachable');
+    skip('R2 - Postgres: the block survives a simulated process restart', 'no local Postgres test database reachable');
   } else {
     await record('02 - dirty state survives a failed batch, unrelated write not lost', () => test02DirtyStateSurvivesFailure(harness));
     await record('02 - backoff bounds retry attempts under sustained traffic (no busy loop)', () => test02BackoffIsBoundedNotBusyLoop(harness));
     await record('02 - close() during backoff fails within budget, not a hang', () => test02CloseDuringBackoffFailsWithinBudget(harness));
     await record('02 - MUTATION: dropping the dirty-merge breaks the dirty-state test', () => test02Mutation(harness));
+    await record('backoff off-by-one - first retry uses the documented 500ms tier, not 1000ms', () => testBackoffFirstRetryUses500msNotSkippedTo1000ms(harness));
+    await record('R2 - Postgres: resolve endpoint survives a delayed COMMIT', () => testR2PostgresDelayedCommit(harness));
+    await record('R2 - Postgres: resolve endpoint fails cleanly on a failed COMMIT and keeps the block', () => testR2PostgresFailedCommit(harness));
+    await record('R2 - Postgres: the block survives a simulated process restart', () => testR2PostgresRestartSurvivesBlock(harness));
     await harness.pool.end().catch(() => {});
   }
 
@@ -891,9 +1519,16 @@ async function test02Mutation(harness) {
   if (failed.length) {
     console.error('\nFailed:');
     for (const f of failed) console.error(` - ${f.name}`);
+    // Explicit exit (not relying on natural event-loop drain): startAdminServer
+    // creates several setInterval timers (routes-cache refresh, Meta inbox
+    // drain x2) with no stop handle exposed, and this suite creates one such
+    // server. The prior round's suite left a live Node process after a
+    // successful run for exactly this reason. Matches the same technique
+    // scripts/audit-silent-loss-review-gaps.js already uses.
     process.exit(1);
   }
   console.log('\nSilent-data-loss-fix acceptance tests passed.');
+  process.exit(0);
 })().catch((err) => {
   console.error('Fatal error running the suite:', err);
   process.exit(1);

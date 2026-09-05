@@ -51,12 +51,30 @@ const DEFAULT_WHATSAPP_PROVIDER: ManagedClient['whatsappProvider'] = 'BAILEYS';
 function isValidClientRecord(raw: unknown): raw is Record<string, unknown> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false;
   const record = raw as Record<string, unknown>;
-  return (
-    typeof record.id === 'string' && record.id.trim().length > 0 &&
-    typeof record.name === 'string' &&
-    typeof record.accessCode === 'string' &&
-    typeof record.createdAt === 'string'
-  );
+  if (typeof record.id !== 'string' || !record.id.trim()) return false;
+  if (typeof record.name !== 'string') return false;
+  if (typeof record.accessCode !== 'string') return false;
+  if (typeof record.createdAt !== 'string') return false;
+  // ownerAccessToken is essential auth material for the client's admin
+  // dashboard. A KEY THAT IS ABSENT is the legitimate backward-compat case -
+  // a record written before this field existed - and is handled by an
+  // explicit, persisted, logged migration below (never a silent
+  // regenerate-on-every-load). But if the key IS present, its value must be a
+  // real credential: a wrong-typed or empty value is a sign of partial
+  // corruption, not a legitimate old-format record, and must not be "rescued"
+  // by inventing a fresh token that discards whatever authority the corrupt
+  // value used to carry - that would let a corrupted record silently regain
+  // a working, but different, credential. Reject the whole registry instead
+  // (same fail-closed contract as every other corruption path here) so a
+  // human notices and the .bak recovery path in load() gets a chance to run.
+  if ('ownerAccessToken' in record && (typeof record.ownerAccessToken !== 'string' || !record.ownerAccessToken.trim())) return false;
+  if ('plan' in record && typeof record.plan !== 'string') return false;
+  if ('whatsappProvider' in record && typeof record.whatsappProvider !== 'string') return false;
+  if ('maxCampaigns' in record && typeof record.maxCampaigns !== 'number') return false;
+  if ('readonlyDashboard' in record && typeof record.readonlyDashboard !== 'boolean') return false;
+  if ('managementUrl' in record && typeof record.managementUrl !== 'string') return false;
+  if ('provisioningStatus' in record && typeof record.provisioningStatus !== 'string') return false;
+  return true;
 }
 
 /**
@@ -66,16 +84,24 @@ function isValidClientRecord(raw: unknown): raw is Record<string, unknown> {
  * they are always overridden by the record's own field via the spread below
  * - never the other way around - so an existing secret/infra id already on a
  * record is never replaced to "rescue" a partially corrupt one.
+ *
+ * `migrated` is true only when at least one record was missing
+ * `ownerAccessToken` entirely (the legitimate old-format case) and therefore
+ * got a freshly generated one here. The caller (load()) persists that result
+ * immediately and logs it, so the generated token is durable and stable
+ * across restarts instead of being silently re-rolled on every startup.
  */
-function validateRegistry(parsed: unknown): ManagedClient[] | null {
+function validateRegistry(parsed: unknown): { clients: ManagedClient[]; migrated: boolean } | null {
   if (!Array.isArray(parsed)) return null;
   const seenIds = new Set<string>();
   const result: ManagedClient[] = [];
+  let migrated = false;
   for (const raw of parsed) {
     if (!isValidClientRecord(raw)) return null;
     const id = raw.id as string;
     if (seenIds.has(id)) return null;
     seenIds.add(id);
+    if (!('ownerAccessToken' in raw)) migrated = true;
     result.push({
       plan: 'self_service',
       readonlyDashboard: false,
@@ -85,7 +111,7 @@ function validateRegistry(parsed: unknown): ManagedClient[] | null {
       ...raw,
     } as ManagedClient);
   }
-  return result;
+  return { clients: result, migrated };
 }
 
 export class OwnerStorage {
@@ -130,9 +156,17 @@ export class OwnerStorage {
         // this loop only reaches the .bak candidate when the main candidate
         // above failed to parse/validate.
         if (candidate !== this.filePath) {
-          console.error(`[OWNER_STORAGE_RECOVERED_FROM_BACKUP] ${this.filePath} was unreadable or invalid; recovered ${validated.length} client(s) from ${candidate}. Fix or remove the corrupt main file - it is kept on disk for diagnosis.`);
+          console.error(`[OWNER_STORAGE_RECOVERED_FROM_BACKUP] ${this.filePath} was unreadable or invalid; recovered ${validated.clients.length} client(s) from ${candidate}. Fix or remove the corrupt main file - it is kept on disk for diagnosis.`);
         }
-        return validated;
+        if (validated.migrated) {
+          console.warn(`[OWNER_STORAGE_MIGRATED] ${candidate} had one or more client records missing ownerAccessToken; generated and persisting new tokens now (one-time, not regenerated on future startups).`);
+          try {
+            this.persistClients(validated.clients);
+          } catch (err) {
+            console.error('[OWNER_STORAGE_MIGRATION_PERSIST_FAILED]', err);
+          }
+        }
+        return validated.clients;
       } catch (err) {
         console.error(`[OWNER_STORAGE_CORRUPT] ${candidate} is unreadable: ${err instanceof Error ? err.message : String(err)}`);
       }

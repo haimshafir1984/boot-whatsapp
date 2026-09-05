@@ -190,6 +190,14 @@ export interface PendingHandoffConversation {
  * action explicitly resolves it (see /api/needs-review/:jid/resolve in
  * adminServer.ts, which calls conversationState.remove()).
  */
+export interface HeldIncomingMessage {
+  messageId?: string;
+  source?: string;
+  /** Best-effort text preview, length-capped - never the full raw payload. */
+  bodyPreview?: string;
+  timestamp: number;
+}
+
 export interface PendingNeedsReviewConversation {
   kind: 'needs_review';
   senderJid: string;
@@ -203,6 +211,14 @@ export interface PendingNeedsReviewConversation {
   reason: string;
   timestamp: number;
   timeoutHandle?: NodeJS.Timeout;
+  /**
+   * Every further inbound message that arrived for this sender WHILE blocked
+   * (finding 01 / R1). These are never processed automatically - an admin
+   * must explicitly choose what happens to them via the resolve endpoint
+   * (requeue or discard). Capped so a chatty blocked sender cannot grow this
+   * unboundedly.
+   */
+  heldMessages?: HeldIncomingMessage[];
 }
 
 export type PendingConversation = PendingNameConversation | PendingPreNamePromptConversation | PendingDecisionConversation | PendingWaitReplyConversation | PendingExpiredDecisionConversation | PendingContactCardConfirmationConversation | PendingHandoffConversation | PendingNeedsReviewConversation;
@@ -323,6 +339,38 @@ class ConversationStateManager {
       if (state.kind === 'needs_review') results.push({ jid, state });
     }
     return results;
+  }
+
+  /**
+   * True when `jidOrPhone` (either a jid or a bare/prefixed phone string) is
+   * currently blocked pending admin review. Used by the Outbox dispatcher and
+   * the service-bot follow-up dispatcher (R4) to hold back automatic sends
+   * for a sender that is under review, without touching or losing the queued
+   * work itself.
+   */
+  isHeldForReview(jidOrPhone: string | undefined): boolean {
+    if (!jidOrPhone) return false;
+    const direct = this.map.get(jidOrPhone);
+    if (direct?.kind === 'needs_review') return true;
+    const byPhone = this.findByPhone(jidOrPhone);
+    return byPhone?.kind === 'needs_review';
+  }
+
+  /**
+   * Records a further inbound message that arrived for an already-blocked
+   * sender (R1), and persists the block synchronously (via the same path as
+   * set()) so the durable snapshot always reflects every message the sender
+   * is owed a decision about - not just the one that triggered the block.
+   * Capped at 50 entries (oldest dropped first) so a chatty blocked sender
+   * cannot grow the snapshot without bound.
+   */
+  appendHeldMessage(jid: string, entry: HeldIncomingMessage): boolean {
+    const state = this.map.get(jid);
+    if (!state || state.kind !== 'needs_review') return false;
+    const list = [...(state.heldMessages ?? []), entry];
+    state.heldMessages = list.length > 50 ? list.slice(list.length - 50) : list;
+    this.persist([jid]);
+    return true;
   }
 
   remove(jid: string): void {

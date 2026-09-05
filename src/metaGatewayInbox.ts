@@ -1,7 +1,13 @@
 import fs from 'fs';
 import path from 'path';
 
-export type MetaGatewayInboxStatus = 'queued' | 'processing' | 'retry' | 'completed' | 'failed';
+// 'held' (R1): the sender was already blocked (needs_review) when this item
+// was claimed. Distinct from 'failed' - it is not an error to give up on,
+// and distinct from 'completed' - the item was never actually processed. It
+// is never auto-claimed again (see isClaimable below); only an explicit
+// admin action via resolveHeldForSender() moves it to 'queued' (requeue) or
+// 'failed' (discard).
+export type MetaGatewayInboxStatus = 'queued' | 'processing' | 'retry' | 'completed' | 'failed' | 'held';
 
 export interface MetaGatewayInboxItem {
   id: string;
@@ -108,8 +114,50 @@ export class MetaGatewayInbox {
     this.update(id, { status: 'failed', processingStartedAt: undefined, nextAttemptAt: undefined, lastError: error instanceof Error ? error.message : String(error), updatedAt: now.toISOString() });
   }
 
+  /**
+   * R1: the sender was already blocked (needs_review) when this item was
+   * claimed. Marks it 'held' - not completed (the reply was never actually
+   * processed), not failed (not an error to give up retrying), and no
+   * attempts are burned since it is simply never offered to claimBatch again
+   * until an admin explicitly resolves it via resolveHeldForSender().
+   */
+  markHeld(id: string, reason: unknown, now = new Date()): void {
+    this.update(id, { status: 'held', processingStartedAt: undefined, nextAttemptAt: undefined, lastError: reason instanceof Error ? reason.message : String(reason), updatedAt: now.toISOString() });
+  }
+
+  /** Every item currently held for a given sender key (metaPayloadSenderKey), oldest first. */
+  listHeldForSender(senderKey: string, senderKeyOf: (item: MetaGatewayInboxItem) => string): MetaGatewayInboxItem[] {
+    return this.data.items
+      .filter((item) => item.status === 'held' && senderKeyOf(item) === senderKey)
+      .slice()
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .map((item) => ({ ...item }));
+  }
+
+  /**
+   * Explicit, admin-chosen resolution for every 'held' item belonging to a
+   * sender (R1, point 5): 'requeue' resets them to 'queued' with a fresh
+   * attempts budget so the drainer picks them up again; 'discard' moves them
+   * to 'failed' with an annotated reason so they are never lost, never
+   * silently retried, and remain visible for audit. There is deliberately no
+   * automatic default - the caller (the resolve endpoint) must choose.
+   */
+  resolveHeldForSender(senderKey: string, senderKeyOf: (item: MetaGatewayInboxItem) => string, action: 'requeue' | 'discard', now = new Date()): number {
+    const timestamp = now.toISOString();
+    let touched = 0;
+    const nextItems = this.data.items.map((item) => {
+      if (item.status !== 'held' || senderKeyOf(item) !== senderKey) return item;
+      touched += 1;
+      return action === 'requeue'
+        ? { ...item, status: 'queued' as const, attempts: 0, nextAttemptAt: undefined, lastError: undefined, updatedAt: timestamp }
+        : { ...item, status: 'failed' as const, nextAttemptAt: undefined, lastError: `[ADMIN_DISCARDED] ${item.lastError || ''}`.trim(), updatedAt: timestamp };
+    });
+    if (touched) this.persistData({ version: 1, items: nextItems });
+    return touched;
+  }
+
   counts(): Record<MetaGatewayInboxStatus, number> {
-    const counts: Record<MetaGatewayInboxStatus, number> = { queued: 0, processing: 0, retry: 0, completed: 0, failed: 0 };
+    const counts: Record<MetaGatewayInboxStatus, number> = { queued: 0, processing: 0, retry: 0, completed: 0, failed: 0, held: 0 };
     for (const item of this.data.items) counts[item.status] += 1;
     return counts;
   }
