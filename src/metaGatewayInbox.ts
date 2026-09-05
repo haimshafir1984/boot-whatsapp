@@ -75,7 +75,18 @@ export class MetaGatewayInbox {
     if (groupKey) {
       const firstOutstandingByGroup = new Map<string, MetaGatewayInboxItem>();
       for (const item of ordered) {
-        if (item.status === 'completed' || item.status === 'failed') continue;
+        // 'held' (R1) is a terminal, already-examined state - like
+        // 'completed'/'failed', not like 'processing'/'retry'. Without this,
+        // an OLDER held item would permanently occupy this sender's one
+        // group slot: isClaimable() rejects 'held' outright (see below), so
+        // every NEWER message from the same still-blocked sender would sit
+        // as 'queued' forever - never claimed, never itself transitioned to
+        // 'held', never appended to conversationState's heldMessages, and
+        // invisible to the admin resolve flow. Excluding it here lets the
+        // next real message take the slot, get claimed, run through
+        // handleMessage (which still finds the sender needs_review and
+        // holds it correctly), and be marked 'held' in its own right.
+        if (item.status === 'completed' || item.status === 'failed' || item.status === 'held') continue;
         const key = groupKey(item);
         if (!firstOutstandingByGroup.has(key)) firstOutstandingByGroup.set(key, item);
       }

@@ -306,6 +306,64 @@ async function test01Mutation() {
 }
 
 // ===========================================================================
+// R1 follow-up - found during independent verification (not in R1-R6): an
+// OLDER 'held' item permanently occupied its sender's one group slot in
+// claimBatch(), because 'held' was not excluded from firstOutstandingByGroup
+// the way 'completed'/'failed' already were. isClaimable() correctly rejects
+// 'held' outright, so the group then yielded NOTHING claimable - a genuinely
+// NEW, later message from the same still-blocked sender sat as 'queued'
+// forever: never claimed, never itself transitioned to 'held', never
+// appended to conversationState's heldMessages, invisible to the admin
+// resolve flow. Reproduced directly against MetaGatewayInbox before fixing.
+// ===========================================================================
+
+async function testR1SecondMessageForHeldSenderIsClaimable() {
+  const { MetaGatewayInbox } = freshRequire('../dist/metaGatewayInbox');
+  const dir = tmpDir('sdlf-r1-second-');
+  const inbox = new MetaGatewayInbox(path.join(dir, 'inbox.json'));
+  const senderKeyOf = (item) => item.payload.sender;
+
+  inbox.enqueue('m1', { sender: 'A', body: 'first' });
+  const firstClaim = inbox.claimBatch(10, senderKeyOf);
+  assert.equal(firstClaim.length, 1, 'first message must be claimable');
+  inbox.markHeld(firstClaim[0].id, 'blocked pending review');
+
+  inbox.enqueue('m2', { sender: 'A', body: 'second, arrives while sender A is still held' });
+  const secondClaim = inbox.claimBatch(10, senderKeyOf);
+  assert.equal(secondClaim.length, 1, 'a second message from the SAME still-held sender must still be claimable - not masked by the older held item');
+  assert.equal(secondClaim[0].id, 'm2');
+
+  // An unrelated sender must be entirely unaffected.
+  inbox.enqueue('n1', { sender: 'B', body: 'unrelated sender' });
+  const otherClaim = inbox.claimBatch(10, senderKeyOf);
+  assert.equal(otherClaim.length, 1);
+  assert.equal(otherClaim[0].id, 'n1');
+}
+
+async function testR1SecondMessageMutation() {
+  const distPath = require.resolve('../dist/metaGatewayInbox');
+  const original = fs.readFileSync(distPath, 'utf8');
+  const from = "item.status === 'completed' || item.status === 'failed' || item.status === 'held')";
+  const to = "item.status === 'completed' || item.status === 'failed')";
+  assert.ok(original.includes(from), 'mutation anchor not found in dist/metaGatewayInbox.js - has the compiled output changed shape?');
+  fs.writeFileSync(distPath, original.replace(from, to), 'utf8');
+  try {
+    let mutationDetected = false;
+    try {
+      await testR1SecondMessageForHeldSenderIsClaimable();
+    } catch {
+      mutationDetected = true;
+    }
+    assert.ok(mutationDetected, 'reverting the held-exclusion must make testR1SecondMessageForHeldSenderIsClaimable fail, but it passed');
+  } finally {
+    fs.writeFileSync(distPath, original, 'utf8');
+    delete require.cache[distPath];
+  }
+  freshRequire('../dist/metaGatewayInbox');
+  await testR1SecondMessageForHeldSenderIsClaimable();
+}
+
+// ===========================================================================
 // SECTION 03 - metaGatewayInbox.ts: commit-then-publish rollback at every
 // write stage (enqueue/claim/update), restart preserves last committed state.
 // ===========================================================================
@@ -1471,6 +1529,9 @@ async function testOwnerStorageMigratesMissingTokenOncePersisted() {
     await record('11 - a credential-shaped reason is redacted before reaching the admin API', () => testSecretRedactionOnAdminApi(httpHarness));
     await closeHttpTestHarness(httpHarness);
   }
+
+  await record('R1 - a SECOND message from an already-held sender is itself claimable and held, not stuck queued forever', testR1SecondMessageForHeldSenderIsClaimable);
+  await record('R1 - MUTATION: excluding held from group-blocking breaks the second-message test', testR1SecondMessageMutation);
 
   await record('03 - enqueue rolls back in-memory push on persist failure', test03EnqueueRollsBackOnPersistFailure);
   await record('03 - claimBatch rolls back status changes on persist failure', test03ClaimBatchRollsBackOnPersistFailure);
