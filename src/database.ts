@@ -269,12 +269,30 @@ class PostgresStorageBackend implements StorageBackend {
   private resolveBatchSignal!: () => void;
   private batchError: string | undefined;
   private batchErrorThroughSeq = 0;
+  // Consecutive-failure backoff (finding 02): resets ONLY on a successful
+  // commit, never just because a newer batchSeq showed up while retrying.
+  private consecutiveFailures = 0;
+  // Set once close() has asked the retry loop to stop scheduling new attempts.
+  private closing = false;
+  private retryTimer: NodeJS.Timeout | undefined;
+  // Resolves the next time a scheduled retry attempt actually starts running -
+  // used by close() to bound how long it waits for an in-flight/about-to-run
+  // attempt instead of hot-looping on `while (draining) await pending`.
+  private retryScheduled: Promise<void> | undefined;
+
+  static readonly RETRY_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 30000];
 
   constructor(private readonly pool: Pool) {
     // Always a genuinely pending latch. Awaiting an already-resolved promise in
     // a re-checking loop would spin the microtask queue and starve the drain's
     // I/O, so it must only resolve via signalBatchComplete().
     this.batchSignal = new Promise((res) => { this.resolveBatchSignal = res; });
+  }
+
+  private retryDelayMs(): number {
+    const delays = PostgresStorageBackend.RETRY_DELAYS_MS;
+    const index = Math.min(this.consecutiveFailures, delays.length - 1);
+    return delays[index];
   }
 
   private signalBatchComplete(): void {
@@ -307,7 +325,12 @@ class PostgresStorageBackend implements StorageBackend {
     this.queuedDirtyTables = mergeDirtyTables(this.queuedDirtyTables, dirtyTables);
     this.queuedDirtyRowIds = mergeDirtyRowIdsByTable(this.queuedDirtyRowIds, dirtyRowIds);
     this.pendingWrites = 1;
-    if (this.draining) return;
+    // Already draining: the running cycle's while-loop will pick this up.
+    // Already in backoff (retryTimer set): the scheduled attempt will pick it
+    // up when it fires - starting a fresh drain here would bypass the delay
+    // and turn a rate-limited retry back into a busy loop under sustained
+    // traffic (finding 02, acceptance test 5).
+    if (this.draining || this.retryTimer) return;
 
     this.draining = true;
     this.pending = this.drainPendingSnapshots();
@@ -332,45 +355,84 @@ class PostgresStorageBackend implements StorageBackend {
         // since merge('all', anything) is always 'all'.
         this.queuedDirtyTables = new Set();
         this.queuedDirtyRowIds = {};
-        const snapshot = cloneSnapshotForTables(this.persistedSnapshot, source, dirtyTables);
-        await writeSnapshotDelta(this.pool, this.persistedSnapshot, snapshot, dirtyTables, dirtyRowIds);
-        this.persistedSnapshot = snapshot;
-        // Only a successful commit advances durability.
-        this.durableSeq = batchSeq;
-        this.lastError = undefined;
-        // A retry that has now caught up past an earlier failure clears it, so
-        // late callers for that range stop throwing once their data is durable.
-        if (this.batchError !== undefined && this.durableSeq >= this.batchErrorThroughSeq) {
+        try {
+          const snapshot = cloneSnapshotForTables(this.persistedSnapshot, source, dirtyTables);
+          await writeSnapshotDelta(this.pool, this.persistedSnapshot, snapshot, dirtyTables, dirtyRowIds);
+          this.persistedSnapshot = snapshot;
+          // Only a successful commit advances durability.
+          this.durableSeq = batchSeq;
+          this.consecutiveFailures = 0;
+          this.lastError = undefined;
+          // Every failed batch's dirty data is folded forward into whatever
+          // queuedSnapshot/dirtyTables a later successful commit covers (see
+          // the merge-back in the inner catch below), so any successful
+          // commit fully supersedes every prior failure - there is no case
+          // where durableSeq has advanced but part of an earlier failure is
+          // still outstanding.
           this.batchError = undefined;
+          this.lastWriteAt = new Date().toISOString();
+          this.signalBatchComplete();
+        } catch (err) {
+          // The write for THIS table set failed - its dirty markers must not
+          // be lost, and a newer snapshot that arrived while we awaited must
+          // not be clobbered by re-queuing the older `source`.
+          this.queuedSnapshot = this.queuedSnapshot ?? source;
+          this.queuedDirtyTables = mergeDirtyTables(dirtyTables, this.queuedDirtyTables);
+          this.queuedDirtyRowIds = mergeDirtyRowIdsByTable(dirtyRowIds, this.queuedDirtyRowIds);
+          throw err;
         }
-        this.lastWriteAt = new Date().toISOString();
-        this.signalBatchComplete();
       }
     } catch (err) {
       this.lastError = err instanceof Error ? err.message : String(err);
       this.batchError = this.lastError;
-      this.batchErrorThroughSeq = batchSeq;
-      console.error('PostgreSQL storage write failed:', err);
-      // Wake waiters so the one whose generation just failed can throw.
+      this.batchErrorThroughSeq = Math.max(this.batchErrorThroughSeq, this.writeSeq);
+      this.consecutiveFailures += 1;
+      console.error(`PostgreSQL storage write failed (consecutive failures=${this.consecutiveFailures}):`, err);
+      // Wake waiters so the ones whose generation just failed (or arrived
+      // after it, and are therefore also uncovered) can throw from flush().
       this.signalBatchComplete();
-    } finally {
       this.draining = false;
       this.pendingWrites = this.queuedSnapshot ? 1 : 0;
-      if (this.queuedSnapshot) {
-        this.draining = true;
-        this.pending = this.drainPendingSnapshots();
-      }
+      if (!this.closing) this.scheduleRetry();
+      return;
     }
+    this.draining = false;
+    this.pendingWrites = this.queuedSnapshot ? 1 : 0;
+    if (this.queuedSnapshot) {
+      // More work merged in during this cycle (e.g. persistSnapshot calls
+      // that arrived while we awaited a prior write in the same cycle).
+      // Immediate, no backoff - only actual write failures get rate-limited.
+      this.draining = true;
+      this.pending = this.drainPendingSnapshots();
+    }
+  }
+
+  /** Only one retry timer is ever active (guarded by persistSnapshot/close checking `retryTimer`). */
+  private scheduleRetry(): void {
+    if (this.retryTimer || this.closing) return;
+    const delay = this.retryDelayMs();
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined;
+      if (this.closing || !this.queuedSnapshot) return;
+      this.draining = true;
+      this.pending = this.drainPendingSnapshots();
+    }, delay);
+    // A pending backoff retry must not keep the process alive by itself.
+    this.retryTimer.unref?.();
   }
 
   async flush(): Promise<void> {
     // Everything requested up to now - nothing queued after this line.
     const targetSeq = this.writeSeq;
     while (this.durableSeq < targetSeq) {
-      // This caller's own write was in a batch that failed and no retry has
-      // covered it yet: surface the error instead of hanging or (worse)
-      // returning as if the write were durable.
-      if (this.batchError !== undefined && targetSeq <= this.batchErrorThroughSeq) {
+      // As long as a batch failure is outstanding and this caller's write is
+      // not yet durable, surface the error - including callers whose write
+      // arrived AFTER the failing batch (they are folded into the same
+      // still-failing queuedSnapshot and are equally not yet durable).
+      // batchError is cleared only by an actual successful commit, so this
+      // cannot report success while data remains unsaved, and cannot hang a
+      // caller that arrived late forever either.
+      if (this.batchError !== undefined) {
         throw new Error(this.batchError);
       }
       // Grab the latch reference, then await it. signalBatchComplete() swaps in
@@ -381,12 +443,26 @@ class PostgresStorageBackend implements StorageBackend {
   }
 
   async close(): Promise<void> {
-    // Shutdown wants global quiet, not one generation: every queued write must
-    // land before the pool closes.
-    while (this.draining || this.queuedSnapshot) {
+    this.closing = true;
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = undefined;
+    }
+    // Wait for an attempt that is actively running right now, within whatever
+    // shutdown budget the caller (src/shutdown.ts) already enforces. Do not
+    // start a fresh attempt and do not loop: closing=true stops
+    // scheduleRetry/persistSnapshot from queuing another drain cycle, so this
+    // resolves in bounded time even if the write ultimately fails again.
+    if (this.draining) {
       await this.pending;
     }
-    if (this.lastError) throw new Error(this.lastError);
+    if (this.queuedSnapshot || this.lastError) {
+      const message = this.lastError
+        ? `PostgreSQL storage close(): unsaved writes remain - ${this.lastError}`
+        : 'PostgreSQL storage close(): unsaved writes remain (shutdown before drain completed)';
+      await this.pool.end().catch((endErr) => console.error('PostgreSQL pool close failed during error shutdown:', endErr));
+      throw new Error(message);
+    }
     await this.pool.end();
   }
 
