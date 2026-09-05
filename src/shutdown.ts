@@ -68,13 +68,17 @@ export function createShutdownHandler(deps: ShutdownDeps): (signal: string) => P
     await Promise.all(workers.map((worker) => worker.stop()));
     // 3. Only now close storage — it drains to full quiet on its own, so no
     //    separate storage.flush() is needed here.
+    let storageCloseFailed = false;
     try {
       await storage.close();
     } catch (err) {
+      storageCloseFailed = true;
       errorLog('storage.close() on shutdown failed:', err);
     }
 
     clearTimeout(forceExit);
-    exit(0);
+    // A failed storage.close() means unsaved writes remain (finding 02) - the
+    // exit code must say so instead of reporting a clean shutdown.
+    exit(storageCloseFailed ? 1 : 0);
   };
 }

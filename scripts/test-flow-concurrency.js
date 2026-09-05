@@ -145,15 +145,46 @@ function inbound(storage, transport, phone, body, isButtonReply = false) {
     await inbound(storage, transport, retryPhone, 'join-retry');
     transport.failText = 'transition-message';
     transport.failCount = 2;
-    await inbound(storage, transport, retryPhone, 'option-go', true);
-    const retained = conversationState.get(`whatsapp:${retryPhone}`);
-    assert.ok(retained && retained.kind === 'decision' && retained.stepId === 'step-one', 'failed transition must retain the previous recoverable question');
+    // silent-data-loss-fix (finding 01): handleIncomingWhatsAppMessage now
+    // rethrows a processing failure instead of swallowing it, and holds the
+    // sender (needs_review) instead of silently allowing an automatic retry
+    // of the same button reply - a second run of handleMessage could
+    // otherwise resend a step the first attempt already progressed past.
+    // This deliberately replaces the old "just send the same button reply
+    // again and it recovers silently" assumption this test used to encode -
+    // see silent-data-loss-fix-plan-review-2026-09-05.md, finding 01.
+    await assert.rejects(
+      inbound(storage, transport, retryPhone, 'option-go', true),
+      /planned transport failure/,
+      'a send failure during a decision transition must now propagate, not be swallowed',
+    );
+    const blockedAfterFailure = conversationState.get(`whatsapp:${retryPhone}`);
+    assert.ok(blockedAfterFailure && blockedAfterFailure.kind === 'needs_review', 'the sender must be held for admin review after a send failure, not silently retryable');
+
+    // A duplicate provider re-delivery (or the user just tapping the button
+    // again) must stay blocked, not quietly re-attempt the flow.
+    await inbound(storage, transport, retryPhone, 'option-go', true).catch(() => {});
+    assert.strictEqual(conversationState.get(`whatsapp:${retryPhone}`).kind, 'needs_review', 'further messages from a needs_review sender must stay held, not re-attempt the flow');
+    assert.strictEqual(transport.sent.filter((item) => item.text === 'Second question' && item.to === `whatsapp:${retryPhone}`).length, 0, 'a blocked sender must not have advanced past the failed step');
+
+    // Mirrors what POST /api/needs-review/:jid/resolve does in production -
+    // an explicit, authenticated admin action lifts the hold. This round does
+    // not attempt to resume the exact prior flow position automatically
+    // (full-replay recovery was explicitly rejected as unsafe); the admin
+    // reopens the conversation, which here means a fresh trigger.
+    conversationState.remove(`whatsapp:${retryPhone}`);
     transport.failText = '';
+    await inbound(storage, transport, retryPhone, 'join-retry');
     await inbound(storage, transport, retryPhone, 'option-go', true);
-    assert.strictEqual(conversationState.get(`whatsapp:${retryPhone}`).stepId, 'step-two', 'retry after transport recovery should advance normally');
+    assert.strictEqual(conversationState.get(`whatsapp:${retryPhone}`).stepId, 'step-two', 'after the admin resolves the hold, a fresh attempt should advance normally');
     const retryEvents = storage.getCampaignEvents(retryCampaign.id);
-    assert.strictEqual(retryEvents.filter((event) => event.type === 'step_answered').length, 1, 'retry must not duplicate step-answer events');
-    assert.strictEqual(retryEvents.filter((event) => event.type === 'raffle_entry').length, 1, 'retry must not duplicate raffle eligibility');
+    // Two attempts happened at the campaign level (the failed one, then the
+    // admin-reopened fresh one), so - unlike the old same-message-retry
+    // design - two step_answered/raffle_entry events are expected here, one
+    // per campaignResult. What matters is that recovery works at all and
+    // that the SAME reopened attempt is not itself duplicated.
+    assert.strictEqual(retryEvents.filter((event) => event.type === 'step_answered').length, 2, 'one step_answered per attempt (failed + admin-reopened), no additional duplication within either');
+    assert.strictEqual(retryEvents.filter((event) => event.type === 'raffle_entry').length, 2, 'one raffle_entry per attempt (failed + admin-reopened), no additional duplication within either');
 
     const timeoutCampaign = addCampaign(storage, 'Timeout resume campaign', 'join-timeout', {
       decisionFlow: [

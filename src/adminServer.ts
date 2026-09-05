@@ -37,7 +37,8 @@ import { createMetaSignatureVerifier } from './metaWebhookSignature';
 import { ManagedClient, OwnerStorage } from './ownerStorage';
 import { DokployProvisioner } from './dokployProvisioner';
 import { conversationState } from './conversationState';
-import { getFlowHealthSnapshot, handleIncomingWhatsAppMessage } from './messageFlow';
+import { getFlowHealthSnapshot, handleIncomingWhatsAppMessage, SenderHeldForReviewError } from './messageFlow';
+import { redactSecrets } from './secretRedaction';
 import { TwilioProvider } from './providers/TwilioProvider';
 import { MetaCloudProvider } from './providers/MetaCloudProvider';
 import { IncomingWhatsAppMessage } from './types/whatsapp';
@@ -132,7 +133,13 @@ function localMetaPendingRoute(storage: Storage, phone: string): MetaPendingRout
   // 'expired-decision' is kept around only to let a one-shot inactivity
   // continuation run once; the sender is no longer actively expected to
   // reply, so it must not keep winning future cross-client routing forever.
-  if (pending?.campaignId && pending.kind !== 'expired-decision') {
+  //
+  // R5: a needs_review hold must count as "pending" here even when it has no
+  // campaignId (e.g. a failure before any campaign was ever matched) - the
+  // whole point is that THIS client still owns the sender and must keep
+  // receiving their messages (to record them into heldMessages) rather than
+  // the gateway treating a reply as no_match and trying other clients.
+  if (pending && pending.kind !== 'expired-decision' && (pending.campaignId || pending.kind === 'needs_review')) {
     return { pending: true, campaignId: pending.campaignId, kind: pending.kind, timestamp: pending.timestamp };
   }
   const serviceBotSession = storage.getServiceBotSession(phone);
@@ -1582,6 +1589,15 @@ export function startAdminServer(storage: Storage): import('http').Server {
       id: String(message.id),
       from: 'whatsapp:' + String(message.from),
       to: 'whatsapp:' + normalizeSharePhone(config.META_DISPLAY_PHONE_NUMBER),
+      // R5: the Meta webhook payload's `from` IS the sender's phone (Meta
+      // sends it digits-only, no "whatsapp:" prefix) - populate it here
+      // instead of leaving messageFlow.ts to resolve it later via
+      // transport.resolvePhone. Without this, a needs_review block created
+      // from this path had no senderPhone at all, so
+      // conversationState.findByPhone() and localMetaPendingRoute()
+      // (below) could never find it again for a follow-up reply (the
+      // independent review's R5 repro).
+      senderPhone: String(message.from).replace(/\D/g, ''),
       body,
       hasUserSignal: Boolean(body || isButtonReply || mediaPayload),
       isButtonReply,
@@ -1813,7 +1829,16 @@ export function startAdminServer(storage: Storage): import('http').Server {
           // that lookup already bumped lookupFailures and made us throw before
           // reaching here.
           const pendingRoute = pendingByClient.get(client.id);
-          if (!pendingRoute?.pending || !pendingRoute.campaignId) return null;
+          if (!pendingRoute?.pending) return null;
+          // R5: a needs_review hold must still route back to the owning
+          // client even with no live campaign to match against - there is no
+          // campaign step left to run, only a message to record into that
+          // client's heldMessages queue, so campaign-activeness checks below
+          // do not apply to it.
+          if (pendingRoute.kind === 'needs_review') {
+            return { client, campaign: { id: pendingRoute.campaignId || '', name: 'needs_review', triggerType: 1, triggerPhrase: '', suffix: '', active: true } as MetaGatewayRoute };
+          }
+          if (!pendingRoute.campaignId) return null;
           const routes = campaignsByClient.get(client.id) ?? [];
           const campaign = routes.find((route) => route.id === pendingRoute.campaignId);
           if (!campaign?.active || campaign.runtimeStatus !== 'active') return null;
@@ -1917,6 +1942,18 @@ export function startAdminServer(storage: Storage): import('http').Server {
               if (!gateway.handled) await handleMetaInboundForStorage(item.payload);
               metaGatewayInbox.markCompleted(item.id);
             } catch (err) {
+              if (err instanceof SenderHeldForReviewError) {
+                // R1: the sender is already blocked. The message was
+                // durably recorded into heldMessages by messageFlow.ts
+                // itself before this error was thrown - this must NOT be
+                // marked completed (it was never processed) nor failed (not
+                // an error to give up on) nor burn a retry attempt. 'held'
+                // blocks claimBatch's groupKey selection for this sender
+                // until an admin explicitly resolves it.
+                metaGatewayInbox.markHeld(item.id, err);
+                console.warn('[META_GATEWAY_INBOX_HELD]', item.id, err.message);
+                break;
+              }
               if (item.attempts >= 10) {
                 metaGatewayInbox.markFailed(item.id, err);
                 console.error('[META_GATEWAY_INBOX_FAILED]', item.id, err);
@@ -1962,6 +1999,13 @@ export function startAdminServer(storage: Storage): import('http').Server {
               await handleMetaInboundForStorage(item.payload);
               metaClientInbox.markCompleted(item.id);
             } catch (err) {
+              if (err instanceof SenderHeldForReviewError) {
+                // R1: see the matching comment in metaGatewayDrainer above -
+                // never completed, never failed, never burns a retry.
+                metaClientInbox.markHeld(item.id, err);
+                console.warn('[META_CLIENT_INBOX_HELD]', item.id, err.message);
+                continue;
+              }
               if (item.attempts >= 10) {
                 metaClientInbox.markFailed(item.id, err);
                 console.error('[META_CLIENT_INBOX_FAILED]', item.id, err);
@@ -3609,6 +3653,107 @@ export function startAdminServer(storage: Storage): import('http').Server {
     res.json({
       stats: storage.getContactQueueStats(),
       items: storage.getContactQueue(limit),
+    });
+  });
+
+  // ── needs_review (finding 01/R1/R2/R6: senders held after an unverifiable failure) ──
+
+  // A held item's inbox sender key does not carry the destination number the
+  // way metaPayloadSenderKey does (the admin only has the jid/phone, not
+  // which Meta phone_number_id the original webhook arrived on) - match by
+  // the sender's own phone digits within the item payload instead, which is
+  // exactly what a needs_review block is keyed on (R5).
+  const heldItemMatchesPhone = (item: MetaGatewayInboxItem, phoneDigits: string): boolean => {
+    if (!phoneDigits) return false;
+    const payload = item.payload as any;
+    const from = String(payload?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from || '').replace(/\D/g, '');
+    return Boolean(from) && from === phoneDigits;
+  };
+
+  app.get('/api/needs-review', (_req, res) => {
+    res.json({
+      items: conversationState.listNeedsReview().map(({ jid, state }) => ({
+        jid,
+        senderPhone: state.senderPhone,
+        campaignId: state.campaignId,
+        campaignResultId: state.campaignResultId,
+        messageId: state.messageId,
+        source: state.source,
+        // redactSecrets: finding 11 point 3 - reason is derived from a raw
+        // Error.message upstream and must never leak a credential-shaped
+        // substring over the admin API, even though messageFlow.ts already
+        // redacts at the source - defense in depth for any older/other
+        // caller of conversationState.set that predates that redaction.
+        reason: redactSecrets(state.reason),
+        heldSince: new Date(state.timestamp).toISOString(),
+        heldMessageCount: state.heldMessages?.length ?? 0,
+        heldMessages: (state.heldMessages ?? []).map((entry) => ({
+          messageId: entry.messageId,
+          source: entry.source,
+          bodyPreview: redactSecrets(entry.bodyPreview),
+          timestamp: new Date(entry.timestamp).toISOString(),
+        })),
+      })),
+    });
+  });
+
+  // Explicit, authenticated, audited admin action - there is no automatic
+  // "retry everything" (review doc, finding 01, point 5). Resolving simply
+  // lifts the block; it does not resend anything and does not undo whatever
+  // side effect may already have happened before the original failure.
+  //
+  // R2: this holds up its HTTP response until the removal is actually
+  // committed (await storage.flush()), fails (not 200) if that commit
+  // fails, and restores the in-memory block too in that case - a caller must
+  // never be told the sender is unblocked while the durable record still
+  // shows it held.
+  //
+  // R1 point 5: the caller must explicitly say what happens to any messages
+  // that arrived while this sender was blocked (heldMessagesAction) - there
+  // is no default, and no automatic replay against a fresh conversation.
+  app.post('/api/needs-review/:jid/resolve', requireWritableClient, async (req, res) => {
+    const jid = String(req.params.jid || '');
+    const heldMessagesAction = String(req.body?.heldMessagesAction || '');
+    if (heldMessagesAction !== 'requeue' && heldMessagesAction !== 'discard') {
+      res.status(400).json({ error: 'heldMessagesAction must be "requeue" (re-process the held messages as new inbound) or "discard" (drop them, keeping them recorded for audit).' });
+      return;
+    }
+    const current = conversationState.get(jid);
+    if (!current || current.kind !== 'needs_review') {
+      res.status(404).json({ error: 'No needs_review hold found for this conversation.' });
+      return;
+    }
+    conversationState.remove(jid);
+    try {
+      await storage.flush();
+    } catch (err) {
+      // The removal did not durably commit - restore the in-memory block
+      // (best-effort; if THIS write also fails, the block already surfaced
+      // via the failed flush above and the next storage recovery/restart
+      // still has the original durable copy, since conversationState.remove
+      // never got the chance to commit either) and fail the request instead
+      // of reporting success.
+      try { conversationState.set(jid, current); } catch (restoreErr) {
+        console.error(`[NEEDS_REVIEW_RESOLVE_RESTORE_FAILED] jid=${jid}`, restoreErr);
+      }
+      console.error(`[NEEDS_REVIEW_RESOLVE_COMMIT_FAILED] jid=${jid}`, err);
+      res.status(503).json({ error: redactSecrets(`Could not durably commit the unblock: ${err instanceof Error ? err.message : String(err)}`) });
+      return;
+    }
+
+    const phoneDigits = String(current.senderPhone || jid).replace(/\D/g, '');
+    const inboxAction = heldMessagesAction === 'requeue' ? 'requeue' : 'discard';
+    const matcher = (item: MetaGatewayInboxItem) => (heldItemMatchesPhone(item, phoneDigits) ? phoneDigits : `no-match:${item.id}`);
+    const gatewayResolved = metaGatewayInbox.resolveHeldForSender(phoneDigits, matcher, inboxAction);
+    const clientResolved = metaClientInbox.resolveHeldForSender(phoneDigits, matcher, inboxAction);
+
+    console.log(`[NEEDS_REVIEW_RESOLVED] jid=${jid} reason="${current.reason.slice(0, 200)}" resolvedBy=admin heldMessagesAction=${heldMessagesAction} heldMessageCount=${current.heldMessages?.length ?? 0} inboxItemsResolved=${gatewayResolved + clientResolved}`);
+    res.json({
+      ok: true,
+      jid,
+      heldMessagesAction,
+      heldMessageCount: current.heldMessages?.length ?? 0,
+      inboxItemsResolved: gatewayResolved + clientResolved,
     });
   });
 

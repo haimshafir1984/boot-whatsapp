@@ -1,6 +1,7 @@
 import { deliverServiceBotFollowUp } from './serviceBot';
 import { Storage } from './storage';
 import { WhatsAppTransport } from './types/whatsapp';
+import { conversationState } from './conversationState';
 
 type TransportResolver = () => WhatsAppTransport | null | undefined;
 
@@ -19,6 +20,11 @@ export function startServiceBotFollowUpDispatcher(
     if (!transport) return;
     for (const due of storage.getDueServiceBotFollowUps()) {
       if (stopping) break;
+      // R4: same guard as outboxDispatcher.ts - a sender blocked pending
+      // admin review must not receive an automatic follow-up either. Leave
+      // it unclaimed (still 'scheduled') so it is preserved and simply
+      // retried on the next tick, rather than lost or sent while blocked.
+      if (conversationState.isHeldForReview(due.to) || conversationState.isHeldForReview(due.phone)) continue;
       const claimed = storage.claimServiceBotFollowUp(due.id);
       if (!claimed) continue;
       try {

@@ -1390,6 +1390,20 @@
     </div>
   </div>
 
+  <!-- Needs-review card (R6): senders blocked after an unverifiable send/save failure never
+       expire on their own, so a visible counter + list here is required operational surface
+       for the fix itself, not optional polish. Hidden while the count is zero. -->
+  <div class="card" id="needsReviewCard" style="display:none; border:2px solid #e53e3e">
+    <div class="card-body">
+      <div class="sec-title" style="color:#e53e3e">⚠️ שיחות חסומות לבדיקת מנהל (<span id="needsReviewCount">0</span>)</div>
+      <div class="toggle-sub" style="margin-bottom:10px">
+        הודעה שהעיבוד שלה נכשל באופן שלא ניתן היה לאמת חסמה את השולח באופן מלא, כולל הודעות המשך אוטומטיות,
+        עד שמנהל יבחן ויפתור אותה ידנית. הודעות נוספות שהגיעו בזמן החסימה נשמרות ומוצגות למטה - הן לא נשלחות ולא נמחקות אוטומטית.
+      </div>
+      <div id="needsReviewList"></div>
+    </div>
+  </div>
+
   <div class="dashboard-tabs" id="dashboardTabs" role="tablist" aria-label="אזור ניהול">
     <button type="button" class="dashboard-tab active" id="campaignsDashboardTab" role="tab" aria-selected="true" onclick="switchDashboardTab('campaigns')">קמפיינים</button>
     <button type="button" class="dashboard-tab" id="serviceBotDashboardTab" role="tab" aria-selected="false" onclick="switchDashboardTab('service-bot')">בוט שירות</button>
@@ -4942,6 +4956,77 @@
     } catch (_) {}
   }
 
+  // R6: dashboard surface for the needs_review block (finding 01/R1-R5).
+  // Every processing error becomes an un-expiring block, so this is required
+  // operational surface, not optional UI - an admin must be able to see who
+  // is blocked, why, what messages are waiting, and explicitly choose what
+  // happens to those messages when resolving.
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  }
+
+  async function loadNeedsReview() {
+    try {
+      const res = await fetch('/api/needs-review');
+      if (!res.ok) return;
+      const data = await res.json();
+      const items = Array.isArray(data.items) ? data.items : [];
+      const card = document.getElementById('needsReviewCard');
+      const list = document.getElementById('needsReviewList');
+      document.getElementById('needsReviewCount').textContent = items.length;
+      card.style.display = items.length ? '' : 'none';
+      if (!items.length) { list.innerHTML = ''; return; }
+      list.innerHTML = items.map((item) => {
+        const jidAttr = escapeHtml(item.jid);
+        const heldRows = (item.heldMessages || []).map((m) =>
+          `<div style="font-size:12px;color:#555;padding:2px 0;border-top:1px solid #eee">
+             ${escapeHtml(new Date(m.timestamp).toLocaleString('he-IL'))} - ${escapeHtml(m.bodyPreview || '(ללא טקסט)')}
+           </div>`
+        ).join('');
+        return `
+          <div class="card" style="margin:10px 0;background:#fff6f6">
+            <div class="card-body">
+              <div><strong>${escapeHtml(item.senderPhone || item.jid)}</strong></div>
+              <div class="toggle-sub">נחסם: ${escapeHtml(new Date(item.heldSince).toLocaleString('he-IL'))}</div>
+              <div class="toggle-sub">סיבה: ${escapeHtml(item.reason)}</div>
+              <div class="toggle-sub">הודעות ממתינות בזמן החסימה: ${item.heldMessageCount || 0}</div>
+              ${heldRows ? `<div style="margin:6px 0">${heldRows}</div>` : ''}
+              <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+                <label style="font-size:13px">לגבי ${item.heldMessageCount || 0} ההודעות הממתינות:</label>
+                <select id="needsReviewAction-${jidAttr}" style="padding:4px">
+                  <option value="discard">התעלם מהן (השאר לתיעוד בלבד, אל תעבד)</option>
+                  <option value="requeue">עבד אותן מחדש כהודעות נכנסות חדשות</option>
+                </select>
+                <button class="btn-save" style="width:auto;padding:8px 14px" onclick="resolveNeedsReview('${jidAttr}')">פתור חסימה</button>
+              </div>
+            </div>
+          </div>`;
+      }).join('');
+    } catch (_) {}
+  }
+
+  async function resolveNeedsReview(jid) {
+    const select = document.getElementById('needsReviewAction-' + jid);
+    const heldMessagesAction = select ? select.value : 'discard';
+    const actionLabel = heldMessagesAction === 'requeue' ? 'לעבד את ההודעות הממתינות מחדש כהודעות חדשות' : 'להתעלם מההודעות הממתינות (הן יישארו רק בתיעוד)';
+    if (!confirm(`לפתור את החסימה עבור ${jid}?\n\nהפעולה שתבוצע: ${actionLabel}.\nהחסימה עצמה לא תישלח מחדש ולא תבטל תופעות לוואי שכבר קרו.`)) return;
+    try {
+      const res = await fetch('/api/needs-review/' + encodeURIComponent(jid) + '/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ heldMessagesAction }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert('פתרון החסימה נכשל: ' + (data.error || res.status));
+        return;
+      }
+      await loadNeedsReview();
+    } catch (err) {
+      alert('פתרון החסימה נכשל: ' + err);
+    }
+  }
+
   async function loadGoogleStatus() {
     const res  = await fetch('/api/google/status');
     const data = await res.json();
@@ -5943,6 +6028,8 @@
   loadTwilioLogs();
   loadContactQueueStats();
   setInterval(loadContactQueueStats, 5000);
+  loadNeedsReview();
+  setInterval(loadNeedsReview, 5000);
   setInterval(loadCampaignResults, 5000);
   setInterval(loadTwilioLogs, 5000);
   qrInterval = setInterval(checkQR, 2000);

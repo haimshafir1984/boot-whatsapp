@@ -401,7 +401,20 @@ export class BaileysProvider implements WhatsAppProvider {
         },
       };
 
-      await handleIncomingWhatsAppMessage(incoming, this.storage, this.createTransport(), 'baileys');
+      try {
+        await handleIncomingWhatsAppMessage(incoming, this.storage, this.createTransport(), 'baileys');
+      } catch (err) {
+        // handleIncomingWhatsAppMessage now rethrows on failure (finding 01)
+        // so a Meta-style inbox drainer can retry it - Baileys has no such
+        // queue behind this event handler. There is nothing to retry into
+        // here, so just log: the sender is already held for admin review by
+        // handleIncomingWhatsAppMessage itself. What matters is that this
+        // does NOT become an unhandled promise rejection on the
+        // 'messages.upsert' listener (which does not await/catch its own
+        // return value), and that one message's failure does not stop the
+        // rest of this batch from being processed.
+        console.error('[BAILEYS] handleIncomingWhatsAppMessage failed:', err);
+      }
     }
   }
 

@@ -108,8 +108,10 @@ async function testStorageCloseThrows() {
   });
   await shutdown('SIGTERM');
   assert.match(logged, /storage\.close\(\) on shutdown failed/, 'the failure is logged');
-  assert.deepEqual(exits, [0], 'shutdown still completes with exit(0)');
-  console.log('  4. storage.close() throwing is logged, shutdown still exits 0');
+  // silent-data-loss-fix (finding 02): storage.close() throwing means unsaved
+  // writes remain - the exit code must say so, not report a clean shutdown.
+  assert.deepEqual(exits, [1], 'shutdown completes but reports failure via exit(1)');
+  console.log('  4. storage.close() throwing is logged, shutdown completes but exits 1');
 }
 
 async function testWaitsForInflightRequest() {

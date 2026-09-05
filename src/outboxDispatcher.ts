@@ -1,5 +1,6 @@
 import { Storage, OutboxMessage } from './storage';
 import { WhatsAppSendResult, WhatsAppTransport } from './types/whatsapp';
+import { conversationState } from './conversationState';
 
 type TransportResolver = () => WhatsAppTransport | null | undefined;
 
@@ -100,8 +101,24 @@ export function startOutboxDispatcher(
           Math.min(20, OUTBOX_MAX_MESSAGES_PER_TICK - processed),
         );
         if (!pending.length) break;
-        await Promise.all(pending.map((message) => dispatchMessage(storage, transport, message)));
+        // R4: a sender blocked pending admin review (needs_review) must not
+        // receive ANY automatic outbound send, including one that was
+        // already queued before the block happened - inbound being blocked
+        // proved nothing about outbound (the independent review's R4 repro:
+        // a queued follow-up was sent successfully by this exact dispatcher
+        // while the sender was needs_review). Filtering it out of `eligible`
+        // here leaves it queued/untouched in storage (never lost, never
+        // claimed, no attempts burned) while every other recipient in the
+        // same batch still sends normally.
+        const eligible = pending.filter((message) => !conversationState.isHeldForReview(message.to));
+        if (eligible.length) {
+          await Promise.all(eligible.map((message) => dispatchMessage(storage, transport, message)));
+        }
         processed += pending.length;
+        // If everything fetched this round was held, nothing changed and
+        // re-fetching would return the exact same batch forever within this
+        // tick - wait for the next poll interval instead.
+        if (!eligible.length) break;
       }
     } catch (err) {
       console.warn('Outbox dispatcher failed:', err);
