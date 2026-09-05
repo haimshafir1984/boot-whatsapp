@@ -192,7 +192,18 @@ async function handleIncomingMessage(
 ): Promise<void> {
   const incoming = toIncomingMessage(message);
   const transport = createWebJsTransport(client);
-  await handleIncomingWhatsAppMessage(incoming, storage, transport, source);
+  try {
+    await handleIncomingWhatsAppMessage(incoming, storage, transport, source);
+  } catch (err) {
+    // handleIncomingWhatsAppMessage now rethrows on failure (finding 01) so a
+    // Meta-style inbox drainer can retry it - the whatsapp-web.js
+    // 'message'/'message_create' listeners here have no such queue and do
+    // not await/catch their own async callback's return value, so letting
+    // this propagate would become an unhandled promise rejection. There is
+    // no retry to attempt here; the sender is already held for admin review
+    // by handleIncomingWhatsAppMessage itself.
+    console.error(`[WEBJS] handleIncomingMessage failed via ${source}:`, err);
+  }
 }
 
 function toIncomingMessage(message: Message): IncomingWhatsAppMessage {

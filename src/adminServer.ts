@@ -3612,6 +3612,39 @@ export function startAdminServer(storage: Storage): import('http').Server {
     });
   });
 
+  // ── needs_review (finding 01: senders held after an unverifiable failure) ──
+
+  app.get('/api/needs-review', (_req, res) => {
+    res.json({
+      items: conversationState.listNeedsReview().map(({ jid, state }) => ({
+        jid,
+        senderPhone: state.senderPhone,
+        campaignId: state.campaignId,
+        campaignResultId: state.campaignResultId,
+        messageId: state.messageId,
+        source: state.source,
+        reason: state.reason,
+        heldSince: new Date(state.timestamp).toISOString(),
+      })),
+    });
+  });
+
+  // Explicit, authenticated, audited admin action - there is no automatic
+  // "retry everything" (review doc, finding 01, point 5). Resolving simply
+  // lifts the block; it does not resend anything and does not undo whatever
+  // side effect may already have happened before the original failure.
+  app.post('/api/needs-review/:jid/resolve', requireWritableClient, (req, res) => {
+    const jid = String(req.params.jid || '');
+    const current = conversationState.get(jid);
+    if (!current || current.kind !== 'needs_review') {
+      res.status(404).json({ error: 'No needs_review hold found for this conversation.' });
+      return;
+    }
+    conversationState.remove(jid);
+    console.log(`[NEEDS_REVIEW_RESOLVED] jid=${jid} reason="${current.reason.slice(0, 200)}" resolvedBy=admin`);
+    res.json({ ok: true, jid });
+  });
+
   app.get('/api/files', (_req, res) => {
     res.json(storage.getUploadedFiles());
   });

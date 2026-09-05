@@ -182,7 +182,30 @@ export interface PendingHandoffConversation {
   timeoutHandle?: NodeJS.Timeout;
 }
 
-export type PendingConversation = PendingNameConversation | PendingPreNamePromptConversation | PendingDecisionConversation | PendingWaitReplyConversation | PendingExpiredDecisionConversation | PendingContactCardConfirmationConversation | PendingHandoffConversation;
+/**
+ * Blocks further processing for this sender after a message-handling failure
+ * whose business-state effect could not be verified (finding 01). Unlike
+ * every other kind, this one carries no timer - it is meant to persist
+ * indefinitely (including across restart) until an authenticated admin
+ * action explicitly resolves it (see /api/needs-review/:jid/resolve in
+ * adminServer.ts, which calls conversationState.remove()).
+ */
+export interface PendingNeedsReviewConversation {
+  kind: 'needs_review';
+  senderJid: string;
+  senderPhone?: string;
+  campaignId?: string;
+  campaignResultId?: string;
+  /** Which inbound message triggered the failure, for the admin resolution UI. */
+  messageId?: string;
+  source?: string;
+  /** Sanitized (length-capped) error summary - never the raw error object, to avoid leaking secrets into a persisted file. */
+  reason: string;
+  timestamp: number;
+  timeoutHandle?: NodeJS.Timeout;
+}
+
+export type PendingConversation = PendingNameConversation | PendingPreNamePromptConversation | PendingDecisionConversation | PendingWaitReplyConversation | PendingExpiredDecisionConversation | PendingContactCardConfirmationConversation | PendingHandoffConversation | PendingNeedsReviewConversation;
 
 export type PersistablePendingConversation =
   | Omit<PendingNameConversation, 'timeoutHandle'>
@@ -191,7 +214,8 @@ export type PersistablePendingConversation =
   | Omit<PendingWaitReplyConversation, 'timeoutHandle'>
   | Omit<PendingExpiredDecisionConversation, 'timeoutHandle'>
   | Omit<PendingContactCardConfirmationConversation, 'timeoutHandle'>
-  | Omit<PendingHandoffConversation, 'timeoutHandle'>;
+  | Omit<PendingHandoffConversation, 'timeoutHandle'>
+  | Omit<PendingNeedsReviewConversation, 'timeoutHandle'>;
 
 export interface ConversationStateSnapshot {
   version: 1;
@@ -292,6 +316,15 @@ class ConversationStateManager {
     return firstJid ? this.map.get(firstJid) : undefined;
   }
 
+  /** Every sender currently blocked pending admin review (finding 01). Used by the admin dashboard/endpoint. */
+  listNeedsReview(): Array<{ jid: string; state: PendingNeedsReviewConversation }> {
+    const results: Array<{ jid: string; state: PendingNeedsReviewConversation }> = [];
+    for (const [jid, state] of this.map.entries()) {
+      if (state.kind === 'needs_review') results.push({ jid, state });
+    }
+    return results;
+  }
+
   remove(jid: string): void {
     const existing = this.map.get(jid);
     this.clearTimer(existing);
@@ -373,10 +406,13 @@ class ConversationStateManager {
       const entries = Object.entries(parsed.conversations ?? {});
       for (const [jid, state] of entries) {
         if (!state || typeof state !== 'object') continue;
-        if (state.kind !== 'name' && state.kind !== 'pre-name-prompt' && state.kind !== 'decision' && state.kind !== 'wait-reply' && state.kind !== 'expired-decision' && state.kind !== 'contact-card-confirmation' && state.kind !== 'handoff') continue;
+        if (state.kind !== 'name' && state.kind !== 'pre-name-prompt' && state.kind !== 'decision' && state.kind !== 'wait-reply' && state.kind !== 'expired-decision' && state.kind !== 'contact-card-confirmation' && state.kind !== 'handoff' && state.kind !== 'needs_review') continue;
         const hydrated = hydrateDecisionFlow(state, resolveDecisionFlow);
         const timeoutHandle = schedule(jid, hydrated);
-        if (!timeoutHandle) continue;
+        // needs_review deliberately has no timer (it must survive until an
+        // admin resolves it, not expire) - schedule() returns undefined for
+        // it by design, so it must not be treated as "nothing to restore".
+        if (!timeoutHandle && state.kind !== 'needs_review') continue;
         // restore() writes straight to `map` instead of going through set(), so
         // build the phone index here too - otherwise it stays empty after every
         // restart until a fresh message touches each conversation, which is the
@@ -541,6 +577,15 @@ class ConversationStateManager {
         }
       }
     } catch (err) {
+      // JSON mode: the file IS the source of truth, so a write failure here
+      // means the caller's state change is not actually durable - it must
+      // reach the processing flow (handleIncomingWhatsAppMessage's classified
+      // failure handling), not vanish as a warning. Postgres mode: this file
+      // is only a secondary copy while PostgreSQL is the real source of
+      // truth, so a failure here can stay a warning (finding 01).
+      if (this.backend?.isPrimaryConversationStore?.() === true) {
+        throw err;
+      }
       console.warn('Could not persist conversation state:', err);
     }
   }

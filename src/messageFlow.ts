@@ -2,7 +2,7 @@ import { config } from './config';
 import { AsyncLocalStorage } from 'async_hooks';
 import fs from 'fs';
 import path from 'path';
-import { conversationState, PersistablePendingConversation } from './conversationState';
+import { conversationState, PendingConversation, PersistablePendingConversation } from './conversationState';
 import { Campaign, CampaignConversationSettings, CampaignResult, CampaignScoreAnswer, CompletionLink, DecisionFlowOption, DecisionFlowStep, OutboxMessage, ScoreResultRule, Storage } from './storage';
 import { detectTrigger } from './triggerDetector';
 import { matchesServiceBotTrigger, tryHandleServiceBotMessage } from './serviceBot';
@@ -13,7 +13,15 @@ import {
   WhatsAppTransport,
 } from './types/whatsapp';
 
+// Messages whose processing definitely completed successfully - true dedup
+// (a provider re-delivery of an already-handled message is a silent no-op).
 const handledMessageIds = new Set<string>();
+// Messages currently being processed. A concurrent call for the same id
+// (e.g. Meta re-delivering a webhook while the first attempt is still in
+// flight) awaits and shares this promise instead of returning a fake
+// success - review doc 01, acceptance test 1: "קריאות מקבילות לאותו
+// messageId מקבלות תוצאה אמיתית של העבודה."
+const inFlightMessages = new Map<string, Promise<void>>();
 // Meta can deliver webhook bursts late under load. Keep stale-trigger
 // protection, but give Meta campaigns a wider window so legitimate launch
 // traffic is not silently ignored after a two-minute gateway delay.
@@ -410,6 +418,10 @@ export function scheduleRestoredConversationTimeout(
   jid: string,
   state: PersistablePendingConversation,
 ): NodeJS.Timeout | undefined {
+  // needs_review blocks a sender until an admin explicitly resolves it - it
+  // must never expire on its own, so it gets no timer at all (finding 01,
+  // point 4: "ולהישאר כך אחרי restart").
+  if (state.kind === 'needs_review') return undefined;
   const ageMs = Date.now() - Number(state.timestamp || 0);
   const remainingMs = Math.max(0, restoredConversationTtlMs(state) - ageMs);
 
@@ -529,6 +541,20 @@ async function waitBeforeBotReplyTo(sender: string | undefined, delayMs = BOT_RE
   await waitBeforeBotReply(consumeInitialReplyDelay(sender, delayMs));
 }
 
+/**
+ * Thrown when a provider send already succeeded but confirming/persisting
+ * that fact failed. Deliberately distinct from a send failure: the caller
+ * must never resend because of this, but it also must not report success -
+ * the confirmation is not durable, so the outcome is uncertain and should be
+ * classified needs_review upstream (finding 01).
+ */
+class OutboxPersistUncertainError extends Error {
+  constructor(kind: string, outboxId: string, public readonly cause: unknown) {
+    super(`Outbox message ${outboxId} (${kind}) was sent by the provider, but persisting the sent confirmation failed. Treat as uncertain - do not resend.`);
+    this.name = 'OutboxPersistUncertainError';
+  }
+}
+
 async function sendTrackedOutboxMessage(
   storage: Storage,
   input: Omit<OutboxMessage, 'id' | 'status' | 'attempts' | 'createdAt' | 'updatedAt'>,
@@ -561,8 +587,13 @@ async function sendTrackedOutboxMessage(
   try {
     await storage.flush();
   } catch (err) {
-    // The provider already accepted the message. Do not make the flow resend or skip a step.
+    // The provider already accepted the message - never resend because of a
+    // failure here. But swallowing this and returning `result` would report
+    // success while the confirmation is not actually durable; surface it as
+    // an uncertain outcome instead so the caller's failure handling
+    // (ultimately handleIncomingWhatsAppMessage) classifies it needs_review.
     console.error(`[OUTBOX_SENT_PERSIST_FAILED] kind=${input.kind} id=${outbox.id}`, err);
+    throw new OutboxPersistUncertainError(input.kind, outbox.id, err);
   }
   return result;
 }
@@ -589,13 +620,15 @@ async function sendBotMessage(transport: WhatsAppTransport, to: string, text: st
       }
       throw err;
     }
+    // The provider send itself and persisting its outcome are now in
+    // separate try/catch blocks (finding 01: "sendBotMessage... כולל את
+    // שליחת הספק ואת flush שאחריה באותו catch שמפעיל resend"). Only a
+    // failure of the send itself is eligible for the retry-then-resend loop
+    // below; a failure to persist an already-successful send must never
+    // trigger another transport.sendMessage call.
+    let sendResult: void | WhatsAppSendResult;
     try {
-      const result = await transport.sendMessage(to, cleanText);
-      if (storage && outbox) {
-        storage.markOutboxSent(outbox.id, providerMessageId(result));
-        await storage.flush();
-      }
-      return;
+      sendResult = await transport.sendMessage(to, cleanText);
     } catch (err) {
       lastError = err;
       if (storage && outbox) {
@@ -611,7 +644,19 @@ async function sendBotMessage(transport: WhatsAppTransport, to: string, text: st
           await storage.flush();
         }
       }
+      continue;
     }
+
+    if (storage && outbox) {
+      storage.markOutboxSent(outbox.id, providerMessageId(sendResult));
+      try {
+        await storage.flush();
+      } catch (err) {
+        console.error(`[OUTBOX_SENT_PERSIST_FAILED] kind=text id=${outbox.id}`, err);
+        throw new OutboxPersistUncertainError('text', outbox.id, err);
+      }
+    }
+    return;
   }
 
   throw lastError;
@@ -624,24 +669,78 @@ export async function handleIncomingWhatsAppMessage(
   source: WhatsAppMessageSource,
 ): Promise<void> {
   if (!message.body?.trim() && !message.hasUserSignal && !message.isReaction) return;
-  if (!rememberMessage(message)) return;
+  const id = messageKey(message);
+  if (handledMessageIds.has(id)) return;
+  const existing = inFlightMessages.get(id);
+  if (existing) return existing;
 
   flowHealth.inboundQueued += 1;
   const inboundKey = noteInboundQueued(message.senderPhone || message.from);
-  try {
-    await withDurableMessaging(storage, () => runSerializedForSender(message.senderPhone || message.from, `inbound:${source}`, async () => {
-      // Read receipts / typing indicators are independent of the reply. Start
-      // them immediately, but do not make the user wait for another provider
-      // round-trip first.
-      void markIncomingMessageReadIfEnabled(message, storage, transport, source);
-      try {
+  const work = (async () => {
+    try {
+      await withDurableMessaging(storage, () => runSerializedForSender(message.senderPhone || message.from, `inbound:${source}`, async () => {
+        // Read receipts / typing indicators are independent of the reply. Start
+        // them immediately, but do not make the user wait for another provider
+        // round-trip first.
+        void markIncomingMessageReadIfEnabled(message, storage, transport, source);
         await handleMessage(message, storage, transport, source);
-      } catch (err) {
-        console.error(`[MSG] handler failed via ${source}:`, err);
-      }
-    }));
-  } finally {
-    noteInboundCompleted(inboundKey);
+      }));
+      rememberHandled(id);
+    } catch (err) {
+      // A processing failure must not look like success to the caller - the
+      // inbox retry machinery (metaClientDrainer.runGroup) already exists and
+      // is correct, it just never saw this error before this fix. Per the
+      // binding review decision (silent-data-loss-fix-plan-review-2026-09-05.md,
+      // finding 01, point 2), the DEFAULT classification for any failure once
+      // processing has begun is needs_review/partial_failure - never an
+      // automatic full retry, since a second run of handleMessage could
+      // resend a message the first attempt already sent before failing.
+      // This round does not attempt to prove any specific handleMessage
+      // failure "safe" (no business-state change yet) - see the results doc
+      // for this explicitly documented scope limitation.
+      await markSenderNeedsReview(message, source, err);
+      console.error(`[MSG] handler failed via ${source}, sender blocked pending admin review:`, err);
+      throw err;
+    } finally {
+      noteInboundCompleted(inboundKey);
+      inFlightMessages.delete(id);
+    }
+  })();
+  inFlightMessages.set(id, work);
+  return work;
+}
+
+function needsReviewReason(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  // Best-effort length cap so a persisted reason never balloons the
+  // conversation-state snapshot; the full error is still in the server log
+  // via console.error above.
+  return raw.slice(0, 500);
+}
+
+async function markSenderNeedsReview(
+  message: IncomingWhatsAppMessage,
+  source: WhatsAppMessageSource,
+  err: unknown,
+): Promise<void> {
+  const senderJid = message.from;
+  try {
+    const existingPending = conversationState.get(senderJid);
+    if (existingPending?.kind === 'needs_review') return; // keep the earliest reason/timestamp
+    conversationState.set(senderJid, {
+      kind: 'needs_review',
+      senderJid,
+      senderPhone: message.senderPhone,
+      messageId: message.id,
+      source,
+      reason: needsReviewReason(err),
+      timestamp: Date.now(),
+    } as PendingConversation);
+  } catch (markErr) {
+    // If we cannot even persist the block, the sender is not actually held -
+    // this is a known, documented gap (see results doc): a totally broken
+    // storage layer can defeat both the original write AND this safeguard.
+    console.error(`[NEEDS_REVIEW_MARK_FAILED] via=${source} sender=${senderJid}:`, markErr);
   }
 }
 
@@ -674,18 +773,17 @@ async function markIncomingMessageReadIfEnabled(
   }
 }
 
-function rememberMessage(message: IncomingWhatsAppMessage): boolean {
-  const id = message.id || `${message.from}:${message.timestamp ?? ''}`;
+function messageKey(message: IncomingWhatsAppMessage): string {
+  return message.id || `${message.from}:${message.timestamp ?? ''}`;
+}
 
-  if (handledMessageIds.has(id)) return false;
+/** Marks a message as definitely, successfully completed - only called after handleMessage resolves without throwing. */
+function rememberHandled(id: string): void {
   handledMessageIds.add(id);
-
   if (handledMessageIds.size > 1000) {
     const first = handledMessageIds.values().next().value;
     if (first) handledMessageIds.delete(first);
   }
-
-  return true;
 }
 
 function normalizedPhoneKey(value: string | undefined): string {
@@ -837,6 +935,16 @@ async function handleMessage(
     return;
   }
   let pending = conversationState.get(senderJid) || conversationState.findByPhone(senderPhone);
+  if (pending?.kind === 'needs_review') {
+    // A prior failure for this sender could not be verified safe (finding
+    // 01, point 4): every further message - trigger or not - is held here,
+    // not just re-tried, until an authenticated admin resolves it via
+    // /api/needs-review/:jid/resolve. This deliberately does NOT auto-clear
+    // on a fresh trigger; that would let the sender bypass review just by
+    // re-sending.
+    console.warn(`[NEEDS_REVIEW_BLOCKED] via=${source} sender=${senderJid} phone=${senderPhone} reason=${pending.reason.slice(0, 200)}`);
+    return;
+  }
   const activeCampaigns = storage.getActiveCampaigns();
   const trigger = message.body?.trim() ? detectTrigger(message.body, activeCampaigns) : { matched: false, campaignId: '', suffix: '', campaignName: '' };
   const serviceBotTriggerMatched = message.body?.trim() ? matchesServiceBotTrigger(message.body, storage) : false;
