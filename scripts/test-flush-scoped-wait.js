@@ -167,13 +167,34 @@ async function main() {
         `the real write error must surface, got: ${sawError && sawError.message}`);
       console.log(`3a. the caller whose write was in the failed batch got the real error: "${String(sawError.message).split('\n')[0]}".`);
 
-      // Recover: drop the constraint, do a fresh write, flush a LATER
-      // generation. It must resolve - not throw the stale error - and the
-      // earlier doomed row is retried in the same cycle.
+      // silent-data-loss-fix (finding 02): a failed batch now backs off
+      // (500ms, 1s, 2s, ...) instead of retrying immediately, so a caller
+      // whose write arrived while the retry is still pending must ALSO see
+      // the outstanding error - not hang, not silently look durable. Recover
+      // by dropping the constraint and polling flush() until the scheduled
+      // retry actually runs and commits.
       await setupPool.query('alter table outbox_messages drop constraint tmp_flush_fail');
       const recovered = storage.enqueueOutboxMessage({ kind: 'text', to: 'whatsapp:972500000009', text: 'after recovery' });
-      await storage.flush(); // must NOT throw
-      console.log('3b. a later generation that committed resolved cleanly - it did not inherit the failed batch\'s error.');
+      let immediateFlushThrew = false;
+      try {
+        await storage.flush();
+      } catch (err) {
+        immediateFlushThrew = true;
+      }
+      assert.ok(immediateFlushThrew, 'a flush() issued before the backoff timer fires must still see the outstanding batch error - late arrivals are not exempt (review doc 02)');
+      const deadline = Date.now() + 5000;
+      let recoveredOk = false;
+      while (Date.now() < deadline) {
+        try {
+          await storage.flush();
+          recoveredOk = true;
+          break;
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
+      assert.ok(recoveredOk, 'flush() must eventually resolve once the scheduled backoff retry commits');
+      console.log('3b. a later generation that committed resolved cleanly once the backoff retry ran - it did not inherit the failed batch\'s error forever.');
 
       const reloaded = await loadStorageSnapshot(databaseUrl);
       const rec = reloaded.outboxMessages.map((m) => m.to);
