@@ -5,6 +5,7 @@
  */
 
 import express from 'express';
+import { hasCampaignWork, stopCampaignWork } from './campaignWork';
 import ExcelJS from 'exceljs';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -117,6 +118,7 @@ export function buildMetaGatewayRoutes(storage: Storage, serviceBotFeatureEnable
 }
 
 interface MetaPendingRouteResponse {
+  activeWork?: boolean;
   pending: boolean;
   campaignId?: string;
   kind?: string;
@@ -1792,26 +1794,29 @@ export function startAdminServer(storage: Storage): import('http').Server {
     // brand-new conversation on client B.
     if (targetClient) {
       const staleClients = clients.filter(
-        (client) => client.id !== targetClient!.id && pendingByClient.get(client.id)?.pending,
+        // Cancel even when pending=false: an automatic tail / queued outbox
+        // can outlive pending state. Requiring every acknowledgement also makes
+        // retries safe during a mixed-version rollout.
+        (client) => client.id !== targetClient!.id,
       );
       if (staleClients.length) {
         await Promise.all(staleClients.map(async (client) => {
           try {
-            const result = await fetchClientAsOwner<{ removed?: number }>(client, '/owner-api/meta-clear-pending', {
+            const result = await fetchClientAsOwner<{ removed?: number; cancelled?: boolean }>(client, '/owner-api/meta-clear-pending', {
               method: 'POST',
               body: JSON.stringify({ phone: fromKey }),
               signal: AbortSignal.timeout(3_000),
             });
-            if (result.ok) {
+            if (result.ok && result.body?.cancelled === true) {
               console.log('[META_GATEWAY_CLEAR_PENDING]', client.id, `removed=${result.body?.removed ?? 0}`);
             } else {
-              console.warn('[META_GATEWAY_CLEAR_PENDING_FAILED]', client.id, `status=${result.status}`);
+              throw new Error(`Campaign cancellation not acknowledged (status=${result.status}); upgrade client before gateway.`);
             }
           } catch (err) {
-            // Best-effort: worst case the stale conversation lingers until its
-            // own timeout, which is exactly today's pre-fix behavior - never
-            // block or fail the new trigger's own routing over this.
+            // Fail closed. A failed/old client cannot acknowledge that its
+            // outgoing work stopped; retry the handover, not an unsafe send.
             console.warn('[META_GATEWAY_CLEAR_PENDING_FAILED]', client.id, err);
+            throw err;
           }
         }));
       }
@@ -3060,7 +3065,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
       res.status(400).json({ error: 'Phone is required' });
       return;
     }
-    res.json(localMetaPendingRoute(storage, phone));
+    res.json({ ...localMetaPendingRoute(storage, phone), activeWork: hasCampaignWork(phone) });
   });
 
   // Called by the gateway right before forwarding a freshly-matched trigger
@@ -3068,14 +3073,29 @@ export function startAdminServer(storage: Storage): import('http').Server {
   // conversation for the same phone. A new trigger means the sender has
   // moved on, so any older pending conversation here - even one still well
   // inside its own timeout - must stop being a candidate immediately.
-  app.post('/owner-api/meta-clear-pending', (req, res) => {
+  app.post('/owner-api/meta-clear-pending', async (req, res) => {
     const phone = normalizeGatewayPhone(String(req.body?.phone || ''));
     if (!phone) {
       res.status(400).json({ error: 'Phone is required' });
       return;
     }
-    const removed = conversationState.removeByPhone(phone);
-    res.json({ removed });
+    if (conversationState.isHeldForReview(phone)) {
+      res.status(409).json({ error: 'Sender requires review before switching campaigns.' });
+      return;
+    }
+    // Clear timers first, then interrupt sleeping flows and join provider calls
+    // already in flight. A second clear removes state created while those calls
+    // settled. Do not let the new client start before this boundary is durable.
+    let removed = conversationState.removeByPhone(phone);
+    await stopCampaignWork(phone, async () => {
+      removed += conversationState.removeByPhone(phone);
+      storage.cancelOutboxForRecipient(phone);
+      metaClientInbox.cancelPendingForPhone(phone);
+      storage.cancelServiceBotFollowUps(phone);
+      storage.clearServiceBotSessionForPhone(phone);
+      await storage.flush();
+    });
+    res.json({ removed, cancelled: true });
   });
 
   app.post('/owner-api/campaigns', async (req, res) => {

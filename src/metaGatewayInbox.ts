@@ -173,6 +173,19 @@ export class MetaGatewayInbox {
     return counts;
   }
 
+  cancelPendingForPhone(phone: string): number {
+    const normalized = phone.replace(/\D/g, '');
+    let count = 0;
+    const items = this.data.items.map(item => {
+      const from = String((item.payload as any)?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from ?? '').replace(/\D/g, '');
+      if (from !== normalized || !['queued', 'retry', 'processing'].includes(item.status)) return item;
+      count++;
+      return { ...item, status: 'failed' as const, lastError: 'Campaign superseded; do not replay.', nextAttemptAt: undefined, updatedAt: new Date().toISOString() };
+    });
+    if (count) this.persistData({ version: 1, items });
+    return count;
+  }
+
   private isClaimable(item: MetaGatewayInboxItem, nowMs: number): boolean {
     if (item.status === 'queued') return true;
     if (item.status === 'retry') return !item.nextAttemptAt || Date.parse(item.nextAttemptAt) <= nowMs;

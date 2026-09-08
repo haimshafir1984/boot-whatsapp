@@ -953,6 +953,26 @@ export class Storage {
     this.persist(['outboxMessages'], { outboxMessages: message.id });
   }
 
+  hasOutstandingOutboxForRecipient(to: string): boolean {
+    const recipient = normalizeOutboxRecipient(to);
+    return this.data.outboxMessages.some(item => item.status !== 'sent' && item.status !== 'failed' && normalizeOutboxRecipient(item.to) === recipient);
+  }
+
+  cancelOutboxForRecipient(to: string): number {
+    const recipient = normalizeOutboxRecipient(to);
+    const ids: string[] = [];
+    for (const item of this.data.outboxMessages) {
+      if (item.status === 'sent' || item.status === 'failed' || normalizeOutboxRecipient(item.to) !== recipient) continue;
+      item.status = 'failed';
+      item.lastError = 'Campaign superseded by another campaign; do not retry.';
+      item.updatedAt = new Date().toISOString();
+      item.nextAttemptAt = undefined;
+      ids.push(item.id);
+    }
+    if (ids.length) this.persist(['outboxMessages'], { outboxMessages: ids });
+    return ids.length;
+  }
+
   markOutboxSent(id: string, providerMessageId?: string): void {
     const message = this.data.outboxMessages.find((item) => item.id === id);
     if (!message) return;
@@ -1880,6 +1900,12 @@ export class Storage {
     return session ? { ...session, path: [...(session.path ?? [])], variables: { ...(session.variables ?? {}) } } : null;
   }
 
+  clearServiceBotSessionForPhone(phone: string): void {
+    const before = this.data.serviceBotSessions.length;
+    this.data.serviceBotSessions = this.data.serviceBotSessions.filter(item => item.phone !== phone);
+    if (before !== this.data.serviceBotSessions.length) this.persist(['serviceBotState']);
+  }
+
   saveServiceBotSession(phone: string, nodeId: string, path: string[] = [], variables?: Record<string, string>, botId = this.data.serviceBots[0]?.id || DEFAULT_SERVICE_BOT.id): ServiceBotSession {
     const updatedAt = new Date().toISOString();
     const existing = this.data.serviceBotSessions.find((item) => item.phone === phone);
@@ -1945,11 +1971,11 @@ export class Storage {
     return { ...followUp };
   }
 
-  cancelServiceBotFollowUps(phone: string): number {
+  cancelServiceBotFollowUps(phone: string, includeProcessing = false): number {
     let cancelled = 0;
     const now = new Date().toISOString();
     for (const followUp of this.data.serviceBotFollowUps) {
-      if (followUp.phone !== phone || followUp.status !== 'scheduled') continue;
+      if (followUp.phone !== phone || (followUp.status !== 'scheduled' && !(includeProcessing && followUp.status === 'processing'))) continue;
       followUp.status = 'cancelled';
       followUp.updatedAt = now;
       cancelled += 1;

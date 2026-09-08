@@ -362,8 +362,13 @@ class PostgresStorageBackend implements StorageBackend {
         this.queuedDirtyTables = new Set();
         this.queuedDirtyRowIds = {};
         try {
-          const snapshot = cloneSnapshotForTables(this.persistedSnapshot, source, dirtyTables);
+          const snapshotStartedAt = Date.now();
+          const snapshot = cloneSnapshotForTables(this.persistedSnapshot, source, dirtyTables, dirtyRowIds);
+          const snapshotMs = Date.now() - snapshotStartedAt;
+          const commitStartedAt = Date.now();
           await writeSnapshotDelta(this.pool, this.persistedSnapshot, snapshot, dirtyTables, dirtyRowIds);
+          const commitMs = Date.now() - commitStartedAt;
+          if (snapshotMs + commitMs >= 250) console.warn(`[POSTGRES_BATCH_SLOW] snapshot_ms=${snapshotMs} commit_ms=${commitMs} tables=${dirtyTables === 'all' ? 'all' : [...dirtyTables].join(',')}`);
           this.persistedSnapshot = snapshot;
           // Only a successful commit advances durability.
           this.durableSeq = batchSeq;
@@ -532,11 +537,31 @@ export function cloneSnapshotForTables(
   previous: StorageData | null,
   data: StorageData,
   dirtyTables: DirtyTables,
+  dirtyRowIds: DirtyRowIdsByTable = {},
 ): StorageData {
   if (!previous || dirtyTables === 'all') return cloneSnapshot(data);
   const source = data as unknown as Record<string, unknown>;
   const next = { ...previous } as unknown as Record<string, unknown>;
   const copy = (field: string) => {
+    // Row-tracked tables were still deep-copying their ENTIRE history for
+    // every single status update. Reuse only frozen previous rows, never live
+    // objects. New/changed rows are cloned before the first await.
+    const tracked = dirtyRowIds[field as StorageTableName];
+    if (tracked && tracked !== 'all' && ['outboxMessages', 'campaignResults', 'contactQueue', 'contactsList'].includes(field)) {
+      const rows = source[field] as Array<Record<string, any>>;
+      const oldRows = next[field] as Array<Record<string, any>>;
+      const keyOf = (row: Record<string, any>) => String(field === 'contactsList' ? row.phone : row.id);
+      const old = new Map(oldRows.map(row => [keyOf(row), row]));
+      if (rows.filter(row => !tracked.has(keyOf(row))).length !== oldRows.filter(row => !tracked.has(keyOf(row))).length) {
+        next[field] = sanitizeJsonForPostgres(JSON.parse(JSON.stringify(rows)));
+        return;
+      }
+      next[field] = rows.map(row => {
+        const id = keyOf(row);
+        return !tracked.has(id) && old.has(id) ? old.get(id) : sanitizeJsonForPostgres(JSON.parse(JSON.stringify(row)));
+      });
+      return;
+    }
     next[field] = sanitizeJsonForPostgres(JSON.parse(JSON.stringify(source[field] ?? null)));
   };
   for (const table of dirtyTables) {

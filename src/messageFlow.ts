@@ -1,4 +1,5 @@
 import { config } from './config';
+import { runCampaignWork, stopCampaignWork, hasCampaignWork, guardCampaignTransport, assertCampaignWorkActive, campaignWorkSleep, CampaignWorkCancelledError } from './campaignWork';
 import { AsyncLocalStorage } from 'async_hooks';
 import fs from 'fs';
 import path from 'path';
@@ -70,7 +71,7 @@ const pendingSenderInbounds = new Map<string, number>();
 const initialReplyFastLane = new Map<string, number>();
 const timeoutContinuationScope = new AsyncLocalStorage<{ senderKey: string; inboundVersion: number }>();
 
-class TimeoutContinuationCancelledError extends Error {}
+const TimeoutContinuationCancelledError = CampaignWorkCancelledError;
 
 interface TimedOutDecisionContext {
   senderJid: string;
@@ -143,6 +144,7 @@ function noteInboundCompleted(key: string): void {
 }
 
 function assertTimeoutContinuationActive(): void {
+  assertCampaignWorkActive();
   const context = timeoutContinuationScope.getStore();
   if (!context) return;
   if ((senderInboundVersions.get(context.senderKey) ?? 0) !== context.inboundVersion) {
@@ -192,7 +194,7 @@ function scheduleSerializedPendingTimeout(
   action: () => Promise<void>,
 ): NodeJS.Timeout {
   return setTimeout(() => {
-    void runSerializedForSender(senderPhone || senderJid, `timeout:${label}`, async () => {
+    void runCampaignWork(senderPhone || senderJid, () => runSerializedForSender(senderPhone || senderJid, `timeout:${label}`, async () => {
       const senderKey = senderWorkKey(senderPhone || senderJid);
       if ((pendingSenderInbounds.get(senderKey) ?? 0) > 0) {
         flowHealth.staleTimeoutsIgnored += 1;
@@ -220,7 +222,7 @@ function scheduleSerializedPendingTimeout(
         }
         throw err;
       }
-    }).catch((err) => logTimerError(label, err));
+    })).catch((err) => { if (!(err instanceof CampaignWorkCancelledError)) logTimerError(label, err); });
   }, delayMs);
 }
 
@@ -427,8 +429,10 @@ export function scheduleRestoredConversationTimeout(
   const remainingMs = Math.max(0, restoredConversationTtlMs(state) - ageMs);
 
   const schedule = (delayMs: number): NodeJS.Timeout => setTimeout(() => {
-    void (async () => {
+    void runCampaignWork(state.senderPhone || jid, async () => {
       try {
+        const currentState = conversationState.get(jid);
+        if (!currentState || currentState.timestamp !== state.timestamp || currentState.kind !== state.kind) return;
         if (state.kind === 'decision' || state.kind === 'wait-reply') {
           const transport = getTransport();
           if (!transport) {
@@ -490,19 +494,20 @@ export function scheduleRestoredConversationTimeout(
         conversationState.remove(jid);
         console.log(`Restored conversation expired: ${jid}`);
       } catch (err) {
+        if (err instanceof CampaignWorkCancelledError) return;
         logTimerError('restored conversation timeout', err);
         const current = conversationState.get(jid);
         if (!current) return;
         current.timeoutHandle = schedule(RESTORED_TIMEOUT_RETRY_MS);
         conversationState.set(jid, current);
       }
-    })();
+    }).catch(err => { if (!(err instanceof CampaignWorkCancelledError)) logTimerError('restored conversation timeout', err); });
   }, delayMs);
 
   return schedule(remainingMs);
 }
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return campaignWorkSleep(ms);
 }
 
 function decisionStepTimeoutMs(step: DecisionFlowStep | undefined, fallbackMinutes: number): number {
@@ -577,6 +582,7 @@ async function sendTrackedOutboxMessage(
   input: Omit<OutboxMessage, 'id' | 'status' | 'attempts' | 'createdAt' | 'updatedAt'>,
   send: () => Promise<void | WhatsAppSendResult>,
 ): Promise<void | WhatsAppSendResult> {
+  assertCampaignWorkActive();
   const outbox = storage.enqueueOutboxMessage(input);
   if (outbox.status === 'sent') {
     return outbox.providerMessageId ? { messageId: outbox.providerMessageId } : undefined;
@@ -591,6 +597,7 @@ async function sendTrackedOutboxMessage(
 
   let result: void | WhatsAppSendResult;
   try {
+    assertCampaignWorkActive();
     result = await send();
   } catch (err) {
     storage.markOutboxFailed(outbox.id, err);
@@ -616,6 +623,7 @@ async function sendTrackedOutboxMessage(
 }
 
 async function sendBotMessage(transport: WhatsAppTransport, to: string, text: string, delayMs = BOT_REPLY_DELAY_MS): Promise<void> {
+  assertCampaignWorkActive();
   const cleanText = text.trim();
   if (!cleanText) return;
 
@@ -685,6 +693,7 @@ export async function handleIncomingWhatsAppMessage(
   transport: WhatsAppTransport,
   source: WhatsAppMessageSource,
 ): Promise<void> {
+  transport = guardCampaignTransport(transport);
   if (!message.body?.trim() && !message.hasUserSignal && !message.isReaction) return;
   const id = messageKey(message);
   if (handledMessageIds.has(id)) return;
@@ -696,7 +705,24 @@ export async function handleIncomingWhatsAppMessage(
   const work = (async () => {
     let heldError: SenderHeldForReviewError | undefined;
     try {
-      await withDurableMessaging(storage, () => runSerializedForSender(message.senderPhone || message.from, `inbound:${source}`, async () => {
+      // A fresh local trigger must interrupt an older sleeping flow BEFORE
+      // joining its sender queue. Otherwise same-installation campaigns overlap
+      // just like separate clients on a shared number.
+      const sender = message.senderPhone || message.from;
+      const freshTrigger = detectTrigger(message.body || '', storage.getActiveCampaigns());
+      const pending = conversationState.findByPhone(sender);
+      if (freshTrigger.matched && Date.now() - (message.timestamp ?? Date.now() / 1000) * 1000 <= MAX_TRIGGER_AGE_MS
+        && !conversationState.isHeldForReview(sender)
+        && (hasCampaignWork(sender) || (pending?.campaignId && pending.campaignId !== freshTrigger.campaignId))) {
+        conversationState.removeByPhone(sender);
+        await stopCampaignWork(sender, async () => {
+          conversationState.removeByPhone(sender);
+          storage.cancelOutboxForRecipient(sender);
+          await storage.flush();
+        });
+      }
+      await runCampaignWork(message.senderPhone || message.from, () => withDurableMessaging(storage, () => runSerializedForSender(message.senderPhone || message.from, `inbound:${source}`, async () => {
+        assertCampaignWorkActive();
         // Read receipts / typing indicators are independent of the reply. Start
         // them immediately, but do not make the user wait for another provider
         // round-trip first.
@@ -704,6 +730,7 @@ export async function handleIncomingWhatsAppMessage(
         try {
           await handleMessage(message, storage, transport, source);
         } catch (err) {
+          if (err instanceof CampaignWorkCancelledError) throw err;
           if (err instanceof SenderHeldForReviewError) {
             // Already recorded durably inside handleMessage (heldMessages +
             // its own flush). Not a new failure to classify - propagate as
@@ -734,9 +761,14 @@ export async function handleIncomingWhatsAppMessage(
         // /api/needs-review/:jid/resolve can never observe a half-written
         // state either.
         await storage.flush();
-      }));
+      })));
       rememberHandled(id);
     } catch (err) {
+      if (err instanceof CampaignWorkCancelledError) {
+        rememberHandled(id);
+        console.log('[CAMPAIGN_WORK_CANCELLED] superseded inbound');
+        return;
+      }
       if (heldError) {
         // R1: a provider re-delivery of an already-held message must be a
         // silent no-op here too (true dedup), not another duplicate entry in
@@ -2699,6 +2731,7 @@ async function sendDecisionStep(
   senderPhone?: string,
   humanHandoff: CampaignReplyBehavior = {},
 ): Promise<void> {
+  assertCampaignWorkActive();
   const step = flow.find((item) => item.id === stepId);
   if (!step || !isSendableDecisionStep(step)) return;
   const stepDelayMs = Number.isFinite(step.delayMs) ? Math.max(0, step.delayMs ?? BOT_REPLY_DELAY_MS) : BOT_REPLY_DELAY_MS;

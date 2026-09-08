@@ -1,6 +1,7 @@
 import { Storage, OutboxMessage } from './storage';
 import { WhatsAppSendResult, WhatsAppTransport } from './types/whatsapp';
 import { conversationState } from './conversationState';
+import { runCampaignWork, assertCampaignWorkActive, CampaignWorkCancelledError } from './campaignWork';
 
 type TransportResolver = () => WhatsAppTransport | null | undefined;
 
@@ -29,15 +30,19 @@ async function dispatchMessage(storage: Storage, transport: WhatsAppTransport, m
   const claimed = storage.claimOutboxMessage(message.id);
   if (!claimed) return;
   await storage.flush();
+  let result: void | WhatsAppSendResult;
   try {
-    const result = await sendOutboxMessage(transport, claimed);
-    storage.markOutboxSent(claimed.id, providerMessageId(result));
-    await storage.flush();
+    assertCampaignWorkActive();
+    result = await sendOutboxMessage(transport, claimed);
   } catch (err) {
-    if (claimed.attempts >= OUTBOX_MAX_ATTEMPTS) storage.markOutboxFailed(claimed.id, err);
+    if (err instanceof CampaignWorkCancelledError || claimed.attempts >= OUTBOX_MAX_ATTEMPTS) storage.markOutboxFailed(claimed.id, err);
     else storage.markOutboxRetry(claimed.id, err, nextRetryIso());
     await storage.flush();
+    return;
   }
+  // Persistence failure after acceptance must not turn into a second send.
+  storage.markOutboxSent(claimed.id, providerMessageId(result));
+  await storage.flush();
 }
 
 async function sendOutboxMessage(transport: WhatsAppTransport, message: OutboxMessage): Promise<void | WhatsAppSendResult> {
@@ -112,7 +117,8 @@ export function startOutboxDispatcher(
         // same batch still sends normally.
         const eligible = pending.filter((message) => !conversationState.isHeldForReview(message.to));
         if (eligible.length) {
-          await Promise.all(eligible.map((message) => dispatchMessage(storage, transport, message)));
+          await Promise.all(eligible.map((message) => runCampaignWork(message.to, () => dispatchMessage(storage, transport, message))
+            .catch(err => { if (!(err instanceof CampaignWorkCancelledError)) throw err; })));
         }
         processed += pending.length;
         // If everything fetched this round was held, nothing changed and

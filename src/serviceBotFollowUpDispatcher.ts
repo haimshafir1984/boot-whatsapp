@@ -2,6 +2,7 @@ import { deliverServiceBotFollowUp } from './serviceBot';
 import { Storage } from './storage';
 import { WhatsAppTransport } from './types/whatsapp';
 import { conversationState } from './conversationState';
+import { runCampaignWork, guardCampaignTransport, CampaignWorkCancelledError } from './campaignWork';
 
 type TransportResolver = () => WhatsAppTransport | null | undefined;
 
@@ -28,10 +29,11 @@ export function startServiceBotFollowUpDispatcher(
       const claimed = storage.claimServiceBotFollowUp(due.id);
       if (!claimed) continue;
       try {
-        await deliverServiceBotFollowUp(claimed, storage, transport);
+        await runCampaignWork(claimed.phone, () => deliverServiceBotFollowUp(claimed, storage, guardCampaignTransport(transport)));
         storage.completeServiceBotFollowUp(claimed.id);
         await storage.flush();
       } catch (err) {
+        if (err instanceof CampaignWorkCancelledError) { storage.cancelServiceBotFollowUps(claimed.phone, true); await storage.flush(); continue; }
         storage.failServiceBotFollowUp(claimed.id, err);
         await storage.flush();
         console.warn('[SERVICE_BOT_FOLLOW_UP_FAILED]', claimed.id, err);
