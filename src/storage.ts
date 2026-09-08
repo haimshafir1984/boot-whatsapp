@@ -737,10 +737,10 @@ export function emptyStorageData(): StorageData {
 
 // ─── Storage class ────────────────────────────────────────────────────────────
 
-/** The tables that support row-level dirty tracking - each of their rows is
- * mutated in place after creation, so pinpointing exactly which id(s) changed
- * lets the backend skip re-comparing the rest of a potentially large table. */
-const ROW_TRACKED_TABLES: readonly StorageTableName[] = ['outboxMessages', 'campaignResults', 'contactQueue', 'contactsList', 'conversationStateSnapshot'];
+/** The tables that support row-level dirty tracking. For mutable tables, the
+ * ids pinpoint changed rows. For append-only campaignEvents, they identify the
+ * new tail so the backend can reuse the already-detached historical prefix. */
+const ROW_TRACKED_TABLES: readonly StorageTableName[] = ['outboxMessages', 'campaignResults', 'campaignEvents', 'contactQueue', 'contactsList', 'conversationStateSnapshot'];
 
 export interface StoragePersistBackend {
   mode: 'postgres';
@@ -1645,7 +1645,9 @@ export class Storage {
     }
     this.persist(
       event.campaignResultId ? ['campaignEvents', 'campaignResults'] : ['campaignEvents'],
-      event.campaignResultId ? { campaignResults: event.campaignResultId } : undefined,
+      event.campaignResultId
+        ? { campaignEvents: saved.id, campaignResults: event.campaignResultId }
+        : { campaignEvents: saved.id },
     );
     return { ...saved };
   }

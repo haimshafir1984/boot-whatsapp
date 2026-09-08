@@ -18,11 +18,10 @@ export interface DatabaseHealth {
 export type DirtyTables = ReadonlySet<StorageTableName> | 'all';
 
 /**
- * Rows in a mutated-in-place table (outbox_messages, campaign_results,
- * contact_queue, saved_contacts) can't use an append-only fast path the way
- * campaign_events does. Instead each persist() call names the exact row id(s)
- * it changed. 'all' means "unknown, or more than the caller tracked" and
- * forces the full per-row comparison - the same behavior as before this
+ * Each tracked persist names the exact row id(s) it changed. Mutable tables use
+ * these ids for scoped comparison; append-only campaign_events uses them to
+ * identify the new tail. 'all' means "unknown, or more than the caller tracked"
+ * and forces the full comparison - the same behavior as before this
  * optimization existed.
  */
 export type DirtyRowIds = ReadonlySet<string> | 'all';
@@ -543,10 +542,31 @@ export function cloneSnapshotForTables(
   const source = data as unknown as Record<string, unknown>;
   const next = { ...previous } as unknown as Record<string, unknown>;
   const copy = (field: string) => {
+    const tracked = dirtyRowIds[field as StorageTableName];
+    if (field === 'campaignEvents' && tracked && tracked !== 'all') {
+      const rows = source[field] as Array<Record<string, any>>;
+      const oldRows = next[field] as Array<Record<string, any>>;
+      const tail = rows.slice(oldRows.length);
+      const isTrackedAppend = rows.length === oldRows.length + tracked.size
+        && tail.length === tracked.size
+        && tail.every((row) => tracked.has(String(row.id)));
+      if (isTrackedAppend) {
+        // The old rows belong to the previous detached snapshot. Clone only
+        // the newly appended rows before the writer reaches its first await.
+        next[field] = [
+          ...oldRows,
+          ...tail.map((row) => sanitizeJsonForPostgres(JSON.parse(JSON.stringify(row)))),
+        ];
+        return;
+      }
+      // An inconsistent marker, deletion, reorder or replacement is not a
+      // normal append. Preserve correctness by taking the established full copy.
+      next[field] = sanitizeJsonForPostgres(JSON.parse(JSON.stringify(rows)));
+      return;
+    }
     // Row-tracked tables were still deep-copying their ENTIRE history for
     // every single status update. Reuse only frozen previous rows, never live
     // objects. New/changed rows are cloned before the first await.
-    const tracked = dirtyRowIds[field as StorageTableName];
     if (tracked && tracked !== 'all' && ['outboxMessages', 'campaignResults', 'contactQueue', 'contactsList'].includes(field)) {
       const rows = source[field] as Array<Record<string, any>>;
       const oldRows = next[field] as Array<Record<string, any>>;
