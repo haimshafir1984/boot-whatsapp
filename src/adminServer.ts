@@ -1794,10 +1794,13 @@ export function startAdminServer(storage: Storage): import('http').Server {
     // brand-new conversation on client B.
     if (targetClient) {
       const staleClients = clients.filter(
-        // Cancel even when pending=false: an automatic tail / queued outbox
-        // can outlive pending state. Requiring every acknowledgement also makes
-        // retries safe during a mixed-version rollout.
-        (client) => client.id !== targetClient!.id,
+        // Only clients that report sender-owned work need an active handover.
+        // During a mixed-version deploy, older idle clients still return 200
+        // from meta-clear-pending without the new `cancelled` acknowledgement;
+        // calling them here would block every fresh trigger even though their
+        // own pending-route lookup already showed no sender state to clear.
+        (client) => client.id !== targetClient!.id
+          && Boolean(pendingByClient.get(client.id)?.pending || pendingByClient.get(client.id)?.activeWork),
       );
       if (staleClients.length) {
         await Promise.all(staleClients.map(async (client) => {
