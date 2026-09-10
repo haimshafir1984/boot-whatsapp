@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { config } from '../config';
+import { metaApiAlert, notifyClientSystemAlert } from '../systemAlerts';
 import { IncomingWhatsAppMessage, InteractiveListItem, WhatsAppProvider, WhatsAppSendResult } from '../types/whatsapp';
 
 type MetaMessage = Record<string, unknown>;
@@ -127,7 +128,10 @@ export class MetaCloudProvider implements WhatsAppProvider {
     form.append('file', new Blob([fs.readFileSync(filePath)], { type: mimeType }), fileName);
     const response = await fetch(this.graphUrl('media'), { method: 'POST', headers: { Authorization: 'Bearer ' + config.META_ACCESS_TOKEN }, body: form });
     const body = await response.json().catch(() => ({})) as any;
-    if (!response.ok || typeof body.id !== 'string') throw new Error('Meta media upload failed (' + response.status + '): ' + JSON.stringify(body).slice(0, 500));
+    if (!response.ok || typeof body.id !== 'string') {
+      notifyClientSystemAlert(metaApiAlert(response.status, body, 'media_upload'));
+      throw new Error('Meta media upload failed (' + response.status + '): ' + JSON.stringify(body).slice(0, 500));
+    }
     return body.id;
   }
 
@@ -153,7 +157,10 @@ export class MetaCloudProvider implements WhatsAppProvider {
       body: JSON.stringify(payload),
     });
     const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error('Meta message failed (' + response.status + '): ' + JSON.stringify(body).slice(0, 500));
+    if (!response.ok) {
+      notifyClientSystemAlert(metaApiAlert(response.status, body, String(payload.type || payload.status || 'messages')));
+      throw new Error('Meta message failed (' + response.status + '): ' + JSON.stringify(body).slice(0, 500));
+    }
     const messageId = Array.isArray((body as any).messages) ? (body as any).messages[0]?.id : undefined;
     return typeof messageId === 'string' ? { messageId } : {};
   }

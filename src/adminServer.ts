@@ -44,6 +44,7 @@ import { TwilioProvider } from './providers/TwilioProvider';
 import { MetaCloudProvider } from './providers/MetaCloudProvider';
 import { IncomingWhatsAppMessage } from './types/whatsapp';
 import { getTwilioEvents, recordTwilioEvent } from './twilioEvents';
+import { isMetaAuthError, notifySystemAlert, systemAlertEmailConfigured, SystemAlert, testSystemAlertEmail } from './systemAlerts';
 import { getPairingCodeBlockedUntil, pairingCodeRateLimitMessage } from './pairingRateLimit';
 import {
   defaultMetaCampaignEndAt,
@@ -1293,6 +1294,19 @@ export function startAdminServer(storage: Storage): import('http').Server {
     }) ?? null;
   };
 
+  const alertForClient = (client: ManagedClient, input: any): SystemAlert => ({
+    key: `client:${client.id}:${String(input?.key || 'unknown').slice(0, 160)}`,
+    severity: input?.severity === 'critical' ? 'critical' : 'warning',
+    title: String(input?.title || 'Client alert').slice(0, 160),
+    message: String(input?.message || '').slice(0, 2000),
+    details: {
+      ...(input?.details && typeof input.details === 'object' && !Array.isArray(input.details) ? input.details : {}),
+      clientId: client.id,
+      clientName: client.name,
+      managementUrl: client.managementUrl,
+    },
+  });
+
   const inspectMetaTriggerAvailability = async (
     requester: ManagedClient,
     triggerPhrase: string,
@@ -1427,6 +1441,16 @@ export function startAdminServer(storage: Storage): import('http').Server {
     }
   });
 
+  app.post('/internal/client-alerts', (req, res) => {
+    const client = managedClientForOwnerToken(req.get('x-owner-token'));
+    if (!client) {
+      res.status(401).json({ error: 'Managed client token is invalid' });
+      return;
+    }
+    notifySystemAlert(alertForClient(client, req.body));
+    res.json({ ok: true });
+  });
+
   app.get('/client/login', (_req, res) => {
     res.sendFile(path.join(publicDir, 'login.html'));
   });
@@ -1468,6 +1492,9 @@ export function startAdminServer(storage: Storage): import('http').Server {
       contactQueue: queueStats,
       outbox: { ...storage.getOutboxHealth(), deliveryFailed: storage.getFailedDeliveries(100).length },
       storage: storage.getStorageHealth(),
+      alerts: {
+        emailConfigured: systemAlertEmailConfigured(),
+      },
       conversations: {
         pending: conversationState.size(),
         durableTimers: storage.getDurableTimerHealth(),
@@ -1556,7 +1583,23 @@ export function startAdminServer(storage: Storage): import('http').Server {
       const updated = storage.recordOutboxDelivery(wamid, rawStatus as 'sent' | 'delivered' | 'read' | 'failed', errorDetail);
       if (updated) {
         matched = true;
-        if (rawStatus === 'failed') console.error(`[META_DELIVERY_FAILED] to=${updated.to} wamid=${wamid} error=${errorDetail ?? ''}`);
+        if (rawStatus === 'failed') {
+          console.error(`[META_DELIVERY_FAILED] to=${updated.to} wamid=${wamid} error=${errorDetail ?? ''}`);
+          const firstError = Array.isArray(status?.errors) ? status.errors[0] : undefined;
+          notifySystemAlert({
+            key: `meta-delivery-failed:${firstError?.code ?? 'unknown'}`,
+            severity: isMetaAuthError(Number(firstError?.code) === 190 ? 401 : 0, { error: firstError }) ? 'critical' : 'warning',
+            title: 'Meta delivery failed',
+            message: 'Meta reported a failed delivery for a WhatsApp message that this service sent.',
+            details: {
+              to: updated.to,
+              wamid,
+              error: errorDetail ?? '',
+              provider: config.WHATSAPP_PROVIDER,
+              clientName: config.CLIENT_NAME || undefined,
+            },
+          });
+        }
         else console.log(`[META_DELIVERY] to=${updated.to} wamid=${wamid} status=${rawStatus}`);
       } else {
         const recipient = String(status?.recipient_id || '').replace(/\D/g, '');
@@ -1965,6 +2008,17 @@ export function startAdminServer(storage: Storage): import('http').Server {
               if (item.attempts >= 10) {
                 metaGatewayInbox.markFailed(item.id, err);
                 console.error('[META_GATEWAY_INBOX_FAILED]', item.id, err);
+                notifySystemAlert({
+                  key: 'meta-gateway-inbox-failed',
+                  severity: 'critical',
+                  title: 'Meta gateway message failed',
+                  message: 'The central Meta gateway could not route or forward an inbound message after all retry attempts.',
+                  details: {
+                    itemId: item.id,
+                    attempts: item.attempts,
+                    error: err instanceof Error ? err.message : String(err),
+                  },
+                });
               } else {
                 const retryDelayMs = metaInboxRetryDelayMs(item.attempts);
                 const nextAttemptAt = new Date(Date.now() + retryDelayMs);
@@ -2017,6 +2071,19 @@ export function startAdminServer(storage: Storage): import('http').Server {
               if (item.attempts >= 10) {
                 metaClientInbox.markFailed(item.id, err);
                 console.error('[META_CLIENT_INBOX_FAILED]', item.id, err);
+                notifySystemAlert({
+                  key: 'meta-client-inbox-failed',
+                  severity: 'critical',
+                  title: 'Meta client message failed',
+                  message: 'A Meta client could not process an inbound message after all retry attempts.',
+                  details: {
+                    itemId: item.id,
+                    attempts: item.attempts,
+                    error: err instanceof Error ? err.message : String(err),
+                    provider: config.WHATSAPP_PROVIDER,
+                    clientName: config.CLIENT_NAME || undefined,
+                  },
+                });
               } else {
                 const retryDelayMs = metaInboxRetryDelayMs(item.attempts);
                 metaClientInbox.markRetry(item.id, err, new Date(Date.now() + retryDelayMs));
@@ -2067,6 +2134,16 @@ export function startAdminServer(storage: Storage): import('http').Server {
       if (messagePayloads.length) void processMetaGatewayInbox();
     } catch (err) {
       console.error('[META_GATEWAY_INBOX_PERSIST_FAILED]', messagePayloads.map((item) => item.id).join(','), err);
+      notifySystemAlert({
+        key: 'meta-gateway-inbox-persist-failed',
+        severity: 'critical',
+        title: 'Meta gateway could not persist inbound messages',
+        message: 'The central Meta gateway received inbound webhook messages but could not queue them durably.',
+        details: {
+          messageIds: messagePayloads.map((item) => item.id).join(','),
+          error: err instanceof Error ? err.message : String(err),
+        },
+      });
       res.sendStatus(503);
     }
   });
@@ -2346,6 +2423,15 @@ export function startAdminServer(storage: Storage): import('http').Server {
       configured: !dokployProvisioner.configurationError,
       error: dokployProvisioner.configurationError,
     });
+  });
+
+  app.get('/owner/api/system-alerts/status', (_req, res) => {
+    res.json({ emailConfigured: systemAlertEmailConfigured() });
+  });
+
+  app.post('/owner/api/system-alerts/test', (_req, res) => {
+    testSystemAlertEmail('FlowsBiz alert test');
+    res.status(202).json({ ok: true, emailConfigured: systemAlertEmailConfigured() });
   });
 
   const provisionClient = async (id: string) => {
@@ -2975,6 +3061,18 @@ export function startAdminServer(storage: Storage): import('http').Server {
       if (messagePayloads.length) void processMetaClientInbox();
     } catch (err) {
       console.error('[META_CLIENT_INBOX_PERSIST_FAILED]', messagePayloads.map((item) => item.id).join(','), err);
+      notifySystemAlert({
+        key: 'meta-client-inbox-persist-failed',
+        severity: 'critical',
+        title: 'Meta client could not persist inbound messages',
+        message: 'A Meta client received forwarded inbound webhook messages but could not queue them durably.',
+        details: {
+          messageIds: messagePayloads.map((item) => item.id).join(','),
+          error: err instanceof Error ? err.message : String(err),
+          provider: config.WHATSAPP_PROVIDER,
+          clientName: config.CLIENT_NAME || undefined,
+        },
+      });
       res.status(503).json({ error: 'Meta message could not be queued' });
     }
   });
