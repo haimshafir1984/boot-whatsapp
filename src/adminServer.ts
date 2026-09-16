@@ -1719,6 +1719,22 @@ export function startAdminServer(storage: Storage): import('http').Server {
   };
   setInterval(refreshAllRoutesCaches, ROUTES_REFRESH_INTERVAL_MS);
 
+  // Fired whenever some OTHER client's failure is the reason a message for a
+  // different, healthy client on the same shared Meta number could not be
+  // routed immediately (or, in the fallback-only case, could not be routed at
+  // all). Keyed per blocking client so repeat failures from the same client
+  // collapse under the existing 30-minute alert throttle instead of spamming,
+  // while a second client failing independently still gets its own alert.
+  const alertClientBlockingPeers = (client: ManagedClient, reason: string, extra?: Record<string, unknown>): void => {
+    notifySystemAlert({
+      key: `meta-gateway-client-blocking-peers-${client.id}`,
+      severity: 'warning',
+      title: 'A client is blocking Meta routing for other clients',
+      message: `"${client.name}" (${client.id}) could not confirm ${reason} on the shared Meta number. Messages meant for other clients on this number may be delayed or retried until this client recovers.`,
+      details: { clientId: client.id, clientName: client.name, reason, ...extra },
+    });
+  };
+
   const routeMetaGatewayInbound = async (payload: any): Promise<{ handled: boolean; reason?: string }> => {
     const value = payload?.entry?.[0]?.changes?.[0]?.value;
     const message = value?.messages?.[0];
@@ -1764,24 +1780,54 @@ export function startAdminServer(storage: Storage): import('http').Server {
     const normalizedBody = normalizeGatewayText(body);
     const campaignsByClient = new Map<string, MetaGatewayRoute[]>();
     const pendingByClient = new Map<string, MetaPendingRouteResponse>();
+    // Clients whose LIVE pending-conversation check failed this message, even
+    // though their (cached, rarely-failing) route list came back fine. Kept
+    // separate from routeListFailures below: a client we simply could not ask
+    // "do you own a conversation with this sender right now" still has a
+    // known, complete set of active triggers, so it must not vanish from
+    // ambiguity detection - only from pending-conversation resolution, where
+    // its true state genuinely cannot be determined this message.
+    const pendingCheckFailedClients = new Map<string, ManagedClient>();
     const routingStartedAt = Date.now();
-    let lookupFailures = 0;
+    let routeListFailures = 0;
+    const routeListFailedClients = new Map<string, ManagedClient>();
     const candidates: Array<{ client: ManagedClient; clientId: string; campaign: MetaGatewayRoute; triggerText: string }> = [];
     await Promise.all(clients.map(async (client) => {
+      // Route lists come from the background-refreshed cache so a burst on a
+      // shared Meta number does not fan out a live /owner-api/meta-routes call
+      // to every client at once. A client we cannot get a fresh list for
+      // leaves ambiguity detection genuinely unable to prove correctness (we
+      // would not know its active triggers), so this must still block the
+      // whole message, exactly as before.
+      let campaigns: MetaGatewayRoute[] | 'unavailable';
       try {
-        // Route lists come from the background-refreshed cache so a burst on a
-        // shared Meta number does not fan out a live /owner-api/meta-routes
-        // call to every client at once. A client we cannot get a fresh list
-        // for counts as a lookup failure, exactly as an unreachable client did
-        // before.
-        const campaigns = await getCachedRoutes(client);
-        if (campaigns === 'unavailable') throw new Error('Cached Meta routes unavailable');
-        // Pending-conversation state stays exactly as today: a live per-sender
-        // lookup, never cached - it grows with the participant count and would
-        // leak needless information to the gateway. A 404 just means this
-        // client predates the endpoint. As with the old routing-snapshot call,
-        // one immediate retry covers a client that was mid-write for a moment,
-        // which is far cheaper than bouncing the whole message to the inbox.
+        campaigns = await getCachedRoutes(client);
+      } catch (err) {
+        campaigns = 'unavailable';
+      }
+      if (campaigns === 'unavailable') {
+        routeListFailures += 1;
+        routeListFailedClients.set(client.id, client);
+        console.error('[META_GATEWAY_CLIENT_SKIPPED]', client.id, new Error('Cached Meta routes unavailable'));
+        return;
+      }
+      campaignsByClient.set(client.id, campaigns);
+      for (const campaign of campaigns) {
+        if (!campaign.active || (campaign.runtimeStatus && campaign.runtimeStatus !== 'active')) continue;
+        const triggerText = normalizeGatewayText(campaign.triggerPhrase ?? '');
+        if (triggerText && normalizedBody.includes(triggerText)) candidates.push({ client, clientId: client.id, campaign, triggerText });
+      }
+
+      // Pending-conversation state stays exactly as today: a live per-sender
+      // lookup, never cached - it grows with the participant count and would
+      // leak needless information to the gateway. A 404 just means this
+      // client predates the endpoint. As with the old routing-snapshot call,
+      // one immediate retry covers a client that was mid-write for a moment,
+      // which is far cheaper than bouncing the whole message to the inbox.
+      // A failure here does NOT remove this client's campaigns/candidates
+      // (registered above) - it only means we do not yet know this client's
+      // pending-conversation state for this sender.
+      try {
         const fetchPendingRoute = () => fetchClientAsOwner<MetaPendingRouteResponse>(client, '/owner-api/meta-pending-route', {
           method: 'POST',
           body: JSON.stringify({ phone: fromKey }),
@@ -1799,23 +1845,23 @@ export function startAdminServer(storage: Storage): import('http').Server {
         } else if (pendingResult.status !== 404) {
           throw new Error('Meta pending-route lookup failed with status ' + pendingResult.status);
         }
-        campaignsByClient.set(client.id, campaigns);
-        for (const campaign of campaigns) {
-          if (!campaign.active || (campaign.runtimeStatus && campaign.runtimeStatus !== 'active')) continue;
-          const triggerText = normalizeGatewayText(campaign.triggerPhrase ?? '');
-          if (triggerText && normalizedBody.includes(triggerText)) candidates.push({ client, clientId: client.id, campaign, triggerText });
-        }
       } catch (err) {
-        lookupFailures += 1;
-        console.error('[META_GATEWAY_CLIENT_SKIPPED]', client.id, err);
+        pendingCheckFailedClients.set(client.id, client);
+        console.error('[META_GATEWAY_PENDING_CHECK_FAILED]', client.id, err);
       }
     }));
 
-    // With a shared Meta number, even one missing client makes the global
-    // routing picture incomplete. Never let another client's trigger or an
-    // old phone-only session win while the real owner may be unavailable.
-    if (lookupFailures > 0) {
-      throw new Error(`Campaign routing incomplete for ${lookupFailures} client(s); refusing unsafe fallback`);
+    // With a shared Meta number, a client whose route list we could not read
+    // makes the global routing picture incomplete - never let another
+    // client's trigger win while we cannot prove there is no equally-valid
+    // trigger on the unreadable one. A client whose LIVE pending-conversation
+    // check merely failed does not block here; see pendingCheckFailedClients
+    // handling below, at the two places that actually need that answer.
+    if (routeListFailures > 0) {
+      for (const failedClient of routeListFailedClients.values()) {
+        alertClientBlockingPeers(failedClient, 'campaign route list (unavailable past its cache TTL)');
+      }
+      throw new Error(`Campaign routing incomplete for ${routeListFailures} client(s); refusing unsafe fallback`);
     }
 
     const eligibleCandidates = preferCampaignMetaRoutes(candidates);
@@ -1836,7 +1882,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
     // conversation on client A can never intercept a reply meant for the
     // brand-new conversation on client B.
     if (targetClient) {
-      const staleClients = clients.filter(
+      const knownStaleClients = clients.filter(
         // Only clients that report sender-owned work need an active handover.
         // During a mixed-version deploy, older idle clients still return 200
         // from meta-clear-pending without the new `cancelled` acknowledgement;
@@ -1845,8 +1891,17 @@ export function startAdminServer(storage: Storage): import('http').Server {
         (client) => client.id !== targetClient!.id
           && Boolean(pendingByClient.get(client.id)?.pending || pendingByClient.get(client.id)?.activeWork),
       );
-      if (staleClients.length) {
-        await Promise.all(staleClients.map(async (client) => {
+      // A client whose live pending check failed is an unknown, not a "no" -
+      // treating it as "nothing to clear" would let it keep running a real
+      // conversation (queued outbox sends, service-bot follow-ups) in
+      // parallel with the brand-new one we are about to forward to. Send it
+      // the same blind stop-and-confirm call; if it cannot confirm, this
+      // falls through to the existing fail-closed retry below exactly as a
+      // known-stale client's failure already does.
+      const unknownClients = [...pendingCheckFailedClients.values()].filter((client) => client.id !== targetClient!.id);
+      const clientsNeedingClear = [...knownStaleClients, ...unknownClients.filter((c) => !knownStaleClients.some((k) => k.id === c.id))];
+      if (clientsNeedingClear.length) {
+        await Promise.all(clientsNeedingClear.map(async (client) => {
           try {
             const result = await fetchClientAsOwner<{ removed?: number; cancelled?: boolean }>(client, '/owner-api/meta-clear-pending', {
               method: 'POST',
@@ -1862,6 +1917,10 @@ export function startAdminServer(storage: Storage): import('http').Server {
             // Fail closed. A failed/old client cannot acknowledge that its
             // outgoing work stopped; retry the handover, not an unsafe send.
             console.warn('[META_GATEWAY_CLEAR_PENDING_FAILED]', client.id, err);
+            alertClientBlockingPeers(client, 'campaign handover (meta-clear-pending)', {
+              blockedTargetClientId: targetClient!.id,
+              blockedTargetClientName: targetClient!.name,
+            });
             throw err;
           }
         }));
@@ -1872,13 +1931,19 @@ export function startAdminServer(storage: Storage): import('http').Server {
     // the gateway's historical phone session. This prevents a conversation on
     // one customer from capturing a new or follow-up message for another.
     if (!targetClient && !best) {
-      let pendingLookupFailures = 0;
+      // Seeded from the discovery loop's real failures, not just whatever
+      // this loop's own map reads happen to throw (they never do - reading a
+      // Map cannot fail). Without this, a client that failed its live
+      // pending check earlier would be silently treated as "no pending
+      // conversation" here, and this fallback could route to a DIFFERENT
+      // client while the real (unreachable) owner was never actually asked.
+      let pendingLookupFailures = pendingCheckFailedClients.size;
       const pendingMatches = (await Promise.all(clients.map(async (client) => {
         try {
           // pendingByClient was populated by the live per-sender lookup in the
-          // discovery loop above, for every client - and a client that failed
-          // that lookup already bumped lookupFailures and made us throw before
-          // reaching here.
+          // discovery loop above, for every client whose check succeeded. A
+          // client in pendingCheckFailedClients already counted above and
+          // simply has no entry here - not a "no pending conversation" answer.
           const pendingRoute = pendingByClient.get(client.id);
           if (!pendingRoute?.pending) return null;
           // R5: a needs_review hold must still route back to the owning
@@ -1902,11 +1967,14 @@ export function startAdminServer(storage: Storage): import('http').Server {
       }))).filter((match): match is { client: ManagedClient; campaign: MetaGatewayRoute } => Boolean(match));
 
       const fallbackDecision = decideMetaFallbackRoute({
-        routeLookupFailures: lookupFailures,
+        routeLookupFailures: routeListFailures,
         pendingLookupFailures,
         pendingClientIds: pendingMatches.map((match) => match.client.id),
       });
       if (fallbackDecision.action === 'retry') {
+        for (const failedClient of pendingCheckFailedClients.values()) {
+          alertClientBlockingPeers(failedClient, 'pending-conversation lookup (no fresh trigger to fall back on)');
+        }
         throw new Error(`Pending Meta routing incomplete for ${pendingLookupFailures} client(s); refusing unsafe fallback`);
       }
       if (fallbackDecision.action === 'route') {
