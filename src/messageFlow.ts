@@ -2742,7 +2742,11 @@ async function sendDecisionStep(
   }
 
   if (step.kind === 'wait_reply' || step.kind === 'email_capture') {
-    await sendBotMessage(transport, senderJid, step.text.trim(), stepDelayMs);
+    if (step.fileId) {
+      await waitBeforeBotReplyTo(senderJid, stepDelayMs);
+      await sendDecisionFile(transport, storage, senderJid, step.fileId, undefined, step.fileAsSticker, campaignId, campaignResultId, senderPhone);
+    }
+    await sendBotMessage(transport, senderJid, step.text.trim(), step.fileId ? 0 : stepDelayMs);
     console.log(step.kind === 'email_capture' ? '   Email-capture message sent.' : '   Wait-for-reply message sent.');
     if (campaignId) {
       storage.recordCampaignEvent({
@@ -2766,8 +2770,12 @@ async function sendDecisionStep(
     let failed = false;
     try {
       const introText = step.text.trim();
+      if (step.fileId) {
+        await waitBeforeBotReplyTo(senderJid, stepDelayMs);
+        await sendDecisionFile(transport, storage, senderJid, step.fileId, undefined, step.fileAsSticker, campaignId, campaignResultId, senderPhone);
+      }
       if (introText) {
-        await sendBotMessage(transport, senderJid, introText, stepDelayMs);
+        await sendBotMessage(transport, senderJid, introText, step.fileId ? 0 : stepDelayMs);
         console.log('   Contact-card intro step sent.');
         if (campaignId) {
           storage.recordCampaignEvent({
@@ -2958,9 +2966,14 @@ async function sendDecisionStep(
 
   let sentInteractive = false;
   try {
+    const interactionDelayMs = step.fileId ? 0 : stepDelayMs;
+    if (step.fileId) {
+      await waitBeforeBotReplyTo(senderJid, stepDelayMs);
+      await sendDecisionFile(transport, storage, senderJid, step.fileId, undefined, step.fileAsSticker, campaignId, campaignResultId, senderPhone);
+    }
     if (presentation === 'list' && transport.sendInteractiveList && step.options?.length) {
       try {
-        await waitBeforeBotReplyTo(senderJid, stepDelayMs);
+        await waitBeforeBotReplyTo(senderJid, interactionDelayMs);
         const listButtonText = buildInteractiveListButtonText(step);
         const items = step.options.slice(0, 10).map((option, optionIndex) => buildInteractiveListItem(step, option, optionIndex));
         const listBodyText = hasLongOptions ? formatQuestion(step) : step.text.trim();
@@ -2988,7 +3001,7 @@ async function sendDecisionStep(
     }
     if (!hasLongOptions && presentation === 'buttons' && transport.sendInteractiveButtons && step.options?.length) {
       try {
-        await waitBeforeBotReplyTo(senderJid, stepDelayMs);
+        await waitBeforeBotReplyTo(senderJid, interactionDelayMs);
         const options = step.options.slice(0, 3);
         const needsFullOptionText = options.some((option) =>
           Boolean(option.buttonLabel?.trim()) || Array.from(option.text.trim()).length > 20
@@ -3017,7 +3030,7 @@ async function sendDecisionStep(
       }
     }
     if (!sentInteractive) {
-      await sendBotMessage(transport, senderJid, formatQuestion(step), stepDelayMs);
+      await sendBotMessage(transport, senderJid, formatQuestion(step), interactionDelayMs);
     }
   } catch (err) {
     // The question was never actually delivered - undo the pending state (and
@@ -3053,10 +3066,15 @@ async function handleScoreResultStep(
   const answers = storage.getCampaignScoreAnswers(campaignResultId);
   const matchedRule = evaluateScoreResultRule(step.resultRules ?? [], answers);
   const preface = step.text.trim();
+  if (step.fileId) {
+    const delayMs = Number.isFinite(step.delayMs) ? Math.max(0, step.delayMs ?? BOT_REPLY_DELAY_MS) : BOT_REPLY_DELAY_MS;
+    await waitBeforeBotReplyTo(senderJid, delayMs);
+    await sendDecisionFile(transport, storage, senderJid, step.fileId, undefined, step.fileAsSticker, campaignId, campaignResultId, senderPhone);
+  }
   // The step text is an optional message shown before the calculated result.
   if (preface && preface !== '\u05d7\u05d9\u05e9\u05d5\u05d1 \u05ea\u05d5\u05e6\u05d0\u05d4') {
     const delayMs = Number.isFinite(step.delayMs) ? Math.max(0, step.delayMs ?? BOT_REPLY_DELAY_MS) : BOT_REPLY_DELAY_MS;
-    await sendBotMessage(transport, senderJid, preface, delayMs);
+    await sendBotMessage(transport, senderJid, preface, step.fileId ? 0 : delayMs);
     console.log('   Score-result preface sent.');
   }
   if (campaignId) {

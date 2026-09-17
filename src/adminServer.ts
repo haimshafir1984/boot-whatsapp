@@ -955,11 +955,12 @@ function sanitizeDecisionFlow(
       if (typeof item.delayMs === 'number' && Number.isFinite(item.delayMs) && item.delayMs > 0) {
         step.delayMs = Math.min(Math.max(Math.round(item.delayMs), 0), 60_000);
       }
-      if (kind === 'message' || kind === 'referral_share') {
-        if (fileId) step.fileId = fileId;
-        if (kind === 'message' && typeof item.fileAsSticker === 'boolean') {
-          step.fileAsSticker = item.fileAsSticker;
-        }
+      // A step attachment is independent from the step kind.  Keep accepting
+      // the legacy message/referral shapes, while allowing media alongside
+      // questions, contact cards, waits, email capture and score results.
+      if (fileId) step.fileId = fileId;
+      if (typeof item.fileAsSticker === 'boolean') {
+        step.fileAsSticker = item.fileAsSticker;
       }
       if ((kind === 'wait_reply' || kind === 'email_capture' || kind === 'referral_share') && typeof item.timeoutMinutes === 'number' && item.timeoutMinutes > 0) {
         step.timeoutMinutes = Math.min(Math.max(Math.round(item.timeoutMinutes), 1), 1440);
@@ -1142,7 +1143,11 @@ function sanitizeDecisionFlow(
         nextStepId: rule.nextStepId && ids.has(rule.nextStepId) ? rule.nextStepId : undefined,
       })),
       options: step.options?.map((option) => {
-        const optionNextStepId = option.nextStepId === '__NEXT__' ? nextSequentialStepId : option.nextStepId;
+        // A choice continues to the next step by default.  __END__ is the
+        // explicit opt-out used by the editor for a deliberate terminal path.
+        const optionNextStepId = option.nextStepId === '__END__'
+          ? undefined
+          : (option.nextStepId || nextSequentialStepId);
         return {
           ...option,
           nextStepId: optionNextStepId && ids.has(optionNextStepId) ? optionNextStepId : undefined,

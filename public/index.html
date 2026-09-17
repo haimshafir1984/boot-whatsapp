@@ -3699,8 +3699,8 @@
     const options = Array.isArray(step.options) && step.options.length
       ? step.options.slice(0, presentation === 'buttons' ? 3 : 10)
       : [
-          { id: makeFlowId('option'), text: '', endText: '', nextStepId: '' },
-          { id: makeFlowId('option'), text: '', endText: '', nextStepId: '' },
+          { id: makeFlowId('option'), text: '', endText: '', nextStepId: '__NEXT__' },
+          { id: makeFlowId('option'), text: '', endText: '', nextStepId: '__NEXT__' },
         ];
     const isReferralHub = step.referralHub === true || options.filter(option =>
       option.action === 'referral_link' || option.action === 'referral_leaderboard' || option.action === 'referral_my_rank').length >= 2;
@@ -3900,7 +3900,7 @@
             </div>
             <div class="decision-action-summary" data-option-summary></div>
             <div class="decision-option-label" data-option-next-label>לאיזו שאלה ממשיכים אחרי הבחירה?</div>
-            <select data-option-next onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()" data-selected-next="${esc(option.nextStepId || '')}"></select>
+            <select data-option-next onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()" data-selected-next="${esc(option.nextStepId || '__NEXT__')}"></select>
             <div class="decision-option-label" data-option-file-label>איזה קובץ לשלוח?</div>
             <select data-option-file data-selected-file="${esc(option.fileId || '')}" onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">${fileOptions(option.fileId || '')}</select>
             <label class="decision-inline-check" data-option-sticker-wrap><input data-option-file-sticker type="checkbox" ${option.fileAsSticker ? 'checked' : ''} onchange="updateCampaignConversationPreview()" /> שלח כמדבקה</label>
@@ -4034,8 +4034,8 @@
     type = normalizeFlowStepType(type);
     if (type === 'buttons') {
       addDecisionStep({ id: makeFlowId(), kind: 'question', text: '', presentation: 'buttons', options: [
-        { id: makeFlowId('option'), text: '', endText: '', nextStepId: '' },
-        { id: makeFlowId('option'), text: '', endText: '', nextStepId: '' },
+        { id: makeFlowId('option'), text: '', endText: '', nextStepId: '__NEXT__' },
+        { id: makeFlowId('option'), text: '', endText: '', nextStepId: '__NEXT__' },
       ] });
       return;
     }
@@ -4052,7 +4052,7 @@
       return;
     }
     if (type === 'list') {
-      addDecisionStep({ id: makeFlowId(), kind: 'question', text: '', presentation: 'list', listButtonText: 'לשאלות 👇', options: [{ id: makeFlowId('option'), text: '', endText: '' }] });
+      addDecisionStep({ id: makeFlowId(), kind: 'question', text: '', presentation: 'list', listButtonText: 'לשאלות 👇', options: [{ id: makeFlowId('option'), text: '', endText: '', nextStepId: '__NEXT__' }] });
       return;
     }
     if (type === 'message') {
@@ -4243,9 +4243,9 @@
       const messageFile = step.querySelector('[data-message-file]');
       const messageSticker = step.querySelector('[data-message-sticker]');
       const referralTokenHelp = step.querySelector('[data-referral-token-help]');
-      if (messageFile) messageFile.style.display = (kind === 'message' || kind === 'referral_share') ? '' : 'none';
+      if (messageFile) messageFile.style.display = '';
       if (referralTokenHelp) referralTokenHelp.style.display = kind === 'referral_share' ? '' : 'none';
-      if (messageSticker) messageSticker.style.display = kind === 'message' ? '' : 'none';
+      if (messageSticker) messageSticker.style.display = '';
       if (questionPresentation) questionPresentation.style.display = isChoice ? '' : 'none';
       if (questionListButton) questionListButton.style.display = isChoice && presentation === 'list' ? '' : 'none';
       if (questionListSelection) questionListSelection.style.display = isChoice && presentation === 'list' ? '' : 'none';
@@ -4386,12 +4386,14 @@
         : (isTimeoutNextSelect ? '\u05d1\u05d7\u05e8\u05d9 \u05e9\u05dc\u05d1 \u05d4\u05de\u05e9\u05da' : '\u05d4\u05e9\u05dc\u05d1 \u05d4\u05d1\u05d0 \u05d1\u05e8\u05e9\u05d9\u05de\u05d4 / \u05e1\u05d9\u05d5\u05dd \u05d0\u05dd \u05d0\u05d9\u05df');
       const autoNextOption = (isStepNextSelect || isTimeoutNextSelect)
         ? '<option value="__NEXT__">\u05dc\u05e2\u05d1\u05d5\u05e8 \u05dc\u05e9\u05dc\u05d1 \u05d4\u05d1\u05d0 \u05d1\u05e8\u05e9\u05d9\u05de\u05d4</option>'
-        : '<option value="">' + emptyLabel + '</option>';
-      select.innerHTML = (isStepNextSelect ? `<option value="__END__">${emptyLabel}</option>${autoNextOption}` : (isTimeoutNextSelect ? `<option value="">${emptyLabel}</option>${autoNextOption}` : autoNextOption)) + steps
+        : '<option value="__NEXT__">\u05dc\u05e2\u05d1\u05d5\u05e8 \u05dc\u05e9\u05dc\u05d1 \u05d4\u05d1\u05d0 \u05d1\u05e8\u05e9\u05d9\u05de\u05d4 / \u05e1\u05d9\u05d5\u05dd</option>';
+      const terminalOption = '<option value="__END__">\u05e9\u05dc\u05d7 \u05d5\u05e1\u05d9\u05d9\u05dd</option>';
+      select.innerHTML = (isStepNextSelect ? `<option value="__END__">${emptyLabel}</option>${autoNextOption}` : (isTimeoutNextSelect ? `<option value="">${emptyLabel}</option>${autoNextOption}` : `${autoNextOption}${terminalOption}`)) + steps
         .filter(step => step.id !== select.closest('[data-decision-step]')?.dataset.stepId)
         .map(step => `<option value="${esc(step.id)}">${esc(step.label)}${step.text ? ` - ${esc(step.text.slice(0, 24))}` : ''}</option>`)
         .join('');
-      select.value = steps.some(step => step.id === selected) || selected === '__NEXT__' || selected === '__END__' ? selected : (isStepNextSelect ? '__END__' : '');
+      const optionDefault = select.hasAttribute('data-option-next') ? '__NEXT__' : (isStepNextSelect ? '__END__' : '');
+      select.value = steps.some(step => step.id === selected) || selected === '__NEXT__' || selected === '__END__' ? selected : optionDefault;
       select.dataset.selectedNext = select.value;
     });
   }
@@ -4406,6 +4408,10 @@
           kind,
           text: step.querySelector('[data-step-text]').value.trim(),
         };
+        const stepFileSelect = step.querySelector('[data-step-file]');
+        const stepFileId = stepFileSelect?.value || stepFileSelect?.dataset.selectedFile || '';
+        if (stepFileId) item.fileId = stepFileId;
+        if (step.querySelector('[data-step-file-sticker]')?.checked) item.fileAsSticker = true;
         if (kind === 'question' && step.dataset.referralHub === 'true') item.referralHub = true;
         if (!item.text && kind === 'score_result') item.text = '\u05d7\u05d9\u05e9\u05d5\u05d1 \u05ea\u05d5\u05e6\u05d0\u05d4';
         const delaySeconds = Number(step.querySelector('[data-step-delay]')?.value || 0);
@@ -4438,11 +4444,11 @@
         } else if (kind === 'message' || kind === 'wait_reply' || kind === 'email_capture' || kind === 'contact_card' || kind === 'referral_share') {
           const nextStepId = step.querySelector('[data-step-next]')?.value || '';
           if (nextStepId && nextStepId !== '__END__') item.nextStepId = nextStepId;
-          if (kind === 'message' || kind === 'referral_share') {
+          if (kind === 'message' || kind === 'referral_share' || kind === 'question' || kind === 'score_question' || kind === 'score_result' || kind === 'wait_reply' || kind === 'email_capture' || kind === 'contact_card') {
             const fileSelect = step.querySelector('[data-step-file]');
             const fileId = fileSelect?.value || fileSelect?.dataset.selectedFile || '';
             if (fileId) item.fileId = fileId;
-            if (kind === 'message' && step.querySelector('[data-step-file-sticker]')?.checked) item.fileAsSticker = true;
+            if (step.querySelector('[data-step-file-sticker]')?.checked) item.fileAsSticker = true;
           }
           if (kind === 'email_capture') {
             const emailInvalidText = step.querySelector('[data-email-invalid-text]')?.value.trim() || '';
@@ -4526,9 +4532,11 @@
                 if (fileId) clean.fileId = fileId;
                 if (option.querySelector('[data-option-file-sticker]')?.checked) clean.fileAsSticker = true;
                 if (caption) clean.endText = caption;
+                clean.nextStepId = '__END__';
               } else {
                 const endText = option.querySelector('[data-option-end-text]').value.trim();
                 if (endText) clean.endText = endText;
+                clean.nextStepId = '__END__';
               }
               return clean;
             })
