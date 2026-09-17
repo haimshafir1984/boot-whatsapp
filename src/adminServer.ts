@@ -2042,14 +2042,46 @@ export function startAdminServer(storage: Storage): import('http').Server {
   // is down, so the first retries are near-instant and the curve tops out fast.
   // The old curve started at 5s and doubled to a 5min cap, which put the 7th
   // retry past MAX_TRIGGER_AGE_MS - messages came back only to be dropped for
-  // being stale. All 10 attempts now fit inside ~38s, well within that window.
+  // being stale.
   const metaInboxRetryDelayMs = (attempts: number): number =>
     Math.min(500 * (2 ** Math.max(0, attempts - 1)), 5_000);
+  /**
+   * How many times a message may be retried before it is given up on as
+   * failed. With the curve above, 10 attempts spanned only ~38 seconds - and
+   * a client that goes down for an ordinary reason (a redeploy, a restart, an
+   * OOM) takes longer than that to come back: a Swarm task needs roughly
+   * 40-60s to return to healthy. Twice in production on 2026-09-16 a message
+   * for a perfectly healthy campaign was therefore marked failed and lost a
+   * second or two before the unrelated client it was waiting on recovered.
+   *
+   * On a shared Meta number every inbound message needs an answer from every
+   * client, so one client's brief outage costs every campaign on that number.
+   * Giving up after 38s converts a transient outage into permanent message
+   * loss; being patient converts it into a delay.
+   *
+   * 60 attempts spans roughly 4.5 minutes, which covers a redeploy or a
+   * crash-restart comfortably while staying well inside MAX_TRIGGER_AGE_MS
+   * (10 minutes for Meta, messageFlow.ts) - past that the client discards the
+   * trigger as stale anyway, so retrying beyond it would only waste work.
+   * This changes nothing about WHEN a message is refused: routing still fails
+   * closed and still requires a full cancellation acknowledgement before
+   * forwarding. It only stops us abandoning the message too early.
+   */
+  const META_INBOX_MAX_ATTEMPTS = 60;
   const META_INBOX_DRAIN_MS = 500;
   // How many participants may be mid-flow at once. A campaign flow runs for
   // tens of seconds because each step waits for its delivery confirmation, so
   // without real concurrency the queue moves at one flow at a time. This is the
   // cap the old await-the-whole-batch loop provided implicitly, stated outright.
+  //
+  // Left at 50 deliberately. A 2026-09-17 load test appeared to show a
+  // 100-participant peak queueing badly behind it, which is why raising this
+  // was considered - but that measurement was an artefact of running 100
+  // simulated flows on one JS thread, not anything real. Re-measured across
+  // separate processes, and again against the real campaign engine, a client
+  // under a 100-participant peak answered the gateway in 2-88ms with
+  // event-loop lag under 140ms. There is no evidence this cap is a
+  // bottleneck, so it stays where it is.
   const META_MAX_CONCURRENT_SENDERS = 50;
 
   const metaGatewayDrainer = createSenderDrainer<MetaGatewayInboxItem>({
@@ -2078,7 +2110,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
                 console.warn('[META_GATEWAY_INBOX_HELD]', item.id, err.message);
                 break;
               }
-              if (item.attempts >= 10) {
+              if (item.attempts >= META_INBOX_MAX_ATTEMPTS) {
                 metaGatewayInbox.markFailed(item.id, err);
                 console.error('[META_GATEWAY_INBOX_FAILED]', item.id, err);
                 notifySystemAlert({
@@ -2141,7 +2173,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
                 console.warn('[META_CLIENT_INBOX_HELD]', item.id, err.message);
                 continue;
               }
-              if (item.attempts >= 10) {
+              if (item.attempts >= META_INBOX_MAX_ATTEMPTS) {
                 metaClientInbox.markFailed(item.id, err);
                 console.error('[META_CLIENT_INBOX_FAILED]', item.id, err);
                 notifySystemAlert({
