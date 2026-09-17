@@ -4409,7 +4409,10 @@
           text: step.querySelector('[data-step-text]').value.trim(),
         };
         const stepFileSelect = step.querySelector('[data-step-file]');
-        const stepFileId = stepFileSelect?.value || stepFileSelect?.dataset.selectedFile || '';
+        // The live select value is authoritative.  Do not fall back to the
+        // upload cache here: when an existing attachment is cleared, the
+        // cached data-selected-file must not resurrect it on save.
+        const stepFileId = stepFileSelect?.value || '';
         if (stepFileId) item.fileId = stepFileId;
         if (step.querySelector('[data-step-file-sticker]')?.checked) item.fileAsSticker = true;
         if (kind === 'question' && step.dataset.referralHub === 'true') item.referralHub = true;
@@ -4446,7 +4449,7 @@
           if (nextStepId && nextStepId !== '__END__') item.nextStepId = nextStepId;
           if (kind === 'message' || kind === 'referral_share' || kind === 'question' || kind === 'score_question' || kind === 'score_result' || kind === 'wait_reply' || kind === 'email_capture' || kind === 'contact_card') {
             const fileSelect = step.querySelector('[data-step-file]');
-            const fileId = fileSelect?.value || fileSelect?.dataset.selectedFile || '';
+            const fileId = fileSelect?.value || '';
             if (fileId) item.fileId = fileId;
             if (step.querySelector('[data-step-file-sticker]')?.checked) item.fileAsSticker = true;
           }
@@ -4527,7 +4530,7 @@
                 if (nextText) clean.endText = nextText;
               } else if (action === 'file') {
                 const fileSelect = option.querySelector('[data-option-file]');
-                const fileId = fileSelect?.value || fileSelect?.dataset.selectedFile || '';
+                const fileId = fileSelect?.value || '';
                 const caption = option.querySelector('[data-option-end-text]').value.trim();
                 if (fileId) clean.fileId = fileId;
                 if (option.querySelector('[data-option-file-sticker]')?.checked) clean.fileAsSticker = true;
