@@ -18,6 +18,13 @@
 
 חשוב: המערכת תומכת כיום גם ב-Meta Cloud API רשמי וב-Twilio API. לקוחות Meta אינם צריכים QR או Chromium; לקוחות WhatsApp Web/Baileys עדיין משתמשים בחשבון מקושר. במודל הפעיל כיום רוב הלקוחות עובדים דרך מספר Meta מרכזי של FlowsBiz, עם ניתוב לפי משפט טריגר.
 
+## תמונת מצב 2026-09-18
+
+- כל 16 האפליקציות (מנהל + 15 לקוחות) אומתו על קומיט `afd5334` ובריאות, חוץ מ"רות" (`1e970c66`, Baileys) שדורשת סריקת QR מחדש.
+- קמפיין "פוקוס" (`client-pvkvs-meta-4b004adb`, מספר Meta משותף) נבדק לפיקים של 100 משתתפים במקביל לקראת השקה. פירוט: `docs/load-testing-and-deploy-findings-2026-09-18.md`.
+- **אזהרת פריסה:** כפתור "Redeploy all clients" בדשבורד המנהל **לא מושך קוד חדש** — אחרי push צריך "Deploy" פר-אפליקציה ב-Dokploy. ראו "מצב הפריסה הנוכחי".
+- סיכום כל העבודה מ-29.8 עד 18.9 — בסעיף האחרון במסמך ("עדכון 2026-09-18").
+
 ## תמונת מצב 2026-08-17
 
 יש שני נושאים פעילים שחשוב לא לערבב:
@@ -52,6 +59,13 @@ master
 - להיכנס לאפליקציה `flowsbiz-admin`.
 - לפתוח `Deployments`.
 - לוודא שהדיפלוי העליון מציג את הקומיט האחרון.
+
+**Deploy מול Redeploy (התגלה 2026-09-18):**
+
+- "Deploy" פר-אפליקציה ב-UI של Dokploy עושה clone מחדש ובונה את הקוד העדכני — זה מה שצריך אחרי push.
+- "Redeploy" וכפתור "Redeploy all clients" בדשבורד המנהל (`redeployExistingClient` → `application.redeploy`) בונים מחדש מהקוד שכבר נמצא על השרת (`/etc/dokploy/applications/<app>/code`) ו**לא מושכים commits חדשים**. בגלל זה כל 15 הלקוחות רצו על קוד ישן, ו-5 מהם בלי תיקוני silent-data-loss מ-5.9.
+- אחרי פריסה לאמת קומיט בפועל בשרת (`git -C /etc/dokploy/applications/<app>/code log -1`) ואת `/health` של כל אפליקציה, ולא להסתמך על סטטוס ה-UI.
+- השרת: `169.58.236.130` (Dokploy על Docker Swarm). ב-Swarm `docker stop` גורם ל-restart אוטומטי; לעצירה: `docker service scale <svc>=0`.
 
 ## מבנה לקוחות
 
@@ -1908,3 +1922,71 @@ Commit: `60de4cc`
 2. כדאי לבדוק אצל לקוחות קיימים (לא רק יהודית פיטנס) האם `contactsProvider` עדיין מוגדר ל-`google` בלי חיבור Google בפועל. שינוי ברירת המחדל משפיע על לקוחות חדשים או snapshots בלי ערך שמור; הוא לא משנה בכוח לקוחות קיימים שכבר שמרו `google`.
 3. תיקון סדר המשלוח (תיקון 3) בודק רק קבצים שנשלחים דרך `sendFileWithRetry` (כל שלבי קובץ/וידאו/כרטיס איש קשר בקמפיין). אם בעתיד נוסף נתיב שליחת קובץ חדש שלא עובר דרך הפונקציה הזו, הוא לא ייהנה מהתיקון.
 4. לאחר deploy, בקמפיינים קיימים עם שאלות “רשימה נפתחת” יופיע כפתור ברירת המחדל `לשאלות 👇` אם לא הוגדר טקסט אחר. מי שרוצה ניסוח אחר יכול לערוך את השלב בדשבורד.
+
+## עדכון 2026-09-18 - יציבות, שער Meta משותף, בדיקות עומס ופריסה
+
+סיכום העבודה מ-31.8 עד 18.9. כל נושא מתועד לעומק במסמך תוכנית/תוצאות מתוארך ב-`docs/`; כאן רק התמונה והפניות.
+
+### אירוע 31.8 ותיקוני ביצועים (1.9-2.9)
+
+- `docs/stability-plan-2026-09-01.md`, `docs/post-campaign-fixes-2026-09-01.md`, `docs/full-system-qa-2026-09-01.md`.
+- זרימת קמפיין איטית אחת כבר לא מעכבת משתתפים אחרים (`7344c9b`); החמצת ניתוב רגעית לא נענשת בדקה של backoff (`53e3254`).
+- הקטנת כתיבות: שמירת completed ב-MetaGatewayInbox מקוצרת (`1b469c1`), ה-flow לא מועתק לכל שיחה (`5e5db25`), `conversation_state` במעקב פר-שורה (`46e40db`), העתקת הטבלאות שנגעו בלבד (`80b6e3b`).
+- טרנזקציות Postgres על client ייעודי ו-`flush()` ממתין רק לדור הכתיבה המבוקש (`ff47ebb`, `2bc5b42`) — `docs/flush-transaction-fix-results-2026-09-02.md`, `docs/campaign-scale-load-test-results-2026-09-02.md`.
+
+### בטיחות ופריסה (2.9)
+
+`docs/safety-speed-deploy-plan-2026-09-02.md` / `-results-`:
+
+- אימות `X-Hub-Signature-256` על webhook של Meta (`3889b68`).
+- כיבוי מסודר ב-SIGTERM/SIGINT עם עצירת workers (`5f9589b`, grace 8s — Swarm נותן 10s).
+- `/health/live` בלי storage + `HEALTHCHECK` ב-container (`10a4b01`).
+- מחיקת/עריכת קמפיין עם שיחות חיות — מבקש אישור לפני סיום שיחות (`9dcb139`, `d42337a`).
+- כתיבה אטומית של conversation-state במצב JSON + שחזור מ-`.bak` (`a506b7b`).
+
+### Decision recovery ו-bulk redeploy (3.9)
+
+`docs/decision-recovery-scale-fix-*-2026-09-03.md`: שחזור החלטות ב-O(1) במקום O(n) (`db3a3e4`, תיקוני phoneIndex `9580b8c`, `f90fa33`); מסלול bulk redeploy נפרד שנבדק עד סיום אמיתי (`d9694ef`) — **אבל** הוא עדיין משתמש ב-`application.redeploy` שלא מושך קוד (ראו "מצב הפריסה הנוכחי").
+
+### עמידות המספר המשותף (4.9)
+
+`docs/shared-number-resilience-*`: cache של רשימת ה-routes בשער עם stale-while-revalidate (`AsyncExpiringCache`, `dcab4fa`, `e469a14`).
+
+### Silent data loss (5.9)
+
+`docs/silent-data-loss-*-2026-09-05.md`: כשלון עיבוד הודעה כבר לא נבלע — `needs_review` מחזיק את השולח (`e709508`); retries חסומים ל-Postgres בלי לאבד dirty state (`d8fd8fe`); rollback ל-MetaGatewayInbox (`7ccf599`); fail-fast + גיבוי ל-OwnerStorage (`0130269`); תיקוני R1-R6 ו-claimBatch (`fbdc78e`, `09e7fe0`).
+
+### Handover והתראות (8.9-10.9)
+
+- ביטול handover בין קמפיינים ב-Meta והורדת latency של snapshots (`78f0eee`, `8c57527`); ניתוב טריגר עוקף לקוחות legacy לא פעילים (`16fa7c1`) — `docs/meta-handover-hotfix-results-2026-09-08.md`.
+- התראות מערכת במייל על כשלי Meta (`ac94754`, `src/systemAlerts.ts`, throttle 30 דק' לכל key).
+
+### שער Meta — כשל lookup של לקוח אחד (16.9)
+
+`docs/meta-gateway-lookup-failure-blast-radius-plan-2026-09-16.md` (כולל דחיית התוכנית הראשונה, שחזור מבוקר בפרודקשן ומימוש):
+
+- השער שואל כל לקוח על המספר המשותף בכל הודעה ועובד fail-closed. כשל ב-pending-check של לקוח אחד כבר לא חוסם עמיתים כשאפשר להמשיך בבטחה (`41e164c`); התראה `meta-gateway-client-blocking-peers-<clientId>`.
+
+### בדיקות עומס לקראת "פוקוס" ותיקון תקציב retry (17.9-18.9)
+
+`docs/load-testing-and-deploy-findings-2026-09-18.md`:
+
+- **פיק של 100 במקביל לא מרעיב קמפיין שקט** — לקוח תחת 100 זרימות אמיתיות עונה לשער תוך 2-129ms.
+- **לקוח לא זמין חוסם את כל הקמפיינים על המספר.** תקציב ה-retry של inbox השער היה 10 ניסיונות (~38 שנ') — קצר מזמן restart של Swarm. הועלה ל-`META_INBOX_MAX_ATTEMPTS = 60` (~4.5 דק', בתוך `MAX_TRIGGER_AGE_MS` של 10 דק') (`afd5334`). מדידה עם לקוח offline ל-60 שנ': 106/106 הודעות אבדו → 0.
+- `META_MAX_CONCURRENT_SENDERS` הוחזר ל-50 — ההעלאה ל-100 נשענה על מדידה שגויה בתהליך יחיד.
+- כלי בדיקה חדשים: `scripts/test-load-gateway-noisy-vs-quiet.js`, `test-load-client-responsiveness.js`, `test-load-multiprocess-focus.js` (+`test-load-worker-focus.js`), `test-load-burst-focus-campaign-sustained.js`. להריץ ברצף ולא במקביל, ולא למדוד latency בתהליך Node יחיד.
+- latency אמיתי של "פוקוס" בפרודקשן (c100): max 508ms → 362ms. Meta: quality GREEN, throughput STANDARD.
+- תיקוני בונה קמפיינים: ברירות מחדל של flow ומדיה בשלבים, ניקוי קבצים מצורפים (`bce90ad`, `0b5ed57`).
+
+### תיעוד
+
+`CLAUDE.md` נכתב מחדש (18.9) — תיאר עדיין את whatsapp-web.js / JSON / Railway. עכשיו הוא תקציר עבודה עדכני; המסמך הזה נשאר מסמך הבסיס וההיסטוריה.
+
+### פתוח
+
+1. "רות" (`1e970c66`, Baileys) — סריקת QR מחדש.
+2. כפתור "Redeploy all clients" — לשנות כך שימשוך קוד חדש (`application.deploy` או pull לפני). אחרי ההשקה ובזהירות — נוגע בכל הלקוחות בבת אחת.
+3. לקוח Meta שמת לצמיתות (מעל ~4.5 דק') עדיין גורם לאובדן הודעות לכל המספר המשותף — fail-closed מכוון. כיוונים: circuit breaker (דורש החלטה על סיכון ניתוב כפול) או התראה אגרסיבית יותר.
+4. `AsyncExpiringCache` מוחק רשומה כשרענון נכשל — לשקול grace period.
+5. `scripts/test-load-shared-campaign-isolation.js` (של Codex, לא מחויב) — סף ה-SLO של median 7s לא יציב בין ריצות; להחליף בסף יחסי ולהוסיף תרחיש לקוח מושפל.
+6. Dockerfile עם התקנת Chromium מותנית — יש תוכנית (`docs/dockerfile-conditional-chromium-plan-2026-09-05.md`), לא מומש.
