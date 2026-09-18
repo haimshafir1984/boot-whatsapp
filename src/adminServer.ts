@@ -2954,6 +2954,27 @@ export function startAdminServer(storage: Storage): import('http').Server {
     res.json(exposeBulkRedeployJob());
   });
 
+  // Single-client version of the bulk button above - added 2026-09-18 to test
+  // the application.deploy fix (docs/load-testing-and-deploy-findings-2026-09-18.md)
+  // against one client (e.g. פוקוס) before trusting it for the whole fleet.
+  // Same guardrail as the bulk path: goes through redeployExistingClient()
+  // only, never provisionClient().
+  app.post('/owner/api/clients/:id/redeploy', async (req, res) => {
+    const client = ownerStorage.getClient(req.params.id);
+    if (!client) {
+      res.status(404).json({ error: 'לקוחה לא נמצאה' });
+      return;
+    }
+    try {
+      const result = await dokployProvisioner.redeployExistingClient(client);
+      routesCache.invalidate(client.id);
+      console.log('[OWNER_CLIENT_REDEPLOY]', client.id, client.name, JSON.stringify(result));
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message ?? String(err) });
+    }
+  });
+
   app.post('/owner/api/clients/:id/check-ready', async (req, res) => {
     const client = ownerStorage.getClient(req.params.id);
     if (!client) {

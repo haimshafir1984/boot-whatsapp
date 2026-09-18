@@ -383,6 +383,7 @@
               <td>
                 <div class="actions">
                   <a class="open" href="/owner/client.html?id=${encodeURIComponent(client.id)}">פתח עמוד לקוחה</a>
+                  ${client.managementUrl ? `<button class="check-ready" onclick="redeploySingleClient('${encodeURIComponent(client.id)}', this)">עדכן לקוד האחרון</button>` : ''}
                   ${client.provisioningStatus === 'disabled'
                     ? `<button class="enable-client" onclick="enableClient('${encodeURIComponent(client.id)}')">הפעל מחדש</button>`
                     : `<button class="disable-client" onclick="disableClient('${encodeURIComponent(client.id)}')">השבת</button>`}
@@ -462,6 +463,33 @@
     async function checkReady(id) {
       await fetch(`/owner/api/clients/${id}/check-ready`, { method: 'POST' });
       loadClients();
+    }
+
+    async function redeploySingleClient(id, button) {
+      const client = ownerClientRows.get(decodeURIComponent(id));
+      const name = client?.name || 'הלקוחה';
+      if (!confirm(`לעדכן את ${name} לקומיט האחרון? הפעולה מושכת קוד חדש ובונה מחדש רק את היחידה הזו.`)) return;
+      const error = document.getElementById('error');
+      error.textContent = '';
+      const original = button.textContent;
+      button.disabled = true;
+      button.textContent = 'מעדכן...';
+      try {
+        const response = await fetch(`/owner/api/clients/${id}/redeploy`, { method: 'POST' });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok || body.ok === false) {
+          error.textContent = `עדכון ${name} נכשל: ${body.error || 'שגיאה לא ידועה'}`;
+        } else {
+          const healthText = body.healthOk === false ? ' (עלה, אך לא ענה ל-/health - כדאי לבדוק ידנית)' : '';
+          error.textContent = `${name} עודכנה לקומיט האחרון בהצלחה${healthText}.`;
+        }
+      } catch (err) {
+        error.textContent = `לא ניתן היה לעדכן את ${name} כרגע`;
+      } finally {
+        button.disabled = false;
+        button.textContent = original;
+        loadClients();
+      }
     }
 
     async function disableClient(id) {
