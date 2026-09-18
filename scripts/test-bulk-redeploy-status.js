@@ -51,14 +51,14 @@ const fastOpts = { pollIntervalMs: 1, timeoutMs: 500, retryDelayMs: 1, sleepFn: 
 /**
  * Installs a mock fetch. `plan` is a function (attemptIndex, pollIndex) that
  * returns the array of deployment rows deployment.all should return for that
- * poll. attemptIndex starts at 0 and increments on each application.redeploy.
+ * poll. attemptIndex starts at 0 and increments on each application.deploy.
  */
 function installMock(plan) {
   const state = { attempt: -1, poll: 0, titles: [], redeploys: 0 };
   global.fetch = async (url, init = {}) => {
     const route = routeOf(url);
     const body = init.body ? JSON.parse(init.body) : undefined;
-    if (route === 'application.redeploy') {
+    if (route === 'application.deploy') {
       state.attempt += 1;
       state.poll = 0;
       state.redeploys += 1;
@@ -141,7 +141,7 @@ function installMock(plan) {
     const result = await provisioner.redeployExistingClient(client(), fastOpts);
     assert.equal(result.ok, true, 'a transient clone failure that clears on retry must end ok');
     assert.equal(result.retried, true, 'retried must be flagged so the operator knows a retry happened');
-    assert.equal(state.redeploys, 2, 'the retry must actually issue a second application.redeploy');
+    assert.equal(state.redeploys, 2, 'the retry must actually issue a second application.deploy');
     assert.equal(state.titles.length, 2, 'the retry must use a fresh unique title');
     assert.notEqual(state.titles[0], state.titles[1], 'retry title must differ from the first attempt');
     console.log('5a. transient clone failure → single retry → ok:true, retried:true, second redeploy issued.');

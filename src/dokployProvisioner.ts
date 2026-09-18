@@ -96,6 +96,13 @@ export interface RedeployExistingClientResult {
   error?: string;
   /** true when the transient-clone retry path ran. */
   retried?: boolean;
+  /**
+   * Best-effort post-deploy /health check - undefined if the client has no
+   * managementUrl or the check itself couldn't be attempted; never gates `ok`,
+   * since a slow container start after a real deploy success shouldn't be
+   * reported as a redeploy failure.
+   */
+  healthOk?: boolean;
 }
 
 export interface RedeployExistingClientOptions {
@@ -316,15 +323,21 @@ export class DokployProvisioner {
   }
 
   /**
-   * Rebuilds an already-provisioned client with the current code and waits for
-   * the build to actually finish. This path deliberately touches NOTHING but
-   * `application.redeploy` - no saveGitProvider / saveEnvironment / saveBuildType
-   * / mounts.create / postgres.create / domain.create / application.deploy. The
-   * bulk "redeploy every client" button used to call provisionClient(), whose
-   * unconditional saveGitProvider reset every client's Git provider to "Custom"
-   * with no credentials and broke `git clone` fleet-wide (2026-09-03). Config
-   * changes are a separate, explicit action (provisionClient / the "update
-   * configuration" flow), never a side effect of a redeploy.
+   * Re-clones and rebuilds an already-provisioned client from the latest
+   * commit on its configured branch, and waits for the build to actually
+   * finish. Uses `application.deploy`, NOT `application.redeploy` -
+   * discovered 2026-09-18 that redeploy rebuilds from whatever was already
+   * cloned onto the server and does not pull new commits, which left 15
+   * production clients running stale code (missing the 2026-09-05
+   * silent-data-loss fixes) despite the bulk "redeploy all clients" button
+   * reporting success. This path still deliberately touches NOTHING but the
+   * deploy call itself - no saveGitProvider / saveEnvironment / saveBuildType
+   * / mounts.create / postgres.create / domain.create. The bulk button used
+   * to call provisionClient(), whose unconditional saveGitProvider reset
+   * every client's Git provider to "Custom" with no credentials and broke
+   * `git clone` fleet-wide (2026-09-03). Config changes are a separate,
+   * explicit action (provisionClient / the "update configuration" flow),
+   * never a side effect of a redeploy.
    */
   async redeployExistingClient(
     client: ManagedClient,
@@ -352,26 +365,26 @@ export class DokployProvisioner {
       // manual/Autodeploy build starts on the same application at the same
       // moment, and so the retry can never collide with the first attempt.
       attemptSeq += 1;
-      const title = `Bulk redeploy ${client.id} ${Date.now()}-${attemptSeq}-${crypto.randomBytes(4).toString('hex')}`;
-      await this.post('application.redeploy', {
+      const title = `Bulk deploy ${client.id} ${Date.now()}-${attemptSeq}-${crypto.randomBytes(4).toString('hex')}`;
+      await this.post('application.deploy', {
         applicationId,
         title,
-        description: 'Redeploy existing client with current code - no configuration changes',
+        description: 'Deploy latest commit for existing client - no configuration changes',
       });
       return this.waitForTitledDeployment(applicationId, title, timeoutMs, pollIntervalMs, sleepFn);
     };
 
     const first = await runOnce();
-    if (first.ok) return { ok: true };
+    if (first.ok) return { ok: true, healthOk: await this.checkClientHealth(client) };
     if (!first.error || !TRANSIENT_CLONE_ERROR.test(first.error)) {
       return { ok: false, error: first.error };
     }
 
-    console.warn(`Bulk redeploy: transient clone failure for client ${client.id}, retrying once after ${retryDelayMs}ms: ${first.error}`);
+    console.warn(`Bulk deploy: transient clone failure for client ${client.id}, retrying once after ${retryDelayMs}ms: ${first.error}`);
     await sleepFn(retryDelayMs);
     const second = await runOnce();
     return second.ok
-      ? { ok: true, retried: true }
+      ? { ok: true, retried: true, healthOk: await this.checkClientHealth(client) }
       : { ok: false, retried: true, error: second.error };
   }
 
@@ -417,6 +430,31 @@ export class DokployProvisioner {
       await sleepFn(pollIntervalMs);
     }
     return { ok: false, error: `Deployment did not finish within ${Math.round(timeoutMs / 1000)}s` };
+  }
+
+  /**
+   * Best-effort: Dokploy reporting a deployment as `done` only means the
+   * container was rebuilt and (re)started - it does not confirm the new
+   * process actually came up healthy. A short /health poll catches the
+   * ordinary case where the container is still finishing startup right after
+   * `done`. Never throws; a failed check just leaves `healthOk` undefined/false
+   * so the caller can surface it without turning it into a redeploy failure.
+   */
+  private async checkClientHealth(client: ManagedClient): Promise<boolean | undefined> {
+    if (!client.managementUrl) return undefined;
+    const healthUrl = new URL('/health', client.managementUrl).toString();
+    const attempts = 3;
+    for (let i = 0; i < attempts; i += 1) {
+      try {
+        const response = await fetch(healthUrl, { signal: AbortSignal.timeout(8_000) });
+        const health = await response.json().catch(() => null) as { storage?: { ready?: boolean } } | null;
+        if (response.ok && health?.storage?.ready !== false) return true;
+      } catch {
+        // fall through to retry/return-undefined below
+      }
+      if (i < attempts - 1) await defaultSleep(3_000);
+    }
+    return false;
   }
 
   getMetaRoutingConfig(): { phoneNumberId: string; displayPhoneNumber: string } | null {

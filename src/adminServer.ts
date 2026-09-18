@@ -2574,7 +2574,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
     }
   };
 
-  type BulkRedeployResult = { id: string; name: string; ok: boolean; error?: string; skipped?: boolean; retried?: boolean };
+  type BulkRedeployResult = { id: string; name: string; ok: boolean; error?: string; skipped?: boolean; retried?: boolean; healthOk?: boolean };
   let bulkRedeployJob: {
     running: boolean;
     startedAt: string;
@@ -2607,7 +2607,9 @@ export function startAdminServer(storage: Storage): import('http').Server {
       try {
         // NOTE: redeployExistingClient - NOT provisionClient. The bulk button
         // must never rewrite Git provider / environment / build type; it only
-        // rebuilds what is already configured and waits for the real result.
+        // deploys the latest commit for what is already configured (using
+        // application.deploy so it actually re-clones - see the comment on
+        // redeployExistingClient) and waits for the real result.
         const result = await dokployProvisioner.redeployExistingClient(client);
         // A redeploy can swap the running build; drop the cached route list so
         // the gateway re-reads it rather than trusting a pre-redeploy snapshot.
@@ -2619,6 +2621,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
           error: result.error,
           skipped: result.skipped,
           retried: result.retried,
+          healthOk: result.healthOk,
         });
       } catch (err: any) {
         bulkRedeployJob.results.push({

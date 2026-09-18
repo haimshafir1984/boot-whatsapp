@@ -192,7 +192,7 @@
         <strong>עדכון כל יחידות הלקוחות</strong>
         <span>מפעיל פריסה מחדש לכל הלקוחות, כדי שכל דפי הלקוח יקבלו את הגרסה האחרונה של המערכת.</span>
       </div>
-      <button class="bulk-redeploy" id="redeployAllBtn" onclick="redeployAllClients()">פרוס מחדש את כל הלקוחות</button>
+      <button class="bulk-redeploy" id="redeployAllBtn" onclick="redeployAllClients()">עדכן את כל הלקוחות לקוד האחרון</button>
     </div>
     <div class="link-tool">
       <strong>יצירת לינק WhatsApp מקוצר</strong>
@@ -490,25 +490,25 @@
     }
 
     async function redeployAllClients() {
-      if (!confirm('לפרוס מחדש את כל יחידות הלקוחות? הפעולה יכולה לקחת כמה דקות.')) return;
+      if (!confirm('לעדכן את כל יחידות הלקוחות לקומיט האחרון? הפעולה מושכת קוד חדש ובונה מחדש, ויכולה לקחת כמה דקות.')) return;
       const error = document.getElementById('error');
       const button = document.getElementById('redeployAllBtn');
       error.textContent = '';
       button.disabled = true;
-      button.textContent = 'מפעיל פריסה לכל הלקוחות...';
+      button.textContent = 'מפעיל עדכון לכל הלקוחות...';
       try {
         const response = await fetch('/owner/api/clients/redeploy-all', { method: 'POST' });
         const body = await response.json().catch(() => ({}));
         if (!response.ok && response.status !== 409) {
-          error.textContent = body.error || 'הפריסה לכל הלקוחות נכשלה';
+          error.textContent = body.error || 'העדכון לכל הלקוחות נכשל';
           return;
         }
         await pollBulkRedeploy();
       } catch (err) {
-        error.textContent = 'לא ניתן להפעיל כרגע פריסה לכל הלקוחות';
+        error.textContent = 'לא ניתן להפעיל כרגע עדכון לכל הלקוחות';
       } finally {
         button.disabled = false;
-        button.textContent = 'פרוס מחדש את כל הלקוחות';
+        button.textContent = 'עדכן את כל הלקוחות לקוד האחרון';
       }
     }
 
@@ -521,22 +521,26 @@
         const completed = body.results?.length || 0;
         const total = body.total || 0;
         const current = body.current ? ` כעת: ${body.current}.` : '';
-        error.textContent = `פריסה מחדש מתקדמת: ${completed} מתוך ${total} לקוחות.${current}`;
+        error.textContent = `עדכון מתקדם: ${completed} מתוך ${total} לקוחות.${current}`;
         loadClients();
         if (!body.running) {
           const skipped = (body.results || []).filter(r => r.skipped).length;
+          const unhealthy = (body.results || []).filter(r => r.ok && r.healthOk === false).length;
           const failedText = body.failed
             ? ` ${body.failed} נכשלו וצריך לבדוק ידנית.`
             : '';
           const skippedText = skipped
             ? ` ${skipped} דולגו (אין עדיין יחידת Dokploy).`
             : '';
-          // "עודכנו" now means the build actually reached a successful terminal
-          // status, not just that Dokploy accepted the request.
-          error.textContent = `הפריסה הסתיימה: ${body.succeeded || 0} מתוך ${body.total || 0} לקוחות הסתיימו בהצלחה.${failedText}${skippedText}`;
+          const unhealthyText = unhealthy
+            ? ` ${unhealthy} עלו אך לא ענו ל-/health - כדאי לבדוק ידנית.`
+            : '';
+          // "הסתיימו בהצלחה" now means the build actually reached a successful
+          // terminal status, not just that Dokploy accepted the request.
+          error.textContent = `העדכון הסתיים: ${body.succeeded || 0} מתוך ${body.total || 0} לקוחות הסתיימו בהצלחה.${failedText}${skippedText}${unhealthyText}`;
           return;
         }
-        button.textContent = `פורס מחדש ${completed}/${total}`;
+        button.textContent = `מעדכן ${completed}/${total}`;
         await new Promise(resolve => setTimeout(resolve, 3000));
       }
     }
