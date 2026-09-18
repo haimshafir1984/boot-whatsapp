@@ -1,417 +1,145 @@
 # CLAUDE.md
 
-מסמך עבודה למפתח/סוכן שעובד על הפרויקט.
+מסמך עבודה למפתח/סוכן שעובד על הפרויקט. עודכן לאחרונה: 2026-09-18.
 
-המטרה של המסמך היא להסביר בפשטות מה המערכת עושה היום, איך היא בנויה, מה המגבלות שלה, ומה חשוב לדעת לפני שמבצעים שינוי בקוד.
+המטרה: להסביר מה המערכת עושה היום, איך היא בנויה ונפרסת, מה המגבלות, ומה חשוב לדעת לפני שמשנים קוד או נוגעים בפרודקשן.
+
+> מסמכי תכנון ותוצאות מפורטים (מתוארכים) נמצאים ב-`docs/`. הסיכום העדכני ביותר: `docs/load-testing-and-deploy-findings-2026-09-18.md`.
 
 ## תקציר המערכת
 
-המערכת היא דשבורד ניהול + בוט WhatsApp.
+דשבורד ניהול + בוט קמפיינים ל-WhatsApp, רב-לקוחות.
 
-הלקוחה מתחברת עם חשבון ה-WhatsApp שלה דרך QR או קוד קישור, בונה קמפיין, מקבלת לינק לשליחה, ומי ששולח את הודעת הטריגר מקבל תגובה אוטומטית.
+- **שירות מנהל (admin)** — דשבורד בעלים שמקים ומנהל לקוחות, ומשמש גם **שער (gateway) מרכזי** למספר Meta המשותף.
+- **שירות לקוח** — התקנה מבודדת לכל לקוחה (container + DB משלה), עם דשבורד בנייה של קמפיינים ב-`/client/`.
 
-המערכת יודעת:
+לקוחה בונה קמפיין (טריגר + רצף שלבים: הודעות, מדיה, שאלות, איסוף שם/אימייל, קבוצות, דירוג וכו'), מקבלת לינק, ומי ששולח את הטריגר עובר את הזרימה אוטומטית. אנשי קשר נשמרים ל-Google Contacts / iCloud / רישום מקומי.
 
-1. להתחבר לחשבון WhatsApp קיים דרך `whatsapp-web.js`.
-2. לבנות קמפיינים עם הודעת טריגר.
-3. לזהות הודעת טריגר שנשלחה ל-WhatsApp של הלקוחה.
-4. לשאול את המשתמש באיזה שם לשמור אותו, אם האפשרות פעילה.
-5. לשמור איש קשר ב-Google Contacts, ב-iCloud Contacts, או רק לנהל רישום מקומי.
-6. לשלוח הודעת תשובה אוטומטית.
-7. לשלוח הודעות המשך נוספות לפי מה שהלקוחה הגדירה בדף הניהול.
-8. להציג תצוגה מקדימה של השיחה בדף הניהול.
+## ספקי WhatsApp (`WHATSAPP_PROVIDER`)
 
-חשוב: המערכת הנוכחית אינה WhatsApp Business Platform רשמי. היא עובדת כמו מכשיר מקושר של WhatsApp Web. זה מתאים לדמו, פיילוט ולשימוש שבו הלקוחה ממשיכה לעבוד מתוך אפליקציית WhatsApp Business בטלפון.
+| ערך | קובץ | הערות |
+| --- | --- | --- |
+| `BAILEYS` (ברירת מחדל) | `src/providers/BaileysProvider.ts` | מכשיר מקושר דרך QR / pairing code. יכול להתנתק ולדרוש סריקה מחדש |
+| `META_CLOUD_API` | `src/providers/MetaCloudProvider.ts` | API רשמי. רוב הלקוחות משתפים מספר אחד דרך שער המנהל (ראו למטה) |
+| `TWILIO_API` | `src/providers/TwilioProvider.ts` | |
+| (legacy) | `src/providers/WebJsProvider.ts` | `whatsapp-web.js` + Chromium — המימוש המקורי |
+
+## מספר Meta משותף ושער מרכזי — חשוב במיוחד
+
+מספר `1207335449126872` (תצוגה 972529771002) משותף לכ-11 לקוחות `META_CLOUD_API`. Meta שולחת webhook אחד לשירות המנהל (`/webhooks/meta/whatsapp`), והוא מנתב כל הודעה ללקוח הנכון (`routeMetaGatewayInbound` ב-`src/adminServer.ts`):
+
+1. לכל הודעה — שאילתה חיה `/owner-api/meta-pending-route` ל**כל** הלקוחות על המספר (timeout 3s, ניסיון חוזר אחד), כדי לדעת למי יש שיחה פתוחה עם השולח.
+2. כשטריגר חדש מתחיל שיחה אצל לקוח אחר — handover עיוור `/owner-api/meta-clear-pending` שמחייב תשובה `{cancelled:true}`.
+3. העברה ללקוח דרך `/internal/meta/whatsapp`, שמכניס ל-`metaClientInbox` ומחזיר 202 מיד.
+
+**העיקרון: fail-closed.** אם אי אפשר לוודא מי מחזיק את השיחה — לא מנתבים (עדיף עיכוב על ניתוב כפול / שיחה שבורה). המשמעות: **לקוח אחד שלא זמין מעכב הודעות של כל הקמפיינים על המספר.** לכן:
+
+- ה-inbox של השער מנסה שוב עד `META_INBOX_MAX_ATTEMPTS = 60` (~4.5 דקות, backoff `min(500·2^(n-1), 5000)`ms) — מספיק ל-restart של Swarm (40-60 שנ'), ובתוך `MAX_TRIGGER_AGE_MS` (10 דק' ל-Meta, `src/messageFlow.ts`).
+- כשל ב-pending-check של לקוח אחד מטופל כך שלא יחסום עמיתים במקרים שבהם אפשר (`41e164c`); התראה `meta-gateway-client-blocking-peers-<clientId>`.
+- `META_MAX_CONCURRENT_SENDERS = 50` — נמדד, אינו צוואר בקבוק. אל תעלו בלי מדידה רב-תהליכית.
+- לקוח שמת לצמיתות (מעל ~4.5 דק') עדיין גורם לאובדן הודעות לכל המספר — מכוון; מזוהה דרך התראות.
+
+קבצים: `src/metaGatewayInbox.ts`, `src/metaGatewayReliability.ts` (`decideMetaFallbackRoute`, `AsyncExpiringCache`, `createSenderDrainer`), `src/metaCampaignRouting.ts`, `src/metaWebhookSignature.ts`.
+
+רקע והיסטוריה: `docs/shared-number-resilience-*`, `docs/meta-gateway-lookup-failure-blast-radius-plan-2026-09-16.md`, `docs/load-testing-and-deploy-findings-2026-09-18.md`.
 
 ## פקודות
 
 ```bash
-npm run dev
-npm run build
-npm start
+npm run build      # tsc -> dist/
+npm start          # node dist/index.js
+npm run dev        # ts-node
 ```
 
-פירוט:
+בדיקות: כ-29 סקריפטי `npm run test:*` (בדיקות יחידה/אינטגרציה של זרימות, outbox, Postgres, שער Meta, provisioner, התראות ועוד), ועוד ~70 סקריפטים ב-`scripts/test-*.js`. רוב הבדיקות רצות על `dist/` — להריץ `npm run build` קודם.
 
-- `npm run dev` מריץ את המערכת ישירות מ-TypeScript בעזרת `ts-node`.
-- `npm run build` מקמפל את TypeScript לתיקיית `dist`.
-- `npm start` מריץ את הקוד המקומפל מתוך `dist`.
+בדיקות עומס (מקומיות, לא נוגעות בפרודקשן):
 
-אין כרגע סקריפט בדיקות או lint.
-
-## פריסה
-
-Production רץ ב-Railway מתוך הריפו:
-
-```text
-haimshafir1984/boot-whatsapp
+```bash
+node scripts/test-load-gateway-noisy-vs-quiet.js
+node scripts/test-load-client-responsiveness.js --count=100
+node scripts/test-load-multiprocess-focus.js
 ```
 
-הענף הפעיל לפריסה הוא:
+כללי מדידה: להריץ **ברצף, לא במקביל**; לא למדוד latency בתהליך Node יחיד (תחרות CPU מדומה); תרחיש אחד לכל תהליך; outage = connection refused, לא hang. פירוט ב-`docs/load-testing-and-deploy-findings-2026-09-18.md`.
 
-```text
-master
-```
+## פריסה (Production)
 
-כל push ל-`master` מפעיל פריסה אוטומטית.
+- ריפו: `haimshafir1984/boot-whatsapp`, ענף **`master`** (לא לשנות ל-`main` בלי החלטה מפורשת).
+- פלטפורמה: **Dokploy על Docker Swarm**, שרת `169.58.236.130` (SSH עם `~/.ssh/flowsbiz_hetzner_ed25519`). שירות המנהל: `flowsbiz-admin-akr2zu`. קוד כל אפליקציה על השרת: `/etc/dokploy/applications/<app>/code`.
+- הקמת לקוחה חדשה נעשית מדשבורד המנהל דרך `src/dokployProvisioner.ts`.
 
-בדיקה מקומית:
+### ⚠️ Deploy מול Redeploy
 
-```text
-http://localhost:3001
-```
+- **"Deploy"** פר-אפליקציה ב-UI של Dokploy — עושה clone מחדש ובונה קוד עדכני. **זה מה שצריך אחרי push.**
+- **"Redeploy"** / כפתור "Redeploy all clients" בדשבורד המנהל (`redeployExistingClient` → `application.redeploy`) — בונה מחדש מהקוד שכבר על השרת ו**לא מושך commits חדשים**. ב-2026-09-18 התגלה שכל 15 הלקוחות רצו על קוד ישן בגלל זה.
+- אחרי פריסה — לאמת קומיט בפועל בכל אפליקציה (`git -C /etc/dokploy/applications/<app>/code log -1`) ו-`/health`, לא להסתמך על סטטוס ה-UI.
 
-## משתני סביבה ותיקיות מידע
+### כללי עבודה מול פרודקשן
 
-המערכת שומרת מידע בתיקיית `data`.
+- לא לעשות push או deploy בלי אישור מפורש מהמשתמש באותו רגע. לחיצות Deploy בפרודקשן מבצע המשתמש.
+- לפני נגיעה בפרודקשן — לבדוק ב-`/health` שאין קמפיין פעיל (חלון שקט).
+- ב-Swarm `docker stop` גורם ל-restart אוטומטי; לעצירה אמיתית: `docker service scale <svc>=0`.
+- Meta Graph API (נכון ל-2026-09-18): quality_rating GREEN, throughput STANDARD.
 
-קבצים חשובים:
+## אחסון
 
-| נתיב | תפקיד |
+- `DATABASE_URL` מוגדר → **PostgreSQL** (`src/database.ts`); אחרת JSON מקומי (`src/storage.ts`, `STORAGE_PATH`). בפרודקשן — Postgres. `src/storageFactory.ts` בוחר.
+- כתיבות snapshot הן delta append-only (`writeSnapshotDelta`, לוקח חיבור ייעודי מה-pool — mocks בבדיקות צריכים `connect()`).
+- מצב שיחה נשמר אטומית לדיסק (`src/conversationState.ts`, `CONVERSATION_STATE_PATH`) ומשוחזר אחרי restart.
+- הודעות יוצאות עוברות outbox עמיד (`src/outboxDispatcher.ts`).
+- שמירת אנשי קשר בתור רקע (`src/contactQueue.ts`) — הבוט לא מחכה ל-Google/iCloud.
+- מיגרציה: `npm run db:migrate` (dry-run), `db:migrate:apply`, `db:export`.
+
+## מבנה קוד עיקרי
+
+| קובץ | תפקיד |
 | --- | --- |
-| `data/contacts.json` | הגדרות דשבורד, קמפיינים, ואנשי קשר שכבר נשמרו |
-| `data/google-token.json` | טוקן OAuth של Google Contacts |
-| `data/session/` | סשן WhatsApp Web של `whatsapp-web.js` |
-| `credentials.json` | פרטי OAuth של Google בסביבה מקומית |
-
-ב-Railway צריך Volume שמחובר ל-`/app/data`, אחרת הסשן, הקמפיינים והחיבורים יאבדו אחרי restart.
-
-משתני סביבה חשובים:
-
-| משתנה | תפקיד |
-| --- | --- |
-| `PORT` | פורט השרת. ברירת מחדל: `3001` |
-| `GOOGLE_CREDENTIALS_BASE64` | גרסת base64 של `credentials.json` עבור Railway |
-| `PUPPETEER_EXECUTABLE_PATH` | נתיב Chromium בסביבת Docker |
-| `OWNER_ACCESS_TOKEN` | סיסמת הכניסה לדשבורד המנהל |
-| `CLIENT_ACCESS_TOKEN` | סיסמת הכניסה להתקנת לקוחה יחידה |
-| `RAILWAY_PROJECT_TOKEN` | Project Token לשירות המנהל, המשמש להקמת התקנות מבודדות ללקוחות חדשות |
-| `RAILWAY_SOURCE_REPO` | ריפו מקור להקמת לקוחות, רק אם Railway אינו מספק את פרטי Git אוטומטית |
-| `RAILWAY_API_URL` | אופציונלי בלבד; ברירת המחדל היא `https://backboard.railway.com/graphql/v2` |
-| `RAILWAY_VOLUME_REGION` | אופציונלי; אזור ה-Volume ללקוחות חדשות. ברירת מחדל `europe-west4-drams3a` (`EU West`) |
-
-### הקמת לקוחות מבודדות
-
-דשבורד המנהל יכול להקים לקוחה חדשה דרך Railway Public API. לכל לקוחה נוצרים:
-
-- Service נפרד המחובר לקוד המקור, כדי ש-Railway יוכל לחבר אליו Volume באזור הפריסה.
-- Volume נפרד המחובר ל-`/app/data`.
-- דומיין נפרד עם לינק כניסה ל-`/client/`.
-- משתנה `CLIENT_ACCESS_TOKEN` עם הסיסמה שנבחרה עבורה.
-- Deployment חדש של הקוד לאחר הגדרת הבידוד והסיסמה.
-- בדיקת מוכנות מתוך דשבורד המנהל, שמעבירה את הסטטוס ל"מוכן לשליחה" רק לאחר שהנתיב `/health` של הלקוחה עונה.
-
-ההקמה יוצרת Service המחובר לקוד, מחברת אליו Volume באזור הנכון, מגדירה את הסיסמה, ורק לאחר מכן יוצרת את הדומיין ללקוחה ומפעילה Deploy עם ההגדרות המלאות. ייתכן ש-Railway מתחיל build ראשוני בעת חיבור הקוד, אך אין עדיין לינק שנמסר ללקוחה וה-Deploy הסופי נעשה עם `CLIENT_ACCESS_TOKEN`. אין צורך בלחיצה ידנית על `Deploy`. טוקן `RAILWAY_PROJECT_TOKEN` נשאר רק בשירות המנהל ואינו מועבר לשירותי הלקוחות. אם ההקמה נעצרת באמצע, דשבורד המנהל שומר את מזהי משאבי Railway שכבר נוצרו ויכול לנסות שוב בלי ליצור Service או Volume כפולים.
-
-## מבנה ארכיטקטורה
-
-המערכת בנויה משלושה חלקים עיקריים:
-
-1. שרת Express
-2. לקוח WhatsApp Web
-3. שכבת אחסון JSON מקומית
-
-### `src/index.ts`
-
-נקודת הכניסה של המערכת.
-
-בעלייה הוא:
-
-1. מדפיס פרטי startup.
-2. מוחק קבצי `Singleton*` ישנים מתוך תיקיית הסשן, כדי למנוע קריסות Chromium אחרי restart.
-3. יוצר מופע `Storage`.
-4. מפעיל את דף הניהול עם `startAdminServer(storage)`.
-5. מפעיל את לקוח ה-WhatsApp עם `createWhatsAppClient(storage)`.
-
-### `src/adminServer.ts`
-
-שרת Express שמשרת את דף הניהול ואת ה-API.
-
-השרת אחראי על:
-
-- חיבור WhatsApp דרך QR.
-- חיבור WhatsApp דרך pairing code.
-- ניתוק WhatsApp.
-- הגדרות כלליות.
-- יצירה, עריכה, הפעלה וכיבוי של קמפיינים.
-- חיבור Google Contacts.
-- ניתוק Google Contacts.
-- בדיקת iCloud Contacts.
-- ייצוא אנשי קשר ל-CSV.
-
-נקודות API מרכזיות:
-
-| נתיב | תפקיד |
-| --- | --- |
-| `GET /api/qr` | מחזיר QR, מצב התחברות וקוד pairing אם קיים |
-| `POST /api/pair` | מבקש קוד התחברות לפי מספר טלפון |
-| `POST /api/whatsapp/logout` | מנתק את חשבון ה-WhatsApp |
-| `GET /api/settings` | מחזיר הגדרות דשבורד |
-| `POST /api/settings` | שומר הגדרות דשבורד |
-| `GET /api/campaigns` | מחזיר קמפיינים |
-| `POST /api/campaigns` | יוצר קמפיין |
-| `PUT /api/campaigns/:id` | עורך קמפיין |
-| `DELETE /api/campaigns/:id` | מוחק קמפיין |
-| `PATCH /api/campaigns/:id/toggle` | מפעיל/מכבה קמפיין |
-| `GET /api/google/status` | בודק אם Google מחובר |
-| `GET /api/google/auth-url` | יוצר קישור OAuth ל-Google |
-| `DELETE /api/google/disconnect` | מנתק Google |
-| `POST /api/icloud/test` | בודק פרטי iCloud |
-| `GET /api/contacts/export` | מוריד CSV של אנשי קשר |
-
-### `public/index.html`
-
-דף הניהול.
-
-זה קובץ HTML אחד עם CSS ו-JavaScript פנימיים, בלי build frontend.
-
-הדף כולל:
-
-1. חיבור WhatsApp.
-2. חיבור אנשי קשר: Google, iCloud או מצב ידני.
-3. בניית קמפיין.
-4. ניהול ניסוחים ותצוגת שיחה.
-5. קמפיינים קיימים וקישורי שיתוף.
-
-הדף מאפשר ללקוחה להגדיר:
-
-- האם לשאול את המשתמש באיזה שם לשמור אותו.
-- כמה דקות להמתין לתשובה לפני שמירה אוטומטית.
-- נוסח הודעת השאלה.
-- נוסח הודעת הסיום.
-- הודעות המשך נוספות.
-- ניסוח קבוע לקמפיין המלצה.
-- סיומת שם לקמפיין בוט.
-
-התצוגה המקדימה בדף היא ויזואלית בלבד. היא לא שולחת הודעות אמיתיות.
-
-### `src/whatsapp.ts`
-
-הלב של הבוט.
-
-הקובץ יוצר את לקוח WhatsApp בעזרת `whatsapp-web.js` ו-Puppeteer, מאזין להודעות נכנסות, ומחליט מה לעשות איתן.
-
-זרימת הודעה:
-
-1. אם ההודעה מגיעה מקבוצה, מתעלמים.
-2. אם המשתמש נמצא במצב המתנה לשם, ההודעה נחשבת לשם שהוא בחר.
-3. אם זו לא תשובה לשם, בודקים האם ההודעה תואמת טריגר של קמפיין פעיל.
-4. אם אין התאמה לטריגר, מתעלמים.
-5. אם יש התאמה:
-   - אם `askNameEnabled` פעיל, שולחים הודעת שאלה ושומרים מצב המתנה.
-   - אם `askNameEnabled` כבוי, שומרים מיד את איש הקשר.
-6. מכניסים את שמירת איש הקשר לתור רקע ושולחים הודעת תשובה.
-7. אם הוגדרו הודעות המשך, שולחים גם אותן לפי הסדר.
-
-בגרסה הנוכחית שמירת איש הקשר מתבצעת דרך תור ברקע:
-
-- המשתמש מקבל תגובה בלי להמתין ל-Google/iCloud.
-- איש הקשר נרשם מיד מקומית כמשימת `pending`.
-- עובד רקע שומר את איש הקשר בפועל.
-- אם השמירה נכשלת, המערכת מנסה שוב.
-- אחרי כמה כשלונות המשימה מסומנת `failed`.
-
-המערכת לא שולחת כרגע כרטיס איש קשר vCard. ההתנהגות הזו הוסרה.
-
-### `src/conversationState.ts`
-
-מחזיק בזיכרון זמני שיחות שממתינות לתשובת שם.
-
-לדוגמה:
-
-- משתמש שלח טריגר.
-- הבוט שאל: "באיזה שם תרצי שאשמור אותך?"
-- עד שהמשתמש עונה, המצב נשמר בזיכרון.
-
-אם השרת נופל או עושה restart באמצע, המצב הזמני הזה אובד.
-
-### `src/triggerDetector.ts`
-
-אחראי לבדוק אם הודעה נכנסת שווה בדיוק לאחד הטריגרים הפעילים.
-
-ההשוואה היא exact match אחרי ניקוי תווים בלתי נראים ש-WhatsApp לפעמים מוסיף, במיוחד בטקסט עברי.
-
-המערכת לא מבצעת fuzzy matching. אם המשתמש משנה מילה, מוסיף סימן, או שולח טקסט לא זהה, הטריגר לא יזוהה.
-
-### `src/storage.ts`
-
-שכבת שמירת המידע.
-
-המערכת שומרת הכל בקובץ JSON אחד:
-
-```text
-data/contacts.json
-```
-
-הקובץ כולל:
-
-- אנשי קשר שכבר נשמרו.
-- רשימת אנשי קשר לייצוא.
-- הגדרות דשבורד.
-- קמפיינים.
-
-כל שינוי נכתב מיידית לקובץ.
-
-יתרון: פשוט מאוד ומתאים לדמו.
-
-חיסרון: לא מתאים למערכת מסחרית עם הרבה לקוחות, הרשאות, משתמשים ונפח פעילות גבוה.
-
-### `src/contactQueue.ts`
-
-עובד רקע לשמירת אנשי קשר.
-
-המטרה שלו היא למנוע מצב שבו הבוט מחכה ל-Google או iCloud לפני שהוא עונה למשתמש.
-
-הזרימה:
-
-1. `whatsapp.ts` מכניס איש קשר לתור דרך `storage.enqueueContactSave`.
-2. המשימה נשמרת בקובץ עם status `pending`.
-3. `contactQueue.ts` לוקח משימה אחת בכל פעם.
-4. אם הספק הוא Google, הוא קורא ל-`saveContactToGoogle`.
-5. אם הספק הוא iCloud, הוא קורא ל-`saveContactToICloud`.
-6. אם הספק הוא manual, הוא מסמן את המשימה כנשמרה בלי קריאה חיצונית.
-7. בהצלחה, המשימה עוברת ל-`saved`.
-8. בכשלון, המשימה נשארת `pending` לניסיון נוסף, עד מספר ניסיונות מוגבל.
-9. אחרי יותר מדי כשלונות, המשימה עוברת ל-`failed`.
-
-הדשבורד קורא ל-`GET /api/contacts/queue` כדי להציג כמה משימות ממתינות, כמה נשמרו וכמה נכשלו.
+| `src/index.ts` | נקודת כניסה: storage, שרת, outbox, תורים, ספק WhatsApp, graceful shutdown |
+| `src/adminServer.ts` | Express: דשבורד מנהל/לקוח, API, webhooks, שער Meta, `owner-api`, `internal` |
+| `src/messageFlow.ts` | מנוע זרימת הקמפיין (טריגרים, שלבים, עיכובים, גיל טריגר מקסימלי) |
+| `src/triggerDetector.ts` | התאמת טריגר מדויקת אחרי ניקוי תווים בלתי נראים (ללא fuzzy) |
+| `src/serviceBot.ts`, `src/serviceBotFollowUpDispatcher.ts` | בוט שירות |
+| `src/systemAlerts.ts` | התראות מערכת במייל (`notifySystemAlert`, throttle 30 דק' לכל key) |
+| `src/ownerStorage.ts` | נתוני דשבורד המנהל (לקוחות, ניתוב) |
+| `src/whatsappLifecycle.ts` | watchdog וחיבור מחדש |
+| `public/index.html`, `public/login.html` | ה-frontend — HTML יחיד בלי build |
 
 ## מודל קמפיינים
 
-יש שני סוגי קמפיינים.
+- **בוט** — הלקוחה כותבת טריגר; סיומת קבועה לשם איש הקשר (למשל ` - (Bot)`).
+- **המלצה** — משפט בסיס + שם ממליץ יוצרים טריגר מלא; סיומת עם שם הממליץ.
 
-### סוג 1: בוט
+זיהוי הטריגר הוא exact match. שינוי מילה/סימן = לא מזוהה.
 
-הלקוחה כותבת את משפט הטריגר בעצמה.
+## משתני סביבה עיקריים
 
-לדוגמה:
+| משתנה | תפקיד |
+| --- | --- |
+| `PORT` | ברירת מחדל 3001 |
+| `WHATSAPP_PROVIDER` | ראו טבלת ספקים |
+| `DATABASE_URL` | Postgres |
+| `OWNER_ACCESS_TOKEN` / `CLIENT_ACCESS_TOKEN` | סיסמאות דשבורד מנהל / לקוחה |
+| `META_*` | `ACCESS_TOKEN`, `APP_SECRET`, `VERIFY_TOKEN`, `PHONE_NUMBER_ID`, `DISPLAY_PHONE_NUMBER`, `GRAPH_API_VERSION`, `GATEWAY_BASE_URL` |
+| `DOKPLOY_*` | ערכי ברירת מחדל שהמנהל מעביר ללקוחות חדשים (Meta/Twilio) + גישת API |
+| `TWILIO_*` | הגדרות Twilio |
+| `GOOGLE_*` | OAuth של Google Contacts |
+| `SYSTEM_ALERT_EMAIL_TO/FROM`, `SMTP_*` / `ALERT_SMTP_*` | התראות מערכת |
+| `STORAGE_PATH`, `SESSION_PATH`, `CONVERSATION_STATE_PATH`, `UPLOADS_PATH` | נתיבי נתונים (volume) |
 
-```text
-אני רוצה להצטרף
-```
+## מגבלות ידועות ופתוחים
 
-כאשר מישהו שולח בדיוק את המשפט הזה, המערכת מזהה את הקמפיין.
+1. לקוח Meta שמת לצמיתות חוסם את המספר המשותף אחרי ~4.5 דק' (fail-closed מכוון).
+2. כפתור "Redeploy all clients" לא מושך קוד — לתקן אחרי ההשקה, בזהירות.
+3. לקוחות Baileys עלולים להיכנס ללולאת QR ולדרוש סריקה מחדש (נכון ל-2026-09-18: "רות", `1e970c66`).
+4. `AsyncExpiringCache` מוחק רשומה כשרענון נכשל — מועמד ל-grace period.
+5. סף ה-SLO של `scripts/test-load-shared-campaign-isolation.js` (median 7s) לא יציב בין ריצות.
 
-בשם איש הקשר תתווסף סיומת קבועה, למשל:
+## הערות פיתוח
 
-```text
- - (Bot)
-```
-
-### סוג 2: תוספת שם / המלצה
-
-הלקוחה כותבת משפט בסיס ושם ממליץ.
-
-המערכת בונה מזה טריגר מלא.
-
-לדוגמה:
-
-```text
-אני רוצה להצטרף הגעתי דרך דנה
-```
-
-בשם איש הקשר תתווסף סיומת עם שם הממליץ:
-
-```text
- - (דנה)
-```
-
-## שמירת אנשי קשר
-
-המערכת תומכת בשלושה מצבים.
-
-### Google Contacts
-
-המערכת מתחברת דרך OAuth ושומרת אנשי קשר לחשבון Google שמחובר בדף הניהול.
-
-חשוב: כרגע אין הפרדה אמיתית בין לקוחות ברמת מערכת. מי שמחובר ל-Google בדף הניהול הוא החשבון שאליו יישמרו אנשי הקשר.
-
-### iCloud Contacts
-
-המערכת משתמשת ב-CardDAV כדי לשמור אנשי קשר ל-iCloud.
-
-נדרש App Password של Apple ID, לא הסיסמה הרגילה.
-
-### Manual
-
-המערכת לא שומרת בפועל ל-Google או iCloud, אלא רק רושמת את איש הקשר בקובץ המקומי ומאפשרת ייצוא CSV.
-
-## חיבור WhatsApp
-
-המערכת משתמשת ב-`whatsapp-web.js`, כלומר היא מתחברת כמו WhatsApp Web.
-
-המשמעות:
-
-- הלקוחה ממשיכה לעבוד באפליקציית WhatsApp או WhatsApp Business בטלפון.
-- המערכת מחוברת כמו מכשיר נוסף.
-- השיחות נשארות באפליקציה של הלקוחה.
-- אפשר לעבוד עם לקוחות שיש להן WhatsApp Business App.
-
-מגבלות:
-
-- זה לא API רשמי של WhatsApp Business Platform.
-- החיבור יכול להתנתק.
-- אין תמיכה אמיתית בכפתורי WhatsApp Business Platform, templates, webhooks רשמיים או conversation windows.
-- שימוש אגרסיבי מדי עלול להיתקל במגבלות מצד WhatsApp.
-
-## WhatsApp Business Platform
-
-המערכת כרגע לא משתמשת ב-WhatsApp Business Platform.
-
-מעבר ל-Platform אומר להחליף את שכבת WhatsApp Web בשכבה רשמית של Meta Cloud API.
-
-זה יכול לתת:
-
-- API רשמי.
-- Webhooks מסודרים.
-- Templates מאושרים.
-- הודעות אינטראקטיביות עם כפתורים במקרים נתמכים.
-- יציבות טובה יותר למערכת מסחרית.
-
-אבל יש לזה מחיר מוצרי חשוב:
-
-- ב-Full Migration המספר לא ממשיך להתנהל באפליקציית WhatsApp Business בטלפון.
-- הלקוחה תצטרך לנהל שיחות דרך המערכת או דרך Inbox/CRM.
-- זה לא מתאים לחזון הנוכחי שבו הלקוחה ממשיכה לנהל הכל מהטלפון.
-
-לכן הכיוון הנוכחי של המוצר הוא:
-
-1. להישאר בשלב ראשון עם WhatsApp Web / Linked Device.
-2. לבנות חוויית דשבורד טובה ליצירת קמפיינים ונוסחים.
-3. לבדוק בהמשך אם יש מסלול Coexistence רשמי שעדיין משאיר את אפליקציית WhatsApp Business כמרכז העבודה של הלקוחה.
-
-## מגבלות ידועות
-
-1. אין כרגע מערכת משתמשים והרשאות.
-2. אין הפרדה מלאה בין לקוחות שונים באותה התקנה.
-3. האחסון הוא JSON מקומי ולא Database.
-4. מצב שיחה שממתין לשם נשמר בזיכרון בלבד.
-5. זיהוי טריגר דורש התאמה מדויקת.
-6. יש תור בסיסי לשמירת אנשי קשר, אבל עדיין אין תור הודעות מלא או ניטור production מלא.
-7. אין בדיקות אוטומטיות.
-8. החיבור ל-WhatsApp Web תלוי בסשן וביציבות של `whatsapp-web.js`.
-
-## כיוון שיפור מומלץ
-
-לפני הפיכה למוצר מסחרי כדאי לשקול:
-
-1. להוסיף מערכת משתמשים ולקוחות.
-2. להפריד מידע לפי לקוחה.
-3. לעבור מ-JSON ל-Database כמו PostgreSQL.
-4. לשמור סשנים, קמפיינים ואנשי קשר במבנה רב-לקוחות.
-5. להוסיף מסך לוגים ברור: מה התקבל, איזה טריגר זוהה, האם נשמר איש קשר, ואיזו הודעה נשלחה.
-6. להוסיף בדיקות אוטומטיות לזרימת טריגר ושמירת איש קשר.
-7. להוסיף ניטור שגיאות וחיבור WhatsApp.
-8. לבנות שכבת `WhatsAppProvider` פנימית, כדי שבעתיד יהיה אפשר להחליף בין:
-   - `whatsapp-web.js`
-   - WhatsApp Business Platform
-   בלי לשכתב את כל הדשבורד.
-
-## הערות פיתוח חשובות
-
-- לא לשנות את ענף הפריסה מ-`master` ל-`main` בלי החלטה מפורשת.
-- לא להניח ש-Google המחובר הוא של בעל המערכת. זה החשבון שחובר דרך הדשבורד.
-- לא לשלוח vCard בלי בקשה מפורשת. ההתנהגות הנוכחית היא הודעות טקסט בלבד.
-- כשמשנים נוסחים, לבדוק גם את `config.ts` וגם את `AdminSettings`, כי ההגדרות נשמרות בפועל ב-`data/contacts.json`.
-- שינוי defaults ב-`config.ts` לא בהכרח ישפיע על התקנה שכבר יש לה `contacts.json`, כי ההגדרות הקיימות נטענות מהקובץ.
-- לאחר שינוי frontend, להריץ `npm run build` ולבדוק את הדשבורד בדפדפן.
+- לא לשלוח vCard בלי בקשה מפורשת.
+- שינוי defaults ב-`src/config.ts` לא משפיע על לקוחות קיימים שההגדרות שלהם כבר שמורות ב-DB.
+- לא להניח ש-Google המחובר שייך לבעל המערכת — זה החשבון שחובר בדשבורד.
+- אחרי שינוי frontend: `npm run build` ובדיקה בדפדפן.
+- קבצים לא מחויבים רבים בעץ העבודה (docs/scripts/.migration) שייכים לעבודות אחרות — לא לכלול אותם בקומיטים בלי בקשה.
+- mocks בבדיקות מתיישנים כשה-API הפנימי משתנה — כשבדיקה "עוברת" לוודא שהיא באמת מבצעת את מה שהיא בודקת.
