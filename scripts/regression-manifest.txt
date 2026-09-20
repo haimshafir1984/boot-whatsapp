@@ -1,0 +1,71 @@
+# 49 existing suites from stage-abc doc section 8.2 (HEAD 0ea8d26)
+test-silent-data-loss-fixes.js
+test-outbox-durability.js
+test-outbox-ordering.js
+test-outbox-claim.js
+test-file-delivery-order.js
+test-meta-campaign-routing.js
+test-meta-switch-inflight.js
+test-meta-cancellation-boundary.js
+test-meta-mixed-rollout-routing.js  # flaky: pre-existing, reproduces on the HEAD copy (2/10 via runner)
+test-meta-gateway-reliability.js
+test-meta-gateway-lookup-failure-isolation.js
+test-meta-gateway-inbox.js
+test-meta-routes-cache.js
+test-inbox-sender-concurrency.js
+test-meta-webhook-signature.js
+test-meta-media-cache.js
+test-meta-contact-payload.js
+test-meta-typing-indicator.js
+test-meta-trigger-age-window.js
+test-meta-speed-and-list-presentation.js
+test-message-delays.js
+test-flow-concurrency.js
+test-flow-recovery.js
+test-decision-pending-registration-order.js
+test-conversation-state-flow-rehydration.js
+test-conversation-state-atomic-write.js
+test-campaign-delete-conversations.js
+test-campaign-data-reset.js
+test-service-bot-flow.js
+test-service-bot-ui.js
+test-group-join-flow.js
+test-referral-ranking.js
+test-email-capture.js
+test-email-export.js  # flaky-teardown
+test-whatsapp-link-normalization.js
+test-postgres-delta.js
+test-postgres-row-snapshot.js
+test-postgres-no-lost-writes.js
+test-postgres-transactions.js
+test-postgres-dirty-tables.js
+test-flush-scoped-wait.js
+test-migration-safety.js
+test-graceful-shutdown.js
+test-provider-health.js
+test-client-disable.js
+test-system-alerts.js
+test-dokploy-provisioner-postgres.js
+test-redeploy-existing-client.js
+test-bulk-redeploy-status.js
+# stage A
+test-backup-tool.js
+# stage B
+test-outbox-fairness.js
+test-outbox-classification.js
+test-outbox-pool.js
+test-meta-timeouts.js
+test-outbox-uncertain-postgres.js
+# stage B2 step 1
+test-outbox-attempt-id.js
+test-outbox-attempts-postgres.js
+# stage B2 step 2
+test-meta-status-forwarding.js
+test-meta-status-postgres.js
+test-service-bot-outbox.js
+# stage B2 step 3
+test-delivery-recovery.js
+test-delivery-recovery-postgres.js
+test-early-status-journal.js
+test-delivery-recovery-paths.js
+test-delivery-recovery-s45.js

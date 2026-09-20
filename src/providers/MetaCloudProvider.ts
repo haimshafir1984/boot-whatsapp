@@ -3,11 +3,26 @@ import path from 'path';
 import { config } from '../config';
 import { metaApiAlert, notifyClientSystemAlert } from '../systemAlerts';
 import { IncomingWhatsAppMessage, InteractiveListItem, WhatsAppProvider, WhatsAppSendResult } from '../types/whatsapp';
+import { attemptTaggingEnabled, currentSendAttempt } from '../sendAttempt';
+import { ProviderSendError, classifyHttpStatus, classifySendError, parseRetryAfterMs } from '../sendOutcome';
 
 type MetaMessage = Record<string, unknown>;
 type CachedMetaMedia = { id: string; expiresAt: number };
 
 const META_MEDIA_CACHE_MS = 29 * 24 * 60 * 60 * 1000;
+
+/**
+ * Explicit time budgets for Graph API calls (stage B). They cover the whole request including
+ * reading the response body. Timing out a message POST is an UNKNOWN outcome (the request may
+ * have been accepted) and is classified `uncertain` - see sendOutcome.ts. Configurable and bounded.
+ */
+function budgetMs(envName: string, fallback: number, min: number, max: number): number {
+  const parsed = Number(process.env[envName]);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(max, Math.max(min, Math.trunc(parsed)));
+}
+export const metaSendTimeoutMs = (): number => budgetMs('META_SEND_TIMEOUT_MS', 15_000, 1_000, 120_000);
+export const metaMediaUploadTimeoutMs = (): number => budgetMs('META_MEDIA_UPLOAD_TIMEOUT_MS', 60_000, 1_000, 300_000);
 const metaMediaCache = new Map<string, CachedMetaMedia>();
 const metaMediaUploads = new Map<string, Promise<string>>();
 
@@ -49,6 +64,10 @@ export class MetaCloudProvider implements WhatsAppProvider {
       return await send();
     } catch (err) {
       if (!cached) throw err;
+      // A stale cached media id is a provider REJECTION. If the first send's outcome is unknown
+      // (timeout / dropped connection) it may already have been delivered: re-uploading and
+      // sending again would duplicate it.
+      if (classifySendError(err).outcome === 'uncertain') throw err;
       metaMediaCache.delete(cacheKey);
       mediaId = await this.uploadAndCacheMedia(cacheKey, filePath, mimeType, fileName);
       return await send();
@@ -126,11 +145,22 @@ export class MetaCloudProvider implements WhatsAppProvider {
     form.append('messaging_product', 'whatsapp');
     form.append('type', mimeType);
     form.append('file', new Blob([fs.readFileSync(filePath)], { type: mimeType }), fileName);
-    const response = await fetch(this.graphUrl('media'), { method: 'POST', headers: { Authorization: 'Bearer ' + config.META_ACCESS_TOKEN }, body: form });
+    let response: Response;
+    try {
+      response = await fetch(this.graphUrl('media'), { method: 'POST', headers: { Authorization: 'Bearer ' + config.META_ACCESS_TOKEN }, body: form, signal: AbortSignal.timeout(metaMediaUploadTimeoutMs()) });
+    } catch (err) {
+      // An upload never sends a message to the recipient, so any transport failure here is safe to retry.
+      throw new ProviderSendError('Meta media upload transport failure: ' + describeFetchError(err), 'rejected_transient', { cause: err });
+    }
     const body = await response.json().catch(() => ({})) as any;
     if (!response.ok || typeof body.id !== 'string') {
       notifyClientSystemAlert(metaApiAlert(response.status, body, 'media_upload'));
-      throw new Error('Meta media upload failed (' + response.status + '): ' + JSON.stringify(body).slice(0, 500));
+      const outcome = classifyHttpStatus(response.status);
+      throw new ProviderSendError(
+        'Meta media upload failed (' + response.status + '): ' + JSON.stringify(body).slice(0, 500),
+        outcome === 'uncertain' ? 'rejected_transient' : outcome,
+        { status: response.status, retryAfterMs: parseRetryAfterMs(response.headers.get('retry-after')) },
+      );
     }
     return body.id;
   }
@@ -149,21 +179,49 @@ export class MetaCloudProvider implements WhatsAppProvider {
     return await upload;
   }
 
-  private async postMessages(payload: MetaMessage): Promise<WhatsAppSendResult> {
+  private async postMessages(originalPayload: MetaMessage): Promise<WhatsAppSendResult> {
     this.assertConfigured();
-    const response = await fetch(this.graphUrl('messages'), {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + config.META_ACCESS_TOKEN, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    // Tag a real message send (it has a recipient) with our attempt id so Meta echoes it back in the status
+    // webhook. read receipts / typing indicators have no message id and are never tagged.
+    // OFF by default: the field is documented on the status-webhook side but not verified on the send side, and an unsupported
+    // field would be a 400 for that message type. Enable explicitly per client (its own env) with META_ATTEMPT_CALLBACK_DATA=on.
+    const attempt = typeof originalPayload.to === 'string' && attemptTaggingEnabled() ? currentSendAttempt() : undefined;
+    const payload: MetaMessage = attempt ? { ...originalPayload, biz_opaque_callback_data: attempt.attemptId } : originalPayload;
+    let response: Response;
+    try {
+      response = await fetch(this.graphUrl('messages'), {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + config.META_ACCESS_TOKEN, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(metaSendTimeoutMs()),
+      });
+    } catch (err) {
+      // No HTTP response. Only a connection that was never established proves nothing was accepted;
+      // any other failure (reset, abort, timeout) may have happened after Meta accepted the request.
+      const outcome = classifySendError(err);
+      throw new ProviderSendError(
+        'Meta message request failed without a response: ' + describeFetchError(err),
+        outcome.classified ? outcome.outcome : 'uncertain',
+        { cause: err },
+      );
+    }
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
       notifyClientSystemAlert(metaApiAlert(response.status, body, String(payload.type || payload.status || 'messages')));
-      throw new Error('Meta message failed (' + response.status + '): ' + JSON.stringify(body).slice(0, 500));
+      throw new ProviderSendError(
+        'Meta message failed (' + response.status + '): ' + JSON.stringify(body).slice(0, 500),
+        classifyHttpStatus(response.status),
+        { status: response.status, retryAfterMs: parseRetryAfterMs(response.headers.get('retry-after')) },
+      );
     }
     const messageId = Array.isArray((body as any).messages) ? (body as any).messages[0]?.id : undefined;
     return typeof messageId === 'string' ? { messageId } : {};
   }
+}
+
+function describeFetchError(err: unknown): string {
+  const anyErr = err as { message?: string; cause?: { code?: string; message?: string } };
+  return [anyErr?.message, anyErr?.cause?.code || anyErr?.cause?.message].filter(Boolean).join(' / ') || String(err);
 }
 
 function metaMediaCacheKey(filePath: string): string {

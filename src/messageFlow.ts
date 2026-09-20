@@ -1,9 +1,15 @@
 import { config } from './config';
 import { runCampaignWork, stopCampaignWork, hasCampaignWork, guardCampaignTransport, assertCampaignWorkActive, campaignWorkSleep, CampaignWorkCancelledError } from './campaignWork';
+import { ProviderSendError, classifySendError, isUncertainSendError } from './sendOutcome';
+import { runWithSendAttempt } from './sendAttempt';
+import { currentFlowUnit, nextFlowSendIndex, runFlowUnit } from './flowUnit';
+import type { OutboxContinuation, OutboxFlowRef } from './storage';
 import { AsyncLocalStorage } from 'async_hooks';
 import fs from 'fs';
 import path from 'path';
-import { conversationState, PendingConversation, PersistablePendingConversation } from './conversationState';
+import { conversationState, HeldIncomingMessage, PendingConversation, PersistablePendingConversation } from './conversationState';
+import { notifySystemAlert } from './systemAlerts';
+import { deliveryRecoveryBus } from './deliveryRecoveryBus';
 import { redactSecrets } from './secretRedaction';
 import { Campaign, CampaignConversationSettings, CampaignResult, CampaignScoreAnswer, CompletionLink, DecisionFlowOption, DecisionFlowStep, OutboxMessage, ScoreResultRule, Storage } from './storage';
 import { detectTrigger } from './triggerDetector';
@@ -96,7 +102,7 @@ const senderQueueDepth = new Map<string, number>();
 
 const outboxStorageScope = new AsyncLocalStorage<Storage>();
 
-async function withDurableMessaging<T>(storage: Storage, action: () => Promise<T>): Promise<T> {
+export async function withDurableMessaging<T>(storage: Storage, action: () => Promise<T>): Promise<T> {
   return await outboxStorageScope.run(storage, action);
 }
 
@@ -152,7 +158,7 @@ function assertTimeoutContinuationActive(): void {
   }
 }
 
-async function runSerializedForSender<T>(sender: string | undefined, label: string, action: () => Promise<T>): Promise<T> {
+export async function runSerializedForSender<T>(sender: string | undefined, label: string, action: () => Promise<T>): Promise<T> {
   const key = senderWorkKey(sender);
   const previous = senderWorkQueues.get(key) ?? Promise.resolve();
   const depth = (senderQueueDepth.get(key) ?? 0) + 1;
@@ -222,7 +228,11 @@ function scheduleSerializedPendingTimeout(
         }
         throw err;
       }
-    })).catch((err) => { if (!(err instanceof CampaignWorkCancelledError)) logTimerError(label, err); });
+    })).catch((err) => {
+      if (err instanceof CampaignWorkCancelledError) return;
+      if (holdSenderForUncertainFailure(senderJid, senderPhone, err)) { console.warn(`[TIMER_DELIVERY_HELD] ${label}`); return; }
+      logTimerError(label, err);
+    });
   }, delayMs);
 }
 
@@ -377,7 +387,42 @@ interface CompletionContactCard {
   organization?: string;
 }
 
-interface CompletionDelivery {
+/** The reply behaviour object handleMessage builds from campaign settings; the recovery controller needs the same one. */
+export function replyBehaviorFromSettings(settings: {
+  humanHandoffEnabled?: boolean; humanHandoffText?: string; humanHandoffPhone?: string;
+  decisionTimeoutMinutes?: number; decisionTimeoutText?: string; decisionTimeoutMode?: CampaignReplyBehavior['decisionTimeoutMode']; decisionTimeoutNextStepId?: string;
+}): CampaignReplyBehavior {
+  return {
+    enabled: settings.humanHandoffEnabled,
+    text: settings.humanHandoffText,
+    phone: settings.humanHandoffPhone,
+    decisionTimeoutMinutes: settings.decisionTimeoutMinutes,
+    decisionTimeoutText: settings.decisionTimeoutText,
+    decisionTimeoutMode: settings.decisionTimeoutMode,
+    decisionTimeoutNextStepId: settings.decisionTimeoutNextStepId,
+  };
+}
+
+/** The completion delivery the trigger path builds from campaign settings (same fields); the recovery controller needs it for a replay. */
+export function completionFromSettings(settings: Parameters<typeof contactCardsFromSettings>[0] & {
+  completionLinks?: CompletionLink[]; completionFileIds?: string[]; contactCardSendMode?: 'separate' | 'combined';
+  contactCardPlacement?: 'after_completion' | 'before_questions'; contactCardIntroText?: string;
+  contactCardWaitForConfirmation?: boolean; contactCardConfirmationTimeoutMinutes?: number;
+}): CompletionDelivery {
+  return {
+    links: settings.completionLinks,
+    fileIds: settings.completionFileIds,
+    contactCards: contactCardsFromSettings(settings),
+    contactCard: contactCardFromSettings(settings),
+    contactCardSendMode: settings.contactCardSendMode,
+    contactCardPlacement: settings.contactCardPlacement,
+    contactCardIntroText: settings.contactCardIntroText,
+    contactCardWaitForConfirmation: settings.contactCardWaitForConfirmation,
+    contactCardConfirmationTimeoutMinutes: settings.contactCardConfirmationTimeoutMinutes,
+  };
+}
+
+export interface CompletionDelivery {
   links?: CompletionLink[];
   fileIds?: string[];
   contactCards?: CompletionContactCard[];
@@ -495,6 +540,7 @@ export function scheduleRestoredConversationTimeout(
         console.log(`Restored conversation expired: ${jid}`);
       } catch (err) {
         if (err instanceof CampaignWorkCancelledError) return;
+        if (holdSenderForUncertainFailure(jid, conversationState.get(jid)?.senderPhone, err)) { console.warn('[TIMER_DELIVERY_HELD] restored conversation timeout'); return; }
         logTimerError('restored conversation timeout', err);
         const current = conversationState.get(jid);
         if (!current) return;
@@ -577,15 +623,200 @@ export class SenderHeldForReviewError extends Error {
   }
 }
 
+/**
+ * The provider MAY have accepted the message (timeout / dropped connection), or it
+ * accepted it but the confirmation was not persisted. Either way: never resend, never
+ * fall back to another message kind, and stop the reply chain (the sender ends up
+ * needs_review upstream).
+ */
+function isUncertainOutcome(err: unknown): boolean {
+  return err instanceof OutboxPersistUncertainError || isUncertainSendError(err);
+}
+
+/**
+ * Position of this send inside the current flow unit. In a REPLAY of a unit (delivery recovery) a send whose
+ * original was already delivered is skipped; every other send is created normally, tagged with its unit
+ * position and the unit's continuation descriptor.
+ */
+function flowSendPrelude(storage: Storage): { meta: { flowRef?: OutboxFlowRef; continuation?: OutboxContinuation }; delivered?: { providerMessageId?: string } } {
+  const position = nextFlowSendIndex();
+  if (!position) return { meta: {} };
+  const { unit, index } = position;
+  if (unit.replayOf) {
+    const prior = storage.findOutboxByFlowRef(unit.replayOf, index);
+    if (prior?.status === 'sent') return { meta: {}, delivered: { providerMessageId: prior.providerMessageId } };
+  }
+  const meta: { flowRef: OutboxFlowRef; continuation?: OutboxContinuation } = { flowRef: { unitId: unit.unitId, index } };
+  if (!unit.continuationAttached) {
+    // Stored once per unit (first row it creates). Rows are persisted for the whole history, so they stay small.
+    unit.continuationAttached = true;
+    meta.continuation = { descriptor: unit.descriptor, state: 'pending' };
+  }
+  return { meta };
+}
+
+/**
+ * Safe recovery started by the participant, no admin needed: a fresh, exact trigger arriving while the participant is held
+ * ONLY because one message's delivery is unresolved (a recovery hold - never an admin hold) starts a new run. The unresolved
+ * message is abandoned as recoverable_failed (its continuation skipped, late evidence cannot revive it), the hold is removed
+ * and the trigger is processed normally. Messages held meanwhile belong to the abandoned run: they are not replayed into
+ * the new one; they are discarded with an explicit log line (Baileys) / inbox 'discard' (Meta), never silently.
+ * Refused (the message is held as usual) when the message is being sent at this moment or its continuation is running.
+ */
+async function supersedeRecoveryHoldForFreshTrigger(
+  hold: { senderJid: string; senderPhone?: string; recovery?: { outboxId: string }; heldMessages?: HeldIncomingMessage[] },
+  message: IncomingWhatsAppMessage,
+  senderPhone: string | undefined,
+  storage: Storage,
+): Promise<boolean> {
+  if (!hold.recovery) return false;
+  if (message.isReaction || !detectTrigger(message.body || '', storage.getActiveCampaigns()).matched) return false;
+  if (Date.now() - (message.timestamp ?? Date.now() / 1000) * 1000 > MAX_TRIGGER_AGE_MS) return false;
+  const outboxId = hold.recovery.outboxId;
+  if (!storage.supersedeRecoveryOutbox(outboxId, 'Superseded by a new trigger from the participant; do not retry.')) return false;
+  const held = hold.heldMessages ?? [];
+  conversationState.remove(hold.senderJid);
+  await storage.flush();
+  console.warn(`[RECOVERY_SUPERSEDED_BY_TRIGGER] outbox=${outboxId} sender=${hold.senderJid} heldDiscarded=${held.length}`);
+  const baileysHeld = held.filter((entry) => entry.source === 'baileys');
+  if (baileysHeld.length) console.warn(`[HELD_MESSAGES_SUPERSEDED] sender=${hold.senderJid} previews=${JSON.stringify(baileysHeld.map((entry) => entry.bodyPreview ?? ''))}`);
+  deliveryRecoveryBus.emit('superseded', { jid: hold.senderJid, phone: hold.senderPhone ?? senderPhone, outboxId, heldMessages: held });
+  return true;
+}
+
+const HELD_REPLAY_BODY_MAX = 8_000;
+
+async function heldReplaySnapshot(message: IncomingWhatsAppMessage): Promise<NonNullable<HeldIncomingMessage['replay']>> {
+  let displayName = '';
+  try { displayName = (await message.getDisplayName()) || ''; } catch { /* best effort */ }
+  return {
+    from: message.from, senderPhone: message.senderPhone, body: String(message.body ?? '').slice(0, HELD_REPLAY_BODY_MAX),
+    isReaction: message.isReaction, hasUserSignal: message.hasUserSignal, media: message.media,
+    messageTimestamp: message.timestamp, displayName,
+  };
+}
+
+export interface HeldReplayResult { replayed: number; notReplayable: number }
+
+/**
+ * Baileys has no inbox queue behind its event handler, so a message that arrived while the sender was held exists only in the
+ * hold's heldMessages. When the hold ends (delivery recovery or an admin "requeue") those messages are processed again, in
+ * arrival order, as ordinary inbound messages. A message that cannot be replayed (an entry recorded before replay snapshots
+ * existed) is never dropped silently: it is logged and raised as a critical alert with its preview. If the sender gets held
+ * again while replaying, the remaining messages are re-recorded into the new hold by the normal hold path.
+ */
+export async function replayHeldMessages(held: HeldIncomingMessage[], storage: Storage, transport: WhatsAppTransport): Promise<HeldReplayResult> {
+  const result: HeldReplayResult = { replayed: 0, notReplayable: 0 };
+  const ordered = [...held].filter((entry) => entry.source === 'baileys').sort((a, b) => a.timestamp - b.timestamp);
+  for (const entry of ordered) {
+    const snap = entry.replay;
+    if (!snap) {
+      result.notReplayable++;
+      console.error(`[HELD_MESSAGE_NOT_REPLAYABLE] id=${entry.messageId ?? ''} preview=${JSON.stringify(entry.bodyPreview ?? '')}`);
+      notifySystemAlert({
+        key: `held-message-not-replayable-${entry.messageId ?? entry.timestamp}`, severity: 'critical',
+        title: 'A held participant message could not be processed again',
+        message: 'A message that arrived while the participant was held was recorded without enough data to replay it. It was NOT processed; the participant may need a manual reply.',
+        details: { messageId: entry.messageId, preview: entry.bodyPreview, source: entry.source, arrivedAt: new Date(entry.timestamp).toISOString() },
+      });
+      continue;
+    }
+    const incoming: IncomingWhatsAppMessage = {
+      id: entry.messageId ?? `${snap.from}:${entry.timestamp}`, from: snap.from, senderPhone: snap.senderPhone, body: snap.body,
+      isReaction: snap.isReaction, hasUserSignal: snap.hasUserSignal, media: snap.media, timestamp: snap.messageTimestamp,
+      async getDisplayName() { return snap.displayName ?? ''; },
+    };
+    // A held message was remembered as "handled" (provider re-delivery dedupe); a deliberate replay must not be swallowed by it.
+    handledMessageIds.delete(messageKey(incoming));
+    try {
+      await handleIncomingWhatsAppMessage(incoming, storage, transport, 'baileys');
+      result.replayed++;
+    } catch (err) {
+      // handleIncomingWhatsAppMessage holds the sender again (and records this message in that hold) - nothing is lost.
+      console.warn(`[HELD_REPLAY_HELD_AGAIN] id=${entry.messageId ?? ''}:`, err instanceof Error ? err.message : err);
+    }
+  }
+  return result;
+}
+
+/**
+ * A send that runs OUTSIDE handleIncomingWhatsAppMessage (a timer, a scheduled follow-up) and ends with an unknown
+ * outcome must hold the participant exactly like an inbound failure does, tied to that message - otherwise the flow
+ * just stops with nobody watching. Returns true if a recovery hold was created.
+ */
+export function holdSenderForUncertainFailure(senderJid: string, senderPhone: string | undefined, err: unknown): boolean {
+  const outboxId = (err as { outboxId?: string } | null)?.outboxId;
+  if (!isUncertainSendError(err) || !outboxId) return false;
+  if (conversationState.getNeedsReview(senderJid)) return false;
+  const existing = conversationState.get(senderJid) as { campaignId?: string; campaignResultId?: string; senderPhone?: string } | undefined;
+  conversationState.set(senderJid, {
+    kind: 'needs_review', senderJid, senderPhone: senderPhone || existing?.senderPhone,
+    campaignId: existing?.campaignId, campaignResultId: existing?.campaignResultId,
+    reason: needsReviewReason(err), timestamp: Date.now(), recovery: { outboxId },
+  } as PendingConversation);
+  void outboxStorageScope.getStore()?.flush().catch((flushErr) => console.error('[DELIVERY_HOLD_PERSIST_FAILED]', flushErr));
+  return true;
+}
+
+/** Remembers which outbox row an unknown-outcome error belongs to, so the resulting hold can be tied to that message. */
+function tagUncertainError(err: unknown, outboxId: string): void {
+  if (err && typeof err === 'object') (err as { outboxId?: string }).outboxId = outboxId;
+}
+
+/** Runs a provider send tagged with the outbox row's CURRENT attempt id (persisted at claim time). */
+function withOutboxAttempt<T>(storage: Storage | undefined, outboxId: string | undefined, send: () => Promise<T>): Promise<T> {
+  const attemptId = storage && outboxId ? storage.getOutboxAttemptId(outboxId) : undefined;
+  return attemptId && outboxId ? runWithSendAttempt({ attemptId, outboxId }, send) : send();
+}
+
+const outboxTrackedTransports = new WeakSet<object>();
+
+/**
+ * Wraps a transport so text / buttons / list sends go through the outbox like campaign sends do:
+ * a durable row, an attempt id (biz_opaque_callback_data when enabled), the shared outcome
+ * classification and no blind resend. Used for the service bot, whose code calls the transport
+ * directly. Everything else on the transport passes through unchanged. Idempotent.
+ */
+export function createOutboxTrackedTransport(storage: Storage, transport: WhatsAppTransport): WhatsAppTransport {
+  if (outboxTrackedTransports.has(transport)) return transport;
+  const overrides: Record<string, unknown> = {
+    sendMessage: (to: string, text: string) => sendTrackedOutboxMessage(storage, { kind: 'text', to, text }, () => transport.sendMessage(to, text)),
+  };
+  if (transport.sendInteractiveButtons) {
+    overrides.sendInteractiveButtons = (to: string, text: string, buttons: Array<{ id: string; text: string }>) =>
+      sendTrackedOutboxMessage(storage, { kind: 'interactive_buttons', to, text, buttons }, () => transport.sendInteractiveButtons!(to, text, buttons));
+  }
+  if (transport.sendInteractiveList) {
+    overrides.sendInteractiveList = (to: string, text: string, buttonText: string, items: Array<{ id: string; text: string; description?: string }>) =>
+      sendTrackedOutboxMessage(storage, { kind: 'interactive_list', to, text, buttonText, items }, () => transport.sendInteractiveList!(to, text, buttonText, items));
+  }
+  const wrapped = new Proxy(transport, {
+    get(target, prop, receiver) {
+      if (typeof prop === 'string' && prop in overrides) return overrides[prop];
+      const value = Reflect.get(target, prop, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  outboxTrackedTransports.add(wrapped);
+  return wrapped;
+}
+
 async function sendTrackedOutboxMessage(
   storage: Storage,
   input: Omit<OutboxMessage, 'id' | 'status' | 'attempts' | 'createdAt' | 'updatedAt'>,
   send: () => Promise<void | WhatsAppSendResult>,
 ): Promise<void | WhatsAppSendResult> {
   assertCampaignWorkActive();
-  const outbox = storage.enqueueOutboxMessage(input);
+  const prelude = flowSendPrelude(storage);
+  if (prelude.delivered) return prelude.delivered.providerMessageId ? { messageId: prelude.delivered.providerMessageId } : undefined;
+  const outbox = storage.enqueueOutboxMessage({ ...input, ...prelude.meta });
   if (outbox.status === 'sent') {
     return outbox.providerMessageId ? { messageId: outbox.providerMessageId } : undefined;
+  }
+  if (outbox.status === 'uncertain') {
+    const pendingError = new ProviderSendError(`Outbox message ${outbox.id} (${input.kind}) has an unknown delivery outcome and is being resolved; not resending.`, 'uncertain');
+    tagUncertainError(pendingError, outbox.id);
+    throw pendingError;
   }
   if (outbox.status === 'failed') {
     storage.markOutboxRetry(outbox.id, outbox.lastError || 'Retrying idempotent outbox message.');
@@ -598,9 +829,12 @@ async function sendTrackedOutboxMessage(
   let result: void | WhatsAppSendResult;
   try {
     assertCampaignWorkActive();
-    result = await send();
+    result = await withOutboxAttempt(storage, outbox.id, send);
   } catch (err) {
-    storage.markOutboxFailed(outbox.id, err);
+    // Classification first (stage B, 6.3): an unknown outcome is parked, not failed, so it is
+    // never mistaken for "safe to send again" by a later idempotent re-run.
+    if (isUncertainSendError(err)) { storage.markOutboxUncertain(outbox.id, err); tagUncertainError(err, outbox.id); }
+    else storage.markOutboxFailed(outbox.id, err);
     await storage.flush().catch((flushErr) => {
       console.error(`[OUTBOX_FAILED_PERSIST_FAILED] kind=${input.kind} id=${outbox.id}`, flushErr);
     });
@@ -628,7 +862,9 @@ async function sendBotMessage(transport: WhatsAppTransport, to: string, text: st
   if (!cleanText) return;
 
   const storage = outboxStorageScope.getStore();
-  const outbox = storage?.enqueueOutboxMessage({ kind: 'text', to, text: cleanText });
+  const prelude = storage ? flowSendPrelude(storage) : { meta: {} };
+  if ((prelude as { delivered?: unknown }).delivered) return;
+  const outbox = storage?.enqueueOutboxMessage({ kind: 'text', to, text: cleanText, ...prelude.meta });
   if (storage && outbox) {
     if (!storage.claimOutboxMessage(outbox.id)) throw new Error('Could not claim newly queued outbox message.');
     await storage.flush();
@@ -653,9 +889,20 @@ async function sendBotMessage(transport: WhatsAppTransport, to: string, text: st
     // trigger another transport.sendMessage call.
     let sendResult: void | WhatsAppSendResult;
     try {
-      sendResult = await transport.sendMessage(to, cleanText);
+      sendResult = await withOutboxAttempt(storage, outbox?.id, () => transport.sendMessage(to, cleanText));
     } catch (err) {
       lastError = err;
+      const outcome = classifySendError(err);
+      if (outcome.outcome !== 'rejected_transient') {
+        // uncertain: the provider may have accepted it - park it, never resend.
+        // permanent: the provider refused it for good - retrying the same payload cannot help.
+        if (storage && outbox) {
+          if (outcome.outcome === 'uncertain') { storage.markOutboxUncertain(outbox.id, err); tagUncertainError(err, outbox.id); }
+          else storage.markOutboxFailed(outbox.id, err);
+          await storage.flush();
+        }
+        throw err;
+      }
       if (storage && outbox) {
         if (attempt < TEXT_SEND_ATTEMPTS) storage.markOutboxRetry(outbox.id, err, nextRetryIso(TEXT_SEND_RETRY_DELAY_MS));
         else storage.markOutboxFailed(outbox.id, err);
@@ -843,6 +1090,8 @@ async function markSenderNeedsReview(
     source,
     reason: needsReviewReason(err),
     timestamp: Date.now(),
+    // A hold created by an unknown delivery outcome is tied to THAT message; only its resolution may release it.
+    ...(isUncertainSendError(err) && (err as { outboxId?: string }).outboxId ? { recovery: { outboxId: (err as { outboxId: string }).outboxId } } : {}),
   } as PendingConversation);
 
   try {
@@ -1051,6 +1300,9 @@ async function handleMessage(
     return;
   }
   let pending = conversationState.get(senderJid) || conversationState.findByPhone(senderPhone);
+  if (pending?.kind === 'needs_review' && pending.recovery && await supersedeRecoveryHoldForFreshTrigger(pending, message, senderPhone, storage)) {
+    pending = conversationState.get(senderJid) || conversationState.findByPhone(senderPhone);
+  }
   if (pending?.kind === 'needs_review') {
     // A prior failure for this sender could not be verified safe (finding
     // 01, point 4): every further message - trigger or not - is held here,
@@ -1074,6 +1326,7 @@ async function handleMessage(
       source,
       bodyPreview: (message.body || '').slice(0, 200),
       timestamp: Date.now(),
+      ...(source === 'baileys' ? { replay: await heldReplaySnapshot(message) } : {}),
     });
     try {
       await storage.flush();
@@ -1772,7 +2025,7 @@ function keepPreNamePromptRetry(
   conversationState.set(state.senderJid, { ...state, timeoutHandle });
 }
 
-async function queueAndReply(
+export async function queueAndReply(
   transport: WhatsAppTransport,
   storage: Storage,
   senderJid: string,
@@ -1786,11 +2039,34 @@ async function queueAndReply(
   humanHandoff: CampaignReplyBehavior = {},
   completion: CompletionDelivery = {},
 ): Promise<void> {
-  storage.markCampaignResultStage(campaignResultId, 'contact_queueing', contactName);
-  const job = storage.enqueueContactSave(senderPhone, contactName, campaignResultId);
-  if (job) {
-    storage.markCampaignResultStage(campaignResultId, 'contact_queued', contactName);
-    console.log(`   Contact queued for background save/update: ${senderPhone}`);
+  return runFlowUnit(
+    { kind: 'reply_chain', campaignId, campaignResultId, senderJid, senderPhone },
+    () => queueAndReplyInner(transport, storage, senderJid, senderPhone, contactName, campaignResultId, replyText, followupMessages, decisionFlow, campaignId, humanHandoff, completion),
+  );
+}
+
+async function queueAndReplyInner(
+  transport: WhatsAppTransport,
+  storage: Storage,
+  senderJid: string,
+  senderPhone: string,
+  contactName: string,
+  campaignResultId?: string,
+  replyText = storage.getAdminSettings().replyText,
+  followupMessages = storage.getAdminSettings().followupMessages,
+  decisionFlow: DecisionFlowStep[] = [],
+  campaignId?: string,
+  humanHandoff: CampaignReplyBehavior = {},
+  completion: CompletionDelivery = {},
+): Promise<void> {
+  // A replay (delivery recovery) must not create the contact-save job or stage marks a second time.
+  if (!currentFlowUnit()?.replayOf) {
+    storage.markCampaignResultStage(campaignResultId, 'contact_queueing', contactName);
+    const job = storage.enqueueContactSave(senderPhone, contactName, campaignResultId);
+    if (job) {
+      storage.markCampaignResultStage(campaignResultId, 'contact_queued', contactName);
+      console.log(`   Contact queued for background save/update: ${senderPhone}`);
+    }
   }
 
   const contactCardPlacement = completion.contactCardPlacement ?? 'after_completion';
@@ -1956,7 +2232,7 @@ async function runReplyStep(label: string, action: () => Promise<void>): Promise
     // that already sent something but could not confirm it was persisted
     // must stop the whole reply chain here, not silently move on to the next
     // step as if this one succeeded.
-    if (err instanceof OutboxPersistUncertainError) throw err;
+    if (isUncertainOutcome(err)) throw err;
     console.error(`   Failed to send ${label}:`, err);
   }
 }
@@ -2122,7 +2398,7 @@ async function sendCompletionContactCards(
       } catch (err) {
         // R3: an uncertain-persist outcome for the combined card must never
         // trigger sending separate cards too - that risks a duplicate send.
-        if (err instanceof OutboxPersistUncertainError) throw err;
+        if (isUncertainOutcome(err)) throw err;
         console.warn('   Combined contact card failed, falling back to separate cards:', err);
       }
     }
@@ -2181,7 +2457,7 @@ async function sendCompletionContactCard(
     } catch (err) {
       // R3: an uncertain-persist outcome for the native card must never
       // trigger sending the vCard file too - that risks a duplicate send.
-      if (err instanceof OutboxPersistUncertainError) throw err;
+      if (isUncertainOutcome(err)) throw err;
       console.warn('   Native contact card failed, falling back to vCard file:', err);
       await sendFileWithRetry(transport, senderJid, filePath, undefined, {}, displayFileName);
       console.log('   Contact card file sent.');
@@ -2244,7 +2520,27 @@ function escapeVCardValue(value: string): string {
     .replace(/;/g, '\\;');
 }
 
-async function handleDecisionReply(
+export async function handleDecisionReply(
+  answer: string,
+  flow: DecisionFlowStep[],
+  stepId: string,
+  senderJid: string,
+  storage: Storage,
+  transport: WhatsAppTransport,
+  campaignId?: string,
+  campaignResultId?: string,
+  senderPhone?: string,
+  humanHandoff: CampaignReplyBehavior = {},
+): Promise<void> {
+  // The answer to a question (a button tap or typed choice) is a flow unit: its end text / file and the move to the
+  // next step can be replayed by delivery recovery.
+  return runFlowUnit(
+    { kind: 'decision_reply', campaignId, campaignResultId, senderJid, senderPhone, stepId, answer: String(answer).slice(0, 200) },
+    () => handleDecisionReplyInner(answer, flow, stepId, senderJid, storage, transport, campaignId, campaignResultId, senderPhone, humanHandoff),
+  );
+}
+
+async function handleDecisionReplyInner(
   answer: string,
   flow: DecisionFlowStep[],
   stepId: string,
@@ -2319,7 +2615,7 @@ async function handleDecisionReply(
     return;
   }
 
-  if (isRecentDecisionReply(senderPhone, option.id) || isRecentDecisionReply(senderPhone, answer)) {
+  if (!currentFlowUnit()?.replayOf && (isRecentDecisionReply(senderPhone, option.id) || isRecentDecisionReply(senderPhone, answer))) {
     console.warn(`[DUPLICATE_REPLY_IGNORED] campaign=${campaignId ?? ''} result=${campaignResultId ?? ''} phone=${senderPhone ?? ''} step=${step.id} option=${option.id}`);
     return;
   }
@@ -2558,7 +2854,25 @@ async function handleGroupJoinRequest(transport: WhatsAppTransport, storage: Sto
   clearTimedOutDecision(senderPhone || senderJid);
 }
 
-async function handleWaitReply(
+export async function handleWaitReply(
+  answer: string,
+  flow: DecisionFlowStep[],
+  stepId: string,
+  senderJid: string,
+  storage: Storage,
+  transport: WhatsAppTransport,
+  campaignId?: string,
+  campaignResultId?: string,
+  senderPhone?: string,
+  humanHandoff: CampaignReplyBehavior = {},
+): Promise<void> {
+  return runFlowUnit(
+    { kind: 'wait_reply', campaignId, campaignResultId, senderJid, senderPhone, stepId, answer: String(answer).slice(0, 200) },
+    () => handleWaitReplyInner(answer, flow, stepId, senderJid, storage, transport, campaignId, campaignResultId, senderPhone, humanHandoff),
+  );
+}
+
+async function handleWaitReplyInner(
   answer: string,
   flow: DecisionFlowStep[],
   stepId: string,
@@ -2696,7 +3010,7 @@ function armWaitReplyTimeout(
     async () => {
       conversationState.remove(senderJid);
       console.log(`   Wait-reply timeout - cleared pending state for ${senderJid}.`);
-      await sendDecisionTimeoutAction(transport, storage, senderJid, step, humanHandoff.decisionTimeoutText, campaignId, campaignResultId, senderPhone, flow, humanHandoff);
+      await runFlowUnit({ kind: 'decision_timeout', campaignId, campaignResultId, senderJid, senderPhone, stepId: step.id, timeout: { source: 'wait-reply', defaultTimeoutText: humanHandoff.decisionTimeoutText, timeoutFlowStarted: humanHandoff.timeoutFlowStarted } }, () => sendDecisionTimeoutAction(transport, storage, senderJid, step, humanHandoff.decisionTimeoutText, campaignId, campaignResultId, senderPhone, flow, humanHandoff));
     },
   );
   conversationState.set(senderJid, {
@@ -2720,7 +3034,25 @@ function armWaitReplyTimeout(
   });
 }
 
-async function sendDecisionStep(
+export async function sendDecisionStep(
+  transport: WhatsAppTransport,
+  storage: Storage,
+  senderJid: string,
+  flow: DecisionFlowStep[],
+  stepId: string,
+  campaignId?: string,
+  campaignResultId?: string,
+  senderPhone?: string,
+  humanHandoff: CampaignReplyBehavior = {},
+): Promise<void> {
+  // One decision step = one flow unit: its sends are position-tagged so recovery can replay it deterministically.
+  return runFlowUnit(
+    { kind: 'decision_step', campaignId, campaignResultId, senderJid, senderPhone, stepId },
+    () => sendDecisionStepInner(transport, storage, senderJid, flow, stepId, campaignId, campaignResultId, senderPhone, humanHandoff),
+  );
+}
+
+async function sendDecisionStepInner(
   transport: WhatsAppTransport,
   storage: Storage,
   senderJid: string,
@@ -2936,7 +3268,7 @@ async function sendDecisionStep(
       });
       conversationState.remove(senderJid);
       console.log(`   Decision reply timeout - cleared pending state for ${senderJid}.`);
-      await sendDecisionTimeoutAction(transport, storage, senderJid, step, humanHandoff.decisionTimeoutText, campaignId, campaignResultId, senderPhone, flow, humanHandoff);
+      await runFlowUnit({ kind: 'decision_timeout', campaignId, campaignResultId, senderJid, senderPhone, stepId: step.id, timeout: { source: 'decision', defaultTimeoutText: humanHandoff.decisionTimeoutText, timeoutFlowStarted: humanHandoff.timeoutFlowStarted } }, () => sendDecisionTimeoutAction(transport, storage, senderJid, step, humanHandoff.decisionTimeoutText, campaignId, campaignResultId, senderPhone, flow, humanHandoff));
       if (step.timeoutMode === 'stop') {
         keepExpiredDecisionOpen(senderJid, senderPhone, campaignId, campaignResultId, flow, step.id, humanHandoff);
       } else if (step.timeoutMode === 'continue') {
@@ -2995,7 +3327,7 @@ async function sendDecisionStep(
         // same question a second time while the first send's outcome is
         // still uncertain. Propagate it so the caller classifies this
         // needs_review instead.
-        if (err instanceof OutboxPersistUncertainError) throw err;
+        if (isUncertainOutcome(err)) throw err;
         console.warn('   Interactive decision list failed, falling back to text:', err);
       }
     }
@@ -3025,7 +3357,7 @@ async function sendDecisionStep(
         if (err instanceof TimeoutContinuationCancelledError) throw err;
         // R3: same reasoning as the list branch above - an uncertain-persist
         // outcome for buttons must never resend the same question as text.
-        if (err instanceof OutboxPersistUncertainError) throw err;
+        if (isUncertainOutcome(err)) throw err;
         console.warn('   Interactive decision question failed, falling back to text:', err);
       }
     }
@@ -3293,7 +3625,26 @@ function keepHumanHandoffOpen(
   });
 }
 
-async function handleDecisionTimeout(
+export async function handleDecisionTimeout(
+  transport: WhatsAppTransport,
+  storage: Storage,
+  senderJid: string,
+  step: DecisionFlowStep,
+  defaultTimeoutText?: string,
+  campaignId?: string,
+  campaignResultId?: string,
+  senderPhone?: string,
+  source: 'decision' | 'wait-reply' = 'decision',
+  flow: DecisionFlowStep[] = [],
+  humanHandoff: CampaignReplyBehavior = {},
+): Promise<void> {
+  return runFlowUnit(
+    { kind: 'decision_timeout', campaignId, campaignResultId, senderJid, senderPhone, stepId: step.id, timeout: { source, defaultTimeoutText, timeoutFlowStarted: humanHandoff.timeoutFlowStarted } },
+    () => handleDecisionTimeoutInner(transport, storage, senderJid, step, defaultTimeoutText, campaignId, campaignResultId, senderPhone, source, flow, humanHandoff),
+  );
+}
+
+async function handleDecisionTimeoutInner(
   transport: WhatsAppTransport,
   storage: Storage,
   senderJid: string,
@@ -3414,7 +3765,7 @@ async function sendDecisionFile(
       // R3: an uncertain-persist outcome for the file must never trigger the
       // text fallback below - that risks a duplicate/confusing send while the
       // file's own outcome is still unresolved.
-      if (err instanceof OutboxPersistUncertainError) throw err;
+      if (isUncertainOutcome(err)) throw err;
       console.error(`   Decision file failed: ${file.originalName}`, err);
       if (campaignId) {
         storage.recordCampaignEvent({
@@ -3501,7 +3852,9 @@ async function sendFileWithRetry(
 ): Promise<void> {
   if (!transport.sendFile) throw new Error('WhatsApp transport does not support files.');
   const storage = outboxStorageScope.getStore();
-  const outbox = storage?.enqueueOutboxMessage({ kind: 'file', to, filePath, caption, fileOptions: options, label });
+  const prelude = storage ? flowSendPrelude(storage) : { meta: {} };
+  if ((prelude as { delivered?: unknown }).delivered) return;
+  const outbox = storage?.enqueueOutboxMessage({ kind: 'file', to, filePath, caption, fileOptions: options, label, ...prelude.meta });
   if (storage && outbox) {
     if (!storage.claimOutboxMessage(outbox.id)) throw new Error('Could not claim newly queued file outbox message.');
     await storage.flush();
@@ -3527,9 +3880,19 @@ async function sendFileWithRetry(
     // call, which would duplicate-send the file to the recipient.
     let result: void | WhatsAppSendResult;
     try {
-      result = await transport.sendFile(to, filePath, caption, options);
+      result = await withOutboxAttempt(storage, outbox?.id, () => transport.sendFile!(to, filePath, caption, options));
     } catch (err) {
       lastError = err;
+      const outcome = classifySendError(err);
+      if (outcome.outcome !== 'rejected_transient') {
+        if (storage && outbox) {
+          if (outcome.outcome === 'uncertain') { storage.markOutboxUncertain(outbox.id, err); tagUncertainError(err, outbox.id); }
+          else storage.markOutboxFailed(outbox.id, err);
+          await storage.flush();
+        }
+        console.error(`[SEND_FAIL] file "${label}" outcome=${outcome.outcome}`, err);
+        throw err;
+      }
       if (storage && outbox) {
         if (attempt < FILE_SEND_ATTEMPTS) storage.markOutboxRetry(outbox.id, err, nextRetryIso(FILE_SEND_RETRY_DELAY_MS));
         else storage.markOutboxFailed(outbox.id, err);

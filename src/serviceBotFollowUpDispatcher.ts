@@ -1,4 +1,5 @@
 import { deliverServiceBotFollowUp } from './serviceBot';
+import { holdSenderForUncertainFailure } from './messageFlow';
 import { Storage } from './storage';
 import { WhatsAppTransport } from './types/whatsapp';
 import { conversationState } from './conversationState';
@@ -34,6 +35,9 @@ export function startServiceBotFollowUpDispatcher(
         await storage.flush();
       } catch (err) {
         if (err instanceof CampaignWorkCancelledError) { storage.cancelServiceBotFollowUps(claimed.phone, true); await storage.flush(); continue; }
+        // Unknown delivery outcome: hold the participant tied to that message and let delivery recovery decide. Do NOT let the
+        // follow-up retry loop send it again.
+        if (holdSenderForUncertainFailure(claimed.to, claimed.phone, err)) { storage.completeServiceBotFollowUp(claimed.id); await storage.flush(); continue; }
         storage.failServiceBotFollowUp(claimed.id, err);
         await storage.flush();
         console.warn('[SERVICE_BOT_FOLLOW_UP_FAILED]', claimed.id, err);

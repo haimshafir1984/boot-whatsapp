@@ -65,6 +65,9 @@ import {
 } from './metaGatewayReliability';
 
 import { MetaGatewayInbox, MetaGatewayInboxItem } from './metaGatewayInbox';
+import { MetaStatusQueue, statusDedupeKey } from './metaStatusQueue';
+import { DeliveryRecoveryRelease } from './deliveryRecovery';
+import { deliveryRecoveryBus } from './deliveryRecoveryBus';
 interface TwilioGatewaySession {
   from: string;
   clientId: string;
@@ -1273,6 +1276,9 @@ export function startAdminServer(storage: Storage): import('http').Server {
   );
   const metaGatewayInbox = new MetaGatewayInbox(path.join(path.dirname(config.OWNER_STORAGE_PATH), 'meta-gateway-inbox.json'));
   const metaClientInbox = new MetaGatewayInbox(path.join(path.dirname(config.STORAGE_PATH), 'meta-client-inbox.json'));
+  // Durable, retried forwarding of delivery statuses from the gateway to the clients (stage B2, step 2).
+  storage.attachEarlyStatusJournal(path.join(path.dirname(config.STORAGE_PATH), 'meta-early-statuses.jsonl'));
+  const metaStatusQueue = new MetaStatusQueue(path.join(path.dirname(config.OWNER_STORAGE_PATH), 'meta-status-forward.jsonl'));
 
   app.set('trust proxy', 1);
   app.use(express.json({
@@ -1575,9 +1581,11 @@ export function startAdminServer(storage: Storage): import('http').Server {
   // They carry the wamid we stored as providerMessageId, so the client that sent the message
   // can record whether it was actually delivered/read or failed after the API accepted it.
   const handleMetaStatusesForStorage = (payload: any): boolean => {
-    const statuses = payload?.entry?.[0]?.changes?.[0]?.value?.statuses;
+    const value = payload?.entry?.[0]?.changes?.[0]?.value;
+    const statuses = value?.statuses;
     if (!Array.isArray(statuses) || !statuses.length) return false;
-    let matched = false;
+    const phoneNumberId = String(value?.metadata?.phone_number_id || '').trim() || undefined;
+    let changed = false;
     for (const status of statuses) {
       const wamid = String(status?.id || '').trim();
       const rawStatus = String(status?.status || '').trim();
@@ -1585,10 +1593,23 @@ export function startAdminServer(storage: Storage): import('http').Server {
       const errorDetail = Array.isArray(status?.errors) && status.errors[0]
         ? `${status.errors[0].code ?? ''} ${status.errors[0].title ?? status.errors[0].message ?? ''}`.trim()
         : undefined;
-      const updated = storage.recordOutboxDelivery(wamid, rawStatus as 'sent' | 'delivered' | 'read' | 'failed', errorDetail);
-      if (updated) {
-        matched = true;
-        if (rawStatus === 'failed') {
+      const recipient = String(status?.recipient_id || '').replace(/\D/g, '');
+      // Exact matching only: our attempt id (biz_opaque_callback_data) when the send was tagged, else the provider message id.
+      const outcome = storage.applyMetaStatus({
+        wamid,
+        status: rawStatus as 'sent' | 'delivered' | 'read' | 'failed',
+        timestamp: Number(status?.timestamp) || undefined,
+        recipientId: recipient || undefined,
+        attemptId: typeof status?.biz_opaque_callback_data === 'string' ? status.biz_opaque_callback_data : undefined,
+        phoneNumberId,
+        error: errorDetail,
+      }, { expectedPhoneNumberId: config.META_PHONE_NUMBER_ID || undefined });
+      if (outcome.result === 'applied') changed = true;
+      const updated = outcome.message;
+      if (outcome.result === 'mismatch') {
+        console.warn(`[META_STATUS_MISMATCH] wamid=${wamid} attempt=${outcome.attemptId ?? ''} status=${rawStatus} - matched an id but recipient/business number disagree; not applied`);
+      } else if (updated) {
+        if (rawStatus === 'failed' && outcome.result === 'applied') {
           console.error(`[META_DELIVERY_FAILED] to=${updated.to} wamid=${wamid} error=${errorDetail ?? ''}`);
           const firstError = Array.isArray(status?.errors) ? status.errors[0] : undefined;
           notifySystemAlert({
@@ -1605,14 +1626,15 @@ export function startAdminServer(storage: Storage): import('http').Server {
             },
           });
         }
-        else console.log(`[META_DELIVERY] to=${updated.to} wamid=${wamid} status=${rawStatus}`);
+        else console.log(`[META_DELIVERY] to=${updated.to} wamid=${wamid} status=${rawStatus} result=${outcome.result}`);
+      } else if (outcome.result === 'foreign') {
+        console.log(`[META_STATUS_FOREIGN] wamid=${wamid} status=${rawStatus} - tagged with an attempt id that is not ours`);
       } else {
-        const recipient = String(status?.recipient_id || '').replace(/\D/g, '');
         const label = rawStatus === 'failed' ? '[META_DELIVERY_UNTRACKED_FAILED]' : '[META_DELIVERY_UNTRACKED]';
         console.log(`${label} to=whatsapp:${recipient} wamid=${wamid} status=${rawStatus} error=${errorDetail ?? ''}`);
       }
     }
-    return matched;
+    return changed;
   };
 
   const handleMetaInboundForStorage = async (payload: any): Promise<void> => {
@@ -2202,19 +2224,59 @@ export function startAdminServer(storage: Storage): import('http').Server {
   setInterval(() => { void processMetaClientInbox(); }, META_INBOX_DRAIN_MS);
   void processMetaClientInbox();
 
-  // Broadcast a delivery-status webhook to every managed Meta client; each ignores wamids it
-  // does not own. Fire-and-forget: statuses are high-volume and self-superseding, so a missed
-  // one is corrected by the next, and we must not block the webhook response.
-  const forwardMetaStatusToClients = (payload: any): void => {
-    const clients = ownerStorage.getClients().filter((client) =>
-      client.whatsappProvider === 'META_CLOUD_API' && client.managementUrl && client.ownerAccessToken && client.provisioningStatus !== 'disabled');
-    for (const client of clients) {
-      void fetchClientAsOwner(client, '/internal/meta/whatsapp', {
-        method: 'POST',
-        body: JSON.stringify(payload ?? {}),
-      }).catch((err) => console.warn('[META_STATUS_FORWARD_FAILED]', client.id, err));
+  // Delivery statuses are broadcast to every managed Meta client (each ignores what it does not own).
+  // They are persisted BEFORE the webhook is acknowledged and delivered with retry (MetaStatusQueue):
+  // once releasing an uncertain message depends on one specific status, a lost status no longer
+  // corrects itself. Routing authority is not touched here.
+  const META_STATUS_FORWARD_CONCURRENCY = 20;
+  const META_STATUS_DRAIN_MS = 1_000;
+  const statusTargetClients = () => ownerStorage.getClients().filter((client) =>
+    client.whatsappProvider === 'META_CLOUD_API' && client.managementUrl && client.ownerAccessToken && client.provisioningStatus !== 'disabled');
+  const enqueueMetaStatusForward = (payload: any): void => {
+    metaStatusQueue.enqueue(statusDedupeKey(payload), payload, statusTargetClients().map((client) => client.id));
+  };
+  let statusDrainRunning = false;
+  const drainMetaStatusQueue = async (): Promise<void> => {
+    if (statusDrainRunning) return;
+    statusDrainRunning = true;
+    try {
+      for (const expired of metaStatusQueue.expire()) {
+        notifySystemAlert({
+          key: `meta-status-forward-expired-${expired.clientId}`,
+          severity: 'warning',
+          title: 'Meta status could not be delivered to a client',
+          message: 'A delivery status stayed undelivered to a client past its retention window and was dropped.',
+          details: { clientId: expired.clientId, ageMs: Date.now() - expired.createdAt },
+        });
+      }
+      for (;;) {
+        const batch = metaStatusQueue.due(META_STATUS_FORWARD_CONCURRENCY);
+        if (!batch.length) break;
+        const clients = new Map(statusTargetClients().map((client) => [client.id, client]));
+        await Promise.all(batch.map(async (item) => {
+          const client = clients.get(item.clientId);
+          if (!client) { metaStatusQueue.drop(item.id, 'client_not_a_target'); return; }
+          metaStatusQueue.begin(item.id);
+          try {
+            const result = await fetchClientAsOwner(client, '/internal/meta/whatsapp', { method: 'POST', body: JSON.stringify(item.payload ?? {}), signal: AbortSignal.timeout(5_000) });
+            if (result.ok) metaStatusQueue.complete(item.id);
+            else { metaStatusQueue.fail(item.id); }
+          } catch (err) {
+            metaStatusQueue.fail(item.id);
+            console.warn('[META_STATUS_FORWARD_RETRY]', item.clientId, err instanceof Error ? err.message : String(err));
+          }
+        }));
+        // Failed items back off; only loop again if something else is due right now.
+      }
+    } catch (err) {
+      console.warn('[META_STATUS_DRAIN_FAILED]', err);
+    } finally {
+      statusDrainRunning = false;
     }
   };
+  const statusDrainTimer = setInterval(() => { void drainMetaStatusQueue(); }, META_STATUS_DRAIN_MS);
+  if (typeof (statusDrainTimer as any).unref === 'function') (statusDrainTimer as any).unref();
+  void drainMetaStatusQueue();
 
   app.post('/webhooks/meta/whatsapp', verifyMetaSignature, (req, res) => {
     const statusPayloads = splitMetaWebhookStatuses(req.body);
@@ -2227,7 +2289,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
     try {
       for (const statusPayload of statusPayloads) {
         handleMetaStatusesForStorage(statusPayload);
-        forwardMetaStatusToClients(statusPayload);
+        enqueueMetaStatusForward(statusPayload);   // durable before the 200 below; a failure lands in the 503 catch
       }
       for (const item of messagePayloads) {
         const message = item.payload?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
@@ -2236,6 +2298,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
         metaGatewayInbox.enqueue(item.id, item.payload);
       }
       res.sendStatus(200);
+      if (statusPayloads.length) void drainMetaStatusQueue();
       if (messagePayloads.length) void processMetaGatewayInbox();
     } catch (err) {
       console.error('[META_GATEWAY_INBOX_PERSIST_FAILED]', messagePayloads.map((item) => item.id).join(','), err);
@@ -3180,7 +3243,10 @@ export function startAdminServer(storage: Storage): import('http').Server {
       return;
     }
     try {
-      for (const statusPayload of statusPayloads) handleMetaStatusesForStorage(statusPayload);
+      let statusChanged = false;
+      for (const statusPayload of statusPayloads) if (handleMetaStatusesForStorage(statusPayload)) statusChanged = true;
+      // A status that changed an outbox row is acknowledged only once it is durable; otherwise the gateway keeps retrying it.
+      if (statusChanged) await storage.flush();
       for (const item of messagePayloads) metaClientInbox.enqueue(item.id, item.payload);
       res.status(messagePayloads.length ? 202 : 200).json({
         ok: true,
@@ -3993,6 +4059,12 @@ export function startAdminServer(storage: Storage): import('http').Server {
 
     const phoneDigits = String(current.senderPhone || jid).replace(/\D/g, '');
     const inboxAction = heldMessagesAction === 'requeue' ? 'requeue' : 'discard';
+    // Baileys held messages live only in the hold: "requeue" processes them again, "discard" is an explicit, logged drop.
+    const baileysHeld = (current.heldMessages ?? []).filter((entry) => entry.source === 'baileys');
+    if (baileysHeld.length) {
+      if (heldMessagesAction === 'requeue') deliveryRecoveryBus.emit('replayHeld', baileysHeld);
+      else console.warn(`[HELD_MESSAGES_DISCARDED_BY_ADMIN] jid=${jid} count=${baileysHeld.length} previews=${JSON.stringify(baileysHeld.map((entry) => entry.bodyPreview ?? ''))}`);
+    }
     const matcher = (item: MetaGatewayInboxItem) => (heldItemMatchesPhone(item, phoneDigits) ? phoneDigits : `no-match:${item.id}`);
     const gatewayResolved = metaGatewayInbox.resolveHeldForSender(phoneDigits, matcher, inboxAction);
     const clientResolved = metaClientInbox.resolveHeldForSender(phoneDigits, matcher, inboxAction);
@@ -4006,6 +4078,29 @@ export function startAdminServer(storage: Storage): import('http').Server {
       inboxItemsResolved: gatewayResolved + clientResolved,
     });
   });
+
+  // Delivery recovery released a hold that existed because of one unresolved message: the inbound messages that were
+  // held meanwhile go back to the inbox exactly like the admin "requeue" action does (same matcher, same inboxes).
+  const onDeliveryRecoveryReleased = (event: DeliveryRecoveryRelease): void => {
+    const phoneDigits = String(event.phone || event.jid).replace(/\D/g, '');
+    if (!phoneDigits) return;
+    const matcher = (item: MetaGatewayInboxItem) => (heldItemMatchesPhone(item, phoneDigits) ? phoneDigits : `no-match:${item.id}`);
+    const gatewayResolved = metaGatewayInbox.resolveHeldForSender(phoneDigits, matcher, 'requeue');
+    const clientResolved = metaClientInbox.resolveHeldForSender(phoneDigits, matcher, 'requeue');
+    if (gatewayResolved + clientResolved) console.log(`[DELIVERY_RECOVERY_REQUEUED] outbox=${event.outboxId} inboxItems=${gatewayResolved + clientResolved}`);
+    if (gatewayResolved) void processMetaGatewayInbox();
+    if (clientResolved) void processMetaClientInbox();
+  };
+  deliveryRecoveryBus.on('released', onDeliveryRecoveryReleased);
+  // The participant started a new run: inbox items held for the abandoned one are discarded (recorded, not replayed into the new run).
+  const onDeliveryRecoverySuperseded = (event: DeliveryRecoveryRelease): void => {
+    const phoneDigits = String(event.phone || event.jid).replace(/\D/g, '');
+    if (!phoneDigits) return;
+    const matcher = (item: MetaGatewayInboxItem) => (heldItemMatchesPhone(item, phoneDigits) ? phoneDigits : `no-match:${item.id}`);
+    const resolved = metaGatewayInbox.resolveHeldForSender(phoneDigits, matcher, 'discard') + metaClientInbox.resolveHeldForSender(phoneDigits, matcher, 'discard');
+    if (resolved) console.log(`[DELIVERY_RECOVERY_SUPERSEDED_DISCARDED] outbox=${event.outboxId} inboxItems=${resolved}`);
+  };
+  deliveryRecoveryBus.on('superseded', onDeliveryRecoverySuperseded);
 
   app.get('/api/files', (_req, res) => {
     res.json(storage.getUploadedFiles());
@@ -4930,7 +5025,11 @@ export function startAdminServer(storage: Storage): import('http').Server {
   });
   app.use('/client', access.requireClient, express.static(publicDir));
 
-  return app.listen(config.ADMIN_PORT, () => {
+  const listeningServer = app.listen(config.ADMIN_PORT, () => {
     console.log(`🖥️  Admin dashboard → http://localhost:${config.ADMIN_PORT}`);
   });
+  // The status forwarder is a timer owned by this server: it must stop when the server closes
+  // (the rest of the background workers created in here are a separate shutdown item).
+  listeningServer.once('close', () => { clearInterval(statusDrainTimer); deliveryRecoveryBus.off('released', onDeliveryRecoveryReleased); deliveryRecoveryBus.off('superseded', onDeliveryRecoverySuperseded); });
+  return listeningServer;
 }

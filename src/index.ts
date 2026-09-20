@@ -11,6 +11,7 @@ import { startAdminServer } from './adminServer';
 import { config } from './config';
 import { startContactSaveQueue } from './contactQueue';
 import { startOutboxDispatcher } from './outboxDispatcher';
+import { startDeliveryRecovery } from './deliveryRecovery';
 import { startServiceBotFollowUpDispatcher } from './serviceBotFollowUpDispatcher';
 import { startWhatsAppScheduler } from './whatsappLifecycle';
 import { createShutdownHandler } from './shutdown';
@@ -97,12 +98,13 @@ async function main(): Promise<void> {
   const contactQueue = startContactSaveQueue(storage);
   const outbox = startOutboxDispatcher(storage, currentOutboundTransport);
   const followUps = startServiceBotFollowUpDispatcher(storage, currentOutboundTransport);
+  const deliveryRecovery = startDeliveryRecovery(storage, currentOutboundTransport);
 
   const server = startAdminServer(storage);
 
   const shutdown = createShutdownHandler({
     server,
-    workers: [contactQueue, outbox, followUps],
+    workers: [contactQueue, outbox, followUps, deliveryRecovery],
     storage,
   });
   process.on('SIGTERM', () => void shutdown('SIGTERM'));

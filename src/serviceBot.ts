@@ -8,6 +8,8 @@ import {
   Storage,
 } from './storage';
 import { WhatsAppTransport } from './types/whatsapp';
+import { createOutboxTrackedTransport } from './messageFlow';
+import { runFlowUnit, FlowUnitDescriptor } from './flowUnit';
 
 export interface ServiceBotValidationResult {
   ok: boolean;
@@ -286,6 +288,12 @@ function resolveOption(node: ServiceBotNode, input: string): ServiceBotOption | 
     normalizedText(option.id) === normalized || normalizedText(option.label) === normalized);
 }
 
+function sessionSnapshot(storage: Storage, phone: string): NonNullable<FlowUnitDescriptor['serviceBot']>['sessionBefore'] {
+  const session = storage.getServiceBotSession(phone);
+  return session ? { nodeId: session.nodeId, path: [...(session.path ?? [])], variables: { ...(session.variables ?? {}) }, botId: session.botId } : null;
+}
+
+/** One service-bot message = one flow unit; its descriptor keeps the input and the session BEFORE it ran, so delivery recovery can replay it. */
 export async function tryHandleServiceBotMessage(
   body: string,
   senderJid: string,
@@ -295,6 +303,34 @@ export async function tryHandleServiceBotMessage(
   inbound: ServiceBotInboundContext = {},
 ): Promise<boolean> {
   if (!config.CLIENT_SERVICE_BOT_ENABLED) return false;
+  const phone = normalizedPhone(senderPhone || senderJid);
+  return runFlowUnit(
+    { kind: 'service_bot', senderJid, senderPhone: phone, serviceBot: { body: String(body ?? '').slice(0, 500), inbound, sessionBefore: sessionSnapshot(storage, phone) } },
+    () => tryHandleServiceBotMessageInner(body, senderJid, senderPhone, storage, transport, inbound),
+  );
+}
+
+/** Delivery recovery: put the session back where it was before the interrupted message and run that message again (delivered sends are skipped). */
+export async function replayServiceBotUnit(storage: Storage, transport: WhatsAppTransport, d: FlowUnitDescriptor): Promise<void> {
+  const sb = d.serviceBot;
+  if (!sb) throw new Error('service-bot continuation without its input');
+  const phone = normalizedPhone(d.senderPhone || d.senderJid);
+  if (sb.sessionBefore) storage.saveServiceBotSession(phone, sb.sessionBefore.nodeId, sb.sessionBefore.path, sb.sessionBefore.variables, sb.sessionBefore.botId);
+  else storage.clearServiceBotSessionForPhone(phone);
+  if (d.kind === 'service_bot_followup') await deliverServiceBotFollowUp(sb.followUp as ServiceBotFollowUp, storage, transport);
+  else await tryHandleServiceBotMessage(sb.body ?? '', d.senderJid, phone, storage, transport, (sb.inbound ?? {}) as ServiceBotInboundContext);
+}
+
+async function tryHandleServiceBotMessageInner(
+  body: string,
+  senderJid: string,
+  senderPhone: string,
+  storage: Storage,
+  transport: WhatsAppTransport,
+  inbound: ServiceBotInboundContext = {},
+): Promise<boolean> {
+  if (!config.CLIENT_SERVICE_BOT_ENABLED) return false;
+  transport = createOutboxTrackedTransport(storage, transport);
   const phone = normalizedPhone(senderPhone || senderJid);
   const input = normalizedText(body);
   const triggerBot = matchingServiceBotTrigger(body, storage);
@@ -447,6 +483,19 @@ export async function deliverServiceBotFollowUp(
   storage: Storage,
   transport: WhatsAppTransport,
 ): Promise<void> {
+  const phone = normalizedPhone(followUp.phone);
+  return runFlowUnit(
+    { kind: 'service_bot_followup', senderJid: followUp.to, senderPhone: phone, serviceBot: { followUp, sessionBefore: sessionSnapshot(storage, phone) } },
+    () => deliverServiceBotFollowUpInner(followUp, storage, transport),
+  );
+}
+
+async function deliverServiceBotFollowUpInner(
+  followUp: ServiceBotFollowUp,
+  storage: Storage,
+  transport: WhatsAppTransport,
+): Promise<void> {
+  transport = createOutboxTrackedTransport(storage, transport);
   const serviceBot = storage.getServiceBots().find((bot) => bot.id === followUp.botId);
   if (!serviceBot) return;
   if (!config.CLIENT_SERVICE_BOT_ENABLED || !serviceBot.enabled || !validateServiceBotConfig(serviceBot).ok) return;

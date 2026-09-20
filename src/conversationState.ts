@@ -196,6 +196,21 @@ export interface HeldIncomingMessage {
   /** Best-effort text preview, length-capped - never the full raw payload. */
   bodyPreview?: string;
   timestamp: number;
+  /**
+   * Baileys only (it has no inbox queue that keeps the message): everything needed to process the message again once the
+   * hold is released, so a released hold never silently drops a participant's message. Meta messages do not carry this -
+   * their inbox item is what gets requeued.
+   */
+  replay?: {
+    from: string;
+    senderPhone?: string;
+    body: string;
+    isReaction?: boolean;
+    hasUserSignal?: boolean;
+    media?: { kind: 'image' | 'video' | 'audio' | 'document' | 'sticker' | 'media'; mimeType?: string; fileName?: string; providerMediaId?: string; providerUrl?: string };
+    messageTimestamp?: number;
+    displayName?: string;
+  };
 }
 
 export interface PendingNeedsReviewConversation {
@@ -211,6 +226,12 @@ export interface PendingNeedsReviewConversation {
   reason: string;
   timestamp: number;
   timeoutHandle?: NodeJS.Timeout;
+  /**
+   * Set ONLY for a hold created because one specific outbox message has an unknown delivery outcome
+   * (delivery recovery). Such a hold may be released automatically - and only by the resolution of that
+   * very message. Every other needs_review hold (no `recovery`) stays admin-only, as before.
+   */
+  recovery?: { outboxId: string; unitId?: string };
   /**
    * Every further inbound message that arrived for this sender WHILE blocked
    * (finding 01 / R1). These are never processed automatically - an admin
@@ -348,6 +369,15 @@ class ConversationStateManager {
    * for a sender that is under review, without touching or losing the queued
    * work itself.
    */
+  /** The needs_review hold of a sender, if any (by jid or phone). */
+  getNeedsReview(jidOrPhone: string | undefined): PendingNeedsReviewConversation | undefined {
+    if (!jidOrPhone) return undefined;
+    const direct = this.map.get(jidOrPhone);
+    if (direct?.kind === 'needs_review') return direct;
+    const byPhone = this.findByPhone(jidOrPhone);
+    return byPhone?.kind === 'needs_review' ? byPhone : undefined;
+  }
+
   isHeldForReview(jidOrPhone: string | undefined): boolean {
     if (!jidOrPhone) return false;
     const direct = this.map.get(jidOrPhone);

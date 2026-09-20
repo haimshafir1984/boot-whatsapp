@@ -187,6 +187,13 @@ async function testOutboxDispatcherStopMidSend() {
   const claimed = { id: 'm1', to: '9720000000002', kind: 'text', text: 'hi', attempts: 0, status: 'processing' };
   let handedOut = false;
   const fakeStorage = {
+    // Stage B: the worker-pool dispatcher also needs these Storage methods. The fake is extended
+    // (contract of the fake, not of the behaviour under test): no orphans, no wake events, no due retries.
+    recoverOrphanedOutboxProcessing: () => [],
+    advanceUncertainRecovery: () => [],
+    onOutboxWake: () => () => {},
+    getNextOutboxDueAtMs: () => undefined,
+    getOutboxMessage: () => null,
     getPendingOutboxMessages: () => {
       if (handedOut) return [];
       handedOut = true;

@@ -61,5 +61,6 @@ const storage = new Storage(path.join(tempDir, 'storage.json'));
   conversationState.remove(`whatsapp:${countedFlowPhone}`);
   conversationState.remove(`whatsapp:${shortHubPhone}`);
   conversationState.remove(`whatsapp:${switchPhone}`);
+  conversationState.remove('whatsapp:972500001099'); // tie-leaderboard scenario left a 30-minute pending timer that kept the process alive
   console.log('Referral ranking and menu tests passed.');
 } finally { fs.rmSync(tempDir, { recursive: true, force: true }); } })().catch((err) => { console.error(err); process.exit(1); });

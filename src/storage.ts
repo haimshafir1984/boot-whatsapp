@@ -7,6 +7,8 @@ import fs from 'fs';
 import path from 'path';
 import { config } from './config';
 import type { ConversationStateSnapshot } from './conversationState';
+import { attemptTaggingEnabled, isAttemptId, newAttemptId } from './sendAttempt';
+import type { FlowUnitDescriptor } from './flowUnit';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -242,8 +244,108 @@ export interface ContactSaveJob {
   campaignResultIds?: string[];
 }
 
-export type OutboxMessageStatus = 'queued' | 'processing' | 'sent' | 'failed' | 'retry';
+/**
+ * `uncertain` (stage B): the provider may or may not have accepted the message
+ * (timeout / dropped connection / crash while `processing`). It is outstanding,
+ * never claimable and blocks later messages to the same recipient. It only
+ * leaves this state through resolveOutboxUncertain() or a supersede-cancel.
+ */
+export type OutboxMessageStatus = 'queued' | 'processing' | 'sent' | 'failed' | 'retry' | 'uncertain' | 'recoverable_failed';
+
+/**
+ * `recoverable_failed` (delivery recovery): the recovery budget is used up (every POST that might have
+ * reached the provider produced no evidence). Terminal like `failed`: it does NOT block the recipient's
+ * queue, it is NOT success, and nothing continues from it. A later delivery callback for it is recorded
+ * as evidence only - it never revives the message.
+ */
+const RECOVERY_WINDOW_DEFAULT_MS = 60_000;
+const RECOVERY_WINDOW_NO_CALLBACK_MS = 5_000;
+const RECOVERY_POST_BUDGET_DEFAULT = 2;
+
+function envInt(name: string, fallback: number, min: number, max: number): number {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.min(max, Math.max(min, Math.trunc(parsed))) : fallback;
+}
+/** How long an uncertain message waits for delivery evidence before a bounded retry. A starting value, not a measured one. */
+export const recoveryWindowMs = (): number => {
+  // Meta can send a delivery callback, so the window is time WAITING for that evidence (60s, unmeasured starting point).
+  // Baileys (and every other non-Meta provider) never sends one: waiting is dead time in which the participant sits in
+  // silence, so there the window is only a short backoff before the bounded retry.
+  const provider = String(process.env.WHATSAPP_PROVIDER ?? 'BAILEYS').toUpperCase();
+  const fallback = provider === 'META_CLOUD_API' ? RECOVERY_WINDOW_DEFAULT_MS : RECOVERY_WINDOW_NO_CALLBACK_MS;
+  return envInt('OUTBOX_RECOVERY_WINDOW_MS', fallback, 1_000, 15 * 60_000);
+};
+/** Total POSTs that may have reached the provider for one message (the original + retries). */
+export const recoveryPostBudget = (): number => envInt('OUTBOX_RECOVERY_POST_BUDGET', RECOVERY_POST_BUDGET_DEFAULT, 1, 3);
+
+export interface OutboxRecoveryState {
+  /** The attempt this window belongs to: a restart of the SAME attempt keeps its window, a new attempt starts a new one. */
+  attemptId?: string;
+  uncertainSince: string;
+  windowEndsAt: string;
+  retriesGranted: number;
+  /** A retry after a silent window can deliver a second copy; declared, never hidden. */
+  duplicateRiskDeclared?: boolean;
+  lastDecision?: string;
+}
+
+/** Position of an outbox row inside a flow unit (see flowUnit.ts). */
+export interface OutboxFlowRef { unitId: string; index: number }
+
+/** What must happen once, after this message is confirmed delivered. */
+export interface OutboxContinuation {
+  descriptor: FlowUnitDescriptor;
+  state: 'pending' | 'running' | 'done' | 'skipped';
+  updatedAt?: string;
+}
+
+export type OutboxTransitionEvent = { type: 'sent_after_recovery' | 'retry_granted' | 'recoverable_failed' | 'late_evidence'; id: string };
+
+function isOutboxTerminal(status: OutboxMessageStatus): boolean {
+  return status === 'sent' || status === 'failed' || status === 'recoverable_failed';
+}
 export type OutboxMessageKind = 'text' | 'file' | 'interactive_buttons' | 'interactive_list' | 'contacts' | 'template';
+
+/** One provider POST attempt of an outbox message (stage B2). Kept in the row's persisted JSON. */
+export interface OutboxAttemptRecord {
+  attemptId: string;
+  startedAt: string;
+  /** started = POST may be in flight; accepted = provider returned an id; rejected = provider refused / not sent; uncertain = unknown. */
+  status: 'started' | 'accepted' | 'rejected' | 'uncertain';
+  endedAt?: string;
+  providerMessageId?: string;
+  /** Further provider ids seen for this attempt (a status may carry a different id than the POST response). */
+  providerMessageIds?: string[];
+  /** Best delivery status a status webhook reported for THIS attempt. */
+  deliveryStatus?: 'sent' | 'delivered' | 'read' | 'failed';
+  error?: string;
+}
+
+const OUTBOX_ATTEMPT_LOG_MAX = 20;
+
+/** A Meta delivery-status callback, reduced to what matching needs (stage B2, step 2). */
+export interface MetaStatusInput {
+  wamid: string;
+  status: 'sent' | 'delivered' | 'read' | 'failed';
+  timestamp?: number;
+  recipientId?: string;
+  /** biz_opaque_callback_data echoed by Meta: our attemptId when the send was tagged. */
+  attemptId?: string;
+  phoneNumberId?: string;
+  error?: string;
+}
+/**
+ * applied   : matched an outbox message/attempt and changed it
+ * duplicate : matched, nothing new (repeat / older than what is recorded)
+ * buffered  : untagged status for a message id we do not know YET (may race the POST response); kept briefly
+ * foreign   : tagged with an attempt id that is not ours, or an id we never buffer - not ours, dropped
+ * mismatch  : matched by id but recipient / business number disagree - refused, never applied
+ */
+export type MetaStatusResult = 'applied' | 'duplicate' | 'buffered' | 'foreign' | 'mismatch';
+
+const STATUS_RANK = { sent: 1, delivered: 2, read: 3, failed: 3 } as const;
+const UNMATCHED_STATUS_MAX = 2000;
+const UNMATCHED_STATUS_TTL_MS = 15 * 60 * 1000;
 
 export interface OutboxMessage {
   id: string;
@@ -274,6 +376,18 @@ export interface OutboxMessage {
   processingStartedAt?: string;
   lastError?: string;
   providerMessageId?: string;
+  /**
+   * Attempt identity (stage B2). `id` is the logical message and never changes; `attemptId` is the
+   * CURRENT/last POST attempt, generated and persisted at claim time - before the provider call - and
+   * sent as biz_opaque_callback_data. `attemptLog` keeps every attempt so a late status of an
+   * EARLIER attempt can still be matched after a retry.
+   */
+  attemptId?: string;
+  attemptLog?: OutboxAttemptRecord[];
+  /** Delivery recovery bookkeeping (set when the message first became uncertain). */
+  recovery?: OutboxRecoveryState;
+  flowRef?: OutboxFlowRef;
+  continuation?: OutboxContinuation;
   /** Delivery outcome reported by the provider webhook, not by the send call. */
   deliveryStatus?: 'sent' | 'delivered' | 'read' | 'failed';
   deliveryError?: string;
@@ -668,6 +782,14 @@ export const DEFAULT_SERVICE_BOT: ServiceBotConfig = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/** Recipient comparison for status matching. Meta's recipient_id can differ from the number we sent to in a few markets, so fall back to the last 8 digits. */
+function sameRecipient(statusRecipient: string, outboxTo: string): boolean {
+  const a = String(statusRecipient).replace(/\D/g, '');
+  const b = String(outboxTo).replace(/\D/g, '');
+  if (!a || !b) return true;
+  return a === b || (a.length >= 8 && b.length >= 8 && a.slice(-8) === b.slice(-8));
+}
+
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
@@ -760,6 +882,13 @@ interface StorageOptions {
 }
 
 export class Storage {
+  private readonly claimedInThisProcess = new Set<string>();
+  private outboxAttemptIndex: Map<string, string> | null = null;
+  private outboxAttemptIndexSource: unknown = null;
+  private earlyStatusJournalPath: string | null = null;
+  private readonly unmatchedStatuses = new Map<string, Array<{ input: MetaStatusInput; at: number }>>();
+  private readonly outboxWakeListeners = new Set<() => void>();
+  private readonly outboxTransitionListeners = new Set<(event: OutboxTransitionEvent) => void>();
   private readonly filePath: string;
   private readonly backend?: StoragePersistBackend;
   private data: StorageData;
@@ -939,6 +1068,7 @@ export class Storage {
     };
     this.data.outboxMessages.push(message);
     this.persist(['outboxMessages'], { outboxMessages: message.id });
+    this.notifyOutboxWake();
     return this.copyOutboxMessage(message);
   }
 
@@ -946,7 +1076,15 @@ export class Storage {
     const message = this.data.outboxMessages.find((item) => item.id === id);
     if (!message) return;
     message.status = 'processing';
+    this.claimedInThisProcess.add(id);
     message.attempts += 1;
+    // One attempt = one claim = at most one provider POST. Persisted with this same write, i.e. before the send.
+    const attemptId = newAttemptId();
+    message.attemptId = attemptId;
+    const log = message.attemptLog ?? (message.attemptLog = []);
+    log.push({ attemptId, startedAt: new Date().toISOString(), status: 'started' });
+    if (log.length > OUTBOX_ATTEMPT_LOG_MAX) log.splice(0, log.length - OUTBOX_ATTEMPT_LOG_MAX);
+    this.outboxAttemptIndex?.set(attemptId, message.id);
     message.updatedAt = new Date().toISOString();
     message.processingStartedAt = message.updatedAt;
     message.lastError = undefined;
@@ -955,14 +1093,14 @@ export class Storage {
 
   hasOutstandingOutboxForRecipient(to: string): boolean {
     const recipient = normalizeOutboxRecipient(to);
-    return this.data.outboxMessages.some(item => item.status !== 'sent' && item.status !== 'failed' && normalizeOutboxRecipient(item.to) === recipient);
+    return this.data.outboxMessages.some(item => !isOutboxTerminal(item.status) && normalizeOutboxRecipient(item.to) === recipient);
   }
 
   cancelOutboxForRecipient(to: string): number {
     const recipient = normalizeOutboxRecipient(to);
     const ids: string[] = [];
     for (const item of this.data.outboxMessages) {
-      if (item.status === 'sent' || item.status === 'failed' || normalizeOutboxRecipient(item.to) !== recipient) continue;
+      if (isOutboxTerminal(item.status) || normalizeOutboxRecipient(item.to) !== recipient) continue;
       item.status = 'failed';
       item.lastError = 'Campaign superseded by another campaign; do not retry.';
       item.updatedAt = new Date().toISOString();
@@ -976,6 +1114,15 @@ export class Storage {
   markOutboxSent(id: string, providerMessageId?: string): void {
     const message = this.data.outboxMessages.find((item) => item.id === id);
     if (!message) return;
+    this.claimedInThisProcess.delete(id);
+    this.closeCurrentAttempt(message, 'accepted', { providerMessageId });
+    // A message that was sent cleanly on its first attempt, with tagging off, has nothing for an attempt record to
+    // match later (no provider echo of our id). Not keeping it keeps every outbox row - which lives for the whole
+    // history - small. Rows that went through recovery or retries, and every row while tagging is on, keep theirs.
+    if (!message.recovery && !attemptTaggingEnabled() && (message.attemptLog?.length ?? 0) <= 1) {
+      message.attemptLog = undefined;
+      message.attemptId = undefined;
+    }
     message.status = 'sent';
     message.providerMessageId = providerMessageId;
     message.nextAttemptAt = undefined;
@@ -983,22 +1130,442 @@ export class Storage {
     message.lastError = undefined;
     message.updatedAt = new Date().toISOString();
     this.persist(['outboxMessages'], { outboxMessages: message.id });
+    if (providerMessageId) this.drainBufferedStatuses(providerMessageId);
+    if (message.recovery) this.emitOutboxTransition({ type: 'sent_after_recovery', id: message.id });
+  }
+
+  /** Closes the current attempt record with its outcome (no-op if the row has no attempt). */
+  private closeCurrentAttempt(message: OutboxMessage, status: OutboxAttemptRecord['status'], detail: { providerMessageId?: string; error?: unknown } = {}): void {
+    const record = message.attemptLog?.find((entry) => entry.attemptId === message.attemptId);
+    if (!record) return;
+    record.status = status;
+    record.endedAt = new Date().toISOString();
+    if (detail.providerMessageId) record.providerMessageId = detail.providerMessageId;
+    if (detail.error !== undefined) record.error = (detail.error instanceof Error ? detail.error.message : String(detail.error)).slice(0, 300);
+  }
+
+  /** attemptId of the current attempt of an outbox message (cheap; used to tag the provider call). */
+  getOutboxAttemptId(id: string): string | undefined {
+    return this.data.outboxMessages.find((item) => item.id === id)?.attemptId;
+  }
+
+  /**
+   * Exact lookup of the outbox message an attemptId belongs to, over ALL recorded attempts (also
+   * earlier ones after a retry). Authoritative: a miss means "not ours" - important on the shared
+   * Meta number where every client sees every status.
+   */
+  private locateAttempt(attemptId: string): { message: OutboxMessage; attempt: OutboxAttemptRecord } | null {
+    if (!this.outboxAttemptIndex || this.outboxAttemptIndexSource !== this.data.outboxMessages) {
+      this.outboxAttemptIndex = new Map();
+      this.outboxAttemptIndexSource = this.data.outboxMessages;
+      for (const item of this.data.outboxMessages) {
+        for (const entry of item.attemptLog ?? []) this.outboxAttemptIndex.set(entry.attemptId, item.id);
+      }
+    }
+    const id = this.outboxAttemptIndex.get(attemptId);
+    const message = id ? this.data.outboxMessages.find((item) => item.id === id) : undefined;
+    const attempt = message?.attemptLog?.find((entry) => entry.attemptId === attemptId);
+    return message && attempt ? { message, attempt } : null;
+  }
+
+  findOutboxByAttemptId(attemptId: string): { message: OutboxMessage; attempt: OutboxAttemptRecord } | null {
+    const found = this.locateAttempt(attemptId);
+    return found ? { message: this.copyOutboxMessage(found.message), attempt: { ...found.attempt } } : null;
+  }
+
+  /**
+   * Applies a delivery-status callback with EXACT matching: by our attempt id when the send was tagged,
+   * otherwise by provider message id. Never by phone number or time. A tagged status whose attempt id is
+   * not ours is foreign (on the shared number every client sees every status). Idempotent: repeats, late
+   * and out-of-order statuses never move a message backwards. A status for an id we do not know yet is
+   * kept briefly (it can arrive before the POST response is processed) and re-applied when the id is recorded.
+   */
+  applyMetaStatus(input: MetaStatusInput, context: { expectedPhoneNumberId?: string } = {}): { result: MetaStatusResult; message?: OutboxMessage; attemptId?: string } {
+    const wamid = String(input.wamid || '').trim();
+    if (!wamid) return { result: 'foreign' };
+    let message: OutboxMessage | undefined;
+    let attempt: OutboxAttemptRecord | undefined;
+    const tagged = isAttemptId(input.attemptId);
+    if (tagged) {
+      const found = this.locateAttempt(input.attemptId as string);
+      if (!found) return { result: 'foreign' };
+      message = found.message; attempt = found.attempt;
+    } else {
+      for (const item of this.data.outboxMessages) {
+        const byAttempt = item.attemptLog?.find((entry) => entry.providerMessageId === wamid || entry.providerMessageIds?.includes(wamid));
+        if (item.providerMessageId === wamid || byAttempt) { message = item; attempt = byAttempt; break; }
+      }
+      if (!message) {
+        this.bufferUnmatchedStatus({ ...input, wamid });
+        return { result: 'buffered' };
+      }
+    }
+    if (input.recipientId && !sameRecipient(input.recipientId, message.to)) return { result: 'mismatch', attemptId: attempt?.attemptId };
+    if (input.phoneNumberId && context.expectedPhoneNumberId && input.phoneNumberId !== context.expectedPhoneNumberId) return { result: 'mismatch', attemptId: attempt?.attemptId };
+
+    let changed = false;
+    if (attempt) {
+      if (!attempt.providerMessageId) { attempt.providerMessageId = wamid; changed = true; }
+      else if (attempt.providerMessageId !== wamid && !(attempt.providerMessageIds ?? []).includes(wamid)) { (attempt.providerMessageIds ??= []).push(wamid); changed = true; }
+      if (!attempt.deliveryStatus || STATUS_RANK[input.status] > STATUS_RANK[attempt.deliveryStatus]) { attempt.deliveryStatus = input.status; changed = true; }
+    }
+    if (!message.deliveryStatus || STATUS_RANK[input.status] > STATUS_RANK[message.deliveryStatus]
+      || (STATUS_RANK[input.status] === STATUS_RANK[message.deliveryStatus] && input.status !== message.deliveryStatus)) {
+      message.deliveryStatus = input.status;
+      message.deliveryError = input.status === 'failed' ? (input.error || 'Delivery failed') : undefined;
+      message.deliveryUpdatedAt = new Date().toISOString();
+      changed = true;
+    }
+    changed = this.applyDeliveryEvidence(message, attempt, wamid, input.status) || changed;
+    if (!changed) return { result: 'duplicate', message: this.copyOutboxMessage(message), attemptId: attempt?.attemptId };
+    this.persist(['outboxMessages'], { outboxMessages: message.id });
+    return { result: 'applied', message: this.copyOutboxMessage(message), attemptId: attempt?.attemptId };
+  }
+
+  /**
+   * What a delivery status means for the message state machine. `sent`/`delivered`/`read` prove the provider
+   * accepted THAT attempt; `failed` proves it did not. Only messages in recovery move; a message that already
+   * reached a terminal state is never revived (late evidence is recorded and reported, nothing else).
+   */
+  private applyDeliveryEvidence(message: OutboxMessage, attempt: OutboxAttemptRecord | undefined, wamid: string, status: MetaStatusInput['status']): boolean {
+    if (!attempt) return false;
+    const now = new Date().toISOString();
+    if (status === 'failed') {
+      if (message.status === 'uncertain' && attempt.attemptId === message.attemptId) {
+        attempt.status = 'rejected'; attempt.endedAt = now;   // proven NOT delivered: it no longer counts against the POST budget
+        this.releaseUncertainForRetry(message, 'delivery_failed_evidence');
+        return true;
+      }
+      return false;
+    }
+    // sent / delivered / read
+    if (message.status === 'uncertain' || message.status === 'retry' || message.status === 'queued') {
+      attempt.status = 'accepted'; attempt.endedAt = attempt.endedAt ?? now; attempt.providerMessageId = attempt.providerMessageId ?? wamid;
+      this.claimedInThisProcess.delete(message.id);
+      message.status = 'sent'; message.providerMessageId = wamid; message.nextAttemptAt = undefined;
+      message.processingStartedAt = undefined; message.lastError = undefined; message.updatedAt = now;
+      if (message.recovery) message.recovery.lastDecision = 'delivery_evidence';
+      this.emitOutboxTransition({ type: 'sent_after_recovery', id: message.id });
+      return true;
+    }
+    if (message.status === 'recoverable_failed' || message.status === 'failed') {
+      this.emitOutboxTransition({ type: 'late_evidence', id: message.id });   // recorded, never revived
+    }
+    return false;
+  }
+
+  /** uncertain -> retry (a new POST attempt) if the budget allows, else recoverable_failed. */
+  private releaseUncertainForRetry(message: OutboxMessage, reason: string): void {
+    const possiblyDelivered = (message.attemptLog ?? []).filter((a) => a.status === 'uncertain' || a.status === 'accepted' || a.status === 'started').length;
+    const now = new Date().toISOString();
+    message.updatedAt = now;
+    const recovery = message.recovery ?? (message.recovery = { attemptId: message.attemptId, uncertainSince: now, windowEndsAt: now, retriesGranted: 0 });
+    recovery.lastDecision = reason;
+    if (possiblyDelivered < recoveryPostBudget()) {
+      message.status = 'retry';
+      message.nextAttemptAt = undefined;
+      recovery.retriesGranted += 1;
+      // Only a silent window leaves a genuine chance that BOTH copies arrive; a proven failure does not.
+      if (reason === 'window_elapsed_no_evidence') { recovery.duplicateRiskDeclared = true; message.lastError = `${message.lastError ?? ''} | auto-retry after ${recoveryWindowMs()}ms without delivery evidence (duplicate risk declared)`.slice(0, 500); }
+      this.emitOutboxTransition({ type: 'retry_granted', id: message.id });
+      this.notifyOutboxWake();
+    } else {
+      message.status = 'recoverable_failed';
+      message.nextAttemptAt = undefined;
+      message.lastError = `${message.lastError ?? ''} | recovery budget (${recoveryPostBudget()} POSTs) used without delivery evidence`.slice(0, 500);
+      this.emitOutboxTransition({ type: 'recoverable_failed', id: message.id });
+    }
+  }
+
+  /** Window bookkeeping: uncertain messages whose window ended with no evidence get their bounded retry or their terminal state. */
+  advanceUncertainRecovery(now = new Date()): Array<{ id: string; to: OutboxMessage['status'] }> {
+    const moved: Array<{ id: string; to: OutboxMessage['status'] }> = [];
+    for (const message of this.data.outboxMessages) {
+      if (message.status !== 'uncertain') continue;
+      const endsAt = message.recovery ? Date.parse(message.recovery.windowEndsAt) : NaN;
+      if (Number.isFinite(endsAt) && endsAt > now.getTime()) continue;
+      this.releaseUncertainForRetry(message, 'window_elapsed_no_evidence');
+      this.persist(['outboxMessages'], { outboxMessages: message.id });
+      moved.push({ id: message.id, to: message.status });
+    }
+    return moved;
+  }
+
+  private emitOutboxTransition(event: OutboxTransitionEvent): void {
+    if (!this.outboxTransitionListeners.size) return;
+    setImmediate(() => { for (const listener of this.outboxTransitionListeners) { try { listener(event); } catch { /* listener errors must not affect storage */ } } });
+  }
+
+  onOutboxTransition(listener: (event: OutboxTransitionEvent) => void): () => void {
+    this.outboxTransitionListeners.add(listener);
+    return () => { this.outboxTransitionListeners.delete(listener); };
+  }
+
+  /** The row that a flow unit's index-th send created, if any (used to skip already delivered sends when a unit is replayed). */
+  findOutboxByFlowRef(unitId: string, index: number): OutboxMessage | null {
+    const found = this.data.outboxMessages.find((item) => item.flowRef?.unitId === unitId && item.flowRef.index === index);
+    return found ? this.copyOutboxMessage(found) : null;
+  }
+
+  /** The row that holds the continuation of the flow unit `message` belongs to (the first row that unit created). */
+  private continuationOwner(message: OutboxMessage): OutboxMessage | undefined {
+    if (message.continuation) return message;
+    const unitId = message.flowRef?.unitId;
+    return unitId ? this.data.outboxMessages.find((item) => item.flowRef?.unitId === unitId && item.continuation) : undefined;
+  }
+
+  /** Continuation of the flow unit a message belongs to, if any. */
+  getUnitContinuation(id: string): OutboxContinuation | null {
+    const message = this.data.outboxMessages.find((item) => item.id === id);
+    const owner = message ? this.continuationOwner(message) : undefined;
+    return owner?.continuation ? { ...owner.continuation, descriptor: { ...owner.continuation.descriptor } } : null;
+  }
+
+  /** Atomically takes ownership of the unit's continuation: returns it once, then never again (until reset). */
+  claimContinuation(id: string): OutboxContinuation | null {
+    const message = this.data.outboxMessages.find((item) => item.id === id);
+    const owner = message ? this.continuationOwner(message) : undefined;
+    if (!owner?.continuation || owner.continuation.state !== 'pending') return null;
+    owner.continuation.state = 'running';
+    owner.continuation.updatedAt = new Date().toISOString();
+    this.persist(['outboxMessages'], { outboxMessages: owner.id });
+    return { ...owner.continuation, descriptor: { ...owner.continuation.descriptor } };
+  }
+
+  finishContinuation(id: string, state: 'done' | 'skipped'): void {
+    const message = this.data.outboxMessages.find((item) => item.id === id);
+    const owner = message ? this.continuationOwner(message) : undefined;
+    if (!owner?.continuation) return;
+    owner.continuation.state = state;
+    owner.continuation.updatedAt = new Date().toISOString();
+    this.persist(['outboxMessages'], { outboxMessages: owner.id });
+  }
+
+  /** After a restart, a continuation that was `running` may not have finished. Replay is idempotent (delivered sends are skipped), so run it again. */
+  resetRunningContinuations(): string[] {
+    const ids: string[] = [];
+    for (const message of this.data.outboxMessages) {
+      if (message.continuation?.state === 'running') { message.continuation.state = 'pending'; ids.push(message.id); }
+    }
+    if (ids.length) this.persist(['outboxMessages'], { outboxMessages: ids });
+    return ids;
+  }
+
+  /** Messages whose delivery is still being resolved and whose continuation has not run - the controller's work list. */
+  getOutboxMessagesWithPendingContinuation(): OutboxMessage[] {
+    return this.data.outboxMessages.filter((item) => item.recovery && this.continuationOwner(item)?.continuation?.state === 'pending').map((item) => this.copyOutboxMessage(item));
+  }
+
+  /**
+   * Makes the early-status buffer durable (JSON-lines journal). A status that arrives before the id it refers to is
+   * recorded must survive a restart - a restart is exactly what creates uncertain messages. If a buffered status cannot
+   * be journaled, applyMetaStatus THROWS so the caller does not acknowledge it and the gateway sends it again.
+   */
+  attachEarlyStatusJournal(filePath: string): void {
+    this.earlyStatusJournalPath = filePath;
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    const live = new Map<string, Array<{ input: MetaStatusInput; at: number }>>();
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, 'utf8');
+      const lines = raw.split('\n');
+      const endsClean = raw.endsWith('\n') || raw.length === 0;
+      const cutoff = Date.now() - UNMATCHED_STATUS_TTL_MS;
+      lines.forEach((line, i) => {
+        if (!line) return;
+        let record: { t: 'buf' | 'done'; input?: MetaStatusInput; at?: number; wamid?: string };
+        try { record = JSON.parse(line); } catch (err) {
+          if (!endsClean && i === lines.length - 1) return;   // torn last append
+          throw new Error(`Early-status journal ${filePath} is corrupt at line ${i + 1}; refusing to load it as empty: ${(err as Error).message}`);
+        }
+        if (record.t === 'done' && record.wamid) live.delete(record.wamid);
+        else if (record.t === 'buf' && record.input && (record.at ?? 0) >= cutoff) {
+          const list = live.get(record.input.wamid) ?? [];
+          list.push({ input: record.input, at: record.at as number });
+          live.set(record.input.wamid, list);
+        }
+      });
+    }
+    for (const [key, list] of live) this.unmatchedStatuses.set(key, list);
+    const compact = [...live.values()].flat().map((entry) => JSON.stringify({ t: 'buf', input: entry.input, at: entry.at })).join('\n');
+    const tmp = `${filePath}.tmp`;
+    fs.writeFileSync(tmp, compact ? compact + '\n' : '');
+    fs.renameSync(tmp, filePath);
+  }
+
+  private appendEarlyStatusJournal(record: object, mustSucceed: boolean): void {
+    if (!this.earlyStatusJournalPath) return;
+    try { fs.appendFileSync(this.earlyStatusJournalPath, JSON.stringify(record) + '\n'); }
+    catch (err) { if (mustSucceed) throw err; }
+  }
+
+  private bufferUnmatchedStatus(input: MetaStatusInput): void {
+    const now = Date.now();
+    this.appendEarlyStatusJournal({ t: 'buf', input, at: now }, true);
+    for (const [key, list] of this.unmatchedStatuses) {
+      const fresh = list.filter((entry) => now - entry.at < UNMATCHED_STATUS_TTL_MS);
+      if (fresh.length) this.unmatchedStatuses.set(key, fresh); else this.unmatchedStatuses.delete(key);
+    }
+    let total = 0; for (const list of this.unmatchedStatuses.values()) total += list.length;
+    while (total >= UNMATCHED_STATUS_MAX) {
+      const oldestKey = this.unmatchedStatuses.keys().next().value as string | undefined;
+      if (oldestKey === undefined) break;
+      total -= this.unmatchedStatuses.get(oldestKey)?.length ?? 0;
+      this.unmatchedStatuses.delete(oldestKey);
+    }
+    const list = this.unmatchedStatuses.get(input.wamid) ?? [];
+    list.push({ input, at: now });
+    this.unmatchedStatuses.set(input.wamid, list);
+  }
+
+  /** Re-applies statuses that arrived before this provider id was recorded. */
+  private drainBufferedStatuses(wamid: string): void {
+    const list = this.unmatchedStatuses.get(wamid);
+    if (!list) return;
+    this.unmatchedStatuses.delete(wamid);
+    this.appendEarlyStatusJournal({ t: 'done', wamid }, false);   // if this fails the entries are re-applied after a restart; applying is idempotent
+    const now = Date.now();
+    for (const entry of list.sort((a, b) => a.at - b.at)) if (now - entry.at < UNMATCHED_STATUS_TTL_MS) this.applyMetaStatus(entry.input);
+  }
+
+  /** Provider acceptance is unknown. Never retried automatically; see OutboxMessageStatus. */
+  markOutboxUncertain(id: string, error: unknown): void {
+    const message = this.data.outboxMessages.find((item) => item.id === id);
+    if (!message) return;
+    this.claimedInThisProcess.delete(id);
+    this.closeCurrentAttempt(message, 'uncertain', { error });
+    message.status = 'uncertain';
+    // The window belongs to the attempt and is created once: a restart that re-detects the same uncertain
+    // attempt must not restart (or extend) the wait, and must not reset the retry count.
+    if (!message.recovery || message.recovery.attemptId !== message.attemptId) {
+      const since = new Date();
+      message.recovery = {
+        attemptId: message.attemptId,
+        uncertainSince: since.toISOString(),
+        windowEndsAt: new Date(since.getTime() + recoveryWindowMs()).toISOString(),
+        retriesGranted: message.recovery?.retriesGranted ?? 0,
+        duplicateRiskDeclared: message.recovery?.duplicateRiskDeclared,
+      };
+    }
+    message.lastError = error instanceof Error ? error.message : String(error);
+    message.nextAttemptAt = undefined;
+    message.processingStartedAt = undefined;
+    message.updatedAt = new Date().toISOString();
+    this.persist(['outboxMessages'], { outboxMessages: message.id });
+  }
+
+  /**
+   * A `processing` row that THIS process is not working on was left by a
+   * crashed/restarted process. A stale `processing` row is not proof the message
+   * was not sent, so it becomes `uncertain` instead of being re-claimed.
+   */
+  recoverOrphanedOutboxProcessing(): OutboxMessage[] {
+    const recovered: OutboxMessage[] = [];
+    for (const message of this.data.outboxMessages) {
+      if (message.status !== 'processing' || this.claimedInThisProcess.has(message.id)) continue;
+      this.markOutboxUncertain(message.id, `Process ended while sending (attempt ${message.attempts}); provider acceptance unknown - needs review.`);
+      recovered.push(this.copyOutboxMessage(message));
+    }
+    return recovered;
+  }
+
+  /** Operator/webhook decision for an uncertain message. Returns false if it is not uncertain. */
+  resolveOutboxUncertain(id: string, resolution: 'sent' | 'not_sent', providerMessageId?: string): boolean {
+    const message = this.data.outboxMessages.find((item) => item.id === id);
+    if (!message || message.status !== 'uncertain') return false;
+    if (resolution === 'sent') {
+      this.markOutboxSent(id, providerMessageId);
+    } else {
+      message.status = 'retry';
+      message.nextAttemptAt = undefined;
+      message.updatedAt = new Date().toISOString();
+      this.persist(['outboxMessages'], { outboxMessages: message.id });
+      this.notifyOutboxWake();
+    }
+    return true;
+  }
+
+  getUncertainOutboxMessages(): OutboxMessage[] {
+    return this.data.outboxMessages.filter((item) => item.status === 'uncertain').map((item) => this.copyOutboxMessage(item));
+  }
+
+  /** Wake-up hook for the dispatcher: fired (asynchronously) after an enqueue or a retry schedule. */
+  onOutboxWake(listener: () => void): () => void {
+    this.outboxWakeListeners.add(listener);
+    return () => { this.outboxWakeListeners.delete(listener); };
+  }
+
+  private notifyOutboxWake(): void {
+    if (!this.outboxWakeListeners.size) return;
+    setImmediate(() => {
+      for (const listener of this.outboxWakeListeners) {
+        try { listener(); } catch { /* listener errors must not affect storage */ }
+      }
+    });
+  }
+
+  /** Earliest future `nextAttemptAt` of a recipient's head message, so the dispatcher can sleep exactly until then. */
+  getNextOutboxDueAtMs(now = new Date()): number | undefined {
+    const nowMs = now.getTime();
+    let next: number | undefined;
+    for (const message of this.getOutboxHeads()) {
+      const when = message.status === 'retry' ? message.nextAttemptAt : message.status === 'uncertain' ? message.recovery?.windowEndsAt : undefined;
+      if (!when) continue;
+      const at = Date.parse(when);
+      if (Number.isFinite(at) && at > nowMs && (next === undefined || at < next)) next = at;
+    }
+    return next;
   }
 
   markOutboxRetry(id: string, error: unknown, nextAttemptAt?: string): void {
     const message = this.data.outboxMessages.find((item) => item.id === id);
     if (!message) return;
+    this.claimedInThisProcess.delete(id);
+    this.closeCurrentAttempt(message, 'rejected', { error });
     message.status = 'retry';
     message.lastError = error instanceof Error ? error.message : String(error);
     message.nextAttemptAt = nextAttemptAt;
     message.processingStartedAt = undefined;
     message.updatedAt = new Date().toISOString();
     this.persist(['outboxMessages'], { outboxMessages: message.id });
+    this.notifyOutboxWake();
+  }
+
+  /** Terminal, non-blocking, not success: the message that went through recovery could not be confirmed within its budget. */
+  markOutboxRecoverableFailed(id: string, error: unknown): void {
+    const message = this.data.outboxMessages.find((item) => item.id === id);
+    if (!message) return;
+    this.claimedInThisProcess.delete(id);
+    this.closeCurrentAttempt(message, 'rejected', { error });
+    message.status = 'recoverable_failed';
+    message.lastError = error instanceof Error ? error.message : String(error);
+    message.nextAttemptAt = undefined;
+    message.processingStartedAt = undefined;
+    message.updatedAt = new Date().toISOString();
+    this.persist(['outboxMessages'], { outboxMessages: message.id });
+    this.emitOutboxTransition({ type: 'recoverable_failed', id: message.id });
+  }
+
+  /**
+   * The participant started a new run while this message was unresolved: it is abandoned as recoverable_failed (never a
+   * success, never revived by late evidence) and its continuation is skipped. Refused (false) when the message is being
+   * sent right now or its continuation is already running - the caller then keeps the hold and waits.
+   */
+  supersedeRecoveryOutbox(id: string, reason: string): boolean {
+    const message = this.data.outboxMessages.find((item) => item.id === id);
+    if (!message) return true;   // nothing left to wait for
+    const owner = this.continuationOwner(message);
+    if (owner?.continuation?.state === 'running') return false;
+    if (message.status === 'processing') return false;
+    if (!isOutboxTerminal(message.status)) this.markOutboxRecoverableFailed(id, reason);
+    if (owner?.continuation?.state === 'pending') this.finishContinuation(id, 'skipped');
+    return true;
   }
 
   markOutboxFailed(id: string, error: unknown): void {
     const message = this.data.outboxMessages.find((item) => item.id === id);
     if (!message) return;
+    this.claimedInThisProcess.delete(id);
+    this.closeCurrentAttempt(message, 'rejected', { error });
     message.status = 'failed';
     message.lastError = error instanceof Error ? error.message : String(error);
     message.nextAttemptAt = undefined;
@@ -1015,53 +1582,73 @@ export class Storage {
       .map((message) => this.copyOutboxMessage(message));
   }
 
-  getPendingOutboxMessages(limit = 50, now = new Date(), processingStaleMs = 2 * 60 * 1000): OutboxMessage[] {
-    const nowMs = now.getTime();
+  /** Oldest outstanding message per recipient, oldest first. Later messages of a recipient never overtake it. */
+  private getOutboxHeads(): OutboxMessage[] {
     const firstOutstandingByRecipient = new Map<string, OutboxMessage>();
     const ordered = this.data.outboxMessages
       .slice()
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     for (const message of ordered) {
-      if (message.status === 'sent' || message.status === 'failed') continue;
+      if (isOutboxTerminal(message.status)) continue;
       const recipient = normalizeOutboxRecipient(message.to);
       if (!firstOutstandingByRecipient.has(recipient)) {
         firstOutstandingByRecipient.set(recipient, message);
       }
     }
-    return [...firstOutstandingByRecipient.values()]
-      .filter((message) => this.isOutboxClaimable(message, nowMs, processingStaleMs))
+    return [...firstOutstandingByRecipient.values()];
+  }
+
+  /**
+   * Head-of-queue messages that are due AND eligible, oldest first, at most `limit`.
+   * `isBlocked(recipient)` (e.g. a needs_review hold) is applied BEFORE the limit:
+   * blocked recipients neither consume slots nor starve eligible ones behind them.
+   * A blocked head is never skipped to reach a later message of the same recipient.
+   */
+  getPendingOutboxMessages(
+    limit = 50,
+    now = new Date(),
+    _processingStaleMs = 2 * 60 * 1000,
+    isBlocked?: (recipient: string, message: OutboxMessage) => boolean,
+  ): OutboxMessage[] {
+    const nowMs = now.getTime();
+    return this.getOutboxHeads()
+      .filter((message) => this.isOutboxClaimable(message, nowMs))
+      .filter((message) => !isBlocked || !isBlocked(message.to, message))
       .slice(0, limit)
       .map((message) => this.copyOutboxMessage(message));
   }
 
-  claimOutboxMessage(id: string, now = new Date(), processingStaleMs = 2 * 60 * 1000): OutboxMessage | null {
+  claimOutboxMessage(id: string, now = new Date(), _processingStaleMs = 2 * 60 * 1000): OutboxMessage | null {
     const messageIndex = this.data.outboxMessages.findIndex((item) => item.id === id);
     const message = messageIndex >= 0 ? this.data.outboxMessages[messageIndex] : undefined;
-    if (!message || !this.isOutboxClaimable(message, now.getTime(), processingStaleMs)) return null;
+    if (!message || !this.isOutboxClaimable(message, now.getTime())) return null;
     const recipient = normalizeOutboxRecipient(message.to);
     const hasEarlierOutstanding = this.data.outboxMessages.slice(0, messageIndex).some((earlier) =>
       normalizeOutboxRecipient(earlier.to) === recipient
-      && earlier.status !== 'sent'
-      && earlier.status !== 'failed');
+      && !isOutboxTerminal(earlier.status));
     if (hasEarlierOutstanding) return null;
     this.markOutboxProcessing(id);
     return this.copyOutboxMessage(message);
   }
 
-  private isOutboxClaimable(message: OutboxMessage, nowMs: number, processingStaleMs: number): boolean {
+  private isOutboxClaimable(message: OutboxMessage, nowMs: number): boolean {
     if (message.status === 'queued') return true;
     if (message.status === 'retry') {
       return !message.nextAttemptAt || Date.parse(message.nextAttemptAt) <= nowMs;
     }
-    if (message.status !== 'processing') return false;
-    const processingStartedMs = Date.parse(message.processingStartedAt || message.updatedAt);
-    return !Number.isFinite(processingStartedMs) || processingStartedMs <= nowMs - processingStaleMs;
+    // `processing` and `uncertain` are never claimable: a stale `processing` row is not proof the
+    // message was not sent. recoverOrphanedOutboxProcessing() turns orphans into `uncertain`.
+    return false;
   }
 
   private copyOutboxMessage(message: OutboxMessage): OutboxMessage {
     return {
       ...message,
       fileOptions: message.fileOptions ? { ...message.fileOptions } : undefined,
+      attemptLog: message.attemptLog?.map((entry) => ({ ...entry })),
+      recovery: message.recovery ? { ...message.recovery } : undefined,
+      flowRef: message.flowRef ? { ...message.flowRef } : undefined,
+      continuation: message.continuation ? { ...message.continuation, descriptor: { ...message.continuation.descriptor } } : undefined,
       buttons: message.buttons?.map((button) => ({ ...button })),
       items: message.items?.map((item) => ({ ...item })),
       contacts: message.contacts?.map((contact) => ({ ...contact })),
@@ -1073,7 +1660,9 @@ export class Storage {
   recordOutboxDelivery(providerMessageId: string, status: 'sent' | 'delivered' | 'read' | 'failed', error?: string): OutboxMessage | null {
     const id = String(providerMessageId || '').trim();
     if (!id) return null;
-    const message = this.data.outboxMessages.find((item) => item.providerMessageId === id);
+    // Every provider id a message ever received counts (a retry after an unknown outcome can leave the earlier attempt's id behind).
+    const message = this.data.outboxMessages.find((item) => item.providerMessageId === id
+      || item.attemptLog?.some((entry) => entry.providerMessageId === id || entry.providerMessageIds?.includes(id)));
     if (!message) return null;
     // Never let a late 'sent' clobber a terminal 'delivered'/'read'/'failed' already recorded.
     const rank = { sent: 1, delivered: 2, read: 3, failed: 3 } as const;
@@ -1094,7 +1683,7 @@ export class Storage {
   }
 
   getOutboxHealth(): Record<OutboxMessageStatus | 'total', number> {
-    const counts = { total: this.data.outboxMessages.length, queued: 0, processing: 0, sent: 0, failed: 0, retry: 0 };
+    const counts = { total: this.data.outboxMessages.length, queued: 0, processing: 0, sent: 0, failed: 0, retry: 0, uncertain: 0, recoverable_failed: 0 };
     for (const message of this.data.outboxMessages) counts[message.status] += 1;
     return counts;
   }
