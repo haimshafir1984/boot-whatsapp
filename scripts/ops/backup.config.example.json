@@ -1,0 +1,36 @@
+{
+  "_comment": "Example only - no secrets. Passwords/keys are read from the env vars named below, never stored here.",
+  "destination": { "dir": "/mnt/offsite-backups" },
+  "encryptionKeyEnv": "BACKUP_ENCRYPTION_KEY",
+  "_encryptionKeyCommandExample": { "command": "op", "args": ["read", "op://vault/flowsbiz-backup/key"] },
+  "dockerSsh": {
+    "host": "root@203.0.113.10",
+    "identityFile": "~/.ssh/flowsbiz_hetzner_ed25519",
+    "strictHostKeyChecking": "accept-new"
+  },
+  "expectedPgMajor": 18,
+  "retention": { "hourlyHours": 48, "dailyDays": 14, "weeklyWeeks": 8 },
+  "schedule": { "dbEveryMinutes": 60, "filesEveryMinutes": 1440, "graceFactor": 1.5 },
+  "targets": [
+    {
+      "id": "admin", "kind": "admin", "serviceId": "flowsbiz-admin-akr2zu", "appSchemaVersion": null,
+      "db": null,
+      "volumes": { "ownerStorage": "/data/owner", "uploads": "/data/uploads" }
+    },
+    {
+      "id": "client-example", "kind": "client", "provider": "META_CLOUD_API", "serviceId": "<dokploy-app-id>",
+      "db": { "host": "<pg-host>", "port": 5432, "database": "<db>", "user": "<user>", "passwordEnv": "PG_PASSWORD_CLIENT_EXAMPLE" },
+      "volumes": { "storage": "/data/contacts.json", "conversationState": "/data/conversation-state.json", "uploads": "/data/uploads", "session": "/data/session" }
+    },
+    {
+      "id": "client-remote-example",
+      "kind": "client",
+      "appService": "client-example-app-abc123",
+      "provider": "META_CLOUD_API",
+      "db": { "dockerService": "client-example-postgres-def456" },
+      "volumes": {
+        "appData": { "dockerService": "client-example-app-abc123", "path": "/app/data" }
+      }
+    }
+  ]
+}
