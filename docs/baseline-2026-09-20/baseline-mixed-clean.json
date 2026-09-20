@@ -1,0 +1,282 @@
+{
+  "startedAt": "2026-09-20T08:14:26.464Z",
+  "head": "0ea8d26",
+  "wantClean": 5,
+  "results": {
+    "mixed": [
+      {
+        "label": "warmup",
+        "exit": 0,
+        "wallMs": 14145,
+        "skippedEvents": 0,
+        "skippedClients": [],
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 5181,
+            "p95": 6435,
+            "p99": 6449,
+            "max": 6449
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 11310,
+            "p95": 11400,
+            "p99": 11612,
+            "max": 11612
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 11663,
+            "p95": 12023,
+            "p99": 12033,
+            "max": 12033
+          },
+          "baileys": {
+            "n": 60,
+            "median": 1551,
+            "p95": 1795,
+            "p99": 1813,
+            "max": 1813
+          }
+        }
+      },
+      {
+        "label": "run1",
+        "exit": 0,
+        "wallMs": 14790,
+        "skippedEvents": 0,
+        "skippedClients": [],
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 5439,
+            "p95": 6833,
+            "p99": 6844,
+            "max": 6844
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 12078,
+            "p95": 12267,
+            "p99": 12275,
+            "max": 12275
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 11999,
+            "p95": 12312,
+            "p99": 12320,
+            "max": 12320
+          },
+          "baileys": {
+            "n": 60,
+            "median": 1690,
+            "p95": 2015,
+            "p99": 2038,
+            "max": 2038
+          }
+        }
+      },
+      {
+        "label": "run2",
+        "exit": 0,
+        "wallMs": 14800,
+        "skippedEvents": 0,
+        "skippedClients": [],
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 5248,
+            "p95": 6646,
+            "p99": 6658,
+            "max": 6658
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 12064,
+            "p95": 12263,
+            "p99": 12271,
+            "max": 12271
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 11979,
+            "p95": 12311,
+            "p99": 12320,
+            "max": 12320
+          },
+          "baileys": {
+            "n": 60,
+            "median": 1458,
+            "p95": 1701,
+            "p99": 1719,
+            "max": 1719
+          }
+        }
+      },
+      {
+        "label": "run3",
+        "exit": 0,
+        "wallMs": 15109,
+        "skippedEvents": 0,
+        "skippedClients": [],
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 5475,
+            "p95": 6796,
+            "p99": 6808,
+            "max": 6808
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 11280,
+            "p95": 12179,
+            "p99": 12189,
+            "max": 12189
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 12089,
+            "p95": 12641,
+            "p99": 12650,
+            "max": 12650
+          },
+          "baileys": {
+            "n": 60,
+            "median": 1570,
+            "p95": 1832,
+            "p99": 1851,
+            "max": 1851
+          }
+        }
+      },
+      {
+        "label": "run4",
+        "exit": 1,
+        "wallMs": 17180,
+        "skippedEvents": 123,
+        "skippedClients": [
+          "focus-meta",
+          "small-meta-a",
+          "small-meta-b"
+        ],
+        "contaminated": true,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 6237,
+            "p95": 7297,
+            "p99": 7311,
+            "max": 7311
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 13727,
+            "p95": 14276,
+            "p99": 14285,
+            "max": 14285
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 14393,
+            "p95": 14545,
+            "p99": 14555,
+            "max": 14555
+          },
+          "baileys": {
+            "n": 60,
+            "median": 1670,
+            "p95": 1951,
+            "p99": 1971,
+            "max": 1971
+          }
+        },
+        "exitReason": "AssertionError [ERR_ASSERTION]: mixed Meta + Baileys peak: median 7216ms must be below 7000ms"
+      },
+      {
+        "label": "run5",
+        "exit": 0,
+        "wallMs": 17490,
+        "skippedEvents": 0,
+        "skippedClients": [],
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 6105,
+            "p95": 7624,
+            "p99": 7637,
+            "max": 7637
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 12834,
+            "p95": 13128,
+            "p99": 13138,
+            "max": 13138
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 13327,
+            "p95": 13918,
+            "p99": 13934,
+            "max": 13934
+          },
+          "baileys": {
+            "n": 60,
+            "median": 1706,
+            "p95": 2011,
+            "p99": 2039,
+            "max": 2039
+          }
+        }
+      },
+      {
+        "label": "run6",
+        "exit": 1,
+        "wallMs": 17017,
+        "skippedEvents": 0,
+        "skippedClients": [],
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 6671,
+            "p95": 8340,
+            "p99": 8353,
+            "max": 8353
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 13349,
+            "p95": 14255,
+            "p99": 14265,
+            "max": 14265
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 13978,
+            "p95": 14284,
+            "p99": 14296,
+            "max": 14296
+          },
+          "baileys": {
+            "n": 60,
+            "median": 1716,
+            "p95": 2011,
+            "p99": 2044,
+            "max": 2044
+          }
+        },
+        "exitReason": "AssertionError [ERR_ASSERTION]: mixed Meta + Baileys peak: median 7324ms must be below 7000ms"
+      }
+    ]
+  },
+  "finishedAt": "2026-09-20T08:16:17.042Z"
+}

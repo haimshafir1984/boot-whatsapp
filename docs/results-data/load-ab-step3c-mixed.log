@@ -1,0 +1,21 @@
+A warmup exit 1 skipped 0  focus-meta 6382/7075/8133/8133  small-meta-a 13792/14098/14108/14108  small-meta-b 13719/14424/14433/14433  baileys 1844/2139/2159/2159
+B warmup exit 1 skipped 105 CONTAMINATED focus-meta 6089/7270/7282/7282  small-meta-a 13954/14903/14919/14919  small-meta-b 15049/15289/15300/15300  baileys 1774/2090/2115/2115
+A run1 exit 0 skipped 0  focus-meta 6113/7681/7693/7693  small-meta-a 12905/13774/13782/13782  small-meta-b 13491/13798/13808/13808  baileys 1686/1979/2000/2000
+B run1 exit 1 skipped 123 CONTAMINATED focus-meta 6714/7869/7881/7881  small-meta-a 14848/14977/14987/14987  small-meta-b 15111/15344/15353/15353  baileys 1752/2106/2131/2131
+A run2 exit 0 skipped 0  focus-meta 6088/7784/7800/7800  small-meta-a 13118/13650/13658/13658  small-meta-b 13977/14293/14302/14302  baileys 1686/1996/2019/2019
+B run2 exit 1 skipped 41 CONTAMINATED focus-meta 5713/8361/8374/8374  small-meta-a 15618/16045/16442/16442  small-meta-b 16625/16809/16821/16821  baileys 2309/2700/2727/2727
+A run3 exit 1 skipped 0  focus-meta 6116/7075/8144/8144  small-meta-a 13342/13640/13648/13648  small-meta-b 13264/13964/13974/13974  baileys 1728/2030/2052/2052
+B run3 exit 1 skipped 41 CONTAMINATED focus-meta 5105/7722/7736/7736  small-meta-a 14832/15451/15467/15467  small-meta-b 16070/16332/16346/16346  baileys 1757/2084/2108/2108
+A run4 exit 1 skipped 0  focus-meta 6581/7284/8343/8343  small-meta-a 13078/13991/13999/13999  small-meta-b 13665/14005/14013/14013  baileys 1777/2125/2146/2146
+B run4 exit 1 skipped 123 CONTAMINATED focus-meta 5094/7820/7839/7839  small-meta-a 15093/15216/15226/15226  small-meta-b 15351/15580/15588/15588  baileys 1770/2104/2127/2127
+A run5 exit 0 skipped 0  focus-meta 6091/7829/7841/7841  small-meta-a 13114/13428/13437/13437  small-meta-b 13649/14290/14299/14299  baileys 1677/1986/2009/2009
+B run5 exit 1 skipped 0  focus-meta 6123/8240/8255/8255  small-meta-a 14045/14618/14628/14628  small-meta-b 14834/15051/15061/15061  baileys 1762/2082/2106/2106
+B run6 exit 1 skipped 123 CONTAMINATED focus-meta 6777/8006/8018/8018  small-meta-a 14830/14959/14969/14969  small-meta-b 15089/15390/15399/15399  baileys 1962/2272/2298/2298
+B run7 exit 1 skipped 147 CONTAMINATED focus-meta 6079/8117/8974/8974  small-meta-a 14959/15236/15246/15246  small-meta-b 14748/14859/15661/15661  baileys 1771/2103/2127/2127
+B run8 exit 1 skipped 123 CONTAMINATED focus-meta 6441/7301/8141/8141  small-meta-a 14758/15391/15665/15665  small-meta-b 15429/15641/15650/15650  baileys 1782/2100/2126/2126
+B run9 exit 1 skipped 0  focus-meta 6564/7522/7537/7537  small-meta-a 15095/15848/15857/15857  small-meta-b 14960/15277/15288/15288  baileys 1788/2100/2131/2131
+B run10 exit 1 skipped 123 CONTAMINATED focus-meta 6821/7802/7816/7816  small-meta-a 14930/15303/15313/15313  small-meta-b 15747/15970/15980/15980  baileys 2103/2426/2451/2451
+B run11 exit 1 skipped 0  focus-meta 5248/7778/7791/7791  small-meta-a 14829/15416/15427/15427  small-meta-b 14576/14880/14890/14890  baileys 1852/2184/2213/2213
+B run12 exit 1 skipped 147 CONTAMINATED focus-meta 6412/9306/9329/9329  small-meta-a 16721/17007/17017/17017  small-meta-b 16493/16611/17512/17512  baileys 2302/2718/2751/2751
+B run13 exit 1 skipped 147 CONTAMINATED focus-meta 5682/8762/8776/8776  small-meta-a 15772/16211/16222/16222  small-meta-b 15575/16454/16464/16464  baileys 1889/2245/2276/2276
+B run14 exit 1 skipped 147 CONTAMINATED focus-meta 5817/8291/8305/8305  small-meta-a 15855/16190/16199/16199  small-meta-b 15633/16629/16639/16639  baileys 1860/2202/2227/2227

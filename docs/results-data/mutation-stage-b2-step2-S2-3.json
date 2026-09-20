@@ -1,0 +1,27 @@
+{
+  "startedAt": "2026-09-20T10:28:49.204Z",
+  "mutations": [
+    {
+      "id": "S2-3",
+      "protection": "early statuses are thrown away (buffer never re-applied)",
+      "file": "dist/storage.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-meta-status-forwarding.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "C5 EARLY status (before the POST response is recorded) is kept and applied once the provider id is recorded",
+            "C9 the unmatched buffer is bounded (cap) and per-message ids stay separate"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    }
+  ],
+  "allCaught": true,
+  "allRestored": true
+}

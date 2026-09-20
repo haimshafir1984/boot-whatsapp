@@ -1,0 +1,394 @@
+{
+  "startedAt": "2026-09-20T11:35:33.710Z",
+  "head": "0ea8d26",
+  "results": [
+    {
+      "script": "test-silent-data-loss-fixes.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 56019
+    },
+    {
+      "script": "test-outbox-durability.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 190
+    },
+    {
+      "script": "test-outbox-ordering.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 326
+    },
+    {
+      "script": "test-outbox-claim.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 355
+    },
+    {
+      "script": "test-file-delivery-order.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 2747
+    },
+    {
+      "script": "test-meta-campaign-routing.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 99
+    },
+    {
+      "script": "test-meta-switch-inflight.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 265
+    },
+    {
+      "script": "test-meta-cancellation-boundary.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 3306
+    },
+    {
+      "script": "test-meta-mixed-rollout-routing.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 3617
+    },
+    {
+      "script": "test-meta-gateway-reliability.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 139
+    },
+    {
+      "script": "test-meta-gateway-lookup-failure-isolation.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 8510
+    },
+    {
+      "script": "test-meta-gateway-inbox.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 152
+    },
+    {
+      "script": "test-meta-routes-cache.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 96
+    },
+    {
+      "script": "test-inbox-sender-concurrency.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 2769
+    },
+    {
+      "script": "test-meta-webhook-signature.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 341
+    },
+    {
+      "script": "test-meta-media-cache.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 134
+    },
+    {
+      "script": "test-meta-contact-payload.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 102
+    },
+    {
+      "script": "test-meta-typing-indicator.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 104
+    },
+    {
+      "script": "test-meta-trigger-age-window.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 116
+    },
+    {
+      "script": "test-meta-speed-and-list-presentation.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 129
+    },
+    {
+      "script": "test-message-delays.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 333
+    },
+    {
+      "script": "test-flow-concurrency.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 5231
+    },
+    {
+      "script": "test-flow-recovery.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 1581
+    },
+    {
+      "script": "test-decision-pending-registration-order.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 3216
+    },
+    {
+      "script": "test-conversation-state-flow-rehydration.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 60112
+    },
+    {
+      "script": "test-conversation-state-atomic-write.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 161
+    },
+    {
+      "script": "test-campaign-delete-conversations.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 3441
+    },
+    {
+      "script": "test-campaign-data-reset.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 150
+    },
+    {
+      "script": "test-service-bot-flow.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 3317
+    },
+    {
+      "script": "test-service-bot-ui.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 94
+    },
+    {
+      "script": "test-group-join-flow.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 180
+    },
+    {
+      "script": "test-referral-ranking.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 486
+    },
+    {
+      "script": "test-email-capture.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 2710
+    },
+    {
+      "script": "test-email-export.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 3398
+    },
+    {
+      "script": "test-whatsapp-link-normalization.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 90
+    },
+    {
+      "script": "test-postgres-delta.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 1168
+    },
+    {
+      "script": "test-postgres-row-snapshot.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 3783
+    },
+    {
+      "script": "test-postgres-no-lost-writes.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 572
+    },
+    {
+      "script": "test-postgres-transactions.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 2769
+    },
+    {
+      "script": "test-postgres-dirty-tables.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 242
+    },
+    {
+      "script": "test-flush-scoped-wait.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 6413
+    },
+    {
+      "script": "test-migration-safety.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 1688
+    },
+    {
+      "script": "test-graceful-shutdown.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 6154
+    },
+    {
+      "script": "test-provider-health.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 2876
+    },
+    {
+      "script": "test-client-disable.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 119
+    },
+    {
+      "script": "test-system-alerts.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 3445
+    },
+    {
+      "script": "test-dokploy-provisioner-postgres.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 106
+    },
+    {
+      "script": "test-redeploy-existing-client.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 106
+    },
+    {
+      "script": "test-bulk-redeploy-status.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 131
+    },
+    {
+      "script": "test-backup-tool.js",
+      "status": "BLOCKED",
+      "exit": 3,
+      "ms": 2353,
+      "tail": "PASS    [fake-binary] fake-binary: pg_dump older than the server major is refused\nPASS    [fake-binary] fake-binary: missing pg_dump gives an actionable error, not a crash\nPASS    [fake-binary] fake-binary: db restore refuses the SOURCE database and requires an explicit env URL\nBLOCKED [real-postgres] real PostgreSQL dump -> encrypted upload -> restore into a fresh DB -> compare row counts/relations/sample campaign/result/context/held rows\n          pg_dump/pg_restore (PostgreSQL 18 client tools) and a disposable server are not available. Install PostgreSQL 18, create two empty databases and set BACKUP_TEST_PG_URL (source, seeded by the test) and BACKUP_TEST_PG_RESTORE_URL (empty restore target), then re-run.\n\npass=24 fail=0 blocked=1 skip=0\n"
+    },
+    {
+      "script": "test-outbox-fairness.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 3232
+    },
+    {
+      "script": "test-outbox-classification.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 4494
+    },
+    {
+      "script": "test-outbox-pool.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 5604
+    },
+    {
+      "script": "test-meta-timeouts.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 6472
+    },
+    {
+      "script": "test-outbox-uncertain-postgres.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 3167
+    },
+    {
+      "script": "test-outbox-attempt-id.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 4631
+    },
+    {
+      "script": "test-outbox-attempts-postgres.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 1690
+    },
+    {
+      "script": "test-meta-status-forwarding.js",
+      "status": "FAIL",
+      "exit": 1,
+      "ms": 13146,
+      "tail": "    at Layer.handleRequest (C:\\Users\\haim\\Projects\\parpar sagol\\node_modules\\router\\lib\\layer.js:152:17)\n    at trimPrefix (C:\\Users\\haim\\Projects\\parpar sagol\\node_modules\\router\\index.js:342:13)\n    at C:\\Users\\haim\\Projects\\parpar sagol\\node_modules\\router\\index.js:297:9\n    at processParams (C:\\Users\\haim\\Projects\\parpar sagol\\node_modules\\router\\index.js:582:12)\n    at next (C:\\Users\\haim\\Projects\\parpar sagol\\node_modules\\router\\index.js:291:5)\n    at C:\\Users\\haim\\Projects\\parpar sagol\\node_modules\\body-parser\\lib\\read.js:171:5\n    at AsyncResource.runInAsyncScope (node:async_hooks:227:14)\n"
+    },
+    {
+      "script": "test-meta-status-postgres.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 881
+    },
+    {
+      "script": "test-service-bot-outbox.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 332
+    },
+    {
+      "script": "test-delivery-recovery.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 14477
+    },
+    {
+      "script": "test-delivery-recovery-postgres.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 2243
+    },
+    {
+      "script": "test-early-status-journal.js",
+      "status": "PASS",
+      "exit": 0,
+      "ms": 187
+    }
+  ],
+  "summary": {
+    "total": 63,
+    "pass": 61,
+    "flakyTeardown": 0,
+    "fail": 1,
+    "blocked": 1,
+    "skipMarker": 0
+  }
+}

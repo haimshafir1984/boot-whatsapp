@@ -1,0 +1,34 @@
+{
+  "startedAt": "2026-09-20T09:51:59.084Z",
+  "mutations": [
+    {
+      "id": "B2-2",
+      "protection": "claim is not flushed before the provider call (dispatcher)",
+      "file": "dist/outboxDispatcher.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-outbox-attempt-id.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "ORDER (dispatcher): the claim + attemptId are FLUSHED before the provider is called"
+          ]
+        },
+        {
+          "test": "test-outbox-attempts-postgres.js",
+          "exit": 0,
+          "timedOut": false,
+          "caught": false,
+          "failedScenarios": [],
+          "outputTail": "PASS  attempts persist across TWO restarts: ids, log, statuses, provider ids; earlier attempt still resolvable\nPASS  attemptId is durable BEFORE the provider call: crash mid-send leaves the SAME id in PostgreSQL, marked uncertain on restart\n\nattempts-postgres: 2 passed, 0 failed (real PostgreSQL localhost:5433/flowsbiz_test_18)\n[OUTBOX_SHUTDOWN_TIMEOUT] 1 send(s) still in flight after 50ms\n"
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    }
+  ],
+  "allCaught": true,
+  "allRestored": true
+}

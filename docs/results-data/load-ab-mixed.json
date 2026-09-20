@@ -1,0 +1,520 @@
+{
+  "startedAt": "2026-09-20T08:44:54.506Z",
+  "scenario": "mixed",
+  "wantClean": 5,
+  "trees": {
+    "A": "C:\\Users\\haim\\AppData\\Local\\Temp\\claude\\C--Users-haim-Projects-parpar-sagol\\b9f87141-7671-4090-bd51-54e492c7ae49\\scratchpad\\headbase",
+    "B": "C:\\Users\\haim\\Projects\\parpar sagol"
+  },
+  "runs": {
+    "A": [
+      {
+        "label": "warmup",
+        "tag": "A",
+        "exit": 0,
+        "wallMs": 17646,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 6171,
+            "p95": 7879,
+            "p99": 7892,
+            "max": 7892
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 12814,
+            "p95": 13114,
+            "p99": 13124,
+            "max": 13124
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 13368,
+            "p95": 13937,
+            "p99": 13973,
+            "max": 13973
+          },
+          "baileys": {
+            "n": 60,
+            "median": 1675,
+            "p95": 1969,
+            "p99": 1992,
+            "max": 1992
+          }
+        }
+      },
+      {
+        "label": "run1",
+        "tag": "A",
+        "exit": 1,
+        "wallMs": 18347,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 5008,
+            "p95": 7463,
+            "p99": 7476,
+            "max": 7476
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 13257,
+            "p95": 14597,
+            "p99": 14606,
+            "max": 14606
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 13876,
+            "p95": 14163,
+            "p99": 14173,
+            "max": 14173
+          },
+          "baileys": {
+            "n": 60,
+            "median": 1647,
+            "p95": 1972,
+            "p99": 1994,
+            "max": 1994
+          }
+        },
+        "exitReason": "AssertionError [ERR_ASSERTION]: mixed Meta + Baileys peak: median 7400ms must be below 7000ms"
+      },
+      {
+        "label": "run2",
+        "tag": "A",
+        "exit": 1,
+        "wallMs": 19473,
+        "skippedEvents": 41,
+        "contaminated": true,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 5706,
+            "p95": 7958,
+            "p99": 8620,
+            "max": 8620
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 14467,
+            "p95": 15014,
+            "p99": 15026,
+            "max": 15026
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 15239,
+            "p95": 15885,
+            "p99": 15897,
+            "max": 15897
+          },
+          "baileys": {
+            "n": 60,
+            "median": 2191,
+            "p95": 2575,
+            "p99": 2601,
+            "max": 2601
+          }
+        },
+        "exitReason": "AssertionError [ERR_ASSERTION]: mixed Meta + Baileys peak: median 7892ms must be below 7000ms"
+      },
+      {
+        "label": "run3",
+        "tag": "A",
+        "exit": 1,
+        "wallMs": 19022,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 6679,
+            "p95": 8186,
+            "p99": 8201,
+            "max": 8201
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 13573,
+            "p95": 13669,
+            "p99": 13677,
+            "max": 13677
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 13868,
+            "p95": 14480,
+            "p99": 14494,
+            "max": 14494
+          },
+          "baileys": {
+            "n": 60,
+            "median": 2212,
+            "p95": 2589,
+            "p99": 2614,
+            "max": 2614
+          }
+        },
+        "exitReason": "AssertionError [ERR_ASSERTION]: mixed Meta + Baileys peak: median 7415ms must be below 7000ms"
+      },
+      {
+        "label": "run4",
+        "tag": "A",
+        "exit": 1,
+        "wallMs": 18203,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 6913,
+            "p95": 7836,
+            "p99": 7849,
+            "max": 7849
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 14045,
+            "p95": 14355,
+            "p99": 14364,
+            "max": 14364
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 13975,
+            "p95": 14686,
+            "p99": 14694,
+            "max": 14694
+          },
+          "baileys": {
+            "n": 60,
+            "median": 2229,
+            "p95": 2588,
+            "p99": 2613,
+            "max": 2613
+          }
+        },
+        "exitReason": "AssertionError [ERR_ASSERTION]: mixed Meta + Baileys peak: median 7764ms must be below 7000ms"
+      },
+      {
+        "label": "run5",
+        "tag": "A",
+        "exit": 1,
+        "wallMs": 16664,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 6276,
+            "p95": 7204,
+            "p99": 8006,
+            "max": 8006
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 12980,
+            "p95": 13889,
+            "p99": 13926,
+            "max": 13926
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 13623,
+            "p95": 13904,
+            "p99": 13913,
+            "max": 13913
+          },
+          "baileys": {
+            "n": 60,
+            "median": 1721,
+            "p95": 2006,
+            "p99": 2029,
+            "max": 2029
+          }
+        },
+        "exitReason": "AssertionError [ERR_ASSERTION]: mixed Meta + Baileys peak: median 7128ms must be below 7000ms"
+      },
+      {
+        "label": "run6",
+        "tag": "A",
+        "exit": 1,
+        "wallMs": 19400,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 6787,
+            "p95": 8333,
+            "p99": 8344,
+            "max": 8344
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 13964,
+            "p95": 14073,
+            "p99": 14083,
+            "max": 14083
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 14273,
+            "p95": 14863,
+            "p99": 14880,
+            "max": 14880
+          },
+          "baileys": {
+            "n": 60,
+            "median": 2221,
+            "p95": 2603,
+            "p99": 2631,
+            "max": 2631
+          }
+        },
+        "exitReason": "AssertionError [ERR_ASSERTION]: mixed Meta + Baileys peak: median 7512ms must be below 7000ms"
+      }
+    ],
+    "B": [
+      {
+        "label": "warmup",
+        "tag": "B",
+        "exit": 1,
+        "wallMs": 18111,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 6907,
+            "p95": 7625,
+            "p99": 8428,
+            "max": 8428
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 13463,
+            "p95": 14322,
+            "p99": 14330,
+            "max": 14330
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 14047,
+            "p95": 14345,
+            "p99": 14355,
+            "max": 14355
+          },
+          "baileys": {
+            "n": 60,
+            "median": 2247,
+            "p95": 2557,
+            "p99": 2579,
+            "max": 2579
+          }
+        },
+        "exitReason": "AssertionError [ERR_ASSERTION]: mixed Meta + Baileys peak: median 7566ms must be below 7000ms"
+      },
+      {
+        "label": "run1",
+        "tag": "B",
+        "exit": 1,
+        "wallMs": 19052,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 6811,
+            "p95": 8219,
+            "p99": 8230,
+            "max": 8230
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 13585,
+            "p95": 13677,
+            "p99": 13684,
+            "max": 13684
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 13932,
+            "p95": 14521,
+            "p99": 14530,
+            "max": 14530
+          },
+          "baileys": {
+            "n": 60,
+            "median": 2208,
+            "p95": 2593,
+            "p99": 2622,
+            "max": 2622
+          }
+        },
+        "exitReason": "AssertionError [ERR_ASSERTION]: mixed Meta + Baileys peak: median 7453ms must be below 7000ms"
+      },
+      {
+        "label": "run2",
+        "tag": "B",
+        "exit": 0,
+        "wallMs": 18125,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 6008,
+            "p95": 7792,
+            "p99": 7806,
+            "max": 7806
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 12790,
+            "p95": 13076,
+            "p99": 13087,
+            "max": 13087
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 13425,
+            "p95": 13882,
+            "p99": 13891,
+            "max": 13891
+          },
+          "baileys": {
+            "n": 60,
+            "median": 1646,
+            "p95": 1934,
+            "p99": 1957,
+            "max": 1957
+          }
+        }
+      },
+      {
+        "label": "run3",
+        "tag": "B",
+        "exit": 1,
+        "wallMs": 19031,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 6801,
+            "p95": 8233,
+            "p99": 8246,
+            "max": 8246
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 13612,
+            "p95": 13708,
+            "p99": 13717,
+            "max": 13717
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 13975,
+            "p95": 14575,
+            "p99": 14584,
+            "max": 14584
+          },
+          "baileys": {
+            "n": 60,
+            "median": 2220,
+            "p95": 2601,
+            "p99": 2625,
+            "max": 2625
+          }
+        },
+        "exitReason": "AssertionError [ERR_ASSERTION]: mixed Meta + Baileys peak: median 7404ms must be below 7000ms"
+      },
+      {
+        "label": "run4",
+        "tag": "B",
+        "exit": 1,
+        "wallMs": 16815,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 5400,
+            "p95": 7567,
+            "p99": 8240,
+            "max": 8240
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 12984,
+            "p95": 13907,
+            "p99": 13916,
+            "max": 13916
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 13634,
+            "p95": 13732,
+            "p99": 13848,
+            "max": 13848
+          },
+          "baileys": {
+            "n": 60,
+            "median": 1748,
+            "p95": 2051,
+            "p99": 2078,
+            "max": 2078
+          }
+        },
+        "exitReason": "AssertionError [ERR_ASSERTION]: mixed Meta + Baileys peak: median 7501ms must be below 7000ms"
+      },
+      {
+        "label": "run5",
+        "tag": "B",
+        "exit": 0,
+        "wallMs": 17662,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 6131,
+            "p95": 7503,
+            "p99": 7516,
+            "max": 7516
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 12149,
+            "p95": 13104,
+            "p99": 13113,
+            "max": 13113
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 13361,
+            "p95": 13920,
+            "p99": 13953,
+            "max": 13953
+          },
+          "baileys": {
+            "n": 60,
+            "median": 1738,
+            "p95": 2030,
+            "p99": 2055,
+            "max": 2055
+          }
+        }
+      }
+    ]
+  },
+  "finishedAt": "2026-09-20T08:48:52.214Z"
+}

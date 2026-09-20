@@ -1,0 +1,25 @@
+{
+  "startedAt": "2026-09-20T08:43:22.091Z",
+  "mutations": [
+    {
+      "id": "M1a",
+      "protection": "6.1 filter before LIMIT (predicate removed entirely)",
+      "file": "dist/storage.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-outbox-fairness.js",
+          "exit": null,
+          "timedOut": true,
+          "caught": true,
+          "failedScenarios": [],
+          "outputTail": ""
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    }
+  ],
+  "allCaught": true,
+  "allRestored": true
+}

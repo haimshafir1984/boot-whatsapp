@@ -1,0 +1,183 @@
+{
+  "startedAt": "2026-09-20T11:30:56.115Z",
+  "mutations": [
+    {
+      "id": "R1",
+      "protection": "no window: the retry is granted immediately",
+      "file": "dist/storage.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "S1 window: nothing happens inside it; after it, no evidence => ONE bounded retry with the duplicate risk declared",
+            "D1 dispatcher: timeout -> window -> ONE automatic retry -> timeout -> window -> recoverable_failed; exactly 2 POSTs; the next message then f",
+            "D2 dispatcher: evidence inside the window => NO retry, one POST"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "R2",
+      "protection": "no budget: retries are granted without limit",
+      "file": "dist/storage.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "S2 budget = 2 POSTs: second uncertain attempt + silent window => recoverable_failed (not success, not blocking)",
+            "S5 late evidence AFTER recoverable_failed is recorded but never revives the message or its run",
+            "D1 dispatcher: timeout -> window -> ONE automatic retry -> timeout -> window -> recoverable_failed; exactly 2 POSTs; the next message then f",
+            "F3 recoverable_failed: the own hold is released, NOTHING is sent or continued, held messages are handed back, later evidence revives nothing",
+            "B1 a transport with NO callbacks (Baileys): orphan after a crash => same machine, retry after the window, budget 2, then recoverable_failed"
+          ]
+        },
+        {
+          "test": "test-delivery-recovery-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "window, retry count, budget and terminal state persist across TWO restarts; recoverable_failed no longer blocks the recipient"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "R3",
+      "protection": "delivery evidence is ignored (never resolves an uncertain message)",
+      "file": "dist/storage.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "S3 evidence (delivered/sent/read) inside the window resolves the message as SENT - no retry, ever",
+            "S4 evidence that the attempt FAILED => immediate retry, does not count as a possibly-delivered POST, no duplicate risk declared",
+            "S5 late evidence AFTER recoverable_failed is recorded but never revives the message or its run",
+            "S6 evidence of the FIRST attempt arrives while the retry is granted-but-unsent: the retry is cancelled (message becomes sent, no second POST",
+            "D2 dispatcher: evidence inside the window => NO retry, one POST",
+            "F1 uncertain question + EVIDENCE: own hold released, the step is replayed WITHOUT re-sending what was delivered, pending restored ONCE, part",
+            "F6 the replay itself hits another unknown outcome: the participant is held AGAIN, tied to the NEW message; held inbound messages are kept",
+            "F7 reply chain (text before the flow) uncertain + evidence: replayed WITHOUT a second contact-save job, the flow then starts once"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "R4",
+      "protection": "ANY needs_review hold is released by a resolution (not only the one tied to that message)",
+      "file": "dist/deliveryRecovery.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery.js",
+          "exit": 0,
+          "timedOut": false,
+          "caught": false,
+          "failedScenarios": [],
+          "outputTail": "    at sendBotMessage (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:637:32)\n    at async C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:1574:13\n    at async runReplyStep (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:1661:9) {\n  outboxId: 'mu9qkxkeeoqg'\n}\n"
+        }
+      ],
+      "caught": false,
+      "restoredExactly": true
+    },
+    {
+      "id": "R5",
+      "protection": "replay does not skip already delivered sends",
+      "file": "dist/messageFlow.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "F1 uncertain question + EVIDENCE: own hold released, the step is replayed WITHOUT re-sending what was delivered, pending restored ONCE, part",
+            "F2 uncertain question + NO evidence: window -> automatic retry -> delivered -> continuation once; 2 copies of the question are the declared ",
+            "F6 the replay itself hits another unknown outcome: the participant is held AGAIN, tied to the NEW message; held inbound messages are kept",
+            "F7 reply chain (text before the flow) uncertain + evidence: replayed WITHOUT a second contact-save job, the flow then starts once"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "R6",
+      "protection": "a resolution revives a run the participant already left",
+      "file": "dist/deliveryRecovery.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery.js",
+          "exit": 0,
+          "timedOut": false,
+          "caught": false,
+          "failedScenarios": [],
+          "outputTail": "    at sendBotMessage (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:637:32)\n    at async C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:1574:13\n    at async runReplyStep (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:1661:9) {\n  outboxId: 'mu9qlibw13at'\n}\n"
+        }
+      ],
+      "caught": false,
+      "restoredExactly": true
+    },
+    {
+      "id": "R7",
+      "protection": "a restart resets the recovery window",
+      "file": "dist/storage.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery.js",
+          "exit": 0,
+          "timedOut": false,
+          "caught": false,
+          "failedScenarios": [],
+          "outputTail": "    at sendBotMessage (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:637:32)\n    at async C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:1574:13\n    at async runReplyStep (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:1661:9) {\n  outboxId: 'mu9qlsqqp8om'\n}\n"
+        }
+      ],
+      "caught": false,
+      "restoredExactly": true
+    },
+    {
+      "id": "R8",
+      "protection": "the recovery hold blocks the message own retry",
+      "file": "dist/outboxDispatcher.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "D3 hold interplay: the recovery hold of THIS message does not block its retry; any other needs_review hold still does",
+            "F2 uncertain question + NO evidence: window -> automatic retry -> delivered -> continuation once; 2 copies of the question are the declared ",
+            "F3 recoverable_failed: the own hold is released, NOTHING is sent or continued, held messages are handed back, later evidence revives nothing"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    }
+  ],
+  "allCaught": false,
+  "allRestored": true
+}

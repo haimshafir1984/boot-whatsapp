@@ -1,0 +1,147 @@
+{
+  "startedAt": "2026-09-20T08:37:47.898Z",
+  "mutations": [
+    {
+      "id": "M1a",
+      "protection": "6.1 filter before LIMIT (predicate removed entirely)",
+      "file": "dist/storage.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-outbox-fairness.js",
+          "exit": null,
+          "caught": true,
+          "failedScenarios": []
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "M1b",
+      "protection": "6.1 filter before LIMIT (HEAD ordering: LIMIT first, filter afterwards)",
+      "file": "dist/storage.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-outbox-fairness.js",
+          "exit": 1,
+          "caught": true,
+          "failedScenarios": [
+            "20 held head-of-queue messages before 5 eligible: eligible sent in the same cycle, held untouched",
+            "100 held head-of-queue messages before 5 eligible: eligible sent in the same cycle, held untouched",
+            "storage query: blocked recipients filtered BEFORE limit"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "M2a",
+      "protection": "6.3 uncertain classification removed everywhere (uniform retry)",
+      "file": "dist/sendOutcome.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-outbox-classification.js",
+          "exit": 1,
+          "caught": true,
+          "failedScenarios": [
+            "classifier: rejection / never-connected / unknown-outcome / unclassified",
+            "dispatcher: UNCERTAIN send is parked - one send, never retried, later message to same recipient blocked, others flow",
+            "dispatcher: PERMANENT rejection -> failed immediately, one send, no retry",
+            "dispatcher: TRANSIENT rejection -> retry, honours Retry-After (bounded), same logical row",
+            "MetaCloudProvider: HTTP 400 -> rejected_permanent; 429+Retry-After -> transient with delay; 500/503/408 -> uncertain",
+            "MetaCloudProvider: no-response failures - ECONNREFUSED transient; reset/timeout/unknown -> uncertain",
+            "MetaCloudProvider.sendFile: cached media id + UNCERTAIN first send -> exactly ONE message POST, no re-upload/resend",
+            "flow: UNCERTAIN text send -> ONE transport call (HEAD: 2), outbox uncertain, sender held needs_review, no fallback",
+            "flow: PERMANENT rejection -> ONE transport call, not retried"
+          ]
+        },
+        {
+          "test": "test-meta-timeouts.js",
+          "exit": 1,
+          "caught": true,
+          "failedScenarios": [
+            "a hung message POST times out after the budget and is classified UNCERTAIN",
+            "5xx whose body read times out -> uncertain by status (not \"transient\")",
+            "END TO END: dispatcher + real MetaCloudProvider + hung Graph API: ONE POST, message parked uncertain, later message held, never resent acros"
+          ]
+        },
+        {
+          "test": "test-outbox-uncertain-postgres.js",
+          "exit": 1,
+          "caught": true,
+          "failedScenarios": [
+            "timeout -> uncertain is persisted; after crash+restart it is STILL uncertain and NOT re-sent (and blocks its recipient); other recipients un"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "M2b",
+      "protection": "6.3 dispatcher-only: uncertain branch removed (falls to retry)",
+      "file": "dist/outboxDispatcher.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-outbox-classification.js",
+          "exit": 1,
+          "caught": true,
+          "failedScenarios": [
+            "dispatcher: UNCERTAIN send is parked - one send, never retried, later message to same recipient blocked, others flow"
+          ]
+        },
+        {
+          "test": "test-meta-timeouts.js",
+          "exit": 1,
+          "caught": true,
+          "failedScenarios": [
+            "END TO END: dispatcher + real MetaCloudProvider + hung Graph API: ONE POST, message parked uncertain, later message held, never resent acros"
+          ]
+        },
+        {
+          "test": "test-outbox-uncertain-postgres.js",
+          "exit": 1,
+          "caught": true,
+          "failedScenarios": [
+            "timeout -> uncertain is persisted; after crash+restart it is STILL uncertain and NOT re-sent (and blocks its recipient); other recipients un"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "M2c",
+      "protection": "6.3 crash recovery: orphaned processing row is re-claimable again (HEAD stale-reclaim behaviour)",
+      "file": "dist/storage.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-outbox-classification.js",
+          "exit": 1,
+          "caught": true,
+          "failedScenarios": [
+            "crash while `processing`: orphan is parked as uncertain on restart - NOT re-claimed and re-sent"
+          ]
+        },
+        {
+          "test": "test-outbox-uncertain-postgres.js",
+          "exit": 1,
+          "caught": true,
+          "failedScenarios": [
+            "crash while `processing` (row persisted as processing) -> restart parks it as uncertain in PostgreSQL, zero sends, survives another restart"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    }
+  ],
+  "allCaught": true,
+  "allRestored": true
+}

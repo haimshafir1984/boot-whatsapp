@@ -22,8 +22,10 @@
 | --- | --- | --- |
 | `BAILEYS` (ברירת מחדל) | `src/providers/BaileysProvider.ts` | מכשיר מקושר דרך QR / pairing code. יכול להתנתק ולדרוש סריקה מחדש |
 | `META_CLOUD_API` | `src/providers/MetaCloudProvider.ts` | API רשמי. רוב הלקוחות משתפים מספר אחד דרך שער המנהל (ראו למטה) |
-| `TWILIO_API` | `src/providers/TwilioProvider.ts` | |
-| (legacy) | `src/providers/WebJsProvider.ts` | `whatsapp-web.js` + Chromium — המימוש המקורי |
+| `TWILIO_API` | `src/providers/TwilioProvider.ts` | **לא בשימוש.** אומת 20.9.2026: אפס לקוחות Twilio בייצור. הקוד קיים אך מת — **אל תבנו עבורו** בשינויים חדשים |
+| (legacy) | `src/providers/WebJsProvider.ts` | `whatsapp-web.js` + Chromium — המימוש המקורי. לא בשימוש |
+
+**הרכב הצי בפועל (אומת 20.9.2026 מול `/health` של כל קונטיינר):** 11 לקוחות `META_CLOUD_API` (כולם על המספר המשותף) + 3–4 `BAILEYS`. אין Twilio ואין WebJs. שינוי במסלול השליחה צריך להתייחס ל-Meta ול-Baileys בלבד.
 
 ## מספר Meta משותף ושער מרכזי — חשוב במיוחד
 

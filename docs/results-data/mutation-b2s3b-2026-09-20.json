@@ -1,0 +1,119 @@
+{
+  "startedAt": "2026-09-20T17:51:58.652Z",
+  "mutations": [
+    {
+      "id": "T1",
+      "protection": "timer: an uncertain send no longer holds the participant (only logged)",
+      "file": "dist/messageFlow.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery-paths.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "P3 timer (inactivity timeout): an unknown outcome HOLDS the participant (it used to be only logged), evidence releases it, nothing is resent"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "T2",
+      "protection": "inactivity timeout is not a flow unit (no continuation)",
+      "file": "dist/messageFlow.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery-paths.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "P3 timer (inactivity timeout): an unknown outcome HOLDS the participant (it used to be only logged), evidence releases it, nothing is resent"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "T3",
+      "protection": "follow-up dispatcher retries an uncertain follow-up instead of holding",
+      "file": "dist/serviceBotFollowUpDispatcher.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery-paths.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "P5 service bot follow-up run by the dispatcher: an unknown outcome holds the participant and is NOT retried by the follow-up retry loop; evi"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "T4",
+      "protection": "service bot replay does not restore the session before replaying",
+      "file": "dist/serviceBot.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery-paths.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "P4 service bot message: navigation prompt uncertain + evidence => session restored and the message REPLAYED: nothing resent, session ends wh"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "T5",
+      "protection": "replay of a button answer is swallowed by the duplicate-reply guard",
+      "file": "dist/messageFlow.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery-paths.js",
+          "exit": 0,
+          "timedOut": false,
+          "caught": false,
+          "failedScenarios": [],
+          "outputTail": "    at sendTrackedOutboxMessage (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:627:24)\n    at async sendNavigation (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\serviceBot.js:219:9)\n    at async tryHandleServiceBotMessageInner (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\serviceBot.js:423:9) {\n  outboxId: 'mua45uwds97x'\n}\n"
+        }
+      ],
+      "caught": false,
+      "restoredExactly": true
+    },
+    {
+      "id": "T6",
+      "protection": "replay of the reply chain re-creates the contact-save job (double side effect)",
+      "file": "dist/messageFlow.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery-paths.js",
+          "exit": 0,
+          "timedOut": false,
+          "caught": false,
+          "failedScenarios": [],
+          "outputTail": "    at sendTrackedOutboxMessage (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:627:24)\n    at async sendNavigation (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\serviceBot.js:219:9)\n    at async tryHandleServiceBotMessageInner (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\serviceBot.js:423:9) {\n  outboxId: 'mua45xonnbe0'\n}\n"
+        }
+      ],
+      "caught": false,
+      "restoredExactly": true
+    }
+  ],
+  "allCaught": false,
+  "allRestored": true
+}

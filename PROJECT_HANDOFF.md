@@ -21,6 +21,7 @@
 ## תמונת מצב 2026-09-18
 
 - כל 16 האפליקציות (מנהל + 15 לקוחות) אומתו על קומיט `afd5334` ובריאות, חוץ מ"רות" (`1e970c66`, Baileys) שדורשת סריקת QR מחדש.
+- **ספקים בפועל (אומת 20.9.2026 מול `/health` של כל קונטיינר): 11 × `META_CLOUD_API` + 3–4 × `BAILEYS`. אפס Twilio, אפס WebJs.** קוד Twilio/WebJs קיים בריפו אך מת — אין לבנות עבורו בשינויים חדשים, והוא מועמד לניקוי נפרד.
 - קמפיין "פוקוס" (`client-pvkvs-meta-4b004adb`, מספר Meta משותף) נבדק לפיקים של 100 משתתפים במקביל לקראת השקה. פירוט: `docs/load-testing-and-deploy-findings-2026-09-18.md`.
 - **אזהרת פריסה:** כפתור "Redeploy all clients" בדשבורד המנהל **לא מושך קוד חדש** — אחרי push צריך "Deploy" פר-אפליקציה ב-Dokploy. ראו "מצב הפריסה הנוכחי".
 - סיכום כל העבודה מ-29.8 עד 18.9 — בסעיף האחרון במסמך ("עדכון 2026-09-18").
@@ -1990,3 +1991,51 @@ Commit: `60de4cc`
 4. `AsyncExpiringCache` מוחק רשומה כשרענון נכשל — לשקול grace period.
 5. `scripts/test-load-shared-campaign-isolation.js` (של Codex, לא מחויב) — סף ה-SLO של median 7s לא יציב בין ריצות; להחליף בסף יחסי ולהוסיף תרחיש לקוח מושפל.
 6. Dockerfile עם התקנת Chromium מותנית — יש תוכנית (`docs/dockerfile-conditional-chromium-plan-2026-09-05.md`), לא מומש.
+
+## עדכון 2026-09-20 (שלב A — גיבוי ושחזור, מקומי בלבד)
+
+- נמדד baseline עומס על HEAD `0ea8d26` (`docs/baseline-2026-09-20/`) ורגרסיה (`docs/results-data/`). ממצאים: קמפיינים קטנים ממתינים ~13s ב-mixed; 7 בדיקות PG ב-`test-silent-data-loss-fixes` דולגות בלי `TEST_DATABASE_URL`; `test-referral-ranking` לא יוצא.
+- נוסף כלי גיבוי/שחזור `scripts/ops/backup.js` + `scripts/test-backup-tool.js`, runner `scripts/run-regression.js`. **לא נפרס, לא הופעל בייצור; בדיקת PG אמיתית חסומה (אין PostgreSQL 18 מקומי).**
+- פירוט: `docs/system-safety-speed-stage-a-results-2026-09-20.md`. שלבים B, C ממתינים לאישור.
+
+## עדכון 2026-09-20 (שלב B — Outbox הוגן / uncertain / timeout, מקומי בלבד)
+
+- מומשו 6.1 (סינון לפני LIMIT), 6.3 (סיווג + מצב `uncertain` מתמשך, נבדק מול PG 18), 6.2 (מאגר עובדים + wake-up), ו-timeout ב-`MetaCloudProvider` — בסדר הזה. רגרסיה: 54/55 (1 BLOCKED של שלב A). mutation מחויב נתפס.
+- **התחזית הופרכה:** B לא שינה את זמני הקמפיינים הקטנים ב-mixed; ההמתנה היא בתור ה-FIFO של השער (סדר הגעה), לא ב-Outbox. פירוט וההחלטות הפתוחות לפני פריסה (בעיקר: אין נתיב מנהל ל-`uncertain`): `docs/system-safety-speed-stage-b-results-2026-09-20.md`.
+- **לא נפרס.** שלב C ממתין לאישור.
+
+## עדכון 2026-09-20 (שלב B2 / שלב 1 — attemptId + biz_opaque_callback_data, מקומי בלבד)
+
+- כל POST של הודעה נושא attemptId אקראי שנשמר לפני השליחה ונשלח ל-Meta כ-`biz_opaque_callback_data`; `findOutboxByAttemptId` מזהה גם ניסיון קודם. מתג כיבוי: `META_ATTEMPT_CALLBACK_DATA=off`.
+- **עדיין אין קליטת callback** — `uncertain` ממשיך לחסום נמען עד שלבים 2–4. לא נבדק מול Meta אמיתית שהשדה מתקבל בכל סוג הודעה.
+- פירוט: `docs/system-safety-speed-stage-b2-results-2026-09-20.md`. שלב 2 ממתין לאישור.
+
+## עדכון 2026-09-20 (שלב B2 / שלב 2 — תור סטטוסים מתמשך + התאמה מדויקת, מקומי בלבד)
+
+- `META_ATTEMPT_CALLBACK_DATA` כבוי כברירת מחדל (מופעל רק ב-`=on`, פר-לקוח).
+- השער שומר סטטוס ביומן (`meta-status-forwarding.jsonl`) לפני 200 ומעביר עם retry; הלקוח מחיל בהתאמה מדויקת (attemptId / provider id) ומאשר רק אחרי flush. בוט השירות עבר ל-outbox. **עדיין לא משחרר `uncertain`** (שלב 3).
+- פירוט: `docs/system-safety-speed-stage-b2-results-2026-09-20.md`. שלב 3 ממתין לאישור.
+
+## עדכון 2026-09-20 (שלב B2 / שלב 3 — delivery recovery, מקומי בלבד)
+
+- מכונת מצבים ל-`uncertain`: חלון 60s (`OUTBOX_RECOVERY_WINDOW_MS`), ראיה מדויקת משחררת, אחרת retry אחד עם סיכון כפילות מוצהר (תקציב 2 POSTs, `OUTBOX_RECOVERY_POST_BUDGET`), ואז `recoverable_failed` (לא חוסם, לא הצלחה). hold ייעודי (`recovery.outboxId`), continuation כ-replay דטרמיניסטי של יחידת זרימה. יומן סטטוס מוקדם עמיד.
+- **פתוח:** בעומס ה-JSON fixture B איטי ב-9–13% לקמפיינים קטנים (גודל snapshot); מיקרו-מדידת PG ללא נסיגה. התיוג כבוי כברירת מחדל ⇒ בלי ראיה, כל uncertain יעבור retry (כפילות אפשרית) — הדלקת התיוג היא תנאי בטיחות.
+- פירוט: `docs/system-safety-speed-stage-b2-results-2026-09-20.md` סעיף 7. שלב 4 ממתין לאישור.
+
+## עדכון 2026-09-20 (המשך שלב 3 — הכרעות המשתמש, מקומי בלבד)
+
+- נסיגת העומס התקבלה כארטיפקט JSON. פיקסצ'ר העומס תומך `LOAD_BACKEND=pg` (לקוחות על PG, סכמה לכל לקוח). A/B מול HEAD על PG: Focus median 2908 מול 2915ms (+0.2%), 10 ריצות נקיות.
+- סדר פריסה: B עם `META_ATTEMPT_CALLBACK_DATA` כבוי -> אימות על לקוח אחד -> הדלקה מדורגת. בלי תיוג שלבים 1-3 רדומים וכל uncertain = retry עיוור.
+- Baileys: uncertain רק מיתום קריסה; חלון 5s (Meta 60s).
+- לחיצה/wait_reply/בוט שירות/טיימרים נכנסו לשלב 3 (יחידות זרימה + hold). פערים: T5 (שומר duplicate ב-replay של group_join/referral), name-prompt, `tryRecoverMissingFlow`, `continueAfterContactCard`, יתומי בוט שירות בלי hold.
+- פירוט: `docs/system-safety-speed-stage-b2-results-2026-09-20.md` סעיף 8. שלב 4 לא התחיל; ממתין לאישור.
+
+## תיקון 2026-09-20 — מספרי העומס ב-JSON אינם ייצור
+מדידה על PG אמיתי (5 ריצות נקיות לכל צד, HEAD): Focus 2,908 · small-a 2,629 · small-b 2,624ms — לעומת JSON 6,091 / 12,822 / 13,463. ה-13s של הקטנים היו ארטיפקט של backend ה-JSON; פער ה-x2.1 התהפך; "96–98% בשער" שגוי (על PG: 59% Focus / 84% קטנים). המספרים הישנים נשארו במסמכים כהיסטוריה מסומנת (BASELINE, stage-a/b/b2 results, load-tables). סייג: הפיקסצ'ר מקומי (לא חומרת ייצור) ועדיין לא מפעיל את ה-Outbox dispatcher.
+
+## עדכון 2026-09-20 (Baileys held messages, שלבים 4-5 — מקומי בלבד)
+
+- **נסגר נתיב אובדן:** הודעות שהגיעו ב-Baileys בזמן hold נשמרות עם snapshot מלא ומעובדות שוב בשחרור (ובמנהל "requeue"); ללא נתוני replay -> התראה קריטית + לוג, לא זריקה שקטה. שארית: קריסה באמצע replay.
+- שלב 4: טריגר מדויק וטרי בזמן hold *של התאוששות* מתחיל ריצה חדשה בלי מנהל (ההודעה הלא-פתורה נזנחת כ-recoverable_failed; hold של מנהל לא נדרס). שלב 5: retry לא נשלח אם המשתתף עבר לריצה חדשה (`runMembership.ts`), ספירה יחידה של שני עותקי שאלה, כל provider IDs.
+- בדיקות: `test-delivery-recovery-paths` (P7,P8), `test-delivery-recovery-s45` (8), PG round-trip; מוטציות b2s45 9/9 נתפסו; רגרסיה 65 סוויטות: 64 עברו, 1 BLOCKED (`test-backup-tool`, דורש BACKUP_TEST_PG_URL).
+- פערים פתוחים: T5, name/pre-name timers, `tryRecoverMissingFlow`, `continueAfterContactCard`, יתומי בוט שירות בלי hold. שלב 6 לא התחיל. פירוט: results doc סעיף 9.

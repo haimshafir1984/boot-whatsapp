@@ -1,0 +1,116 @@
+{
+  "startedAt": "2026-09-20T10:27:23.827Z",
+  "mutations": [
+    {
+      "id": "S2-1",
+      "protection": "gateway stops persisting statuses (fire-and-forget again)",
+      "file": "dist/adminServer.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-meta-status-forwarding.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "B1 gateway: status is in the journal BEFORE the 200; both clients receive it; acked entries are not redelivered",
+            "B2 gateway: a client that is down/erroring is retried until it acknowledges; the healthy client is unaffected",
+            "B3 gateway: Meta re-sending the same webhook (before and after delivery) is delivered ONCE per client",
+            "B4 gateway RESTART while a client is down: the queued status survives and is delivered after restart",
+            "B5 gateway: if the status cannot be persisted the webhook is answered 503 (Meta re-sends) and nothing is forwarded"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "S2-2",
+      "protection": "recipient mismatch check removed (a tagged status for another recipient is applied)",
+      "file": "dist/storage.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-meta-status-forwarding.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "C3 mismatch: right attempt id but wrong recipient or wrong business number is REFUSED, never applied"
+          ]
+        },
+        {
+          "test": "test-meta-status-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "a callback that identifies an attempt whose POST response was lost is applied, durable, and survives TWO restarts; foreign/mismatched ones w"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "S2-3",
+      "protection": "early statuses are thrown away (buffer never re-applied)",
+      "file": "dist/storage.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-meta-status-forwarding.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [],
+          "outputTail": "    at require (node:internal/modules/helpers:153:16)\r\n    at Object.<anonymous> (C:\\Users\\haim\\Projects\\parpar sagol\\scripts\\test-meta-status-forwarding.js:28:21)\r\n    at Module._compile (node:internal/modules/cjs/loader:1854:14)\r\n\r\nNode.js v24.16.0\r\n"
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "S2-4",
+      "protection": "client acknowledges a status before it is durable",
+      "file": "dist/adminServer.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-meta-status-forwarding.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "D1 client endpoint: a status that changed an outbox row is acknowledged only AFTER it is durable (503 on a failed flush, 200 once it succeed"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "S2-5",
+      "protection": "service bot bypasses the outbox again (message entry point)",
+      "file": "dist/serviceBot.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-service-bot-outbox.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "every service-bot send leaves an outbox row with an attempt id (buttons for the menu, text for the info node)",
+            "over MetaCloudProvider each service-bot POST carries the attempt id of ITS outbox row",
+            "unknown outcome (timeout) on a service-bot send: ONE POST, row parked uncertain, NOT resent, error surfaces (sender held upstream)"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    }
+  ],
+  "allCaught": true,
+  "allRestored": true
+}

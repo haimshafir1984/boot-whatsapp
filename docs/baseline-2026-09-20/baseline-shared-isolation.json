@@ -1,0 +1,308 @@
+{
+  "startedAt": "2026-09-20T06:50:30.749Z",
+  "head": "0ea8d26",
+  "runs": 5,
+  "results": {
+    "single": [
+      {
+        "label": "warmup",
+        "exit": 0,
+        "wallMs": 17716,
+        "groups": {
+          "focus-meta": {
+            "n": 120,
+            "median": 6492,
+            "p95": 12519,
+            "p99": 13576,
+            "max": 13581
+          }
+        }
+      },
+      {
+        "label": "run1",
+        "exit": 0,
+        "wallMs": 14564,
+        "groups": {
+          "focus-meta": {
+            "n": 120,
+            "median": 4972,
+            "p95": 10812,
+            "p99": 11198,
+            "max": 11203
+          }
+        }
+      },
+      {
+        "label": "run2",
+        "exit": 0,
+        "wallMs": 13947,
+        "groups": {
+          "focus-meta": {
+            "n": 120,
+            "median": 4765,
+            "p95": 10744,
+            "p99": 11129,
+            "max": 11134
+          }
+        }
+      },
+      {
+        "label": "run3",
+        "exit": 0,
+        "wallMs": 14352,
+        "groups": {
+          "focus-meta": {
+            "n": 120,
+            "median": 4755,
+            "p95": 10714,
+            "p99": 11092,
+            "max": 11097
+          }
+        }
+      },
+      {
+        "label": "run4",
+        "exit": 0,
+        "wallMs": 14450,
+        "groups": {
+          "focus-meta": {
+            "n": 120,
+            "median": 4773,
+            "p95": 10646,
+            "p99": 11015,
+            "max": 11019
+          }
+        }
+      },
+      {
+        "label": "run5",
+        "exit": 0,
+        "wallMs": 14465,
+        "groups": {
+          "focus-meta": {
+            "n": 120,
+            "median": 4634,
+            "p95": 10857,
+            "p99": 11238,
+            "max": 11243
+          }
+        }
+      }
+    ],
+    "mixed": [
+      {
+        "label": "warmup",
+        "exit": 0,
+        "wallMs": 17001,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 6326,
+            "p95": 7751,
+            "p99": 7763,
+            "max": 7763
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 13200,
+            "p95": 14082,
+            "p99": 14092,
+            "max": 14092
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 13832,
+            "p95": 14117,
+            "p99": 14126,
+            "max": 14126
+          },
+          "baileys": {
+            "n": 60,
+            "median": 1731,
+            "p95": 2021,
+            "p99": 2042,
+            "max": 2042
+          }
+        }
+      },
+      {
+        "label": "run1",
+        "exit": 1,
+        "wallMs": 16519,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 6070,
+            "p95": 7117,
+            "p99": 7773,
+            "max": 7773
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 12822,
+            "p95": 13632,
+            "p99": 13642,
+            "max": 13642
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 13463,
+            "p95": 13659,
+            "p99": 13671,
+            "max": 13671
+          },
+          "baileys": {
+            "n": 60,
+            "median": 1721,
+            "p95": 1999,
+            "p99": 2020,
+            "max": 2020
+          }
+        },
+        "error": "AssertionError [ERR_ASSERTION]: mixed Meta + Baileys peak: median 7043ms must be below 7000ms |     at assertMedianSlo (C:\\Users\\haim\\Projects\\parpar sagol\\scripts\\test-load-shared-campaign-isolation.js:354:10) |   code: 'ERR_ASSERTION',"
+      },
+      {
+        "label": "run2",
+        "exit": 0,
+        "wallMs": 16773,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 6165,
+            "p95": 7673,
+            "p99": 7686,
+            "max": 7686
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 13129,
+            "p95": 13927,
+            "p99": 13936,
+            "max": 13936
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 13727,
+            "p95": 13951,
+            "p99": 13960,
+            "max": 13960
+          },
+          "baileys": {
+            "n": 60,
+            "median": 1679,
+            "p95": 1962,
+            "p99": 1989,
+            "max": 1989
+          }
+        }
+      },
+      {
+        "label": "run3",
+        "exit": 0,
+        "wallMs": 17659,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 6091,
+            "p95": 7564,
+            "p99": 7578,
+            "max": 7578
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 12969,
+            "p95": 13315,
+            "p99": 13323,
+            "max": 13323
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 13442,
+            "p95": 14033,
+            "p99": 14043,
+            "max": 14043
+          },
+          "baileys": {
+            "n": 60,
+            "median": 1702,
+            "p95": 1996,
+            "p99": 2019,
+            "max": 2019
+          }
+        }
+      },
+      {
+        "label": "run4",
+        "exit": 1,
+        "wallMs": 18410,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 5890,
+            "p95": 7884,
+            "p99": 8432,
+            "max": 8432
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 12725,
+            "p95": 14090,
+            "p99": 14103,
+            "max": 14103
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 14745,
+            "p95": 14902,
+            "p99": 14912,
+            "max": 14912
+          },
+          "baileys": {
+            "n": 60,
+            "median": 2118,
+            "p95": 2411,
+            "p99": 2432,
+            "max": 2432
+          }
+        },
+        "error": "[META_GATEWAY_CLIENT_SKIPPED] small-meta-b Error: Cached Meta routes unavailable | [META_GATEWAY_CLIENT_SKIPPED] small-meta-b Error: Cached Meta routes unavailable | [META_GATEWAY_CLIENT_SKIPPED] small-meta-b Error: Cached Meta routes unavailable"
+      },
+      {
+        "label": "run5",
+        "exit": 0,
+        "wallMs": 16339,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 6157,
+            "p95": 7567,
+            "p99": 7579,
+            "max": 7579
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 12632,
+            "p95": 13152,
+            "p99": 13161,
+            "max": 13161
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 13320,
+            "p95": 13510,
+            "p99": 13519,
+            "max": 13519
+          },
+          "baileys": {
+            "n": 60,
+            "median": 1644,
+            "p95": 1926,
+            "p99": 1949,
+            "max": 1949
+          }
+        }
+      }
+    ]
+  },
+  "finishedAt": "2026-09-20T06:53:43.033Z"
+}

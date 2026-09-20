@@ -1,0 +1,84 @@
+{
+  "startedAt": "2026-09-20T09:51:07.432Z",
+  "mutations": [
+    {
+      "id": "B2-1",
+      "protection": "provider stops sending biz_opaque_callback_data",
+      "file": "dist/providers/MetaCloudProvider.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-outbox-attempt-id.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "provider: EVERY message kind carries the attempt id (text, template, buttons, list, contacts, image, sticker, document)",
+            "FLOW: real campaign over MetaCloudProvider - every outbound message POST is tagged with the attempt id persisted for exactly that outbox row",
+            "FLOW: transient 429 then success - two POSTs, two different ids, both attempts on ONE logical row",
+            "dispatcher over MetaCloudProvider: POST accepted but response lost (timeout) -> the attempt id that WAS sent is on the uncertain row"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "B2-2",
+      "protection": "claim is not flushed before the provider call (dispatcher)",
+      "file": "dist/outboxDispatcher.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-outbox-attempt-id.js",
+          "exit": 0,
+          "timedOut": false,
+          "caught": false,
+          "failedScenarios": [],
+          "outputTail": "    at async handleMessage (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:1299:9)\n    at async C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:643:21 {\n  outcome: 'rejected_transient',\n  details: { status: 429, retryAfterMs: 1000 }\n}\n"
+        },
+        {
+          "test": "test-outbox-attempts-postgres.js",
+          "exit": 0,
+          "timedOut": false,
+          "caught": false,
+          "failedScenarios": [],
+          "outputTail": "PASS  attempts persist across TWO restarts: ids, log, statuses, provider ids; earlier attempt still resolvable\nPASS  attemptId is durable BEFORE the provider call: crash mid-send leaves the SAME id in PostgreSQL, marked uncertain on restart\n\nattempts-postgres: 2 passed, 0 failed (real PostgreSQL localhost:5433/flowsbiz_test_18)\n[OUTBOX_SHUTDOWN_TIMEOUT] 1 send(s) still in flight after 50ms\n"
+        }
+      ],
+      "caught": false,
+      "restoredExactly": true
+    },
+    {
+      "id": "B2-3",
+      "protection": "a retry reuses the previous attemptId instead of a new one",
+      "file": "dist/storage.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-outbox-attempt-id.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "storage: each claim = new attemptId, logical id constant, all attempts kept and outcomes recorded",
+            "FLOW: transient 429 then success - two POSTs, two different ids, both attempts on ONE logical row"
+          ]
+        },
+        {
+          "test": "test-outbox-attempts-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "attempts persist across TWO restarts: ids, log, statuses, provider ids; earlier attempt still resolvable"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    }
+  ],
+  "allCaught": false,
+  "allRestored": true
+}

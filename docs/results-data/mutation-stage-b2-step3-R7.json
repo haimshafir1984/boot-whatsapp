@@ -1,0 +1,26 @@
+{
+  "startedAt": "2026-09-20T11:34:54.858Z",
+  "mutations": [
+    {
+      "id": "R7",
+      "protection": "a restart resets the recovery window",
+      "file": "dist/storage.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "S7b marking the SAME attempt uncertain again never restarts its window (only a NEW attempt gets a new one)"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    }
+  ],
+  "allCaught": true,
+  "allRestored": true
+}

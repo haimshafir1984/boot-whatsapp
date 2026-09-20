@@ -1,0 +1,27 @@
+{
+  "startedAt": "2026-09-20T11:34:40.245Z",
+  "mutations": [
+    {
+      "id": "R6",
+      "protection": "a resolution revives a run the participant already left",
+      "file": "dist/deliveryRecovery.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "F4b the participant already has a NEWER run (no hold of ours, row still unresolved): the old run is not revived when its evidence arrives",
+            "F5 an admin needs_review hold (no recovery tie) is NEVER released by delivery evidence - even when a continuation WOULD succeed"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    }
+  ],
+  "allCaught": true,
+  "allRestored": true
+}

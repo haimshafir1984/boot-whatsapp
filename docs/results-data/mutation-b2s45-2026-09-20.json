@@ -1,0 +1,251 @@
+{
+  "startedAt": "2026-09-20T18:47:14.757Z",
+  "mutations": [
+    {
+      "id": "H1",
+      "protection": "a replayed held message is swallowed by the handled-id dedupe",
+      "file": "dist/messageFlow.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery-paths.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "P7 Baileys: a message that arrives while the sender is held is KEPT (replayable) and processed after the hold is released - never dropped"
+          ]
+        },
+        {
+          "test": "test-delivery-recovery-s45.js",
+          "exit": 0,
+          "timedOut": false,
+          "caught": false,
+          "failedScenarios": [],
+          "outputTail": "    at sendTrackedOutboxMessage (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:712:24)\n    at async sendDecisionStepInner (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:2750:17)\n    at async sendDecisionFlowStart (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:2438:5) {\n  outboxId: 'mua64y6k7o7n'\n}\n"
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "H2",
+      "protection": "held Baileys messages are recorded without a replay snapshot",
+      "file": "dist/messageFlow.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery-paths.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "P7 Baileys: a message that arrives while the sender is held is KEPT (replayable) and processed after the hold is released - never dropped"
+          ]
+        },
+        {
+          "test": "test-delivery-recovery-s45.js",
+          "exit": 0,
+          "timedOut": false,
+          "caught": false,
+          "failedScenarios": [],
+          "outputTail": "    at sendTrackedOutboxMessage (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:712:24)\n    at async sendDecisionStepInner (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:2750:17)\n    at async sendDecisionFlowStart (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:2438:5) {\n  outboxId: 'mua656aqkqy8'\n}\n"
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "H3",
+      "protection": "the controller does not replay held Baileys messages after the release",
+      "file": "dist/deliveryRecovery.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery-paths.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "P7 Baileys: a message that arrives while the sender is held is KEPT (replayable) and processed after the hold is released - never dropped"
+          ]
+        },
+        {
+          "test": "test-delivery-recovery-s45.js",
+          "exit": 0,
+          "timedOut": false,
+          "caught": false,
+          "failedScenarios": [],
+          "outputTail": "    at sendTrackedOutboxMessage (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:712:24)\n    at async sendDecisionStepInner (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:2750:17)\n    at async sendDecisionFlowStart (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:2438:5) {\n  outboxId: 'mua65j203bxn'\n}\n"
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "H4",
+      "protection": "a held message without replay data is dropped without a trace",
+      "file": "dist/messageFlow.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery-paths.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "P8 a held Baileys message without replay data is never dropped silently (critical alert + log); the admin requeue path replays through the s"
+          ]
+        },
+        {
+          "test": "test-delivery-recovery-s45.js",
+          "exit": 0,
+          "timedOut": false,
+          "caught": false,
+          "failedScenarios": [],
+          "outputTail": "    at sendTrackedOutboxMessage (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:711:24)\n    at async sendDecisionStepInner (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:2749:17)\n    at async sendDecisionFlowStart (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:2437:5) {\n  outboxId: 'mua65rhq7d82'\n}\n"
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "S1",
+      "protection": "a fresh trigger no longer supersedes a recovery hold",
+      "file": "dist/messageFlow.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery-paths.js",
+          "exit": 0,
+          "timedOut": false,
+          "caught": false,
+          "failedScenarios": [],
+          "outputTail": "    at async sendDecisionFlowStart (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:2438:5) {\n  outboxId: 'mua65upmbumi'\n}\n[NEEDS_REVIEW_BLOCKED] via=baileys sender=whatsapp:972504000007 phone=972504000007 reason=The operation was aborted due to timeout\n[MSG] handler held via baileys, sender pending admin review: Sender whatsapp:972504000007 is held pending admin review: The operation was aborted due to timeout\n"
+        },
+        {
+          "test": "test-delivery-recovery-s45.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "S4-1 a FRESH TRIGGER during a recovery hold starts a new run without an admin: the unresolved message is abandoned (recoverable_failed, neve"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "S2",
+      "protection": "ANY message (not only a fresh exact trigger) supersedes a recovery hold",
+      "file": "dist/messageFlow.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery-paths.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "P7 Baileys: a message that arrives while the sender is held is KEPT (replayable) and processed after the hold is released - never dropped"
+          ]
+        },
+        {
+          "test": "test-delivery-recovery-s45.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "S4-2 an ADMIN hold (no recovery) is never superseded by a trigger; a non-trigger message during a recovery hold is held, not superseded"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "S3",
+      "protection": "supersede abandons a message that is being sent right now",
+      "file": "dist/storage.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery-paths.js",
+          "exit": 0,
+          "timedOut": false,
+          "caught": false,
+          "failedScenarios": [],
+          "outputTail": "    at async sendDecisionFlowStart (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:2438:5) {\n  outboxId: 'mua66at7ea42'\n}\n[NEEDS_REVIEW_BLOCKED] via=baileys sender=whatsapp:972504000007 phone=972504000007 reason=The operation was aborted due to timeout\n[MSG] handler held via baileys, sender pending admin review: Sender whatsapp:972504000007 is held pending admin review: The operation was aborted due to timeout\n"
+        },
+        {
+          "test": "test-delivery-recovery-s45.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "S4-3 supersede is refused while the message is being sent or its continuation is running (the hold stays)"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "S4",
+      "protection": "a retry is sent although the participant moved on to a newer run",
+      "file": "dist/outboxDispatcher.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery-paths.js",
+          "exit": 0,
+          "timedOut": false,
+          "caught": false,
+          "failedScenarios": [],
+          "outputTail": "    at async sendDecisionFlowStart (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:2438:5) {\n  outboxId: 'mua66j6p3y6k'\n}\n[NEEDS_REVIEW_BLOCKED] via=baileys sender=whatsapp:972504000007 phone=972504000007 reason=The operation was aborted due to timeout\n[MSG] handler held via baileys, sender pending admin review: Sender whatsapp:972504000007 is held pending admin review: The operation was aborted due to timeout\n"
+        },
+        {
+          "test": "test-delivery-recovery-s45.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "S5-1 a granted RETRY is not sent when the participant has moved on to a newer run (membership check); the message ends recoverable_failed, c"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "S5",
+      "protection": "delivery status only matches the latest provider id",
+      "file": "dist/storage.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery-paths.js",
+          "exit": 0,
+          "timedOut": false,
+          "caught": false,
+          "failedScenarios": [],
+          "outputTail": "    at async sendDecisionFlowStart (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\messageFlow.js:2438:5) {\n  outboxId: 'mua66wkjc9sp'\n}\n[NEEDS_REVIEW_BLOCKED] via=baileys sender=whatsapp:972504000007 phone=972504000007 reason=The operation was aborted due to timeout\n[MSG] handler held via baileys, sender pending admin review: Sender whatsapp:972504000007 is held pending admin review: The operation was aborted due to timeout\n"
+        },
+        {
+          "test": "test-delivery-recovery-s45.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "S5-3 every provider id a message received is known: a late status for the EARLIER attempt id updates the row"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    }
+  ],
+  "allCaught": true,
+  "allRestored": true
+}

@@ -1,0 +1,26 @@
+{
+  "startedAt": "2026-09-20T11:34:25.752Z",
+  "mutations": [
+    {
+      "id": "R4",
+      "protection": "ANY needs_review hold is released by a resolution (not only the one tied to that message)",
+      "file": "dist/deliveryRecovery.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-delivery-recovery.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "F5 an admin needs_review hold (no recovery tie) is NEVER released by delivery evidence - even when a continuation WOULD succeed"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    }
+  ],
+  "allCaught": true,
+  "allRestored": true
+}

@@ -1,0 +1,419 @@
+{
+  "startedAt": "2026-09-20T08:54:32.861Z",
+  "scenario": "single",
+  "wantClean": 5,
+  "trees": {
+    "A": "C:\\Users\\haim\\AppData\\Local\\Temp\\claude\\C--Users-haim-Projects-parpar-sagol\\b9f87141-7671-4090-bd51-54e492c7ae49\\scratchpad\\headbase",
+    "B": "C:\\Users\\haim\\Projects\\parpar sagol"
+  },
+  "runs": {
+    "A": [
+      {
+        "label": "warmup",
+        "tag": "A",
+        "exit": 0,
+        "wallMs": 17485,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 120,
+            "median": 6767,
+            "p95": 12725,
+            "p99": 13506,
+            "max": 13511,
+            "gatewayLeg": {
+              "n": 120,
+              "median": 4397,
+              "p95": 11773,
+              "p99": 12270,
+              "max": 12311
+            },
+            "clientLeg": {
+              "n": 120,
+              "median": 1277,
+              "p95": 2440,
+              "p99": 2506,
+              "max": 2526
+            }
+          }
+        }
+      },
+      {
+        "label": "run1",
+        "tag": "A",
+        "exit": 0,
+        "wallMs": 14679,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 120,
+            "median": 5437,
+            "p95": 11617,
+            "p99": 11640,
+            "max": 11645,
+            "gatewayLeg": {
+              "n": 120,
+              "median": 3030,
+              "p95": 10324,
+              "p99": 10459,
+              "max": 10491
+            },
+            "clientLeg": {
+              "n": 120,
+              "median": 1431,
+              "p95": 2479,
+              "p99": 2551,
+              "max": 2568
+            }
+          }
+        }
+      },
+      {
+        "label": "run2",
+        "tag": "A",
+        "exit": 0,
+        "wallMs": 14912,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 120,
+            "median": 5248,
+            "p95": 11240,
+            "p99": 11630,
+            "max": 11635,
+            "gatewayLeg": {
+              "n": 120,
+              "median": 3014,
+              "p95": 9239,
+              "p99": 10446,
+              "max": 10479
+            },
+            "clientLeg": {
+              "n": 120,
+              "median": 1471,
+              "p95": 2333,
+              "p99": 2374,
+              "max": 2383
+            }
+          }
+        }
+      },
+      {
+        "label": "run3",
+        "tag": "A",
+        "exit": 0,
+        "wallMs": 14479,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 120,
+            "median": 5443,
+            "p95": 11630,
+            "p99": 11647,
+            "max": 11652,
+            "gatewayLeg": {
+              "n": 120,
+              "median": 3107,
+              "p95": 9961,
+              "p99": 10098,
+              "max": 10132
+            },
+            "clientLeg": {
+              "n": 120,
+              "median": 1573,
+              "p95": 2436,
+              "p99": 2496,
+              "max": 2511
+            }
+          }
+        }
+      },
+      {
+        "label": "run4",
+        "tag": "A",
+        "exit": 0,
+        "wallMs": 16544,
+        "skippedEvents": 2,
+        "contaminated": true,
+        "groups": {
+          "focus-meta": {
+            "n": 120,
+            "median": 5190,
+            "p95": 12519,
+            "p99": 12717,
+            "max": 12915,
+            "gatewayLeg": {
+              "n": 120,
+              "median": 2891,
+              "p95": 11562,
+              "p99": 11700,
+              "max": 11882
+            },
+            "clientLeg": {
+              "n": 120,
+              "median": 1222,
+              "p95": 2362,
+              "p99": 2425,
+              "max": 2432
+            }
+          }
+        }
+      },
+      {
+        "label": "run5",
+        "tag": "A",
+        "exit": 0,
+        "wallMs": 14639,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 120,
+            "median": 5398,
+            "p95": 11586,
+            "p99": 11601,
+            "max": 11602,
+            "gatewayLeg": {
+              "n": 120,
+              "median": 2976,
+              "p95": 10306,
+              "p99": 10428,
+              "max": 10463
+            },
+            "clientLeg": {
+              "n": 120,
+              "median": 1445,
+              "p95": 2492,
+              "p99": 2560,
+              "max": 2577
+            }
+          }
+        }
+      },
+      {
+        "label": "run6",
+        "tag": "A",
+        "exit": 0,
+        "wallMs": 14670,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 120,
+            "median": 5386,
+            "p95": 11553,
+            "p99": 11578,
+            "max": 11583,
+            "gatewayLeg": {
+              "n": 120,
+              "median": 2965,
+              "p95": 10243,
+              "p99": 10382,
+              "max": 10415
+            },
+            "clientLeg": {
+              "n": 120,
+              "median": 1420,
+              "p95": 2485,
+              "p99": 2552,
+              "max": 2567
+            }
+          }
+        }
+      }
+    ],
+    "B": [
+      {
+        "label": "warmup",
+        "tag": "B",
+        "exit": 0,
+        "wallMs": 14744,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 120,
+            "median": 5525,
+            "p95": 11639,
+            "p99": 11659,
+            "max": 11664,
+            "gatewayLeg": {
+              "n": 120,
+              "median": 3089,
+              "p95": 10320,
+              "p99": 10457,
+              "max": 10497
+            },
+            "clientLeg": {
+              "n": 120,
+              "median": 1416,
+              "p95": 2504,
+              "p99": 2570,
+              "max": 2587
+            }
+          }
+        }
+      },
+      {
+        "label": "run1",
+        "tag": "B",
+        "exit": 0,
+        "wallMs": 14767,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 120,
+            "median": 5311,
+            "p95": 11754,
+            "p99": 11776,
+            "max": 11783,
+            "gatewayLeg": {
+              "n": 120,
+              "median": 3048,
+              "p95": 10420,
+              "p99": 10565,
+              "max": 10600
+            },
+            "clientLeg": {
+              "n": 120,
+              "median": 1425,
+              "p95": 2404,
+              "p99": 2436,
+              "max": 2453
+            }
+          }
+        }
+      },
+      {
+        "label": "run2",
+        "tag": "B",
+        "exit": 0,
+        "wallMs": 15865,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 120,
+            "median": 5843,
+            "p95": 12263,
+            "p99": 12587,
+            "max": 12594,
+            "gatewayLeg": {
+              "n": 120,
+              "median": 3340,
+              "p95": 11311,
+              "p99": 11506,
+              "max": 11543
+            },
+            "clientLeg": {
+              "n": 120,
+              "median": 1078,
+              "p95": 2578,
+              "p99": 2653,
+              "max": 2671
+            }
+          }
+        }
+      },
+      {
+        "label": "run3",
+        "tag": "B",
+        "exit": 0,
+        "wallMs": 14777,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 120,
+            "median": 5143,
+            "p95": 11173,
+            "p99": 11551,
+            "max": 11556,
+            "gatewayLeg": {
+              "n": 120,
+              "median": 2942,
+              "p95": 9156,
+              "p99": 10394,
+              "max": 10430
+            },
+            "clientLeg": {
+              "n": 120,
+              "median": 1460,
+              "p95": 2318,
+              "p99": 2357,
+              "max": 2384
+            }
+          }
+        }
+      },
+      {
+        "label": "run4",
+        "tag": "B",
+        "exit": 0,
+        "wallMs": 14942,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 120,
+            "median": 5478,
+            "p95": 11596,
+            "p99": 11620,
+            "max": 11625,
+            "gatewayLeg": {
+              "n": 120,
+              "median": 3098,
+              "p95": 10316,
+              "p99": 10449,
+              "max": 10483
+            },
+            "clientLeg": {
+              "n": 120,
+              "median": 1391,
+              "p95": 2445,
+              "p99": 2512,
+              "max": 2528
+            }
+          }
+        }
+      },
+      {
+        "label": "run5",
+        "tag": "B",
+        "exit": 0,
+        "wallMs": 14830,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 120,
+            "median": 5165,
+            "p95": 11156,
+            "p99": 11563,
+            "max": 11568,
+            "gatewayLeg": {
+              "n": 120,
+              "median": 3074,
+              "p95": 9178,
+              "p99": 10337,
+              "max": 10371
+            },
+            "clientLeg": {
+              "n": 120,
+              "median": 1408,
+              "p95": 2232,
+              "p99": 2310,
+              "max": 2331
+            }
+          }
+        }
+      }
+    ]
+  },
+  "finishedAt": "2026-09-20T08:57:50.313Z"
+}

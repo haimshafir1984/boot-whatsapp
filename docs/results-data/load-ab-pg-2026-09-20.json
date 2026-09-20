@@ -1,0 +1,976 @@
+{
+  "startedAt": "2026-09-20T17:48:51.220Z",
+  "scenario": "mixed",
+  "wantClean": 5,
+  "trees": {
+    "A": "C:\\Users\\haim\\AppData\\Local\\Temp\\claude\\C--Users-haim-Projects-parpar-sagol\\b9f87141-7671-4090-bd51-54e492c7ae49\\scratchpad\\headbase",
+    "B": "C:\\Users\\haim\\Projects\\parpar sagol"
+  },
+  "runs": {
+    "A": [
+      {
+        "label": "warmup",
+        "tag": "A",
+        "exit": 0,
+        "wallMs": 7893,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 2915,
+            "p95": 2923,
+            "p99": 2924,
+            "max": 2924,
+            "gatewayLeg": {
+              "n": 100,
+              "median": 1696,
+              "p95": 1755,
+              "p99": 1756,
+              "max": 1756
+            },
+            "clientLeg": {
+              "n": 100,
+              "median": 1210,
+              "p95": 1235,
+              "p99": 1253,
+              "max": 1253
+            }
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 2588,
+            "p95": 2590,
+            "p99": 2590,
+            "max": 2590,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2198,
+              "p95": 2200,
+              "p99": 2201,
+              "max": 2201
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 390,
+              "p95": 394,
+              "p99": 416,
+              "max": 416
+            }
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 2583,
+            "p95": 2585,
+            "p99": 2586,
+            "max": 2586,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2182,
+              "p95": 2206,
+              "p99": 2206,
+              "max": 2206
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 400,
+              "p95": 404,
+              "p99": 408,
+              "max": 408
+            }
+          },
+          "baileys": {
+            "n": 60,
+            "median": 615,
+            "p95": 616,
+            "p99": 616,
+            "max": 616
+          }
+        }
+      },
+      {
+        "label": "run1",
+        "tag": "A",
+        "exit": 0,
+        "wallMs": 9288,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 2914,
+            "p95": 2923,
+            "p99": 2923,
+            "max": 2923,
+            "gatewayLeg": {
+              "n": 100,
+              "median": 1715,
+              "p95": 1769,
+              "p99": 1770,
+              "max": 1770
+            },
+            "clientLeg": {
+              "n": 100,
+              "median": 1205,
+              "p95": 1230,
+              "p99": 1249,
+              "max": 1249
+            }
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 2643,
+            "p95": 2645,
+            "p99": 2646,
+            "max": 2646,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2230,
+              "p95": 2231,
+              "p99": 2231,
+              "max": 2231
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 414,
+              "p95": 418,
+              "p99": 442,
+              "max": 442
+            }
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 2639,
+            "p95": 2642,
+            "p99": 2642,
+            "max": 2642,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2214,
+              "p95": 2236,
+              "p99": 2236,
+              "max": 2236
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 424,
+              "p95": 428,
+              "p99": 432,
+              "max": 432
+            }
+          },
+          "baileys": {
+            "n": 60,
+            "median": 277,
+            "p95": 277,
+            "p99": 277,
+            "max": 277
+          }
+        }
+      },
+      {
+        "label": "run2",
+        "tag": "A",
+        "exit": 0,
+        "wallMs": 7690,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 2908,
+            "p95": 2916,
+            "p99": 2917,
+            "max": 2917,
+            "gatewayLeg": {
+              "n": 100,
+              "median": 1714,
+              "p95": 1767,
+              "p99": 1768,
+              "max": 1768
+            },
+            "clientLeg": {
+              "n": 100,
+              "median": 1233,
+              "p95": 1261,
+              "p99": 1279,
+              "max": 1279
+            }
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 2606,
+            "p95": 2607,
+            "p99": 2608,
+            "max": 2608,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2214,
+              "p95": 2215,
+              "p99": 2216,
+              "max": 2216
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 391,
+              "p95": 395,
+              "p99": 416,
+              "max": 416
+            }
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 2600,
+            "p95": 2602,
+            "p99": 2603,
+            "max": 2603,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2198,
+              "p95": 2220,
+              "p99": 2220,
+              "max": 2220
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 400,
+              "p95": 405,
+              "p99": 409,
+              "max": 409
+            }
+          },
+          "baileys": {
+            "n": 60,
+            "median": 606,
+            "p95": 607,
+            "p99": 607,
+            "max": 607
+          }
+        }
+      },
+      {
+        "label": "run3",
+        "tag": "A",
+        "exit": 0,
+        "wallMs": 8669,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 2953,
+            "p95": 2962,
+            "p99": 2963,
+            "max": 2963,
+            "gatewayLeg": {
+              "n": 100,
+              "median": 1731,
+              "p95": 1786,
+              "p99": 1787,
+              "max": 1787
+            },
+            "clientLeg": {
+              "n": 100,
+              "median": 1229,
+              "p95": 1257,
+              "p99": 1276,
+              "max": 1276
+            }
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 2644,
+            "p95": 2646,
+            "p99": 2646,
+            "max": 2646,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2238,
+              "p95": 2241,
+              "p99": 2241,
+              "max": 2241
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 406,
+              "p95": 411,
+              "p99": 450,
+              "max": 450
+            }
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 2638,
+            "p95": 2640,
+            "p99": 2641,
+            "max": 2641,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2219,
+              "p95": 2247,
+              "p99": 2247,
+              "max": 2247
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 417,
+              "p95": 422,
+              "p99": 427,
+              "max": 427
+            }
+          },
+          "baileys": {
+            "n": 60,
+            "median": 651,
+            "p95": 651,
+            "p99": 651,
+            "max": 651
+          }
+        }
+      },
+      {
+        "label": "run4",
+        "tag": "A",
+        "exit": 0,
+        "wallMs": 7532,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 2878,
+            "p95": 2886,
+            "p99": 2886,
+            "max": 2886,
+            "gatewayLeg": {
+              "n": 100,
+              "median": 1687,
+              "p95": 1742,
+              "p99": 1743,
+              "max": 1743
+            },
+            "clientLeg": {
+              "n": 100,
+              "median": 1248,
+              "p95": 1276,
+              "p99": 1294,
+              "max": 1294
+            }
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 2629,
+            "p95": 2630,
+            "p99": 2630,
+            "max": 2630,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2218,
+              "p95": 2220,
+              "p99": 2220,
+              "max": 2220
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 411,
+              "p95": 416,
+              "p99": 442,
+              "max": 442
+            }
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 2624,
+            "p95": 2626,
+            "p99": 2626,
+            "max": 2626,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2202,
+              "p95": 2225,
+              "p99": 2226,
+              "max": 2226
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 421,
+              "p95": 426,
+              "p99": 431,
+              "max": 431
+            }
+          },
+          "baileys": {
+            "n": 60,
+            "median": 270,
+            "p95": 270,
+            "p99": 271,
+            "max": 271
+          }
+        }
+      },
+      {
+        "label": "run5",
+        "tag": "A",
+        "exit": 0,
+        "wallMs": 7606,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 2871,
+            "p95": 2878,
+            "p99": 2879,
+            "max": 2879,
+            "gatewayLeg": {
+              "n": 100,
+              "median": 1663,
+              "p95": 1717,
+              "p99": 1719,
+              "max": 1719
+            },
+            "clientLeg": {
+              "n": 100,
+              "median": 1204,
+              "p95": 1231,
+              "p99": 1249,
+              "max": 1249
+            }
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 2572,
+            "p95": 2574,
+            "p99": 2574,
+            "max": 2574,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2165,
+              "p95": 2167,
+              "p99": 2167,
+              "max": 2167
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 407,
+              "p95": 411,
+              "p99": 435,
+              "max": 435
+            }
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 2566,
+            "p95": 2569,
+            "p99": 2569,
+            "max": 2569,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2148,
+              "p95": 2172,
+              "p99": 2172,
+              "max": 2172
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 417,
+              "p95": 422,
+              "p99": 426,
+              "max": 426
+            }
+          },
+          "baileys": {
+            "n": 60,
+            "median": 602,
+            "p95": 603,
+            "p99": 603,
+            "max": 603
+          }
+        }
+      }
+    ],
+    "B": [
+      {
+        "label": "warmup",
+        "tag": "B",
+        "exit": 0,
+        "wallMs": 55322,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 3637,
+            "p95": 3644,
+            "p99": 3645,
+            "max": 3645,
+            "gatewayLeg": {
+              "n": 100,
+              "median": 1964,
+              "p95": 2025,
+              "p99": 2026,
+              "max": 2026
+            },
+            "clientLeg": {
+              "n": 100,
+              "median": 1659,
+              "p95": 1679,
+              "p99": 1701,
+              "max": 1701
+            }
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 2942,
+            "p95": 2943,
+            "p99": 2944,
+            "max": 2944,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2480,
+              "p95": 2484,
+              "p99": 2485,
+              "max": 2485
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 462,
+              "p95": 468,
+              "p99": 506,
+              "max": 506
+            }
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 2927,
+            "p95": 2929,
+            "p99": 2930,
+            "max": 2930,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2460,
+              "p95": 2497,
+              "p99": 2497,
+              "max": 2497
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 466,
+              "p95": 469,
+              "p99": 472,
+              "max": 472
+            }
+          },
+          "baileys": {
+            "n": 60,
+            "median": 345,
+            "p95": 346,
+            "p99": 346,
+            "max": 346
+          }
+        }
+      },
+      {
+        "label": "run1",
+        "tag": "B",
+        "exit": 0,
+        "wallMs": 7970,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 2923,
+            "p95": 2931,
+            "p99": 2932,
+            "max": 2932,
+            "gatewayLeg": {
+              "n": 100,
+              "median": 1699,
+              "p95": 1763,
+              "p99": 1765,
+              "max": 1765
+            },
+            "clientLeg": {
+              "n": 100,
+              "median": 1230,
+              "p95": 1266,
+              "p99": 1284,
+              "max": 1284
+            }
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 2612,
+            "p95": 2613,
+            "p99": 2613,
+            "max": 2613,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2211,
+              "p95": 2213,
+              "p99": 2213,
+              "max": 2213
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 400,
+              "p95": 405,
+              "p99": 432,
+              "max": 432
+            }
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 2608,
+            "p95": 2611,
+            "p99": 2611,
+            "max": 2611,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2194,
+              "p95": 2219,
+              "p99": 2219,
+              "max": 2219
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 414,
+              "p95": 418,
+              "p99": 423,
+              "max": 423
+            }
+          },
+          "baileys": {
+            "n": 60,
+            "median": 624,
+            "p95": 625,
+            "p99": 625,
+            "max": 625
+          }
+        }
+      },
+      {
+        "label": "run2",
+        "tag": "B",
+        "exit": 0,
+        "wallMs": 7886,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 2924,
+            "p95": 2932,
+            "p99": 2933,
+            "max": 2933,
+            "gatewayLeg": {
+              "n": 100,
+              "median": 1683,
+              "p95": 1746,
+              "p99": 1748,
+              "max": 1748
+            },
+            "clientLeg": {
+              "n": 100,
+              "median": 1248,
+              "p95": 1282,
+              "p99": 1300,
+              "max": 1300
+            }
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 2636,
+            "p95": 2638,
+            "p99": 2639,
+            "max": 2639,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2181,
+              "p95": 2182,
+              "p99": 2183,
+              "max": 2183
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 456,
+              "p95": 461,
+              "p99": 485,
+              "max": 485
+            }
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 2630,
+            "p95": 2633,
+            "p99": 2634,
+            "max": 2634,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2161,
+              "p95": 2189,
+              "p99": 2190,
+              "max": 2190
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 467,
+              "p95": 471,
+              "p99": 474,
+              "max": 474
+            }
+          },
+          "baileys": {
+            "n": 60,
+            "median": 677,
+            "p95": 678,
+            "p99": 678,
+            "max": 678
+          }
+        }
+      },
+      {
+        "label": "run3",
+        "tag": "B",
+        "exit": 0,
+        "wallMs": 7948,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 2882,
+            "p95": 2889,
+            "p99": 2890,
+            "max": 2890,
+            "gatewayLeg": {
+              "n": 100,
+              "median": 1675,
+              "p95": 1733,
+              "p99": 1735,
+              "max": 1735
+            },
+            "clientLeg": {
+              "n": 100,
+              "median": 1213,
+              "p95": 1245,
+              "p99": 1265,
+              "max": 1265
+            }
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 2618,
+            "p95": 2619,
+            "p99": 2620,
+            "max": 2620,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2188,
+              "p95": 2190,
+              "p99": 2190,
+              "max": 2190
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 430,
+              "p95": 434,
+              "p99": 461,
+              "max": 461
+            }
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 2613,
+            "p95": 2616,
+            "p99": 2616,
+            "max": 2616,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2170,
+              "p95": 2196,
+              "p99": 2197,
+              "max": 2197
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 442,
+              "p95": 448,
+              "p99": 452,
+              "max": 452
+            }
+          },
+          "baileys": {
+            "n": 60,
+            "median": 646,
+            "p95": 646,
+            "p99": 646,
+            "max": 646
+          }
+        }
+      },
+      {
+        "label": "run4",
+        "tag": "B",
+        "exit": 0,
+        "wallMs": 7864,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 2903,
+            "p95": 2911,
+            "p99": 2912,
+            "max": 2912,
+            "gatewayLeg": {
+              "n": 100,
+              "median": 1703,
+              "p95": 1761,
+              "p99": 1762,
+              "max": 1762
+            },
+            "clientLeg": {
+              "n": 100,
+              "median": 1219,
+              "p95": 1252,
+              "p99": 1274,
+              "max": 1274
+            }
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 2601,
+            "p95": 2603,
+            "p99": 2603,
+            "max": 2603,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2206,
+              "p95": 2208,
+              "p99": 2209,
+              "max": 2209
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 395,
+              "p95": 399,
+              "p99": 425,
+              "max": 425
+            }
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 2597,
+            "p95": 2599,
+            "p99": 2600,
+            "max": 2600,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2187,
+              "p95": 2214,
+              "p99": 2215,
+              "max": 2215
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 408,
+              "p95": 413,
+              "p99": 416,
+              "max": 416
+            }
+          },
+          "baileys": {
+            "n": 60,
+            "median": 617,
+            "p95": 618,
+            "p99": 618,
+            "max": 618
+          }
+        }
+      },
+      {
+        "label": "run5",
+        "tag": "B",
+        "exit": 0,
+        "wallMs": 7908,
+        "skippedEvents": 0,
+        "contaminated": false,
+        "groups": {
+          "focus-meta": {
+            "n": 100,
+            "median": 2915,
+            "p95": 2923,
+            "p99": 2923,
+            "max": 2923,
+            "gatewayLeg": {
+              "n": 100,
+              "median": 1681,
+              "p95": 1743,
+              "p99": 1744,
+              "max": 1744
+            },
+            "clientLeg": {
+              "n": 100,
+              "median": 1222,
+              "p95": 1249,
+              "p99": 1268,
+              "max": 1268
+            }
+          },
+          "small-meta-a": {
+            "n": 25,
+            "median": 2598,
+            "p95": 2600,
+            "p99": 2600,
+            "max": 2600,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2194,
+              "p95": 2197,
+              "p99": 2197,
+              "max": 2197
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 405,
+              "p95": 409,
+              "p99": 433,
+              "max": 433
+            }
+          },
+          "small-meta-b": {
+            "n": 25,
+            "median": 2593,
+            "p95": 2596,
+            "p99": 2596,
+            "max": 2596,
+            "gatewayLeg": {
+              "n": 25,
+              "median": 2177,
+              "p95": 2202,
+              "p99": 2203,
+              "max": 2203
+            },
+            "clientLeg": {
+              "n": 25,
+              "median": 414,
+              "p95": 419,
+              "p99": 423,
+              "max": 423
+            }
+          },
+          "baileys": {
+            "n": 60,
+            "median": 628,
+            "p95": 629,
+            "p99": 629,
+            "max": 629
+          }
+        }
+      }
+    ]
+  },
+  "finishedAt": "2026-09-20T17:51:14.814Z"
+}
