@@ -1,0 +1,400 @@
+18:04:53.816 [harness] SIGTERM sent
+18:04:53.817 [client] SIGTERM received, draining…
+18:04:53.817 [client] @@STAGE server.close called 1790013893817
+18:04:53.817 [client] @@STAGE at close: {"requestsInFlight":[],"n":0}
+18:04:53.818 [client] @@STAGE sockets at close: ["remote=::ffff:127.0.0.1:60740 local=51312 bytesRead=259 idleSinceLastReadOrWrite=?","remote=::ffff:127.0.0.1:60806 local=51312 bytesRead=311 idleSinceLastReadOrWrite=?","remote=::ffff:127.0.0.1:60807 local=51312 bytesRead=311 idleSinceLastReadOrWrite=?","remote=::ffff:127
+18:04:53.821 [client] @@STAGE server.close done +4ms
+18:04:53.822 [client] @@STAGE pg pool.end called 1790013893821
+18:04:54.042 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.043 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.043 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.043 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.044 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.045 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.045 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.046 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.046 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.047 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.047 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.048 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.048 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.049 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.050 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.050 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.051 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.052 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.053 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.060 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.065 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.069 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.073 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.077 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.079 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.083 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.088 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.093 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.095 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.099 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.102 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.105 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.110 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.114 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.117 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.120 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.122 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.128 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.130 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.131 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.132 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.132 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.133 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.133 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.134 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.134 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.135 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.135 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.136 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.136 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.136 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.137 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.137 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.138 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.138 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.139 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.140 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.205 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-29 attempt=1 [TypeError: fetch failed] {
+18:04:54.205 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-28 attempt=1 [TypeError: fetch failed] {
+18:04:54.206 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-38 attempt=1 [TypeError: fetch failed] {
+18:04:54.207 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.209 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.210 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.211 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.212 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.213 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.214 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.215 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.216 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.217 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.218 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-39 attempt=1 [TypeError: fetch failed] {
+18:04:54.218 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-27 attempt=1 [TypeError: fetch failed] {
+18:04:54.219 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-37 attempt=1 [TypeError: fetch failed] {
+18:04:54.231 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.232 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.232 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.233 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.233 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.234 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.234 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.235 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.235 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.236 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.242 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-47 attempt=1 [TypeError: fetch failed] {
+18:04:54.242 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-48 attempt=1 [TypeError: fetch failed] {
+18:04:54.242 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-49 attempt=1 [TypeError: fetch failed] {
+18:04:54.560 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.560 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.560 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.561 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.561 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.561 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.562 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.562 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.562 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.563 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.563 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.563 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.564 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.564 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.566 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.567 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.567 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.633 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.637 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.637 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.638 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.639 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.643 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.644 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.644 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.645 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.645 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.646 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.648 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.648 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.649 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.710 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.711 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.712 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.713 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.714 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.715 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.716 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.717 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.718 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.719 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.721 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.723 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.725 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.726 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.726 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.727 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.728 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.728 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.728 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.729 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.729 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.730 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:54.731 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.731 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:54.733 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.735 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.739 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.739 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.739 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.742 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.742 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:54.743 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-59 attempt=1 [TypeError: fetch failed] {
+18:04:54.743 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-57 attempt=1 [TypeError: fetch failed] {
+18:04:54.743 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-58 attempt=1 [TypeError: fetch failed] {
+18:04:54.894 [client] @@STAGE pg pool.end called 1790013894894
+18:04:54.927 [client] EXIT code=0 signal=null
+18:04:55.156 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:55.158 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:55.159 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:55.161 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:55.161 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:55.162 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:55.167 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-67 attempt=1 [TypeError: fetch failed] {
+18:04:55.167 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-68 attempt=1 [TypeError: fetch failed] {
+18:04:55.244 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:55.245 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:55.245 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:55.246 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:55.246 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:55.246 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:55.247 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:55.247 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:55.247 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:55.655 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:55.656 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:55.657 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:55.658 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:55.663 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-69 attempt=1 [TypeError: fetch failed] {
+18:04:55.664 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:56.075 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.076 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.077 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.077 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.078 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.078 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.079 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.079 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.080 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.080 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.081 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.081 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.082 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.082 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.082 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.086 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.087 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.101 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-10 attempt=1 [TypeError: fetch failed] {
+18:04:56.102 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-13 attempt=1 [TypeError: fetch failed] {
+18:04:56.103 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-25 attempt=1 [TypeError: fetch failed] {
+18:04:56.103 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-0 attempt=1 [TypeError: fetch failed] {
+18:04:56.103 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-22 attempt=1 [TypeError: fetch failed] {
+18:04:56.103 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-16 attempt=1 [TypeError: fetch failed] {
+18:04:56.103 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-1 attempt=1 [TypeError: fetch failed] {
+18:04:56.103 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-15 attempt=1 [TypeError: fetch failed] {
+18:04:56.103 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-12 attempt=1 [TypeError: fetch failed] {
+18:04:56.103 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-21 attempt=1 [TypeError: fetch failed] {
+18:04:56.113 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-24 attempt=1 [TypeError: fetch failed] {
+18:04:56.114 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-2 attempt=1 [TypeError: fetch failed] {
+18:04:56.114 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-14 attempt=1 [TypeError: fetch failed] {
+18:04:56.114 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-11 attempt=1 [TypeError: fetch failed] {
+18:04:56.114 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-20 attempt=1 [TypeError: fetch failed] {
+18:04:56.115 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-23 attempt=1 [TypeError: fetch failed] {
+18:04:56.115 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-26 attempt=1 [TypeError: fetch failed] {
+18:04:56.222 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:56.222 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.223 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.224 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.224 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.225 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.225 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.226 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.227 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.227 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.228 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.228 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.228 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.229 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.229 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.231 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.233 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.234 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.235 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.236 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.237 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.239 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.241 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.243 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.244 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.245 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.246 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.248 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.249 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.250 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.252 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.253 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.254 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.262 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.262 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.263 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.263 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.264 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.264 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.264 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.265 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.265 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.266 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.266 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.267 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.267 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.267 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.268 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.268 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.269 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.269 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.271 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.272 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.273 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.273 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.274 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.274 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.274 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.281 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-31 attempt=1 [TypeError: fetch failed] {
+18:04:56.282 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-32 attempt=1 [TypeError: fetch failed] {
+18:04:56.282 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-36 attempt=1 [TypeError: fetch failed] {
+18:04:56.282 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-34 attempt=1 [TypeError: fetch failed] {
+18:04:56.283 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-35 attempt=1 [TypeError: fetch failed] {
+18:04:56.283 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-33 attempt=1 [TypeError: fetch failed] {
+18:04:56.283 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-30 attempt=1 [TypeError: fetch failed] {
+18:04:56.285 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-40 attempt=1 [TypeError: fetch failed] {
+18:04:56.285 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-41 attempt=1 [TypeError: fetch failed] {
+18:04:56.286 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-43 attempt=1 [TypeError: fetch failed] {
+18:04:56.294 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-45 attempt=1 [TypeError: fetch failed] {
+18:04:56.294 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-42 attempt=1 [TypeError: fetch failed] {
+18:04:56.295 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-44 attempt=1 [TypeError: fetch failed] {
+18:04:56.295 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-79 attempt=1 [TypeError: fetch failed] {
+18:04:56.297 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-46 attempt=1 [TypeError: fetch failed] {
+18:04:56.297 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-78 attempt=1 [TypeError: fetch failed] {
+18:04:56.297 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-77 attempt=1 [TypeError: fetch failed] {
+18:04:56.299 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-7 attempt=1 [TypeError: fetch failed] {
+18:04:56.299 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-8 attempt=1 [TypeError: fetch failed] {
+18:04:56.299 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-50 attempt=1 [TypeError: fetch failed] {
+18:04:56.303 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-51 attempt=1 [TypeError: fetch failed] {
+18:04:56.304 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-53 attempt=1 [TypeError: fetch failed] {
+18:04:56.305 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-52 attempt=1 [TypeError: fetch failed] {
+18:04:56.305 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-4 attempt=1 [TypeError: fetch failed] {
+18:04:56.305 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-54 attempt=1 [TypeError: fetch failed] {
+18:04:56.305 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-3 attempt=1 [TypeError: fetch failed] {
+18:04:56.877 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.879 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.880 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.881 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.882 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.883 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.907 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.909 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.910 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:56.911 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.913 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.914 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.916 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.917 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.918 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.919 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.920 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.921 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.922 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.924 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.925 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.926 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.927 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.928 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.929 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.930 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.931 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.932 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.933 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.935 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:56.936 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:56.936 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:56.937 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:56.937 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:56.937 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:56.938 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:56.938 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:56.939 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:56.939 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:56.940 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:56.940 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:56.940 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+18:04:56.942 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.942 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.943 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.943 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.944 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.944 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.945 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.945 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.945 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.946 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.946 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.947 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.947 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.948 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.948 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.948 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.949 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.949 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.949 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:56.950 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.978 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-66 attempt=1 [TypeError: fetch failed] {
+18:04:56.978 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-63 attempt=1 [TypeError: fetch failed] {
+18:04:56.978 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-56 attempt=1 [TypeError: fetch failed] {
+18:04:56.979 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-61 attempt=1 [TypeError: fetch failed] {
+18:04:56.979 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-62 attempt=1 [TypeError: fetch failed] {
+18:04:56.979 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-60 attempt=1 [TypeError: fetch failed] {
+18:04:56.979 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-64 attempt=1 [TypeError: fetch failed] {
+18:04:56.979 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-65 attempt=1 [TypeError: fetch failed] {
+18:04:56.979 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-55 attempt=1 [TypeError: fetch failed] {
+18:04:56.996 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.998 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:56.999 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:57.001 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:57.002 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:57.003 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:57.008 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:57.008 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:57.009 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:57.010 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:57.010 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+18:04:57.011 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+18:04:57.017 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-87 attempt=1 [TypeError: fetch failed] {
+18:04:57.017 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-97 attempt=1 [TypeError: fetch failed] {
+18:04:57.017 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-88 attempt=1 [TypeError: fetch failed] {
+18:04:57.017 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-89 attempt=1 [TypeError: fetch failed] {
+18:04:57.017 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-98 attempt=1 [TypeError: fetch failed] {
+18:04:57.018 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-99 attempt=1 [TypeError: fetch failed] {
+18:04:57.018 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-9 attempt=1 [TypeError: fetch failed] {
+18:04:57.019 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-109 attempt=1 [TypeError: fetch failed] {
+18:04:57.019 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-108 attempt=1 [TypeError: fetch failed] {
+18:04:57.019 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-107 attempt=1 [TypeError: fetch failed] {
+18:04:57.170 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+18:04:57.176 [META_GATEWAY_INBOX_RETRY] t-ldmubk1quy-6 attempt=1 [TypeError: fetch failed] {
+18:04:57.278 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:57.279 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:57.280 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:04:57.281 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {

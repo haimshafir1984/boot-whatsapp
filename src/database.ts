@@ -564,6 +564,22 @@ export function cloneSnapshotForTables(
       next[field] = sanitizeJsonForPostgres(JSON.parse(JSON.stringify(rows)));
       return;
     }
+    // conversation_state: the snapshot holds one row per pending conversation (thousands). Re-copying all of them for one change was the
+    // second synchronous O(N) cost of every conversation step (measured ~86ms at 20,000 conversations). With tracked jids only THOSE rows
+    // are cloned and applied IN PLACE to the previous frozen snapshot; writeSnapshotDelta upserts/deletes exactly those rows directly
+    // (no comparison), so a failed write is simply retried from the live data and the previous copy can never hide a change.
+    if (field === 'conversationStateSnapshot' && tracked && tracked !== 'all') {
+      const src = ((source[field] as { conversations?: Record<string, unknown> } | undefined)?.conversations) ?? {};
+      const prevSnap = (next[field] as { version: 1; savedAt: string; conversations: Record<string, unknown> } | undefined)
+        ?? { version: 1 as const, savedAt: new Date().toISOString(), conversations: {} };
+      const conv = (prevSnap.conversations ??= {});
+      for (const jid of tracked) {
+        if (Object.prototype.hasOwnProperty.call(src, jid)) conv[jid] = sanitizeJsonForPostgres(JSON.parse(JSON.stringify(src[jid])));
+        else delete conv[jid];
+      }
+      next[field] = prevSnap;
+      return;
+    }
     // Row-tracked tables were still deep-copying their ENTIRE history for
     // every single status update. Reuse only frozen previous rows, never live
     // objects. New/changed rows are cloned before the first await.
@@ -908,12 +924,19 @@ export async function writeSnapshotDelta(pool: Pool, previous: StorageData | nul
       await syncOutboxMessagesDelta(client, previous?.outboxMessages ?? [], data.outboxMessages ?? [], rowIdsFor('outboxMessages'));
     }
     if (isDirty('conversationStateSnapshot')) {
-      await syncConversationStateDelta(
-        client,
-        previous?.conversationStateSnapshot?.conversations ?? {},
-        data.conversationStateSnapshot?.conversations ?? {},
-        rowIdsFor('conversationStateSnapshot'),
-      );
+      const touched = rowIdsFor('conversationStateSnapshot');
+      if (touched !== 'all') {
+        // Row persistence (C4): write exactly the tracked jids from the current data - upsert when present, delete when absent.
+        // No comparison against `previous`, so the cost is O(changed rows) and a retry after a failure re-applies the same rows.
+        await syncConversationRowsDirect(client, touched, data.conversationStateSnapshot?.conversations ?? {});
+      } else {
+        await syncConversationStateDelta(
+          client,
+          previous?.conversationStateSnapshot?.conversations ?? {},
+          data.conversationStateSnapshot?.conversations ?? {},
+          touched,
+        );
+      }
     }
     if (isDirty('scheduledJobs')) {
       await syncRowsDelta(client, 'scheduled_jobs', previous?.scheduledJobs ?? [], data.scheduledJobs ?? [], (item) => item.id, (item) => [item.id, item.kind, item.targetId, nullableDate(item.runAt), item.status, item.attempts, item, nullableDate(item.updatedAt)]);
@@ -1158,6 +1181,15 @@ export async function syncConversationStateDelta(
     if (jid in previous && sameJson(previous[jid], state)) continue;
     await upsertConversationState(pool, jid, state);
   }
+}
+
+export async function syncConversationRowsDirect(pool: Pool | PoolClient, jids: ReadonlySet<string>, conversations: Record<string, unknown>): Promise<void> {
+  const removed: string[] = [];
+  for (const jid of jids) {
+    if (Object.prototype.hasOwnProperty.call(conversations, jid)) await upsertConversationState(pool, jid, conversations[jid]);
+    else removed.push(jid);
+  }
+  if (removed.length) await pool.query('delete from conversation_state where jid = any($1::text[])', [removed]);
 }
 
 async function upsertConversationState(pool: Pool | PoolClient, jid: string, state: unknown): Promise<void> {

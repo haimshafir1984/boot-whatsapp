@@ -1,0 +1,136 @@
+{
+ "label": "new-f2-kill-client-r2",
+ "side": "new",
+ "scenario": "burst",
+ "participants": 150,
+ "clients": 6,
+ "historyNeverPruned": 300,
+ "completedHistoryNewOnly": 0,
+ "seededConversationsPerClient": 2000,
+ "fault": "kill-client@0.7",
+ "faultLog": [
+  {
+   "kind": "kill-client",
+   "atS": 0.7,
+   "realT": 700,
+   "doneS": 6.6
+  }
+ ],
+ "preflight": {
+  "at": "2026-09-21T13:34:22.261Z",
+  "freeMemGB": 13.8,
+  "totalMemGB": 29.9,
+  "load1m": 0,
+  "strayRepoNodeProcesses": [],
+  "otherNodeProcesses": {
+   "count": 88,
+   "MB": 3991
+  }
+ },
+ "posted": {
+  "ok": 150,
+  "fail": 0
+ },
+ "durationS": 608.8,
+ "driveS": 0.3,
+ "firstResponseMs": {
+  "n": 141,
+  "missing": 9,
+  "p50": 7845,
+  "p95": 8673,
+  "p99": 8682,
+  "max": 8733
+ },
+ "receiptToHandlerMs": {
+  "n": 242,
+  "neverStarted": 0,
+  "acknowledgedButNeverStarted": 0,
+  "notAcknowledgedByDriverGiveUp": 0,
+  "redeliveredWebhooks": 0,
+  "p50": 7314,
+  "p95": 8499,
+  "p99": 8518,
+  "max": 8567
+ },
+ "gatewayEventLoopMs": {
+  "p99": 16.6,
+  "worstP99": 65.5,
+  "max": 91.1,
+  "samples": 303
+ },
+ "clientEventLoopMs": {
+  "p99": 16.5,
+  "worstP99": 38.9,
+  "max": 38.9,
+  "samples": 1821
+ },
+ "perClientResults": [
+  {
+   "client": 0,
+   "expected": 105,
+   "results": 97,
+   "distinctPhones": 97
+  },
+  {
+   "client": 1,
+   "expected": 0,
+   "results": 0,
+   "distinctPhones": 0
+  },
+  {
+   "client": 2,
+   "expected": 0,
+   "results": 0,
+   "distinctPhones": 0
+  },
+  {
+   "client": 3,
+   "expected": 15,
+   "results": 15,
+   "distinctPhones": 15
+  },
+  {
+   "client": 4,
+   "expected": 15,
+   "results": 15,
+   "distinctPhones": 15
+  },
+  {
+   "client": 5,
+   "expected": 15,
+   "results": 15,
+   "distinctPhones": 15
+  }
+ ],
+ "lostResults": 8,
+ "duplicateResults": 0,
+ "logs": {
+  "stale": 0,
+  "skipped": 138,
+  "inboxFailed": 0,
+  "storeFailed": 0,
+  "retry": 282,
+  "ambiguous": 9,
+  "groupFailed": 0,
+  "unhandled": 0,
+  "persistFailed": 0
+ },
+ "inboxActualCounts": {
+  "gateway": {
+   "completed": 242,
+   "failed": 150,
+   "held": 150
+  },
+  "clientsReview": 9,
+  "clientsByStatus": {
+   "completed": 233,
+   "review": 9
+  }
+ },
+ "host": {
+  "cpu": "AMD Ryzen 7 PRO 5850U with Radeon Graphics     ",
+  "threads": 16,
+  "ramGB": 30,
+  "node": "v24.16.0"
+ }
+}

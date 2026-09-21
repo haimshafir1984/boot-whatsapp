@@ -1,0 +1,125 @@
+{
+ "label": "new-stress150-h5000-conv2000",
+ "side": "new",
+ "scenario": "burst",
+ "participants": 150,
+ "clients": 6,
+ "historyNeverPruned": 5000,
+ "completedHistoryNewOnly": 0,
+ "seededConversationsPerClient": 2000,
+ "fault": "none",
+ "faultLog": [],
+ "preflight": {
+  "at": "2026-09-21T12:12:05.750Z",
+  "freeMemGB": 14.1,
+  "totalMemGB": 29.9,
+  "load1m": 0,
+  "strayRepoNodeProcesses": [],
+  "otherNodeProcesses": {
+   "count": 88,
+   "MB": 4088
+  }
+ },
+ "posted": {
+  "ok": 150,
+  "fail": 0
+ },
+ "durationS": 14.5,
+ "driveS": 0.4,
+ "firstResponseMs": {
+  "n": 150,
+  "missing": 0,
+  "p50": 2018,
+  "p95": 2909,
+  "p99": 2911,
+  "max": 2912
+ },
+ "receiptToHandlerMs": {
+  "n": 247,
+  "neverStarted": 0,
+  "p50": 1133,
+  "p95": 2701,
+  "p99": 2703,
+  "max": 2703
+ },
+ "gatewayEventLoopMs": {
+  "p99": 23.8,
+  "worstP99": 81.7,
+  "max": 170.3,
+  "samples": 8
+ },
+ "clientEventLoopMs": {
+  "p99": 18.3,
+  "worstP99": 34.5,
+  "max": 161,
+  "samples": 42
+ },
+ "perClientResults": [
+  {
+   "client": 0,
+   "expected": 105,
+   "results": 105,
+   "distinctPhones": 105
+  },
+  {
+   "client": 1,
+   "expected": 0,
+   "results": 0,
+   "distinctPhones": 0
+  },
+  {
+   "client": 2,
+   "expected": 0,
+   "results": 0,
+   "distinctPhones": 0
+  },
+  {
+   "client": 3,
+   "expected": 15,
+   "results": 15,
+   "distinctPhones": 15
+  },
+  {
+   "client": 4,
+   "expected": 15,
+   "results": 15,
+   "distinctPhones": 15
+  },
+  {
+   "client": 5,
+   "expected": 15,
+   "results": 15,
+   "distinctPhones": 15
+  }
+ ],
+ "lostResults": 0,
+ "duplicateResults": 0,
+ "logs": {
+  "stale": 0,
+  "skipped": 0,
+  "inboxFailed": 0,
+  "storeFailed": 0,
+  "retry": 0,
+  "ambiguous": 0,
+  "groupFailed": 0,
+  "unhandled": 0,
+  "persistFailed": 0
+ },
+ "inboxActualCounts": {
+  "gateway": {
+   "held": 2500,
+   "completed": 247,
+   "failed": 2500
+  },
+  "clientsReview": 0,
+  "clientsByStatus": {
+   "completed": 247
+  }
+ },
+ "host": {
+  "cpu": "AMD Ryzen 7 PRO 5850U with Radeon Graphics     ",
+  "threads": 16,
+  "ramGB": 30,
+  "node": "v24.16.0"
+ }
+}

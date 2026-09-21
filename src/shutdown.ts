@@ -21,7 +21,7 @@ export interface ShutdownWorker {
 }
 
 export interface ShutdownDeps {
-  server: { close: (cb: (err?: Error) => void) => void };
+  server: { close: (cb: (err?: Error) => void) => void; closeIdleConnections?: () => void };
   workers: ShutdownWorker[];
   storage: { close: () => Promise<void> };
   /**
@@ -63,7 +63,17 @@ export function createShutdownHandler(deps: ShutdownDeps): (signal: string) => P
     forceExit.unref();
 
     // 1. Stop taking new requests/work — HTTP first, not storage.
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    // close() waits for every connection to end. Idle keep-alive sockets (the gateway keeps them open to each client) never end on their
+    // own inside the grace period, which used to wedge this step until forceExit with the workers never stopped. Idle sockets are
+    // released; a request that is really in flight is left alone and completes. One call is not enough: a socket that is busy at the
+    // moment of close() turns idle afterwards, so the release repeats until close() has called back.
+    await new Promise<void>((resolve) => {
+      let closed = false;
+      const release = setInterval(() => server.closeIdleConnections?.(), 100);
+      release.unref();
+      server.close(() => { closed = true; clearInterval(release); resolve(); });
+      if (!closed) server.closeIdleConnections?.();
+    });
     // 2. Stop the workers and wait for work already in flight.
     await Promise.all(workers.map((worker) => worker.stop()));
     // 3. Only now close storage — it drains to full quiet on its own, so no

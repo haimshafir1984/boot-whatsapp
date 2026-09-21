@@ -167,6 +167,11 @@ export class MetaGatewayInbox {
     return touched;
   }
 
+  /** Items in the given statuses, oldest first (admin listing). */
+  listByStatus(statuses: MetaGatewayInboxStatus[]): MetaGatewayInboxItem[] {
+    return this.data.items.filter((item) => statuses.includes(item.status)).sort((a, b) => a.updatedAt.localeCompare(b.updatedAt)).map((item) => ({ ...item }));
+  }
+
   counts(): Record<MetaGatewayInboxStatus, number> {
     const counts: Record<MetaGatewayInboxStatus, number> = { queued: 0, processing: 0, retry: 0, completed: 0, failed: 0, held: 0 };
     for (const item of this.data.items) counts[item.status] += 1;

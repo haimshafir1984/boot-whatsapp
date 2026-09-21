@@ -1,0 +1,67 @@
+{
+ "head": "098b94f",
+ "host": "dev laptop, not production hardware",
+ "note": "conversationState.set() sync cost, PG mode, by resident conversations",
+ "rows": [
+  {
+   "N": 100,
+   "fileKB": 26,
+   "setMs": {
+    "median": 0.68,
+    "p95": 1.03,
+    "max": 2.02
+   },
+   "partsMs": {
+    "buildSnapshot": 0.28,
+    "deepClone": 0.15,
+    "prettyStringify": 0.07,
+    "fileWrite": 0.42
+   }
+  },
+  {
+   "N": 1200,
+   "fileKB": 318,
+   "setMs": {
+    "median": 5.08,
+    "p95": 7.72,
+    "max": 16.84
+   },
+   "partsMs": {
+    "buildSnapshot": 1.64,
+    "deepClone": 2.11,
+    "prettyStringify": 1.36,
+    "fileWrite": 0.6
+   }
+  },
+  {
+   "N": 5000,
+   "fileKB": 1327,
+   "setMs": {
+    "median": 18.74,
+    "p95": 24.3,
+    "max": 43.71
+   },
+   "partsMs": {
+    "buildSnapshot": 5.12,
+    "deepClone": 8.8,
+    "prettyStringify": 5.24,
+    "fileWrite": 1.15
+   }
+  },
+  {
+   "N": 20000,
+   "fileKB": 5321,
+   "setMs": {
+    "median": 77.41,
+    "p95": 105.68,
+    "max": 172.7
+   },
+   "partsMs": {
+    "buildSnapshot": 19.21,
+    "deepClone": 36.29,
+    "prettyStringify": 23.05,
+    "fileWrite": 3.53
+   }
+  }
+ ]
+}

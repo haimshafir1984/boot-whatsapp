@@ -71,3 +71,12 @@ test-delivery-recovery-paths.js
 test-delivery-recovery-s45.js
 test-evidence-during-send.js
 test-evidence-during-send-postgres.js
+# stage E / C2
+test-inbox-one-per-sender.js
+test-inbox-repository-postgres.js
+test-inbox-crash-after-effect.js
+# stage E / C3
+test-inbox-runtime-postgres.js
+test-conversation-state-rows-postgres.js
+test-inbox-migration-postgres.js
+test-shutdown-idle-connections.js

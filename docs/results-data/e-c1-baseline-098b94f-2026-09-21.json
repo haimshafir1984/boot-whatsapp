@@ -1,0 +1,2549 @@
+{
+ "criteria": {
+  "bytesWrittenRatioMin": 50,
+  "scannedAtLeastFractionOfItems": 0.9,
+  "p95TimeRatioMin": 10,
+  "backlogSlopeRatioMin": 5
+ },
+ "criteriaSha": "14d56393d9689834",
+ "scriptSha": "d954eccdfbb1192d",
+ "dist": "C:\\Users\\haim\\AppData\\Local\\Temp\\claude\\C--Users-haim-Projects-parpar-sagol\\b9f87141-7671-4090-bd51-54e492c7ae49\\scratchpad\\e_base\\dist",
+ "host": {
+  "cpu": "AMD Ryzen 7 PRO 5850U with Radeon Graphics     ",
+  "threads": 16,
+  "ramGB": 30,
+  "node": "v24.16.0"
+ },
+ "verdict": {
+  "evaluated": true,
+  "op": "markRetry",
+  "bytesWrittenPerOp": {
+   "lo": 648166,
+   "hi": 77578766
+  },
+  "scannedPerOp": {
+   "lo": 821,
+   "hi": 110221,
+   "actualTotalItemsAtHi": 55160
+  },
+  "p95Ms": {
+   "lo": 6.427,
+   "hi": 314.061
+  },
+  "c1_bytesRatio": 119.69,
+  "c1_pass": true,
+  "c2_scannedFraction": 1.998,
+  "c2_pass": true,
+  "c3_p95Ratio": 48.87,
+  "c3_pass": true,
+  "slope": {
+   "b0P50": 5.179,
+   "b5000P50": 20.313,
+   "ratio": 3.92,
+   "bytesRatio": 12.49
+  },
+  "slope_pass": false,
+  "mechanismProven": true,
+  "timeReproduced": true,
+  "verdict": "DEGRADATION REPRODUCED (mechanism + time)"
+ },
+ "results": [
+  {
+   "cell": {
+    "H": 300,
+    "B": 0,
+    "scenario": "base",
+    "pass": "c"
+   },
+   "seeded": 300,
+   "fileBytesSeeded": 209723,
+   "counts": {
+    "afterSeed": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 0,
+     "completed": 0,
+     "failed": 150,
+     "held": 150,
+     "total": 300
+    },
+    "afterFirstEnqueues": {
+     "queued": 80,
+     "processing": 0,
+     "retry": 0,
+     "completed": 0,
+     "failed": 150,
+     "held": 150,
+     "total": 380
+    },
+    "afterOps": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 80,
+     "completed": 80,
+     "failed": 150,
+     "held": 150,
+     "total": 460
+    },
+    "end": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 80,
+     "completed": 230,
+     "failed": 150,
+     "held": 150,
+     "total": 610
+    }
+   },
+   "timingMs": {
+    "enqueue": {
+     "n": 80,
+     "p50": 4.996,
+     "p95": 6.147,
+     "max": 14.223,
+     "mean": 5.163
+    },
+    "claim": {
+     "n": 80,
+     "p50": 5.436,
+     "p95": 6.437,
+     "max": 19.729,
+     "mean": 5.633
+    },
+    "retry": {
+     "n": 40,
+     "p50": 5.179,
+     "p95": 6.427,
+     "max": 6.58,
+     "mean": 5.204
+    },
+    "complete": {
+     "n": 40,
+     "p50": 4.83,
+     "p95": 5.767,
+     "max": 6.26,
+     "mean": 4.869
+    },
+    "idle": {
+     "n": 40,
+     "p50": 0.112,
+     "p95": 0.282,
+     "max": 0.516,
+     "mean": 0.135
+    }
+   },
+   "bytesPerOpTimingPass": {
+    "enqueue": {
+     "written": 236696,
+     "copied": 236030
+    },
+    "claim": {
+     "written": 265150,
+     "copied": 265097
+    },
+    "retry": {
+     "written": 267694,
+     "copied": 267672
+    },
+    "complete": {
+     "written": 267098,
+     "copied": 267148
+    },
+    "idle": {
+     "written": 0,
+     "copied": 0
+    }
+   },
+   "perOp": {
+    "enqueue": {
+     "scanned": 2058,
+     "stringified": 293096,
+     "written": 293096,
+     "copied": 292430,
+     "n": 80
+    },
+    "claim": {
+     "scanned": 2420,
+     "stringified": 321550,
+     "written": 321550,
+     "copied": 321497,
+     "n": 80
+    },
+    "retry": {
+     "scanned": 821,
+     "stringified": 324094,
+     "written": 324094,
+     "copied": 324072,
+     "n": 40
+    },
+    "complete": {
+     "scanned": 862,
+     "stringified": 323498,
+     "written": 323498,
+     "copied": 323548,
+     "n": 40
+    },
+    "idle": {
+     "scanned": 1380,
+     "stringified": 0,
+     "written": 0,
+     "copied": 0,
+     "n": 40
+    }
+   },
+   "lag": {
+    "burstMs": 1682,
+    "eventLoopDelayMs": {
+     "p99": 116.79,
+     "max": 118.29
+    },
+    "heartbeatLagMs": {
+     "p99": 109.76,
+     "max": 109.76
+    }
+   },
+   "fileBytesEnd": 422873
+  },
+  {
+   "cell": {
+    "H": 300,
+    "B": 500,
+    "scenario": "base",
+    "pass": "c"
+   },
+   "seeded": 800,
+   "fileBytesSeeded": 582223,
+   "counts": {
+    "afterSeed": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 500,
+     "completed": 0,
+     "failed": 150,
+     "held": 150,
+     "total": 800
+    },
+    "afterFirstEnqueues": {
+     "queued": 80,
+     "processing": 0,
+     "retry": 500,
+     "completed": 0,
+     "failed": 150,
+     "held": 150,
+     "total": 880
+    },
+    "afterOps": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 580,
+     "completed": 80,
+     "failed": 150,
+     "held": 150,
+     "total": 960
+    },
+    "end": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 580,
+     "completed": 230,
+     "failed": 150,
+     "held": 150,
+     "total": 1110
+    }
+   },
+   "timingMs": {
+    "enqueue": {
+     "n": 80,
+     "p50": 7.188,
+     "p95": 8.577,
+     "max": 16.611,
+     "mean": 7.352
+    },
+    "claim": {
+     "n": 80,
+     "p50": 7.597,
+     "p95": 8.928,
+     "max": 21.461,
+     "mean": 7.841
+    },
+    "retry": {
+     "n": 40,
+     "p50": 7.086,
+     "p95": 8.071,
+     "max": 8.193,
+     "mean": 7.037
+    },
+    "complete": {
+     "n": 40,
+     "p50": 7.008,
+     "p95": 8.712,
+     "max": 8.913,
+     "mean": 7.055
+    },
+    "idle": {
+     "n": 40,
+     "p50": 0.533,
+     "p95": 0.912,
+     "max": 1.012,
+     "mean": 0.588
+    }
+   },
+   "bytesPerOpTimingPass": {
+    "enqueue": {
+     "written": 609196,
+     "copied": 608530
+    },
+    "claim": {
+     "written": 637650,
+     "copied": 637597
+    },
+    "retry": {
+     "written": 640194,
+     "copied": 640172
+    },
+    "complete": {
+     "written": 639598,
+     "copied": 639648
+    },
+    "idle": {
+     "written": 0,
+     "copied": 0
+    }
+   },
+   "perOp": {
+    "enqueue": {
+     "scanned": 4558,
+     "stringified": 665596,
+     "written": 665596,
+     "copied": 664930,
+     "n": 80
+    },
+    "claim": {
+     "scanned": 5420,
+     "stringified": 694050,
+     "written": 694050,
+     "copied": 693997,
+     "n": 80
+    },
+    "retry": {
+     "scanned": 1821,
+     "stringified": 696594,
+     "written": 696594,
+     "copied": 696572,
+     "n": 40
+    },
+    "complete": {
+     "scanned": 1862,
+     "stringified": 695998,
+     "written": 695998,
+     "copied": 696048,
+     "n": 40
+    },
+    "idle": {
+     "scanned": 3460,
+     "stringified": 0,
+     "written": 0,
+     "copied": 0,
+     "n": 40
+    }
+   },
+   "lag": {
+    "burstMs": 2210,
+    "eventLoopDelayMs": {
+     "p99": 137.49,
+     "max": 159.25
+    },
+    "heartbeatLagMs": {
+     "p99": 158.13,
+     "max": 158.13
+    }
+   },
+   "fileBytesEnd": 795373
+  },
+  {
+   "cell": {
+    "H": 300,
+    "B": 5000,
+    "scenario": "base",
+    "pass": "c"
+   },
+   "seeded": 5300,
+   "fileBytesSeeded": 3934723,
+   "counts": {
+    "afterSeed": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 5000,
+     "completed": 0,
+     "failed": 150,
+     "held": 150,
+     "total": 5300
+    },
+    "afterFirstEnqueues": {
+     "queued": 80,
+     "processing": 0,
+     "retry": 5000,
+     "completed": 0,
+     "failed": 150,
+     "held": 150,
+     "total": 5380
+    },
+    "afterOps": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 5080,
+     "completed": 80,
+     "failed": 150,
+     "held": 150,
+     "total": 5460
+    },
+    "end": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 5080,
+     "completed": 230,
+     "failed": 150,
+     "held": 150,
+     "total": 5610
+    }
+   },
+   "timingMs": {
+    "enqueue": {
+     "n": 80,
+     "p50": 21.734,
+     "p95": 27.961,
+     "max": 31.049,
+     "mean": 22.236
+    },
+    "claim": {
+     "n": 80,
+     "p50": 24.949,
+     "p95": 30.837,
+     "max": 40.142,
+     "mean": 25.786
+    },
+    "retry": {
+     "n": 40,
+     "p50": 20.313,
+     "p95": 26.995,
+     "max": 28.819,
+     "mean": 20.946
+    },
+    "complete": {
+     "n": 40,
+     "p50": 19.804,
+     "p95": 22.177,
+     "max": 22.576,
+     "mean": 20.034
+    },
+    "idle": {
+     "n": 40,
+     "p50": 3.478,
+     "p95": 4.572,
+     "max": 5.535,
+     "mean": 3.609
+    }
+   },
+   "bytesPerOpTimingPass": {
+    "enqueue": {
+     "written": 3961696,
+     "copied": 3961030
+    },
+    "claim": {
+     "written": 3990150,
+     "copied": 3990097
+    },
+    "retry": {
+     "written": 3992694,
+     "copied": 3992672
+    },
+    "complete": {
+     "written": 3992098,
+     "copied": 3992148
+    },
+    "idle": {
+     "written": 0,
+     "copied": 0
+    }
+   },
+   "perOp": {
+    "enqueue": {
+     "scanned": 27058,
+     "stringified": 4018096,
+     "written": 4018096,
+     "copied": 4017430,
+     "n": 80
+    },
+    "claim": {
+     "scanned": 32420,
+     "stringified": 4046550,
+     "written": 4046550,
+     "copied": 4046497,
+     "n": 80
+    },
+    "retry": {
+     "scanned": 10821,
+     "stringified": 4049094,
+     "written": 4049094,
+     "copied": 4049072,
+     "n": 40
+    },
+    "complete": {
+     "scanned": 10862,
+     "stringified": 4048498,
+     "written": 4048498,
+     "copied": 4048548,
+     "n": 40
+    },
+    "idle": {
+     "scanned": 21460,
+     "stringified": 0,
+     "written": 0,
+     "copied": 0,
+     "n": 40
+    }
+   },
+   "lag": {
+    "burstMs": 6789,
+    "eventLoopDelayMs": {
+     "p99": 468.45,
+     "max": 485.23
+    },
+    "heartbeatLagMs": {
+     "p99": 462.85,
+     "max": 475.09
+    }
+   },
+   "fileBytesEnd": 4147873
+  },
+  {
+   "cell": {
+    "H": 5000,
+    "B": 0,
+    "scenario": "base",
+    "pass": "c"
+   },
+   "seeded": 5000,
+   "fileBytesSeeded": 3495023,
+   "counts": {
+    "afterSeed": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 0,
+     "completed": 0,
+     "failed": 2500,
+     "held": 2500,
+     "total": 5000
+    },
+    "afterFirstEnqueues": {
+     "queued": 80,
+     "processing": 0,
+     "retry": 0,
+     "completed": 0,
+     "failed": 2500,
+     "held": 2500,
+     "total": 5080
+    },
+    "afterOps": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 80,
+     "completed": 80,
+     "failed": 2500,
+     "held": 2500,
+     "total": 5160
+    },
+    "end": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 80,
+     "completed": 230,
+     "failed": 2500,
+     "held": 2500,
+     "total": 5310
+    }
+   },
+   "timingMs": {
+    "enqueue": {
+     "n": 80,
+     "p50": 18.851,
+     "p95": 22.868,
+     "max": 29.822,
+     "mean": 19.312
+    },
+    "claim": {
+     "n": 80,
+     "p50": 19.689,
+     "p95": 24.595,
+     "max": 30.397,
+     "mean": 20.208
+    },
+    "retry": {
+     "n": 40,
+     "p50": 18.893,
+     "p95": 21.396,
+     "max": 25.849,
+     "mean": 19.187
+    },
+    "complete": {
+     "n": 40,
+     "p50": 18.672,
+     "p95": 25.534,
+     "max": 26.044,
+     "mean": 19.146
+    },
+    "idle": {
+     "n": 40,
+     "p50": 0.847,
+     "p95": 1.347,
+     "max": 1.707,
+     "mean": 0.891
+    }
+   },
+   "bytesPerOpTimingPass": {
+    "enqueue": {
+     "written": 3521996,
+     "copied": 3521330
+    },
+    "claim": {
+     "written": 3550450,
+     "copied": 3550397
+    },
+    "retry": {
+     "written": 3552994,
+     "copied": 3552972
+    },
+    "complete": {
+     "written": 3552398,
+     "copied": 3552448
+    },
+    "idle": {
+     "written": 0,
+     "copied": 0
+    }
+   },
+   "perOp": {
+    "enqueue": {
+     "scanned": 25558,
+     "stringified": 3578396,
+     "written": 3578396,
+     "copied": 3577730,
+     "n": 80
+    },
+    "claim": {
+     "scanned": 25920,
+     "stringified": 3606850,
+     "written": 3606850,
+     "copied": 3606797,
+     "n": 80
+    },
+    "retry": {
+     "scanned": 10221,
+     "stringified": 3609394,
+     "written": 3609394,
+     "copied": 3609372,
+     "n": 40
+    },
+    "complete": {
+     "scanned": 10262,
+     "stringified": 3608798,
+     "written": 3608798,
+     "copied": 3608848,
+     "n": 40
+    },
+    "idle": {
+     "scanned": 15480,
+     "stringified": 0,
+     "written": 0,
+     "copied": 0,
+     "n": 40
+    }
+   },
+   "lag": {
+    "burstMs": 6219,
+    "eventLoopDelayMs": {
+     "p99": 430.18,
+     "max": 444.07
+    },
+    "heartbeatLagMs": {
+     "p99": 421.03,
+     "max": 434.05
+    }
+   },
+   "fileBytesEnd": 3708173
+  },
+  {
+   "cell": {
+    "H": 5000,
+    "B": 500,
+    "scenario": "base",
+    "pass": "c"
+   },
+   "seeded": 5500,
+   "fileBytesSeeded": 3867523,
+   "counts": {
+    "afterSeed": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 500,
+     "completed": 0,
+     "failed": 2500,
+     "held": 2500,
+     "total": 5500
+    },
+    "afterFirstEnqueues": {
+     "queued": 80,
+     "processing": 0,
+     "retry": 500,
+     "completed": 0,
+     "failed": 2500,
+     "held": 2500,
+     "total": 5580
+    },
+    "afterOps": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 580,
+     "completed": 80,
+     "failed": 2500,
+     "held": 2500,
+     "total": 5660
+    },
+    "end": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 580,
+     "completed": 230,
+     "failed": 2500,
+     "held": 2500,
+     "total": 5810
+    }
+   },
+   "timingMs": {
+    "enqueue": {
+     "n": 80,
+     "p50": 20.676,
+     "p95": 25.046,
+     "max": 29.543,
+     "mean": 21.14
+    },
+    "claim": {
+     "n": 80,
+     "p50": 21.863,
+     "p95": 28.957,
+     "max": 35.145,
+     "mean": 22.77
+    },
+    "retry": {
+     "n": 40,
+     "p50": 19.78,
+     "p95": 27.81,
+     "max": 29.452,
+     "mean": 20.521
+    },
+    "complete": {
+     "n": 40,
+     "p50": 19.724,
+     "p95": 24.855,
+     "max": 26.296,
+     "mean": 20.335
+    },
+    "idle": {
+     "n": 40,
+     "p50": 1.192,
+     "p95": 1.81,
+     "max": 2.023,
+     "mean": 1.244
+    }
+   },
+   "bytesPerOpTimingPass": {
+    "enqueue": {
+     "written": 3894496,
+     "copied": 3893830
+    },
+    "claim": {
+     "written": 3922950,
+     "copied": 3922897
+    },
+    "retry": {
+     "written": 3925494,
+     "copied": 3925472
+    },
+    "complete": {
+     "written": 3924898,
+     "copied": 3924948
+    },
+    "idle": {
+     "written": 0,
+     "copied": 0
+    }
+   },
+   "perOp": {
+    "enqueue": {
+     "scanned": 28058,
+     "stringified": 3950896,
+     "written": 3950896,
+     "copied": 3950230,
+     "n": 80
+    },
+    "claim": {
+     "scanned": 28920,
+     "stringified": 3979350,
+     "written": 3979350,
+     "copied": 3979297,
+     "n": 80
+    },
+    "retry": {
+     "scanned": 11221,
+     "stringified": 3981894,
+     "written": 3981894,
+     "copied": 3981872,
+     "n": 40
+    },
+    "complete": {
+     "scanned": 11262,
+     "stringified": 3981298,
+     "written": 3981298,
+     "copied": 3981348,
+     "n": 40
+    },
+    "idle": {
+     "scanned": 17560,
+     "stringified": 0,
+     "written": 0,
+     "copied": 0,
+     "n": 40
+    }
+   },
+   "lag": {
+    "burstMs": 6580,
+    "eventLoopDelayMs": {
+     "p99": 446.43,
+     "max": 478.67
+    },
+    "heartbeatLagMs": {
+     "p99": 442.09,
+     "max": 468.47
+    }
+   },
+   "fileBytesEnd": 4080673
+  },
+  {
+   "cell": {
+    "H": 5000,
+    "B": 5000,
+    "scenario": "base",
+    "pass": "c"
+   },
+   "seeded": 10000,
+   "fileBytesSeeded": 7220023,
+   "counts": {
+    "afterSeed": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 5000,
+     "completed": 0,
+     "failed": 2500,
+     "held": 2500,
+     "total": 10000
+    },
+    "afterFirstEnqueues": {
+     "queued": 80,
+     "processing": 0,
+     "retry": 5000,
+     "completed": 0,
+     "failed": 2500,
+     "held": 2500,
+     "total": 10080
+    },
+    "afterOps": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 5080,
+     "completed": 80,
+     "failed": 2500,
+     "held": 2500,
+     "total": 10160
+    },
+    "end": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 5080,
+     "completed": 230,
+     "failed": 2500,
+     "held": 2500,
+     "total": 10310
+    }
+   },
+   "timingMs": {
+    "enqueue": {
+     "n": 80,
+     "p50": 35.655,
+     "p95": 46.462,
+     "max": 54.13,
+     "mean": 36.716
+    },
+    "claim": {
+     "n": 80,
+     "p50": 40.017,
+     "p95": 46.377,
+     "max": 53.445,
+     "mean": 40.956
+    },
+    "retry": {
+     "n": 40,
+     "p50": 35.076,
+     "p95": 43.443,
+     "max": 45.143,
+     "mean": 35.891
+    },
+    "complete": {
+     "n": 40,
+     "p50": 34.722,
+     "p95": 44.281,
+     "max": 49.68,
+     "mean": 35.659
+    },
+    "idle": {
+     "n": 40,
+     "p50": 4.385,
+     "p95": 6.17,
+     "max": 6.743,
+     "mean": 4.633
+    }
+   },
+   "bytesPerOpTimingPass": {
+    "enqueue": {
+     "written": 7246996,
+     "copied": 7246330
+    },
+    "claim": {
+     "written": 7275450,
+     "copied": 7275397
+    },
+    "retry": {
+     "written": 7277994,
+     "copied": 7277972
+    },
+    "complete": {
+     "written": 7277398,
+     "copied": 7277448
+    },
+    "idle": {
+     "written": 0,
+     "copied": 0
+    }
+   },
+   "perOp": {
+    "enqueue": {
+     "scanned": 50558,
+     "stringified": 7303396,
+     "written": 7303396,
+     "copied": 7302730,
+     "n": 80
+    },
+    "claim": {
+     "scanned": 55920,
+     "stringified": 7331850,
+     "written": 7331850,
+     "copied": 7331797,
+     "n": 80
+    },
+    "retry": {
+     "scanned": 20221,
+     "stringified": 7334394,
+     "written": 7334394,
+     "copied": 7334372,
+     "n": 40
+    },
+    "complete": {
+     "scanned": 20262,
+     "stringified": 7333798,
+     "written": 7333798,
+     "copied": 7333848,
+     "n": 40
+    },
+    "idle": {
+     "scanned": 35560,
+     "stringified": 0,
+     "written": 0,
+     "copied": 0,
+     "n": 40
+    }
+   },
+   "lag": {
+    "burstMs": 11509,
+    "eventLoopDelayMs": {
+     "p99": 771.23,
+     "max": 779.62
+    },
+    "heartbeatLagMs": {
+     "p99": 769.39,
+     "max": 769.61
+    }
+   },
+   "fileBytesEnd": 7433173
+  },
+  {
+   "cell": {
+    "H": 50000,
+    "B": 0,
+    "scenario": "base",
+    "pass": "c"
+   },
+   "seeded": 50000,
+   "fileBytesSeeded": 34950023,
+   "counts": {
+    "afterSeed": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 0,
+     "completed": 0,
+     "failed": 25000,
+     "held": 25000,
+     "total": 50000
+    },
+    "afterFirstEnqueues": {
+     "queued": 80,
+     "processing": 0,
+     "retry": 0,
+     "completed": 0,
+     "failed": 25000,
+     "held": 25000,
+     "total": 50080
+    },
+    "afterOps": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 80,
+     "completed": 80,
+     "failed": 25000,
+     "held": 25000,
+     "total": 50160
+    },
+    "end": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 80,
+     "completed": 230,
+     "failed": 25000,
+     "held": 25000,
+     "total": 50310
+    }
+   },
+   "timingMs": {
+    "enqueue": {
+     "n": 80,
+     "p50": 243.923,
+     "p95": 269.269,
+     "max": 315.691,
+     "mean": 239.812
+    },
+    "claim": {
+     "n": 80,
+     "p50": 259.778,
+     "p95": 323.957,
+     "max": 361.997,
+     "mean": 265.761
+    },
+    "retry": {
+     "n": 40,
+     "p50": 206.29,
+     "p95": 265.482,
+     "max": 291.788,
+     "mean": 211.894
+    },
+    "complete": {
+     "n": 40,
+     "p50": 204.988,
+     "p95": 227.773,
+     "max": 238.72,
+     "mean": 205.216
+    },
+    "idle": {
+     "n": 40,
+     "p50": 8.805,
+     "p95": 11.667,
+     "max": 11.771,
+     "mean": 9.089
+    }
+   },
+   "bytesPerOpTimingPass": {
+    "enqueue": {
+     "written": 34976996,
+     "copied": 34976330
+    },
+    "claim": {
+     "written": 35005450,
+     "copied": 35005397
+    },
+    "retry": {
+     "written": 35007994,
+     "copied": 35007972
+    },
+    "complete": {
+     "written": 35007398,
+     "copied": 35007448
+    },
+    "idle": {
+     "written": 0,
+     "copied": 0
+    }
+   },
+   "perOp": {
+    "enqueue": {
+     "scanned": 250558,
+     "stringified": 35033396,
+     "written": 35033396,
+     "copied": 35032730,
+     "n": 80
+    },
+    "claim": {
+     "scanned": 250920,
+     "stringified": 35061850,
+     "written": 35061850,
+     "copied": 35061797,
+     "n": 80
+    },
+    "retry": {
+     "scanned": 100221,
+     "stringified": 35064394,
+     "written": 35064394,
+     "copied": 35064372,
+     "n": 40
+    },
+    "complete": {
+     "scanned": 100262,
+     "stringified": 35063798,
+     "written": 35063798,
+     "copied": 35063848,
+     "n": 40
+    },
+    "idle": {
+     "scanned": 150480,
+     "stringified": 0,
+     "written": 0,
+     "copied": 0,
+     "n": 40
+    }
+   },
+   "lag": {
+    "burstMs": 78766,
+    "eventLoopDelayMs": {
+     "p99": 5226.1,
+     "max": 5427.43
+    },
+    "heartbeatLagMs": {
+     "p99": 5260.65,
+     "max": 5416.74
+    }
+   },
+   "fileBytesEnd": 35163173
+  },
+  {
+   "cell": {
+    "H": 50000,
+    "B": 500,
+    "scenario": "base",
+    "pass": "c"
+   },
+   "seeded": 50500,
+   "fileBytesSeeded": 35322523,
+   "counts": {
+    "afterSeed": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 500,
+     "completed": 0,
+     "failed": 25000,
+     "held": 25000,
+     "total": 50500
+    },
+    "afterFirstEnqueues": {
+     "queued": 80,
+     "processing": 0,
+     "retry": 500,
+     "completed": 0,
+     "failed": 25000,
+     "held": 25000,
+     "total": 50580
+    },
+    "afterOps": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 580,
+     "completed": 80,
+     "failed": 25000,
+     "held": 25000,
+     "total": 50660
+    },
+    "end": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 580,
+     "completed": 230,
+     "failed": 25000,
+     "held": 25000,
+     "total": 50810
+    }
+   },
+   "timingMs": {
+    "enqueue": {
+     "n": 80,
+     "p50": 249.119,
+     "p95": 301.099,
+     "max": 524.192,
+     "mean": 254.667
+    },
+    "claim": {
+     "n": 80,
+     "p50": 253.388,
+     "p95": 287.132,
+     "max": 320.699,
+     "mean": 255.762
+    },
+    "retry": {
+     "n": 40,
+     "p50": 243.075,
+     "p95": 274.735,
+     "max": 300.857,
+     "mean": 245.329
+    },
+    "complete": {
+     "n": 40,
+     "p50": 238.031,
+     "p95": 263.511,
+     "max": 318.812,
+     "mean": 240.261
+    },
+    "idle": {
+     "n": 40,
+     "p50": 12.427,
+     "p95": 13.751,
+     "max": 16.587,
+     "mean": 12.464
+    }
+   },
+   "bytesPerOpTimingPass": {
+    "enqueue": {
+     "written": 35349496,
+     "copied": 35348830
+    },
+    "claim": {
+     "written": 35377950,
+     "copied": 35377897
+    },
+    "retry": {
+     "written": 35380494,
+     "copied": 35380472
+    },
+    "complete": {
+     "written": 35379898,
+     "copied": 35379948
+    },
+    "idle": {
+     "written": 0,
+     "copied": 0
+    }
+   },
+   "perOp": {
+    "enqueue": {
+     "scanned": 253058,
+     "stringified": 35405896,
+     "written": 35405896,
+     "copied": 35405230,
+     "n": 80
+    },
+    "claim": {
+     "scanned": 253920,
+     "stringified": 35434350,
+     "written": 35434350,
+     "copied": 35434297,
+     "n": 80
+    },
+    "retry": {
+     "scanned": 101221,
+     "stringified": 35436894,
+     "written": 35436894,
+     "copied": 35436872,
+     "n": 40
+    },
+    "complete": {
+     "scanned": 101262,
+     "stringified": 35436298,
+     "written": 35436298,
+     "copied": 35436348,
+     "n": 40
+    },
+    "idle": {
+     "scanned": 152560,
+     "stringified": 0,
+     "written": 0,
+     "copied": 0,
+     "n": 40
+    }
+   },
+   "lag": {
+    "burstMs": 75619,
+    "eventLoopDelayMs": {
+     "p99": 5200.94,
+     "max": 5280.63
+    },
+    "heartbeatLagMs": {
+     "p99": 5205.84,
+     "max": 5267.07
+    }
+   },
+   "fileBytesEnd": 35535673
+  },
+  {
+   "cell": {
+    "H": 50000,
+    "B": 5000,
+    "scenario": "base",
+    "pass": "c"
+   },
+   "seeded": 55000,
+   "fileBytesSeeded": 38675023,
+   "counts": {
+    "afterSeed": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 5000,
+     "completed": 0,
+     "failed": 25000,
+     "held": 25000,
+     "total": 55000
+    },
+    "afterFirstEnqueues": {
+     "queued": 80,
+     "processing": 0,
+     "retry": 5000,
+     "completed": 0,
+     "failed": 25000,
+     "held": 25000,
+     "total": 55080
+    },
+    "afterOps": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 5080,
+     "completed": 80,
+     "failed": 25000,
+     "held": 25000,
+     "total": 55160
+    },
+    "end": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 5080,
+     "completed": 230,
+     "failed": 25000,
+     "held": 25000,
+     "total": 55310
+    }
+   },
+   "timingMs": {
+    "enqueue": {
+     "n": 80,
+     "p50": 260.839,
+     "p95": 342.51,
+     "max": 354.18,
+     "mean": 262.723
+    },
+    "claim": {
+     "n": 80,
+     "p50": 286.418,
+     "p95": 389.122,
+     "max": 477.464,
+     "mean": 296.143
+    },
+    "retry": {
+     "n": 40,
+     "p50": 258.65,
+     "p95": 314.061,
+     "max": 325.195,
+     "mean": 255.831
+    },
+    "complete": {
+     "n": 40,
+     "p50": 260.552,
+     "p95": 351.147,
+     "max": 366.804,
+     "mean": 261.813
+    },
+    "idle": {
+     "n": 40,
+     "p50": 16.733,
+     "p95": 18.763,
+     "max": 20.967,
+     "mean": 17.016
+    }
+   },
+   "bytesPerOpTimingPass": {
+    "enqueue": {
+     "written": 38701996,
+     "copied": 38701330
+    },
+    "claim": {
+     "written": 38730450,
+     "copied": 38730397
+    },
+    "retry": {
+     "written": 38732994,
+     "copied": 38732972
+    },
+    "complete": {
+     "written": 38732398,
+     "copied": 38732448
+    },
+    "idle": {
+     "written": 0,
+     "copied": 0
+    }
+   },
+   "perOp": {
+    "enqueue": {
+     "scanned": 275558,
+     "stringified": 38758396,
+     "written": 38758396,
+     "copied": 38757730,
+     "n": 80
+    },
+    "claim": {
+     "scanned": 280920,
+     "stringified": 38786850,
+     "written": 38786850,
+     "copied": 38786797,
+     "n": 80
+    },
+    "retry": {
+     "scanned": 110221,
+     "stringified": 38789394,
+     "written": 38789394,
+     "copied": 38789372,
+     "n": 40
+    },
+    "complete": {
+     "scanned": 110262,
+     "stringified": 38788798,
+     "written": 38788798,
+     "copied": 38788848,
+     "n": 40
+    },
+    "idle": {
+     "scanned": 170560,
+     "stringified": 0,
+     "written": 0,
+     "copied": 0,
+     "n": 40
+    }
+   },
+   "lag": {
+    "burstMs": 84890,
+    "eventLoopDelayMs": {
+     "p99": 5788.14,
+     "max": 6115.3
+    },
+    "heartbeatLagMs": {
+     "p99": 5836.6,
+     "max": 6102.03
+    }
+   },
+   "fileBytesEnd": 38888173
+  },
+  {
+   "cell": {
+    "H": 300,
+    "B": 0,
+    "scenario": "blocked-one",
+    "pass": "c"
+   },
+   "seeded": 501,
+   "fileBytesSeeded": 344033,
+   "counts": {
+    "afterSeed": {
+     "queued": 200,
+     "processing": 0,
+     "retry": 1,
+     "completed": 0,
+     "failed": 150,
+     "held": 150,
+     "total": 501
+    },
+    "afterFirstEnqueues": {
+     "queued": 280,
+     "processing": 0,
+     "retry": 1,
+     "completed": 0,
+     "failed": 150,
+     "held": 150,
+     "total": 581
+    },
+    "afterOps": {
+     "queued": 200,
+     "processing": 0,
+     "retry": 81,
+     "completed": 80,
+     "failed": 150,
+     "held": 150,
+     "total": 661
+    },
+    "end": {
+     "queued": 200,
+     "processing": 0,
+     "retry": 81,
+     "completed": 230,
+     "failed": 150,
+     "held": 150,
+     "total": 811
+    }
+   },
+   "timingMs": {
+    "enqueue": {
+     "n": 80,
+     "p50": 5.495,
+     "p95": 7.448,
+     "max": 13.144,
+     "mean": 5.788
+    },
+    "claim": {
+     "n": 80,
+     "p50": 6.092,
+     "p95": 7.738,
+     "max": 19.673,
+     "mean": 6.367
+    },
+    "retry": {
+     "n": 40,
+     "p50": 5.535,
+     "p95": 6.084,
+     "max": 6.768,
+     "mean": 5.566
+    },
+    "complete": {
+     "n": 40,
+     "p50": 5.736,
+     "p95": 12.772,
+     "max": 17.81,
+     "mean": 6.248
+    },
+    "idle": {
+     "n": 40,
+     "p50": 0.26,
+     "p95": 0.645,
+     "max": 0.741,
+     "mean": 0.3
+    }
+   },
+   "bytesPerOpTimingPass": {
+    "enqueue": {
+     "written": 371006,
+     "copied": 370340
+    },
+    "claim": {
+     "written": 399460,
+     "copied": 399407
+    },
+    "retry": {
+     "written": 402004,
+     "copied": 401982
+    },
+    "complete": {
+     "written": 401408,
+     "copied": 401458
+    },
+    "idle": {
+     "written": 0,
+     "copied": 0
+    }
+   },
+   "perOp": {
+    "enqueue": {
+     "scanned": 3063,
+     "stringified": 427406,
+     "written": 427406,
+     "copied": 426740,
+     "n": 80
+    },
+    "claim": {
+     "scanned": 3426,
+     "stringified": 455860,
+     "written": 455860,
+     "copied": 455807,
+     "n": 80
+    },
+    "retry": {
+     "scanned": 1223,
+     "stringified": 458404,
+     "written": 458404,
+     "copied": 458382,
+     "n": 40
+    },
+    "complete": {
+     "scanned": 1264,
+     "stringified": 457808,
+     "written": 457808,
+     "copied": 457858,
+     "n": 40
+    },
+    "idle": {
+     "scanned": 1983,
+     "stringified": 0,
+     "written": 0,
+     "copied": 0,
+     "n": 40
+    }
+   },
+   "lag": {
+    "burstMs": 1627,
+    "eventLoopDelayMs": {
+     "p99": 116.2,
+     "max": 138.28
+    },
+    "heartbeatLagMs": {
+     "p99": 128.31,
+     "max": 128.31
+    }
+   },
+   "fileBytesEnd": 557183
+  },
+  {
+   "cell": {
+    "H": 300,
+    "B": 0,
+    "scenario": "blocked-many",
+    "pass": "c"
+   },
+   "seeded": 2300,
+   "fileBytesSeeded": 1566723,
+   "counts": {
+    "afterSeed": {
+     "queued": 1500,
+     "processing": 0,
+     "retry": 500,
+     "completed": 0,
+     "failed": 150,
+     "held": 150,
+     "total": 2300
+    },
+    "afterFirstEnqueues": {
+     "queued": 1580,
+     "processing": 0,
+     "retry": 500,
+     "completed": 0,
+     "failed": 150,
+     "held": 150,
+     "total": 2380
+    },
+    "afterOps": {
+     "queued": 1500,
+     "processing": 0,
+     "retry": 580,
+     "completed": 80,
+     "failed": 150,
+     "held": 150,
+     "total": 2460
+    },
+    "end": {
+     "queued": 1500,
+     "processing": 0,
+     "retry": 580,
+     "completed": 230,
+     "failed": 150,
+     "held": 150,
+     "total": 2610
+    }
+   },
+   "timingMs": {
+    "enqueue": {
+     "n": 80,
+     "p50": 10.609,
+     "p95": 14.473,
+     "max": 23.473,
+     "mean": 10.978
+    },
+    "claim": {
+     "n": 80,
+     "p50": 11.628,
+     "p95": 17.069,
+     "max": 22.847,
+     "mean": 12.073
+    },
+    "retry": {
+     "n": 40,
+     "p50": 10.349,
+     "p95": 11.828,
+     "max": 12.052,
+     "mean": 10.298
+    },
+    "complete": {
+     "n": 40,
+     "p50": 11.127,
+     "p95": 15.285,
+     "max": 17.701,
+     "mean": 11.311
+    },
+    "idle": {
+     "n": 40,
+     "p50": 1.292,
+     "p95": 2.094,
+     "max": 2.455,
+     "mean": 1.414
+    }
+   },
+   "bytesPerOpTimingPass": {
+    "enqueue": {
+     "written": 1593696,
+     "copied": 1593030
+    },
+    "claim": {
+     "written": 1622150,
+     "copied": 1622097
+    },
+    "retry": {
+     "written": 1624694,
+     "copied": 1624672
+    },
+    "complete": {
+     "written": 1624098,
+     "copied": 1624148
+    },
+    "idle": {
+     "written": 0,
+     "copied": 0
+    }
+   },
+   "perOp": {
+    "enqueue": {
+     "scanned": 12058,
+     "stringified": 1650096,
+     "written": 1650096,
+     "copied": 1649430,
+     "n": 80
+    },
+    "claim": {
+     "scanned": 12920,
+     "stringified": 1678550,
+     "written": 1678550,
+     "copied": 1678497,
+     "n": 80
+    },
+    "retry": {
+     "scanned": 4821,
+     "stringified": 1681094,
+     "written": 1681094,
+     "copied": 1681072,
+     "n": 40
+    },
+    "complete": {
+     "scanned": 4862,
+     "stringified": 1680498,
+     "written": 1680498,
+     "copied": 1680548,
+     "n": 40
+    },
+    "idle": {
+     "scanned": 7960,
+     "stringified": 0,
+     "written": 0,
+     "copied": 0,
+     "n": 40
+    }
+   },
+   "lag": {
+    "burstMs": 3641,
+    "eventLoopDelayMs": {
+     "p99": 252.44,
+     "max": 280.23
+    },
+    "heartbeatLagMs": {
+     "p99": 244.36,
+     "max": 270.08
+    }
+   },
+   "fileBytesEnd": 1779873
+  },
+  {
+   "cell": {
+    "H": 5000,
+    "B": 0,
+    "scenario": "blocked-one",
+    "pass": "c"
+   },
+   "seeded": 5201,
+   "fileBytesSeeded": 3629333,
+   "counts": {
+    "afterSeed": {
+     "queued": 200,
+     "processing": 0,
+     "retry": 1,
+     "completed": 0,
+     "failed": 2500,
+     "held": 2500,
+     "total": 5201
+    },
+    "afterFirstEnqueues": {
+     "queued": 280,
+     "processing": 0,
+     "retry": 1,
+     "completed": 0,
+     "failed": 2500,
+     "held": 2500,
+     "total": 5281
+    },
+    "afterOps": {
+     "queued": 200,
+     "processing": 0,
+     "retry": 81,
+     "completed": 80,
+     "failed": 2500,
+     "held": 2500,
+     "total": 5361
+    },
+    "end": {
+     "queued": 200,
+     "processing": 0,
+     "retry": 81,
+     "completed": 230,
+     "failed": 2500,
+     "held": 2500,
+     "total": 5511
+    }
+   },
+   "timingMs": {
+    "enqueue": {
+     "n": 80,
+     "p50": 19.926,
+     "p95": 24.745,
+     "max": 30.866,
+     "mean": 20.454
+    },
+    "claim": {
+     "n": 80,
+     "p50": 20.812,
+     "p95": 30.908,
+     "max": 32.968,
+     "mean": 21.689
+    },
+    "retry": {
+     "n": 40,
+     "p50": 20.18,
+     "p95": 24.252,
+     "max": 28.116,
+     "mean": 20.245
+    },
+    "complete": {
+     "n": 40,
+     "p50": 20.201,
+     "p95": 29.104,
+     "max": 31.393,
+     "mean": 21.586
+    },
+    "idle": {
+     "n": 40,
+     "p50": 1.033,
+     "p95": 1.121,
+     "max": 1.262,
+     "mean": 1.029
+    }
+   },
+   "bytesPerOpTimingPass": {
+    "enqueue": {
+     "written": 3656306,
+     "copied": 3655640
+    },
+    "claim": {
+     "written": 3684760,
+     "copied": 3684707
+    },
+    "retry": {
+     "written": 3687304,
+     "copied": 3687282
+    },
+    "complete": {
+     "written": 3686708,
+     "copied": 3686758
+    },
+    "idle": {
+     "written": 0,
+     "copied": 0
+    }
+   },
+   "perOp": {
+    "enqueue": {
+     "scanned": 26563,
+     "stringified": 3712706,
+     "written": 3712706,
+     "copied": 3712040,
+     "n": 80
+    },
+    "claim": {
+     "scanned": 26926,
+     "stringified": 3741160,
+     "written": 3741160,
+     "copied": 3741107,
+     "n": 80
+    },
+    "retry": {
+     "scanned": 10623,
+     "stringified": 3743704,
+     "written": 3743704,
+     "copied": 3743682,
+     "n": 40
+    },
+    "complete": {
+     "scanned": 10664,
+     "stringified": 3743108,
+     "written": 3743108,
+     "copied": 3743158,
+     "n": 40
+    },
+    "idle": {
+     "scanned": 16083,
+     "stringified": 0,
+     "written": 0,
+     "copied": 0,
+     "n": 40
+    }
+   },
+   "lag": {
+    "burstMs": 6474,
+    "eventLoopDelayMs": {
+     "p99": 442.76,
+     "max": 488.37
+    },
+    "heartbeatLagMs": {
+     "p99": 437.49,
+     "max": 478.16
+    }
+   },
+   "fileBytesEnd": 3842483
+  },
+  {
+   "cell": {
+    "H": 5000,
+    "B": 0,
+    "scenario": "blocked-many",
+    "pass": "c"
+   },
+   "seeded": 7000,
+   "fileBytesSeeded": 4852023,
+   "counts": {
+    "afterSeed": {
+     "queued": 1500,
+     "processing": 0,
+     "retry": 500,
+     "completed": 0,
+     "failed": 2500,
+     "held": 2500,
+     "total": 7000
+    },
+    "afterFirstEnqueues": {
+     "queued": 1580,
+     "processing": 0,
+     "retry": 500,
+     "completed": 0,
+     "failed": 2500,
+     "held": 2500,
+     "total": 7080
+    },
+    "afterOps": {
+     "queued": 1500,
+     "processing": 0,
+     "retry": 580,
+     "completed": 80,
+     "failed": 2500,
+     "held": 2500,
+     "total": 7160
+    },
+    "end": {
+     "queued": 1500,
+     "processing": 0,
+     "retry": 580,
+     "completed": 230,
+     "failed": 2500,
+     "held": 2500,
+     "total": 7310
+    }
+   },
+   "timingMs": {
+    "enqueue": {
+     "n": 80,
+     "p50": 26.431,
+     "p95": 33.04,
+     "max": 36.523,
+     "mean": 27.481
+    },
+    "claim": {
+     "n": 80,
+     "p50": 28.826,
+     "p95": 35.978,
+     "max": 40.717,
+     "mean": 29.607
+    },
+    "retry": {
+     "n": 40,
+     "p50": 26.216,
+     "p95": 32.866,
+     "max": 33.232,
+     "mean": 26.934
+    },
+    "complete": {
+     "n": 40,
+     "p50": 26.388,
+     "p95": 33.515,
+     "max": 33.766,
+     "mean": 26.734
+    },
+    "idle": {
+     "n": 40,
+     "p50": 2.157,
+     "p95": 3.438,
+     "max": 3.54,
+     "mean": 2.286
+    }
+   },
+   "bytesPerOpTimingPass": {
+    "enqueue": {
+     "written": 4878996,
+     "copied": 4878330
+    },
+    "claim": {
+     "written": 4907450,
+     "copied": 4907397
+    },
+    "retry": {
+     "written": 4909994,
+     "copied": 4909972
+    },
+    "complete": {
+     "written": 4909398,
+     "copied": 4909448
+    },
+    "idle": {
+     "written": 0,
+     "copied": 0
+    }
+   },
+   "perOp": {
+    "enqueue": {
+     "scanned": 35558,
+     "stringified": 4935396,
+     "written": 4935396,
+     "copied": 4934730,
+     "n": 80
+    },
+    "claim": {
+     "scanned": 36420,
+     "stringified": 4963850,
+     "written": 4963850,
+     "copied": 4963797,
+     "n": 80
+    },
+    "retry": {
+     "scanned": 14221,
+     "stringified": 4966394,
+     "written": 4966394,
+     "copied": 4966372,
+     "n": 40
+    },
+    "complete": {
+     "scanned": 14262,
+     "stringified": 4965798,
+     "written": 4965798,
+     "copied": 4965848,
+     "n": 40
+    },
+    "idle": {
+     "scanned": 22060,
+     "stringified": 0,
+     "written": 0,
+     "copied": 0,
+     "n": 40
+    }
+   },
+   "lag": {
+    "burstMs": 8507,
+    "eventLoopDelayMs": {
+     "p99": 583.53,
+     "max": 648.02
+    },
+    "heartbeatLagMs": {
+     "p99": 595.66,
+     "max": 637.52
+    }
+   },
+   "fileBytesEnd": 5065173
+  },
+  {
+   "cell": {
+    "H": 50000,
+    "B": 0,
+    "scenario": "blocked-one",
+    "pass": "c"
+   },
+   "seeded": 50201,
+   "fileBytesSeeded": 35084333,
+   "counts": {
+    "afterSeed": {
+     "queued": 200,
+     "processing": 0,
+     "retry": 1,
+     "completed": 0,
+     "failed": 25000,
+     "held": 25000,
+     "total": 50201
+    },
+    "afterFirstEnqueues": {
+     "queued": 280,
+     "processing": 0,
+     "retry": 1,
+     "completed": 0,
+     "failed": 25000,
+     "held": 25000,
+     "total": 50281
+    },
+    "afterOps": {
+     "queued": 200,
+     "processing": 0,
+     "retry": 81,
+     "completed": 80,
+     "failed": 25000,
+     "held": 25000,
+     "total": 50361
+    },
+    "end": {
+     "queued": 200,
+     "processing": 0,
+     "retry": 81,
+     "completed": 230,
+     "failed": 25000,
+     "held": 25000,
+     "total": 50511
+    }
+   },
+   "timingMs": {
+    "enqueue": {
+     "n": 80,
+     "p50": 197.173,
+     "p95": 220.248,
+     "max": 282.015,
+     "mean": 200.667
+    },
+    "claim": {
+     "n": 80,
+     "p50": 205.072,
+     "p95": 269.217,
+     "max": 382.559,
+     "mean": 210.484
+    },
+    "retry": {
+     "n": 40,
+     "p50": 194.283,
+     "p95": 226.174,
+     "max": 229.586,
+     "mean": 195.47
+    },
+    "complete": {
+     "n": 40,
+     "p50": 194.115,
+     "p95": 209.225,
+     "max": 220.975,
+     "mean": 195.335
+    },
+    "idle": {
+     "n": 40,
+     "p50": 9.861,
+     "p95": 12.435,
+     "max": 12.745,
+     "mean": 10.003
+    }
+   },
+   "bytesPerOpTimingPass": {
+    "enqueue": {
+     "written": 35111306,
+     "copied": 35110640
+    },
+    "claim": {
+     "written": 35139760,
+     "copied": 35139707
+    },
+    "retry": {
+     "written": 35142304,
+     "copied": 35142282
+    },
+    "complete": {
+     "written": 35141708,
+     "copied": 35141758
+    },
+    "idle": {
+     "written": 0,
+     "copied": 0
+    }
+   },
+   "perOp": {
+    "enqueue": {
+     "scanned": 251563,
+     "stringified": 35167706,
+     "written": 35167706,
+     "copied": 35167040,
+     "n": 80
+    },
+    "claim": {
+     "scanned": 251926,
+     "stringified": 35196160,
+     "written": 35196160,
+     "copied": 35196107,
+     "n": 80
+    },
+    "retry": {
+     "scanned": 100623,
+     "stringified": 35198704,
+     "written": 35198704,
+     "copied": 35198682,
+     "n": 40
+    },
+    "complete": {
+     "scanned": 100664,
+     "stringified": 35198108,
+     "written": 35198108,
+     "copied": 35198158,
+     "n": 40
+    },
+    "idle": {
+     "scanned": 151083,
+     "stringified": 0,
+     "written": 0,
+     "copied": 0,
+     "n": 40
+    }
+   },
+   "lag": {
+    "burstMs": 62597,
+    "eventLoopDelayMs": {
+     "p99": 4150.26,
+     "max": 4192.21
+    },
+    "heartbeatLagMs": {
+     "p99": 4147.7,
+     "max": 4180.53
+    }
+   },
+   "fileBytesEnd": 35297483
+  },
+  {
+   "cell": {
+    "H": 50000,
+    "B": 0,
+    "scenario": "blocked-many",
+    "pass": "c"
+   },
+   "seeded": 52000,
+   "fileBytesSeeded": 36307023,
+   "counts": {
+    "afterSeed": {
+     "queued": 1500,
+     "processing": 0,
+     "retry": 500,
+     "completed": 0,
+     "failed": 25000,
+     "held": 25000,
+     "total": 52000
+    },
+    "afterFirstEnqueues": {
+     "queued": 1580,
+     "processing": 0,
+     "retry": 500,
+     "completed": 0,
+     "failed": 25000,
+     "held": 25000,
+     "total": 52080
+    },
+    "afterOps": {
+     "queued": 1500,
+     "processing": 0,
+     "retry": 580,
+     "completed": 80,
+     "failed": 25000,
+     "held": 25000,
+     "total": 52160
+    },
+    "end": {
+     "queued": 1500,
+     "processing": 0,
+     "retry": 580,
+     "completed": 230,
+     "failed": 25000,
+     "held": 25000,
+     "total": 52310
+    }
+   },
+   "timingMs": {
+    "enqueue": {
+     "n": 80,
+     "p50": 203.425,
+     "p95": 222.697,
+     "max": 300.956,
+     "mean": 207.185
+    },
+    "claim": {
+     "n": 80,
+     "p50": 210.613,
+     "p95": 235.89,
+     "max": 318.278,
+     "mean": 214.194
+    },
+    "retry": {
+     "n": 40,
+     "p50": 201.896,
+     "p95": 278.692,
+     "max": 281.446,
+     "mean": 211.099
+    },
+    "complete": {
+     "n": 40,
+     "p50": 198.677,
+     "p95": 235.543,
+     "max": 270.499,
+     "mean": 201.701
+    },
+    "idle": {
+     "n": 40,
+     "p50": 10.998,
+     "p95": 14.382,
+     "max": 18.911,
+     "mean": 11.337
+    }
+   },
+   "bytesPerOpTimingPass": {
+    "enqueue": {
+     "written": 36333996,
+     "copied": 36333330
+    },
+    "claim": {
+     "written": 36362450,
+     "copied": 36362397
+    },
+    "retry": {
+     "written": 36364994,
+     "copied": 36364972
+    },
+    "complete": {
+     "written": 36364398,
+     "copied": 36364448
+    },
+    "idle": {
+     "written": 0,
+     "copied": 0
+    }
+   },
+   "perOp": {
+    "enqueue": {
+     "scanned": 260558,
+     "stringified": 36390396,
+     "written": 36390396,
+     "copied": 36389730,
+     "n": 80
+    },
+    "claim": {
+     "scanned": 261420,
+     "stringified": 36418850,
+     "written": 36418850,
+     "copied": 36418797,
+     "n": 80
+    },
+    "retry": {
+     "scanned": 104221,
+     "stringified": 36421394,
+     "written": 36421394,
+     "copied": 36421372,
+     "n": 40
+    },
+    "complete": {
+     "scanned": 104262,
+     "stringified": 36420798,
+     "written": 36420798,
+     "copied": 36420848,
+     "n": 40
+    },
+    "idle": {
+     "scanned": 157060,
+     "stringified": 0,
+     "written": 0,
+     "copied": 0,
+     "n": 40
+    }
+   },
+   "lag": {
+    "burstMs": 74733,
+    "eventLoopDelayMs": {
+     "p99": 5289.02,
+     "max": 5452.6
+    },
+    "heartbeatLagMs": {
+     "p99": 5345.36,
+     "max": 5441.6
+    }
+   },
+   "fileBytesEnd": 36520173
+  },
+  {
+   "cell": {
+    "H": 0,
+    "B": 0,
+    "completed": 50000,
+    "scenario": "prune-verification",
+    "pass": "c"
+   },
+   "seeded": 50000,
+   "fileBytesSeeded": 33650023,
+   "counts": {
+    "afterSeed": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 0,
+     "completed": 50000,
+     "failed": 0,
+     "held": 0,
+     "total": 50000
+    },
+    "afterFirstEnqueues": {
+     "queued": 80,
+     "processing": 0,
+     "retry": 0,
+     "completed": 300,
+     "failed": 0,
+     "held": 0,
+     "total": 380
+    },
+    "afterOps": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 80,
+     "completed": 340,
+     "failed": 0,
+     "held": 0,
+     "total": 420
+    },
+    "end": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 80,
+     "completed": 450,
+     "failed": 0,
+     "held": 0,
+     "total": 530
+    }
+   },
+   "timingMs": {
+    "enqueue": {
+     "n": 80,
+     "p50": 4.26,
+     "p95": 4.978,
+     "max": 98.166,
+     "mean": 5.556
+    },
+    "claim": {
+     "n": 80,
+     "p50": 4.344,
+     "p95": 5.293,
+     "max": 5.452,
+     "mean": 4.424
+    },
+    "retry": {
+     "n": 40,
+     "p50": 4.207,
+     "p95": 5.611,
+     "max": 5.774,
+     "mean": 4.364
+    },
+    "complete": {
+     "n": 40,
+     "p50": 5.443,
+     "p95": 6.099,
+     "max": 6.593,
+     "mean": 5.324
+    },
+    "idle": {
+     "n": 40,
+     "p50": 0.166,
+     "p95": 0.303,
+     "max": 0.524,
+     "mean": 0.188
+    }
+   },
+   "bytesPerOpTimingPass": {
+    "enqueue": {
+     "written": 228896,
+     "copied": 646331
+    },
+    "claim": {
+     "written": 257350,
+     "copied": 257297
+    },
+    "retry": {
+     "written": 259894,
+     "copied": 259872
+    },
+    "complete": {
+     "written": 259298,
+     "copied": 259348
+    },
+    "idle": {
+     "written": 0,
+     "copied": 0
+    }
+   },
+   "perOp": {
+    "enqueue": {
+     "scanned": 2448,
+     "stringified": 258376,
+     "written": 258376,
+     "copied": 258047,
+     "n": 80
+    },
+    "claim": {
+     "scanned": 2220,
+     "stringified": 286830,
+     "written": 286830,
+     "copied": 286777,
+     "n": 80
+    },
+    "retry": {
+     "scanned": 481,
+     "stringified": 289374,
+     "written": 289374,
+     "copied": 289352,
+     "n": 40
+    },
+    "complete": {
+     "scanned": 528,
+     "stringified": 288778,
+     "written": 288778,
+     "copied": 288828,
+     "n": 40
+    },
+    "idle": {
+     "scanned": 1260,
+     "stringified": 0,
+     "written": 0,
+     "copied": 0,
+     "n": 40
+    }
+   },
+   "lag": {
+    "burstMs": 1274,
+    "eventLoopDelayMs": {
+     "p99": 87.43,
+     "max": 89
+    },
+    "heartbeatLagMs": {
+     "p99": 88.36,
+     "max": 88.36
+    }
+   },
+   "fileBytesEnd": 361233
+  }
+ ]
+}

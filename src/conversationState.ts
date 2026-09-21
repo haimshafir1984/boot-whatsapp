@@ -272,6 +272,12 @@ interface ConversationStatePersistenceBackend {
     changedJids: readonly string[] | 'all',
   ): void;
   /**
+   * PostgreSQL mode only (row persistence, stage E / C4): the CHANGED conversations, one clone each. No full snapshot is built, no
+   * full deep copy is made and no shadow file is written - the cost of a change no longer grows with the number of resident
+   * conversations. `removed` are jids that no longer exist.
+   */
+  upsertConversationRows?(upserts: Record<string, PersistablePendingConversation>, removed: string[]): void;
+  /**
    * True only in JSON mode, where the on-disk conversation-state file is the
    * sole source of truth and therefore must be written atomically. In Postgres
    * mode the DB owns the data and the file is a secondary copy — that write
@@ -470,27 +476,45 @@ class ConversationStateManager {
     this.backend = backend;
   }
 
+  /**
+   * True when the database owns the data (PostgreSQL) AND the backend can persist single rows. Then: rows only, restore from the
+   * database only (never from a leftover file), no shadow file. JSON mode (the file IS the data) is unchanged.
+   */
+  private get rowsMode(): boolean {
+    return typeof this.backend?.upsertConversationRows === 'function' && this.backend.isPrimaryConversationStore?.() !== true;
+  }
+
+  /** Test-only: forget every in-memory conversation (simulates a fresh process before restore()). */
+  __resetForTest(): void {
+    for (const state of this.map.values()) this.clearTimer(state);
+    this.map.clear();
+    this.phoneIndex.clear();
+    this.hydrationComplete = false;
+  }
+
   restore(
     schedule: (jid: string, state: PersistablePendingConversation) => NodeJS.Timeout | undefined,
     resolveDecisionFlow?: DecisionFlowResolver,
   ): number {
     try {
+      // PostgreSQL: the database rows are the only source; a stale leftover file must never resurrect conversations.
       const parsed = this.backend?.loadConversationStateSnapshot()
-        ?? this.readSnapshotFile();
+        ?? (this.rowsMode ? undefined : this.readSnapshotFile());
       if (!parsed) {
         this.hydrationComplete = true;
         return 0;
       }
       const entries = Object.entries(parsed.conversations ?? {});
+      const dropped: string[] = [];   // rows that are not restorable (unknown kind / no timer): removed from the database, as the full rewrite used to do
       for (const [jid, state] of entries) {
-        if (!state || typeof state !== 'object') continue;
-        if (state.kind !== 'name' && state.kind !== 'pre-name-prompt' && state.kind !== 'decision' && state.kind !== 'wait-reply' && state.kind !== 'expired-decision' && state.kind !== 'contact-card-confirmation' && state.kind !== 'handoff' && state.kind !== 'needs_review') continue;
+        if (!state || typeof state !== 'object') { dropped.push(jid); continue; }
+        if (state.kind !== 'name' && state.kind !== 'pre-name-prompt' && state.kind !== 'decision' && state.kind !== 'wait-reply' && state.kind !== 'expired-decision' && state.kind !== 'contact-card-confirmation' && state.kind !== 'handoff' && state.kind !== 'needs_review') { dropped.push(jid); continue; }
         const hydrated = hydrateDecisionFlow(state, resolveDecisionFlow);
         const timeoutHandle = schedule(jid, hydrated);
         // needs_review deliberately has no timer (it must survive until an
         // admin resolves it, not expire) - schedule() returns undefined for
         // it by design, so it must not be treated as "nothing to restore".
-        if (!timeoutHandle && state.kind !== 'needs_review') continue;
+        if (!timeoutHandle && state.kind !== 'needs_review') { dropped.push(jid); continue; }
         // restore() writes straight to `map` instead of going through set(), so
         // build the phone index here too - otherwise it stays empty after every
         // restart until a fresh message touches each conversation, which is the
@@ -499,7 +523,11 @@ class ConversationStateManager {
         this.map.set(jid, { ...hydrated, timeoutHandle } as PendingConversation);
       }
       this.hydrationComplete = true;
-      this.persist();
+      if (this.rowsMode) {
+        if (dropped.length) this.backend!.upsertConversationRows!({}, dropped);
+      } else {
+        this.persist();
+      }
       return this.map.size;
     } catch (err) {
       console.warn('Could not restore conversation state:', err);
@@ -614,6 +642,23 @@ class ConversationStateManager {
    * 'all' keeps the full scan for bulk paths such as restore().
    */
   private persist(changedJids: readonly string[] | 'all' = 'all'): void {
+    if (this.rowsMode && this.hydrationComplete) {
+      // PostgreSQL: ONLY the changed rows. No snapshot of every conversation, no full deep copy, no synchronous shadow-file write.
+      try {
+        const upserts: Record<string, PersistablePendingConversation> = {};
+        const removed: string[] = [];
+        for (const jid of changedJids === 'all' ? [...this.map.keys()] : changedJids) {
+          const state = this.map.get(jid);
+          if (!state) { removed.push(jid); continue; }
+          const { timeoutHandle: _timeoutHandle, ...persistable } = state;
+          upserts[jid] = JSON.parse(JSON.stringify(stripDecisionFlow(persistable))) as PersistablePendingConversation;   // a clone of ONE conversation
+        }
+        this.backend!.upsertConversationRows!(upserts, removed);
+      } catch (err) {
+        console.warn('Could not persist conversation state:', err);
+      }
+      return;
+    }
     if (!this.filePath || !this.hydrationComplete) return;
     try {
       const dir = path.dirname(this.filePath);

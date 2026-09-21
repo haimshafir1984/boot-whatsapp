@@ -1,0 +1,175 @@
+{
+  "startedAt": "2026-09-21T10:19:27.541Z",
+  "mutations": [
+    {
+      "id": "E1",
+      "protection": "a worker transition does not republish the sender pointer (scheduler goes stale)",
+      "file": "dist/inbox/postgresRepository.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-inbox-repository-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "order: one item per sender in flight; the next is offered only after the head leaves; a retry boundary blocks later messages",
+            "token fencing: a stale/wrong token changes NOTHING; terminal items cannot be transitioned again",
+            "held / failed / review do not block the sender: the next message is offered (as today), and each keeps its evidence",
+            "requeue/discard: requeue goes BEHIND active work (new sequence), attempts reset; discard is failed+audited; ambiguous needs an acknowledgeme",
+            "GATEWAY reclaim: an expired lease is re-run (attempts+1, new token); the OLD worker can no longer write",
+            "cleanup: dedupe window keeps identity, expires it after 30 days; payload purged after 7; held/failed/review are NEVER deleted; sender rows o",
+            "CONCURRENCY: two workers claiming at once never receive the same sender/item; every item is eventually processed exactly once",
+            "RESTART: a new repository instance over the same database sees the same state; an old lease is honoured",
+            "PROPERTY (gateway): random enqueue/claim/complete/retry/hold/fail/review/renew/cancel/requeue/time-travel vs a reference model; I1-I8 after ",
+            "PROPERTY (client): random enqueue/claim/complete/retry/hold/fail/review/renew/cancel/requeue/time-travel vs a reference model; I1-I8 after E"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "E2",
+      "protection": "the lease token no longer fences a stale worker on completion/retry/hold/fail/review",
+      "file": "dist/inbox/postgresRepository.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-inbox-repository-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "token fencing: a stale/wrong token changes NOTHING; terminal items cannot be transitioned again",
+            "GATEWAY reclaim: an expired lease is re-run (attempts+1, new token); the OLD worker can no longer write",
+            "PROPERTY (gateway): random enqueue/claim/complete/retry/hold/fail/review/renew/cancel/requeue/time-travel vs a reference model; I1-I8 after ",
+            "PROPERTY (client): random enqueue/claim/complete/retry/hold/fail/review/renew/cancel/requeue/time-travel vs a reference model; I1-I8 after E"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "E3",
+      "protection": "a CLIENT item with an expired lease is re-run instead of going to review (duplicate business effect)",
+      "file": "dist/inbox/postgresRepository.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-inbox-repository-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "order: one item per sender in flight; the next is offered only after the head leaves; a retry boundary blocks later messages",
+            "CLIENT reclaim: an expired lease is NEVER re-run: it becomes review(ambiguous_processing); a late completion by the original worker closes i",
+            "CLIENT ambiguous item: requeue needs an explicit duplicate-risk acknowledgement; discard is always possible",
+            "PROPERTY (client): random enqueue/claim/complete/retry/hold/fail/review/renew/cancel/requeue/time-travel vs a reference model; I1-I8 after E"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "E4",
+      "protection": "renew does not move the sender due_at (pointer drift)",
+      "file": "dist/inbox/postgresRepository.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-inbox-repository-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "PROPERTY (gateway): random enqueue/claim/complete/retry/hold/fail/review/renew/cancel/requeue/time-travel vs a reference model; I1-I8 after ",
+            "PROPERTY (client): random enqueue/claim/complete/retry/hold/fail/review/renew/cancel/requeue/time-travel vs a reference model; I1-I8 after E"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "E5",
+      "protection": "requeue keeps the old sequence (a requeued message can overtake active work)",
+      "file": "dist/inbox/postgresRepository.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-inbox-repository-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "requeue/discard: requeue goes BEHIND active work (new sequence), attempts reset; discard is failed+audited; ambiguous needs an acknowledgeme",
+            "PROPERTY (gateway): random enqueue/claim/complete/retry/hold/fail/review/renew/cancel/requeue/time-travel vs a reference model; I1-I8 after ",
+            "PROPERTY (client): random enqueue/claim/complete/retry/hold/fail/review/renew/cancel/requeue/time-travel vs a reference model; I1-I8 after E"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "E6",
+      "protection": "the per-sender sequence counter is not advanced (order / uniqueness lost)",
+      "file": "dist/inbox/postgresRepository.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-inbox-repository-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "order: one item per sender in flight; the next is offered only after the head leaves; a retry boundary blocks later messages",
+            "held / failed / review do not block the sender: the next message is offered (as today), and each keeps its evidence",
+            "requeue/discard: requeue goes BEHIND active work (new sequence), attempts reset; discard is failed+audited; ambiguous needs an acknowledgeme",
+            "CLIENT reclaim: an expired lease is NEVER re-run: it becomes review(ambiguous_processing); a late completion by the original worker closes i",
+            "cancelForPhone: outstanding (queued/retry/processing) become failed(superseded); a worker that keeps running is fenced; later messages work",
+            "CONCURRENCY: 150 concurrent receipts (distinct + repeated ids, one sender vs many) - no acknowledged item missing, no duplicate, invariants ",
+            "CONCURRENCY: two workers claiming at once never receive the same sender/item; every item is eventually processed exactly once",
+            "PROPERTY (gateway): random enqueue/claim/complete/retry/hold/fail/review/renew/cancel/requeue/time-travel vs a reference model; I1-I8 after ",
+            "PROPERTY (client): random enqueue/claim/complete/retry/hold/fail/review/renew/cancel/requeue/time-travel vs a reference model; I1-I8 after E"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "E7",
+      "protection": "cleanup deletes held/failed/review evidence",
+      "file": "dist/inbox/postgresRepository.js",
+      "applied": false,
+      "tests": [],
+      "error": "mutation pattern not found in dist/inbox/postgresRepository.js",
+      "restoredExactly": true
+    },
+    {
+      "id": "E8",
+      "protection": "a late completion by ANY token closes an ambiguous item",
+      "file": "dist/inbox/postgresRepository.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-inbox-repository-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "CLIENT reclaim: an expired lease is NEVER re-run: it becomes review(ambiguous_processing); a late completion by the original worker closes i"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    }
+  ],
+  "allCaught": false,
+  "allRestored": true
+}

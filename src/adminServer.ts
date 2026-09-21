@@ -38,7 +38,7 @@ import { createMetaSignatureVerifier } from './metaWebhookSignature';
 import { ManagedClient, OwnerStorage } from './ownerStorage';
 import { DokployProvisioner } from './dokployProvisioner';
 import { conversationState } from './conversationState';
-import { getFlowHealthSnapshot, handleIncomingWhatsAppMessage, SenderHeldForReviewError } from './messageFlow';
+import { getFlowHealthSnapshot, handleIncomingWhatsAppMessage, holdSenderForAmbiguousInbox, SenderHeldForReviewError } from './messageFlow';
 import { redactSecrets } from './secretRedaction';
 import { TwilioProvider } from './providers/TwilioProvider';
 import { MetaCloudProvider } from './providers/MetaCloudProvider';
@@ -64,7 +64,9 @@ import {
   splitMetaWebhookStatuses,
 } from './metaGatewayReliability';
 
-import { MetaGatewayInbox, MetaGatewayInboxItem } from './metaGatewayInbox';
+import { createInboxStore, DisabledInboxStore, InboxStore, PostgresInboxStore, StoredInboxItem } from './inbox/store';
+import { readInboxConfig } from './inbox/config';
+import { runWithInboundOutcome } from './inboundOutcome';
 import { MetaStatusQueue, statusDedupeKey } from './metaStatusQueue';
 import { DeliveryRecoveryRelease } from './deliveryRecovery';
 import { deliveryRecoveryBus } from './deliveryRecoveryBus';
@@ -1262,6 +1264,10 @@ function buildCampaignDryRun(campaign: Campaign, storage: Storage) {
   };
 }
 
+/** Set by startAdminServer; index.ts adds it to the shutdown chain (stop claiming -> drain in-flight -> close pools). */
+let adminInboxWorker: { stop: () => Promise<void> } | null = null;
+export function getAdminInboxWorker(): { stop: () => Promise<void> } | null { return adminInboxWorker; }
+
 export function startAdminServer(storage: Storage): import('http').Server {
   const app = express();
   const publicDir = path.join(__dirname, '..', 'public');
@@ -1274,8 +1280,31 @@ export function startAdminServer(storage: Storage): import('http').Server {
   const twilioGatewaySessions = createTwilioGatewaySessionStore(
     path.join(path.dirname(config.OWNER_STORAGE_PATH), 'twilio-gateway-sessions.json'),
   );
-  const metaGatewayInbox = new MetaGatewayInbox(path.join(path.dirname(config.OWNER_STORAGE_PATH), 'meta-gateway-inbox.json'));
-  const metaClientInbox = new MetaGatewayInbox(path.join(path.dirname(config.STORAGE_PATH), 'meta-client-inbox.json'));
+  // Inboxes (stage E): behind one async contract; JSON (legacy) or PostgreSQL by INBOX_BACKEND. A PostgreSQL inbox that cannot be
+  // configured or reached is an ERROR: receipts answer 503 and workers stop claiming - there is never a fallback to a JSON file.
+  const inboxBackendPostgres = String(process.env.INBOX_BACKEND ?? 'json').trim().toLowerCase() === 'postgres';
+  const clientInboxCfg = readInboxConfig('client');
+  const isGatewayProcess = ownerStorage.getClients().length > 0 || process.env.INBOX_GATEWAY_REQUIRED === 'true';
+  // A process without managed clients (a plain client) has no gateway inbox to keep. In PostgreSQL mode it gets a store that REFUSES
+  // receipts (never acknowledges, never drops) instead of demanding a gateway database it will never use.
+  const gatewayInboxDisabled = inboxBackendPostgres && !isGatewayProcess && !(process.env.INBOX_DATABASE_URL || '').trim();
+  const gatewayInboxCfg = readInboxConfig('gateway', gatewayInboxDisabled ? { ...process.env, INBOX_BACKEND: 'json' } : process.env);
+  const metaGatewayInbox: InboxStore = gatewayInboxDisabled
+    ? new DisabledInboxStore('gateway')
+    : createInboxStore(gatewayInboxCfg, path.join(path.dirname(config.OWNER_STORAGE_PATH), 'meta-gateway-inbox.json'));
+  const metaClientInbox: InboxStore = createInboxStore(clientInboxCfg, path.join(path.dirname(config.STORAGE_PATH), 'meta-client-inbox.json'));
+  let inboxStopping = false;
+  let pendingInboxClaims = 0;   // claims in flight: shutdown must wait for them, or their items would run against closed pools
+  const inboxReady: Promise<void> = Promise.all([metaGatewayInbox.init(), metaClientInbox.init()]).then(() => undefined);
+  inboxReady.catch((err) => {
+    console.error('[INBOX_INIT_FAILED]', err);
+    notifySystemAlert({
+      key: 'inbox-init-failed', severity: 'critical', title: 'Inbox could not start',
+      message: 'The message inbox could not be initialised. Inbound messages are refused (503) until it is fixed; nothing falls back to a file.',
+      details: { error: err instanceof Error ? err.message : String(err), backend: clientInboxCfg.backend },
+    });
+  });
+  console.log(`  Inbox backend: gateway=${metaGatewayInbox.backend}${gatewayInboxDisabled ? ' (disabled on this process)' : ''} client=${metaClientInbox.backend}`);
   // Durable, retried forwarding of delivery statuses from the gateway to the clients (stage B2, step 2).
   storage.attachEarlyStatusJournal(path.join(path.dirname(config.STORAGE_PATH), 'meta-early-statuses.jsonl'));
   const metaStatusQueue = new MetaStatusQueue(path.join(path.dirname(config.OWNER_STORAGE_PATH), 'meta-status-forward.jsonl'));
@@ -1510,7 +1539,9 @@ export function startAdminServer(storage: Storage): import('http').Server {
         pending: conversationState.size(),
         durableTimers: storage.getDurableTimerHealth(),
         flowHealth: getFlowHealthSnapshot(),
-        metaGatewayInbox: metaGatewayInbox.counts(),
+        metaGatewayInbox: inboxHealth.gateway,
+        metaClientInbox: inboxHealth.client,
+        inboxOldestDueAgeMs: { gateway: inboxHealth.gatewayOldestMs, client: inboxHealth.clientOldestMs },
       },
       whatsapp: {
         ...whatsappHealth,
@@ -2106,8 +2137,73 @@ export function startAdminServer(storage: Storage): import('http').Server {
   // bottleneck, so it stays where it is.
   const META_MAX_CONCURRENT_SENDERS = 50;
 
-  const metaGatewayDrainer = createSenderDrainer<MetaGatewayInboxItem>({
-    claim: (limit) => metaGatewayInbox.claimBatch(limit, (item) => metaPayloadSenderKey(item.payload)),
+  // ---- inbox worker plumbing (stage E) -------------------------------------------------------------------------------------------
+  const inboxHealth: { gateway: Record<string, number> | null; client: Record<string, number> | null; gatewayOldestMs: number | null; clientOldestMs: number | null } =
+    { gateway: null, client: null, gatewayOldestMs: null, clientOldestMs: null };
+  // A store operation that FAILS is never a reason to rerun the business action: the item stays where it was (its lease will expire;
+  // gateway = re-run is safe, client = review). It is logged and alerted, and the group stops.
+  const storeOp = async <T>(label: string, itemId: string, fn: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false }> => {
+    try { return { ok: true, value: await fn() }; } catch (err) {
+      console.error(`[INBOX_STORE_FAILED] ${label} item=${itemId}`, err);
+      if (inboxStopping) return { ok: false };   // shutdown deadline passed with work still running: expected, the lease decides what happens next
+      notifySystemAlert({
+        key: 'inbox-store-failed', severity: 'critical', title: 'Inbox could not record an outcome',
+        message: 'A message was processed (or attempted) but its outcome could not be written to the inbox database. It is NOT re-run automatically.',
+        details: { operation: label, itemId, error: err instanceof Error ? err.message : String(err) },
+      });
+      return { ok: false };
+    }
+  };
+  const startLeaseRenewal = (store: InboxStore, cfg: { leaseMs: number }, item: StoredInboxItem): (() => void) => {
+    if (store.backend !== 'postgres') return () => undefined;
+    const timer = setInterval(() => {
+      // async wrapper: a store that was closed (shutdown) must reject here, never throw out of a timer and take the process down
+      void (async () => { if (!(await store.renew(item))) console.error('[INBOX_LEASE_LOST]', item.id); })().catch((err) => console.error('[INBOX_LEASE_RENEW_FAILED]', item.id, err instanceof Error ? err.message : err));
+    }, Math.max(1_000, Math.floor(cfg.leaseMs / 3)));
+    if (typeof (timer as any).unref === 'function') (timer as any).unref();
+    return () => clearInterval(timer);
+  };
+  // An expired trigger is kept for review with its payload and an alert - never recorded as completed.
+  const parkStaleTrigger = async (store: InboxStore, item: StoredInboxItem, outcome: { ageMs: number; campaignName?: string }): Promise<void> => {
+    await store.review(item, 'stale_trigger', { ageMs: Math.round(outcome.ageMs), campaignName: outcome.campaignName ?? null, attempts: item.attempts });
+    console.warn('[INBOX_STALE_TRIGGER_REVIEW]', item.id, `age=${Math.round(outcome.ageMs / 1000)}s`, outcome.campaignName ?? '');
+    notifySystemAlert({
+      key: 'inbox-stale-trigger', severity: 'critical', title: 'A trigger expired before it could be processed',
+      message: 'A participant trigger arrived too late to be run (expiry policy unchanged). It is kept for review; the campaign was NOT run.',
+      details: { itemId: item.id, ageSeconds: Math.round(outcome.ageMs / 1000), campaign: outcome.campaignName },
+    });
+  };
+  const handleAmbiguousInbox = async (r: { id: string; senderPhone: string }): Promise<void> => {
+    console.error('[INBOX_AMBIGUOUS_REVIEW]', r.id, 'processing was interrupted; NOT re-run');
+    notifySystemAlert({
+      key: `inbox-ambiguous-${r.id}`, severity: 'critical', title: 'A message was interrupted mid-processing',
+      message: 'A worker stopped after processing may have started. The message was NOT run again (it could duplicate results, contacts or steps). The sender is held for review.',
+      details: { itemId: r.id, senderPhone: r.senderPhone },
+    });
+    try { await holdSenderForAmbiguousInbox(storage, r.senderPhone, r.id); } catch (err) { console.error('[INBOX_AMBIGUOUS_HOLD_FAILED]', r.id, err); }
+  };
+  const failedExhaustedAlert = (kind: 'gateway' | 'client', item: StoredInboxItem, err: unknown): void => {
+    notifySystemAlert(kind === 'gateway' ? {
+      key: 'meta-gateway-inbox-failed', severity: 'critical', title: 'Meta gateway message failed',
+      message: 'The central Meta gateway could not route or forward an inbound message after all retry attempts.',
+      details: { itemId: item.id, attempts: item.attempts, error: err instanceof Error ? err.message : String(err) },
+    } : {
+      key: 'meta-client-inbox-failed', severity: 'critical', title: 'Meta client message failed',
+      message: 'A Meta client could not process an inbound message after all retry attempts.',
+      details: { itemId: item.id, attempts: item.attempts, error: err instanceof Error ? err.message : String(err), provider: config.WHATSAPP_PROVIDER, clientName: config.CLIENT_NAME || undefined },
+    });
+  };
+
+  const metaGatewayDrainer = createSenderDrainer<StoredInboxItem>({
+    claim: async (limit) => {
+      if (inboxStopping) return [];
+      pendingInboxClaims += 1;
+      try {
+        await inboxReady;
+        const { claimed } = await metaGatewayInbox.claim(limit);
+        return claimed;
+      } finally { pendingInboxClaims -= 1; }
+    },
     groupBySender: (items) => groupMetaItemsBySender(items),
     maxConcurrentSenders: META_MAX_CONCURRENT_SENDERS,
     batchSize: 20,
@@ -2115,114 +2211,162 @@ export function startAdminServer(storage: Storage): import('http').Server {
     runGroup: async (items) => {
           for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
             const item = items[itemIndex];
+            const stopLease = startLeaseRenewal(metaGatewayInbox, gatewayInboxCfg, item);
             try {
-              const gateway = await routeMetaGatewayInbound(item.payload);
-              if (!gateway.handled) await handleMetaInboundForStorage(item.payload);
-              metaGatewayInbox.markCompleted(item.id);
-            } catch (err) {
+              let handlerError: unknown;
+              let outcome: Awaited<ReturnType<typeof runWithInboundOutcome>>['outcome'];
+              try {
+                ({ outcome } = await runWithInboundOutcome(async () => {
+                  const gateway = await routeMetaGatewayInbound(item.payload);
+                  if (!gateway.handled) await handleMetaInboundForStorage(item.payload);
+                }));
+              } catch (err) { handlerError = err; }
+
+              if (!handlerError) {
+                const settled = await storeOp('complete', item.id, async () => { if (outcome?.kind === 'stale_trigger') await parkStaleTrigger(metaGatewayInbox, item, outcome); else if (!(await metaGatewayInbox.complete(item, 'forwarded'))) console.warn('[INBOX_COMPLETE_FENCED]', item.id, 'the lease was lost; the result was not recorded'); });
+                if (!settled.ok) break;
+                continue;
+              }
+              const err = handlerError;
               if (err instanceof SenderHeldForReviewError) {
-                // R1: the sender is already blocked. The message was
-                // durably recorded into heldMessages by messageFlow.ts
-                // itself before this error was thrown - this must NOT be
-                // marked completed (it was never processed) nor failed (not
-                // an error to give up on) nor burn a retry attempt. 'held'
-                // blocks claimBatch's groupKey selection for this sender
-                // until an admin explicitly resolves it.
-                metaGatewayInbox.markHeld(item.id, err);
+                // R1: the sender is already blocked. The message was durably recorded into heldMessages by messageFlow.ts itself before
+                // this error was thrown - never completed (not processed), never failed, never burns a retry. 'held' does not block
+                // the sender's next message (it is claimed and held in its own right) until an admin resolves it.
+                if (!(await storeOp('hold', item.id, () => metaGatewayInbox.hold(item, err))).ok) break;
                 console.warn('[META_GATEWAY_INBOX_HELD]', item.id, err.message);
                 break;
               }
               if (item.attempts >= META_INBOX_MAX_ATTEMPTS) {
-                metaGatewayInbox.markFailed(item.id, err);
+                if (!(await storeOp('fail', item.id, () => metaGatewayInbox.fail(item, err))).ok) break;
                 console.error('[META_GATEWAY_INBOX_FAILED]', item.id, err);
-                notifySystemAlert({
-                  key: 'meta-gateway-inbox-failed',
-                  severity: 'critical',
-                  title: 'Meta gateway message failed',
-                  message: 'The central Meta gateway could not route or forward an inbound message after all retry attempts.',
-                  details: {
-                    itemId: item.id,
-                    attempts: item.attempts,
-                    error: err instanceof Error ? err.message : String(err),
-                  },
-                });
+                failedExhaustedAlert('gateway', item, err);
               } else {
                 const retryDelayMs = metaInboxRetryDelayMs(item.attempts);
                 const nextAttemptAt = new Date(Date.now() + retryDelayMs);
-                metaGatewayInbox.markRetry(item.id, err, nextAttemptAt);
-                // The remaining items were already claimed as part of this
-                // batch. Put them back on the same retry boundary so a reply
+                if (!(await storeOp('retry', item.id, () => metaGatewayInbox.retry(item, err, nextAttemptAt))).ok) break;
+                // The remaining items were already claimed as part of this batch. Put them back on the same retry boundary so a reply
                 // can never overtake its trigger for the same sender.
                 for (const deferred of items.slice(itemIndex + 1)) {
-                  metaGatewayInbox.markRetry(
-                    deferred.id,
-                    `Waiting for earlier Meta message ${item.id}`,
-                    nextAttemptAt,
-                  );
+                  await storeOp('retry', deferred.id, () => metaGatewayInbox.retry(deferred, `Waiting for earlier Meta message ${item.id}`, nextAttemptAt));
                 }
                 console.warn('[META_GATEWAY_INBOX_RETRY]', item.id, `attempt=${item.attempts}`, err);
                 break;
               }
+            } finally {
+              stopLease();
             }
           }
     },
   });
-  const processMetaGatewayInbox = (): Promise<void> => metaGatewayDrainer.drain();
+  const logInboxDrainFailure = (label: string) => (err: unknown): void => {
+    console.error(`[${label}_DRAIN_FAILED]`, err);
+    notifySystemAlert({
+      key: 'inbox-db-unavailable', severity: 'critical', title: 'Inbox database unavailable',
+      message: 'The inbox could not be read or claimed. Inbound messages are refused (503) and nothing is processed until it recovers; no file fallback is used.',
+      details: { where: label, error: err instanceof Error ? err.message : String(err) },
+    });
+  };
+  const processMetaGatewayInbox = (): Promise<void> => metaGatewayDrainer.drain().catch(logInboxDrainFailure('META_GATEWAY_INBOX'));
   // Printed at startup so a deploy can be confirmed from the log alone. These
   // are the numbers that decide how long a participant waits after a routing
   // miss, and there is otherwise nothing in the banner that identifies which
   // build is running.
   console.log(`  Gateway retry: base ${metaInboxRetryDelayMs(1)}ms, cap ${metaInboxRetryDelayMs(99)}ms, drain every ${META_INBOX_DRAIN_MS}ms`);
-  setInterval(() => { void processMetaGatewayInbox(); }, META_INBOX_DRAIN_MS);
+  const inboxTimers: NodeJS.Timeout[] = [];
+  const trackTimer = (timer: NodeJS.Timeout, unref = false): void => { if (unref && typeof (timer as any).unref === 'function') (timer as any).unref(); inboxTimers.push(timer); };
+  trackTimer(setInterval(() => { void processMetaGatewayInbox(); }, META_INBOX_DRAIN_MS));
   void processMetaGatewayInbox();
 
-  const metaClientDrainer = createSenderDrainer<MetaGatewayInboxItem>({
-    claim: (limit) => metaClientInbox.claimBatch(limit, (item) => metaPayloadSenderKey(item.payload)),
+  const metaClientDrainer = createSenderDrainer<StoredInboxItem>({
+    claim: async (limit) => {
+      if (inboxStopping) return [];
+      pendingInboxClaims += 1;
+      try {
+        await inboxReady;
+        const { claimed, reviewed } = await metaClientInbox.claim(limit);
+        // Client role: items whose worker died after effects may have started. They were NOT re-run (they are `review`); the sender is
+        // held (D2) so the participant's next messages are captured as held instead of running on a state nobody can vouch for.
+        for (const r of reviewed) void handleAmbiguousInbox(r);
+        return claimed;
+      } finally { pendingInboxClaims -= 1; }
+    },
     groupBySender: (items) => groupMetaItemsBySender(items),
     maxConcurrentSenders: META_MAX_CONCURRENT_SENDERS,
     batchSize: 20,
     onGroupError: (err) => console.error('[META_CLIENT_INBOX_GROUP_FAILED]', err),
     runGroup: async (items) => {
           for (const item of items) {
+            const stopLease = startLeaseRenewal(metaClientInbox, clientInboxCfg, item);
             try {
-              await handleMetaInboundForStorage(item.payload);
-              metaClientInbox.markCompleted(item.id);
-            } catch (err) {
+              let handlerError: unknown;
+              let outcome: Awaited<ReturnType<typeof runWithInboundOutcome>>['outcome'];
+              try {
+                ({ outcome } = await runWithInboundOutcome(() => handleMetaInboundForStorage(item.payload)));
+              } catch (err) { handlerError = err; }
+
+              if (!handlerError) {
+                const settled = await storeOp('complete', item.id, async () => { if (outcome?.kind === 'stale_trigger') await parkStaleTrigger(metaClientInbox, item, outcome); else if (!(await metaClientInbox.complete(item, 'processed'))) console.warn('[INBOX_COMPLETE_FENCED]', item.id, 'the lease was lost; the result was not recorded'); });
+                if (!settled.ok) break;
+                continue;
+              }
+              const err = handlerError;
               if (err instanceof SenderHeldForReviewError) {
-                // R1: see the matching comment in metaGatewayDrainer above -
-                // never completed, never failed, never burns a retry.
-                metaClientInbox.markHeld(item.id, err);
+                // R1: see the matching comment in metaGatewayDrainer above - never completed, never failed, never burns a retry.
+                if (!(await storeOp('hold', item.id, () => metaClientInbox.hold(item, err))).ok) break;
                 console.warn('[META_CLIENT_INBOX_HELD]', item.id, err.message);
                 continue;
               }
               if (item.attempts >= META_INBOX_MAX_ATTEMPTS) {
-                metaClientInbox.markFailed(item.id, err);
+                if (!(await storeOp('fail', item.id, () => metaClientInbox.fail(item, err))).ok) break;
                 console.error('[META_CLIENT_INBOX_FAILED]', item.id, err);
-                notifySystemAlert({
-                  key: 'meta-client-inbox-failed',
-                  severity: 'critical',
-                  title: 'Meta client message failed',
-                  message: 'A Meta client could not process an inbound message after all retry attempts.',
-                  details: {
-                    itemId: item.id,
-                    attempts: item.attempts,
-                    error: err instanceof Error ? err.message : String(err),
-                    provider: config.WHATSAPP_PROVIDER,
-                    clientName: config.CLIENT_NAME || undefined,
-                  },
-                });
+                failedExhaustedAlert('client', item, err);
               } else {
                 const retryDelayMs = metaInboxRetryDelayMs(item.attempts);
-                metaClientInbox.markRetry(item.id, err, new Date(Date.now() + retryDelayMs));
+                if (!(await storeOp('retry', item.id, () => metaClientInbox.retry(item, err, new Date(Date.now() + retryDelayMs)))).ok) break;
                 console.warn('[META_CLIENT_INBOX_RETRY]', item.id, `attempt=${item.attempts}`, err);
               }
+            } finally {
+              stopLease();
             }
           }
     },
   });
-  const processMetaClientInbox = (): Promise<void> => metaClientDrainer.drain();
-  setInterval(() => { void processMetaClientInbox(); }, META_INBOX_DRAIN_MS);
+  const processMetaClientInbox = (): Promise<void> => metaClientDrainer.drain().catch(logInboxDrainFailure('META_CLIENT_INBOX'));
+  trackTimer(setInterval(() => { void processMetaClientInbox(); }, META_INBOX_DRAIN_MS));
   void processMetaClientInbox();
+
+  // Health counters are refreshed on a slow timer (never a query per request / per message); the oldest-due age drives the alerts.
+  const refreshInboxHealth = async (): Promise<void> => {
+    try {
+      await inboxReady;
+      const [g, c, go, co] = await Promise.all([metaGatewayInbox.counts(), metaClientInbox.counts(), metaGatewayInbox.oldestDueAgeMs(), metaClientInbox.oldestDueAgeMs()]);
+      inboxHealth.gateway = g as any; inboxHealth.client = c as any; inboxHealth.gatewayOldestMs = go; inboxHealth.clientOldestMs = co;
+      for (const [role, age] of [['gateway', go], ['client', co]] as const) {
+        if (age !== null && age >= 120_000) notifySystemAlert({ key: `inbox-oldest-due-critical-${role}`, severity: 'critical', title: 'Inbox message waiting too long', message: `The oldest actionable ${role} inbox message has waited over 120 seconds.`, details: { role, oldestDueAgeMs: Math.round(age) } });
+        else if (age !== null && age >= 30_000) console.warn(`[INBOX_OLDEST_DUE_WARNING] role=${role} ageMs=${Math.round(age)}`);
+      }
+    } catch (err) { console.warn('[INBOX_HEALTH_REFRESH_FAILED]', err instanceof Error ? err.message : err); }
+  };
+  trackTimer(setInterval(() => { void refreshInboxHealth(); }, 5_000), true);
+  void refreshInboxHealth();
+  // Bounded cleanup of finished items (dedupe window / payload retention) - PostgreSQL only, slow timer.
+  for (const store of [metaGatewayInbox, metaClientInbox]) {
+    if (store instanceof PostgresInboxStore) {
+      trackTimer(setInterval(() => { void store.cleanup().then((r) => { if (r.deleted || r.payloadsPurged) console.log('[INBOX_CLEANUP]', JSON.stringify(r)); }).catch((err) => console.warn('[INBOX_CLEANUP_FAILED]', err)); }, 10 * 60_000), true);
+    }
+  }
+  // Shutdown (wired in index.ts): stop claiming, let in-flight items finish (bounded), then close the pools.
+  adminInboxWorker = {
+    stop: async () => {
+      inboxStopping = true;
+      for (const timer of inboxTimers) clearInterval(timer);
+      const deadline = Date.now() + Math.max(clientInboxCfg.shutdownWaitMs, gatewayInboxCfg.shutdownWaitMs);
+      while ((pendingInboxClaims > 0 || metaGatewayDrainer.inflight() > 0 || metaClientDrainer.inflight() > 0) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+      const left = metaGatewayDrainer.inflight() + metaClientDrainer.inflight();
+      if (left > 0) console.warn(`[INBOX_SHUTDOWN] ${left} item(s) still in flight; their leases expire (gateway re-runs, client goes to review)`);
+      await Promise.allSettled([metaGatewayInbox.close(), metaClientInbox.close()]);
+    },
+  };
 
   // Delivery statuses are broadcast to every managed Meta client (each ignores what it does not own).
   // They are persisted BEFORE the webhook is acknowledged and delivered with retry (MetaStatusQueue):
@@ -2278,7 +2422,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
   if (typeof (statusDrainTimer as any).unref === 'function') (statusDrainTimer as any).unref();
   void drainMetaStatusQueue();
 
-  app.post('/webhooks/meta/whatsapp', verifyMetaSignature, (req, res) => {
+  app.post('/webhooks/meta/whatsapp', verifyMetaSignature, async (req, res) => {
     const statusPayloads = splitMetaWebhookStatuses(req.body);
     const messagePayloads = splitMetaWebhookMessages(req.body);
     if (!statusPayloads.length && !messagePayloads.length) {
@@ -2295,7 +2439,12 @@ export function startAdminServer(storage: Storage): import('http').Server {
         const message = item.payload?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
         const body = getMetaInboundBody(message);
         console.log('[META_GATEWAY_INBOUND]', item.id, message?.from, `type=${String(message?.type || 'unknown')}`, body.slice(0, 120));
-        metaGatewayInbox.enqueue(item.id, item.payload);
+      }
+      // No ACK before commit: the 200 below is sent only after EVERY message of this webhook is durable (one transaction), and a
+      // failure - including an unreachable inbox database - lands in the 503 catch so Meta redelivers.
+      if (messagePayloads.length) {
+        await inboxReady;
+        await metaGatewayInbox.enqueueMany(messagePayloads.map((item) => ({ id: item.id, payload: item.payload })));
       }
       res.sendStatus(200);
       if (statusPayloads.length) void drainMetaStatusQueue();
@@ -3247,7 +3396,10 @@ export function startAdminServer(storage: Storage): import('http').Server {
       for (const statusPayload of statusPayloads) if (handleMetaStatusesForStorage(statusPayload)) statusChanged = true;
       // A status that changed an outbox row is acknowledged only once it is durable; otherwise the gateway keeps retrying it.
       if (statusChanged) await storage.flush();
-      for (const item of messagePayloads) metaClientInbox.enqueue(item.id, item.payload);
+      if (messagePayloads.length) {
+        await inboxReady;
+        await metaClientInbox.enqueueMany(messagePayloads.map((item) => ({ id: item.id, payload: item.payload })));   // 2xx only after commit
+      }
       res.status(messagePayloads.length ? 202 : 200).json({
         ok: true,
         queued: messagePayloads.length,
@@ -3386,7 +3538,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
     await stopCampaignWork(phone, async () => {
       removed += conversationState.removeByPhone(phone);
       storage.cancelOutboxForRecipient(phone);
-      metaClientInbox.cancelPendingForPhone(phone);
+      await metaClientInbox.cancelForPhone(phone);
       storage.cancelServiceBotFollowUps(phone);
       storage.clearServiceBotSessionForPhone(phone);
       await storage.flush();
@@ -3974,17 +4126,51 @@ export function startAdminServer(storage: Storage): import('http').Server {
 
   // ── needs_review (finding 01/R1/R2/R6: senders held after an unverifiable failure) ──
 
-  // A held item's inbox sender key does not carry the destination number the
-  // way metaPayloadSenderKey does (the admin only has the jid/phone, not
-  // which Meta phone_number_id the original webhook arrived on) - match by
-  // the sender's own phone digits within the item payload instead, which is
-  // exactly what a needs_review block is keyed on (R5).
-  const heldItemMatchesPhone = (item: MetaGatewayInboxItem, phoneDigits: string): boolean => {
-    if (!phoneDigits) return false;
-    const payload = item.payload as any;
-    const from = String(payload?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from || '').replace(/\D/g, '');
-    return Boolean(from) && from === phoneDigits;
+  // ── inbox review (stage E): items that need attention (held / failed / review) are visible and resolvable ──
+  const inboxStoreFor = (role: unknown): InboxStore | null => (role === 'gateway' ? metaGatewayInbox : role === 'client' ? metaClientInbox : null);
+  const listInboxReview = (allowedRoles: string[]) => async (req: express.Request, res: express.Response): Promise<void> => {
+    const role = String(req.query.role || allowedRoles[0]);
+    const store = allowedRoles.includes(role) ? inboxStoreFor(role) : null;
+    if (!store) { res.status(400).json({ error: `role must be one of: ${allowedRoles.join(', ')}` }); return; }
+    const wanted = String(req.query.status || 'held,failed,review').split(',').map((v) => v.trim()).filter((v) => v === 'held' || v === 'failed' || v === 'review') as Array<'held' | 'failed' | 'review'>;
+    const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
+    const after = req.query.afterUpdatedAt && req.query.afterId ? { updatedAt: String(req.query.afterUpdatedAt), id: String(req.query.afterId) } : undefined;
+    try {
+      await inboxReady;
+      const items = await store.listReview({ statuses: wanted.length ? wanted : undefined, limit, after });
+      res.json({
+        role, backend: store.backend,
+        items: items.map((i) => ({ ...i, lastError: i.lastError === null ? null : redactSecrets(i.lastError), bodyPreview: redactSecrets(i.bodyPreview) })),
+        next: items.length === limit ? items[items.length - 1].cursor : null,
+        note: store.backend === 'json' ? 'legacy JSON inbox: an item that needs review is recorded as failed with a [REVIEW:...] reason' : undefined,
+      });
+    } catch (err) {
+      res.status(503).json({ error: redactSecrets(`inbox unavailable: ${err instanceof Error ? err.message : String(err)}`) });
+    }
   };
+  const resolveInboxReview = (allowedRoles: string[]) => async (req: express.Request, res: express.Response): Promise<void> => {
+    const role = String(req.body?.role || allowedRoles[0]);
+    const store = allowedRoles.includes(role) ? inboxStoreFor(role) : null;
+    const phone = String(req.body?.phone || '').replace(/\D/g, '');
+    const action = String(req.body?.action || '');
+    const statuses = (Array.isArray(req.body?.statuses) ? req.body.statuses : ['held']).filter((v: unknown) => v === 'held' || v === 'failed' || v === 'review');
+    if (!store || !phone || (action !== 'requeue' && action !== 'discard') || !statuses.length) {
+      res.status(400).json({ error: 'role, phone, action ("requeue" | "discard") and statuses (held/failed/review) are required; there is no default action.' });
+      return;
+    }
+    try {
+      await inboxReady;
+      const resolved = await store.resolveForPhone(phone, action, String(req.body?.actor || 'admin').slice(0, 60), { statuses, acknowledgeDuplicateRisk: req.body?.acknowledgeDuplicateRisk === true });
+      if (resolved) void (role === 'gateway' ? processMetaGatewayInbox() : processMetaClientInbox());
+      res.json({ ok: true, role, action, resolved, note: 'an interrupted (ambiguous) item is only replayed with acknowledgeDuplicateRisk=true' });
+    } catch (err) {
+      res.status(503).json({ error: redactSecrets(`inbox unavailable: ${err instanceof Error ? err.message : String(err)}`) });
+    }
+  };
+  app.get('/owner/api/inbox/review', listInboxReview(['gateway', 'client']));
+  app.post('/owner/api/inbox/review/resolve', resolveInboxReview(['gateway', 'client']));
+  app.get('/api/inbox/review', listInboxReview(['client']));
+  app.post('/api/inbox/review/resolve', requireWritableClient, resolveInboxReview(['client']));
 
   app.get('/api/needs-review', (_req, res) => {
     res.json({
@@ -4065,9 +4251,28 @@ export function startAdminServer(storage: Storage): import('http').Server {
       if (heldMessagesAction === 'requeue') deliveryRecoveryBus.emit('replayHeld', baileysHeld);
       else console.warn(`[HELD_MESSAGES_DISCARDED_BY_ADMIN] jid=${jid} count=${baileysHeld.length} previews=${JSON.stringify(baileysHeld.map((entry) => entry.bodyPreview ?? ''))}`);
     }
-    const matcher = (item: MetaGatewayInboxItem) => (heldItemMatchesPhone(item, phoneDigits) ? phoneDigits : `no-match:${item.id}`);
-    const gatewayResolved = metaGatewayInbox.resolveHeldForSender(phoneDigits, matcher, inboxAction);
-    const clientResolved = metaClientInbox.resolveHeldForSender(phoneDigits, matcher, inboxAction);
+    // Held items follow heldMessagesAction (as before). Review items (an interrupted / expired message) are resolved only when the admin
+    // says so explicitly: reviewItemsAction 'requeue' (needs acknowledgeDuplicateRisk for an interrupted one) or 'discard'; default 'keep'.
+    const reviewItemsAction = String(req.body?.reviewItemsAction || 'keep');
+    let gatewayResolved = 0;
+    let clientResolved = 0;
+    try {
+      await inboxReady;
+      const actor = 'admin';
+      gatewayResolved = await metaGatewayInbox.resolveForPhone(phoneDigits, inboxAction, actor);
+      clientResolved = await metaClientInbox.resolveForPhone(phoneDigits, inboxAction, actor);
+      if (reviewItemsAction === 'requeue' || reviewItemsAction === 'discard') {
+        const opts = { statuses: ['review' as const], acknowledgeDuplicateRisk: req.body?.acknowledgeDuplicateRisk === true };
+        clientResolved += await metaClientInbox.resolveForPhone(phoneDigits, reviewItemsAction, actor, opts);
+        gatewayResolved += await metaGatewayInbox.resolveForPhone(phoneDigits, reviewItemsAction, actor, opts);
+      }
+    } catch (err) {
+      console.error('[NEEDS_REVIEW_INBOX_RESOLVE_FAILED]', err);
+      res.status(503).json({ error: redactSecrets(`The hold was removed but the inbox could not be updated: ${err instanceof Error ? err.message : String(err)}`) });
+      return;
+    }
+    if (gatewayResolved) void processMetaGatewayInbox();
+    if (clientResolved) void processMetaClientInbox();
 
     console.log(`[NEEDS_REVIEW_RESOLVED] jid=${jid} reason="${current.reason.slice(0, 200)}" resolvedBy=admin heldMessagesAction=${heldMessagesAction} heldMessageCount=${current.heldMessages?.length ?? 0} inboxItemsResolved=${gatewayResolved + clientResolved}`);
     res.json({
@@ -4084,21 +4289,25 @@ export function startAdminServer(storage: Storage): import('http').Server {
   const onDeliveryRecoveryReleased = (event: DeliveryRecoveryRelease): void => {
     const phoneDigits = String(event.phone || event.jid).replace(/\D/g, '');
     if (!phoneDigits) return;
-    const matcher = (item: MetaGatewayInboxItem) => (heldItemMatchesPhone(item, phoneDigits) ? phoneDigits : `no-match:${item.id}`);
-    const gatewayResolved = metaGatewayInbox.resolveHeldForSender(phoneDigits, matcher, 'requeue');
-    const clientResolved = metaClientInbox.resolveHeldForSender(phoneDigits, matcher, 'requeue');
-    if (gatewayResolved + clientResolved) console.log(`[DELIVERY_RECOVERY_REQUEUED] outbox=${event.outboxId} inboxItems=${gatewayResolved + clientResolved}`);
-    if (gatewayResolved) void processMetaGatewayInbox();
-    if (clientResolved) void processMetaClientInbox();
+    void (async () => {
+      await inboxReady;
+      const gatewayResolved = await metaGatewayInbox.resolveForPhone(phoneDigits, 'requeue', 'delivery-recovery');
+      const clientResolved = await metaClientInbox.resolveForPhone(phoneDigits, 'requeue', 'delivery-recovery');
+      if (gatewayResolved + clientResolved) console.log(`[DELIVERY_RECOVERY_REQUEUED] outbox=${event.outboxId} inboxItems=${gatewayResolved + clientResolved}`);
+      if (gatewayResolved) void processMetaGatewayInbox();
+      if (clientResolved) void processMetaClientInbox();
+    })().catch((err) => console.error('[DELIVERY_RECOVERY_REQUEUE_FAILED]', event.outboxId, err));
   };
   deliveryRecoveryBus.on('released', onDeliveryRecoveryReleased);
   // The participant started a new run: inbox items held for the abandoned one are discarded (recorded, not replayed into the new run).
   const onDeliveryRecoverySuperseded = (event: DeliveryRecoveryRelease): void => {
     const phoneDigits = String(event.phone || event.jid).replace(/\D/g, '');
     if (!phoneDigits) return;
-    const matcher = (item: MetaGatewayInboxItem) => (heldItemMatchesPhone(item, phoneDigits) ? phoneDigits : `no-match:${item.id}`);
-    const resolved = metaGatewayInbox.resolveHeldForSender(phoneDigits, matcher, 'discard') + metaClientInbox.resolveHeldForSender(phoneDigits, matcher, 'discard');
-    if (resolved) console.log(`[DELIVERY_RECOVERY_SUPERSEDED_DISCARDED] outbox=${event.outboxId} inboxItems=${resolved}`);
+    void (async () => {
+      await inboxReady;
+      const resolved = (await metaGatewayInbox.resolveForPhone(phoneDigits, 'discard', 'delivery-recovery')) + (await metaClientInbox.resolveForPhone(phoneDigits, 'discard', 'delivery-recovery'));
+      if (resolved) console.log(`[DELIVERY_RECOVERY_SUPERSEDED_DISCARDED] outbox=${event.outboxId} inboxItems=${resolved}`);
+    })().catch((err) => console.error('[DELIVERY_RECOVERY_SUPERSEDE_DISCARD_FAILED]', event.outboxId, err));
   };
   deliveryRecoveryBus.on('superseded', onDeliveryRecoverySuperseded);
 

@@ -1,0 +1,19 @@
+script sha=d70bb3d3569bab3e db={"db":"flowsbiz_inbox_test","port":5433,"version":"18.6"}
+CELL H=300 B=0 base: actual after seed=300 after ops=380 | p95 enq=4.54 claim=5.794 retry=4.729 complete=4.291 idle=1.261ms | walB/retry=2007 | maxRowsVisited=558 | lag p99=15.71 max=22.56ms | invariants=0 (2s)
+CELL H=300 B=500 base: actual after seed=800 after ops=880 | p95 enq=4.037 claim=5.005 retry=4.095 complete=3.626 idle=1.67ms | walB/retry=1993 | maxRowsVisited=1926 | lag p99=15.48 max=17.94ms | invariants=0 (2s)
+CELL H=300 B=5000 base: actual after seed=5300 after ops=5380 | p95 enq=3.697 claim=5.003 retry=4.004 complete=4.218 idle=3.073ms | walB/retry=1977 | maxRowsVisited=6426 | lag p99=15.7 max=15.86ms | invariants=0 (3s)
+CELL H=5000 B=0 base: actual after seed=5000 after ops=5080 | p95 enq=3.958 claim=4.836 retry=3.764 complete=4.154 idle=1.055ms | walB/retry=1991 | maxRowsVisited=6126 | lag p99=15.91 max=18.06ms | invariants=0 (2s)
+CELL H=5000 B=500 base: actual after seed=5500 after ops=5580 | p95 enq=3.529 claim=5.126 retry=3.913 complete=4.059 idle=1.429ms | walB/retry=2018 | maxRowsVisited=6626 | lag p99=18.12 max=18.78ms | invariants=0 (2s)
+CELL H=5000 B=5000 base: actual after seed=10000 after ops=10080 | p95 enq=3.893 claim=4.821 retry=3.961 complete=4.068 idle=3.167ms | walB/retry=1984 | maxRowsVisited=11126 | lag p99=15.61 max=15.64ms | invariants=0 (3s)
+CELL H=50000 B=0 base: actual after seed=50000 after ops=50080 | p95 enq=3.688 claim=4.402 retry=3.82 complete=4.087 idle=1.054ms | walB/retry=1900 | maxRowsVisited=51126 | lag p99=15.46 max=15.99ms | invariants=0 (7s)
+CELL H=50000 B=500 base: actual after seed=50500 after ops=50580 | p95 enq=3.915 claim=5.178 retry=4.281 complete=4.229 idle=1.388ms | walB/retry=2048 | maxRowsVisited=51626 | lag p99=15.57 max=15.99ms | invariants=0 (9s)
+CELL H=50000 B=5000 base: actual after seed=55000 after ops=55080 | p95 enq=4.023 claim=5.277 retry=4 complete=4.039 idle=2.833ms | walB/retry=1933 | maxRowsVisited=40039 | lag p99=15.71 max=16.1ms | invariants=0 (10s)
+CELL H=300 B=0 blocked-one: actual after seed=501 after ops=581 | p95 enq=4.655 claim=4.933 retry=4.467 complete=4.046 idle=1.389ms | walB/retry=1941 | maxRowsVisited=580 | lag p99=16.02 max=16.25ms | invariants=3 (2s)
+CELL H=300 B=0 blocked-many: actual after seed=2300 after ops=2380 | p95 enq=3.709 claim=5.553 retry=6.478 complete=4.005 idle=1.37ms | walB/retry=1940 | maxRowsVisited=4207 | lag p99=16.21 max=16.21ms | invariants=1500 (2s)
+CELL H=5000 B=0 blocked-one: actual after seed=5201 after ops=5281 | p95 enq=3.579 claim=5.145 retry=4.244 complete=4.02 idle=1.121ms | walB/retry=1946 | maxRowsVisited=8076 | lag p99=15.61 max=16.83ms | invariants=3 (2s)
+CELL H=5000 B=0 blocked-many: actual after seed=7000 after ops=7080 | p95 enq=3.69 claim=4.99 retry=4.774 complete=4.003 idle=1.494ms | walB/retry=2047 | maxRowsVisited=8078 | lag p99=16.29 max=16.29ms | invariants=1500 (3s)
+CELL H=50000 B=0 blocked-one: actual after seed=50201 after ops=50281 | p95 enq=2.608 claim=3.379 retry=3.166 complete=3.721 idle=0.859ms | walB/retry=1945 | maxRowsVisited=40038 | lag p99=17.69 max=17.69ms | invariants=3 (8s)
+CELL H=50000 B=0 blocked-many: actual after seed=52000 after ops=52080 | p95 enq=4.157 claim=4.785 retry=3.054 complete=3.148 idle=1.018ms | walB/retry=2053 | maxRowsVisited=40039 | lag p99=15.65 max=15.65ms | invariants=1500 (9s)
+VERDICT {"evaluated":true,"time":{"enqueue":{"lo":4.54,"hi":4.023,"ratio":0.89,"pass":true},"claim":{"lo":5.794,"hi":5.277,"ratio":0.91,"pass":true},"retry":{"lo":4.729,"hi":4,"ratio":0.85,"pass":true},"complete":{"lo":4.291,"hi":4.039,"ratio":0.94,"pass":true}},"rows":{"claim: due senders (limit 20, skip locked)":{"max":5040,"pass":false},"idle tick: due senders when nothing is due":{"max":5040,"pass":false},"recompute head (next outstanding of a sender)":{"max":4,"pass":true},"enqueue: identity lookup":{"max":2,"
+
+[exited with code 1]

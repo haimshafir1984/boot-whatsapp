@@ -6,7 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { config } from './config';
-import type { ConversationStateSnapshot } from './conversationState';
+import type { ConversationStateSnapshot, PersistablePendingConversation } from './conversationState';
 import { attemptTaggingEnabled, isAttemptId, newAttemptId } from './sendAttempt';
 import type { FlowUnitDescriptor } from './flowUnit';
 
@@ -1746,6 +1746,18 @@ export class Storage {
       ['conversationStateSnapshot'],
       changedJids === 'all' ? {} : { conversationStateSnapshot: changedJids },
     );
+  }
+
+  /**
+   * PostgreSQL mode (stage E / C4): persist ONLY the changed conversation rows. The in-memory copy is updated in place (no deep clone
+   * of the whole snapshot), and the write is tracked per jid, so neither this call nor the database drain scales with the number of
+   * resident conversations. Not used in JSON mode (the conversation-state file is authoritative there).
+   */
+  upsertConversationRows(upserts: Record<string, PersistablePendingConversation>, removed: string[]): void {
+    const snapshot = (this.data.conversationStateSnapshot ??= { version: 1, savedAt: new Date().toISOString(), conversations: {} });
+    for (const [jid, state] of Object.entries(upserts)) snapshot.conversations[jid] = state;
+    for (const jid of removed) delete snapshot.conversations[jid];
+    this.persist(['conversationStateSnapshot'], { conversationStateSnapshot: [...Object.keys(upserts), ...removed] });
   }
 
   getDurableTimerHealth(): { scheduled: number; jobs: number } {

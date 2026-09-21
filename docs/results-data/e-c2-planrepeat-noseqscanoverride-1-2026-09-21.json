@@ -1,0 +1,623 @@
+{
+ "preflight": {
+  "at": "2026-09-21T10:49:59.329Z",
+  "freeMemGB": 12.1,
+  "totalMemGB": 29.9,
+  "load1m": 0,
+  "strayRepoNodeProcesses": [],
+  "otherNodeProcesses": {
+   "count": 91,
+   "MB": 4693
+  }
+ },
+ "accept": {
+  "p95Ratio": 2,
+  "p95AbsMs": 100,
+  "rowsVisited": 50,
+  "walRatioTol": 0.2
+ },
+ "scriptSha": "c6e966ed0af0e80c",
+ "db": {
+  "db": "flowsbiz_inbox_test",
+  "port": 5433,
+  "version": "18.6"
+ },
+ "host": {
+  "cpu": "AMD Ryzen 7 PRO 5850U with Radeon Graphics     ",
+  "threads": 16,
+  "ramGB": 30,
+  "node": "v24.16.0"
+ },
+ "verdict": {
+  "evaluated": false,
+  "reason": "cells (300,0) and (50000,5000) not both run"
+ },
+ "results": [
+  {
+   "cell": {
+    "H": 300,
+    "B": 0,
+    "scenario": "base"
+   },
+   "counts": {
+    "afterSeed": {
+     "completed": 239,
+     "failed": 15,
+     "held": 30,
+     "review": 16,
+     "total": 300
+    },
+    "afterOps": {
+     "completed": 249,
+     "failed": 15,
+     "held": 30,
+     "retry": 10,
+     "review": 16,
+     "total": 320
+    }
+   },
+   "seedInvariantViolations": 0,
+   "timingMs": {
+    "enqueue": {
+     "n": 20,
+     "p50": 3.734,
+     "p95": 6.117,
+     "max": 6.117
+    },
+    "claim": {
+     "n": 20,
+     "p50": 5.14,
+     "p95": 10.54,
+     "max": 10.54
+    },
+    "retry": {
+     "n": 10,
+     "p50": 3.881,
+     "p95": 4.906,
+     "max": 4.906
+    },
+    "complete": {
+     "n": 10,
+     "p50": 4.033,
+     "p95": 5.517,
+     "max": 5.517
+    },
+    "idle": {
+     "n": 10,
+     "p50": 1.161,
+     "p95": 1.752,
+     "max": 1.752
+    }
+   },
+   "walBytesPerRetry": 1791,
+   "walBytesTotal": 123032,
+   "plans": [
+    {
+     "label": "claim: due senders (limit 20, skip locked)",
+     "executionMs": 0.067,
+     "planningMs": 4.067,
+     "rowsVisited": 0,
+     "sharedBlocks": 12,
+     "scans": [
+      "Index Scan:idx_inbox_senders_due@inbox_senders rows=0 removed=0"
+     ]
+    },
+    {
+     "label": "idle tick: due senders when nothing is due",
+     "executionMs": 0.132,
+     "planningMs": 0.121,
+     "rowsVisited": 0,
+     "sharedBlocks": 9,
+     "scans": [
+      "Index Scan:idx_inbox_senders_due@inbox_senders rows=0 removed=0"
+     ]
+    },
+    {
+     "label": "recompute head (next outstanding of a sender)",
+     "executionMs": 0.065,
+     "planningMs": 8.28,
+     "rowsVisited": 1,
+     "sharedBlocks": 8,
+     "scans": [
+      "Index Scan:idx_inbox_items_outstanding@inbox_items rows=1 removed=0"
+     ]
+    },
+    {
+     "label": "enqueue: identity lookup",
+     "executionMs": 0.127,
+     "planningMs": 0.202,
+     "rowsVisited": 1,
+     "sharedBlocks": 5,
+     "scans": [
+      "Index Only Scan:inbox_items_namespace_role_phone_number_id_message_id_key@inbox_items rows=1 removed=0"
+     ]
+    },
+    {
+     "label": "cancel/resolve: sender rows by phone",
+     "executionMs": 0.071,
+     "planningMs": 0.146,
+     "rowsVisited": 1,
+     "sharedBlocks": 13,
+     "scans": [
+      "Index Scan:idx_inbox_senders_phone@inbox_senders rows=1 removed=0"
+     ]
+    },
+    {
+     "label": "resolve: held items by phone",
+     "executionMs": 0.036,
+     "planningMs": 0.227,
+     "rowsVisited": 0,
+     "sharedBlocks": 6,
+     "scans": [
+      "Index Scan:idx_inbox_items_held_phone@inbox_items rows=0 removed=0"
+     ]
+    },
+    {
+     "label": "review list page: status held",
+     "executionMs": 0.072,
+     "planningMs": 0.315,
+     "rowsVisited": 30,
+     "sharedBlocks": 24,
+     "scans": [
+      "Index Scan:idx_inbox_items_review@inbox_items rows=30 removed=0"
+     ]
+    },
+    {
+     "label": "review list page: status review",
+     "executionMs": 0.107,
+     "planningMs": 0.264,
+     "rowsVisited": 16,
+     "sharedBlocks": 18,
+     "scans": [
+      "Index Scan:idx_inbox_items_review@inbox_items rows=16 removed=0"
+     ]
+    },
+    {
+     "label": "metrics: oldest due",
+     "executionMs": 0.051,
+     "planningMs": 0.265,
+     "rowsVisited": 0,
+     "sharedBlocks": 12,
+     "scans": [
+      "Index Only Scan:idx_inbox_senders_due@inbox_senders rows=0 removed=0"
+     ]
+    },
+    {
+     "label": "cleanup: completed batch",
+     "executionMs": 0.091,
+     "planningMs": 0.217,
+     "rowsVisited": 0,
+     "sharedBlocks": 6,
+     "scans": [
+      "Index Only Scan:idx_inbox_items_completed_cleanup@inbox_items rows=0 removed=0"
+     ]
+    },
+    {
+     "label": "cleanup: payload purge batch",
+     "executionMs": 0.086,
+     "planningMs": 0.247,
+     "rowsVisited": 0,
+     "sharedBlocks": 6,
+     "scans": [
+      "Index Only Scan:idx_inbox_items_payload_purge@inbox_items rows=0 removed=0"
+     ]
+    },
+    {
+     "label": "counts: active statuses",
+     "executionMs": 0.109,
+     "planningMs": 0.248,
+     "rowsVisited": 10,
+     "sharedBlocks": 29,
+     "scans": [
+      "Bitmap Heap Scan@inbox_items rows=10 removed=0"
+     ]
+    }
+   ],
+   "endInvariantViolations": 0,
+   "lag": {
+    "burstMs": 532,
+    "processedInBurst": 150,
+    "eventLoopDelayMs": {
+     "p99": 17.22,
+     "max": 18.69
+    },
+    "heartbeatLagMs": {
+     "p99": 8.76,
+     "max": 8.76
+    }
+   },
+   "finalInvariantViolations": 0
+  },
+  {
+   "cell": {
+    "H": 300,
+    "B": 500,
+    "scenario": "base"
+   },
+   "counts": {
+    "afterSeed": {
+     "completed": 239,
+     "failed": 15,
+     "held": 30,
+     "retry": 500,
+     "review": 16,
+     "total": 800
+    },
+    "afterOps": {
+     "completed": 249,
+     "failed": 15,
+     "held": 30,
+     "retry": 510,
+     "review": 16,
+     "total": 820
+    }
+   },
+   "seedInvariantViolations": 0,
+   "timingMs": {
+    "enqueue": {
+     "n": 20,
+     "p50": 3.073,
+     "p95": 4.263,
+     "max": 4.263
+    },
+    "claim": {
+     "n": 20,
+     "p50": 4.678,
+     "p95": 5.618,
+     "max": 5.618
+    },
+    "retry": {
+     "n": 10,
+     "p50": 3.627,
+     "p95": 3.882,
+     "max": 3.882
+    },
+    "complete": {
+     "n": 10,
+     "p50": 3.608,
+     "p95": 4.098,
+     "max": 4.098
+    },
+    "idle": {
+     "n": 10,
+     "p50": 1.045,
+     "p95": 1.113,
+     "max": 1.113
+    }
+   },
+   "walBytesPerRetry": 1830,
+   "walBytesTotal": 144008,
+   "plans": [
+    {
+     "label": "claim: due senders (limit 20, skip locked)",
+     "executionMs": 0.051,
+     "planningMs": 3.454,
+     "rowsVisited": 0,
+     "sharedBlocks": 9,
+     "scans": [
+      "Index Scan:idx_inbox_senders_due@inbox_senders rows=0 removed=0"
+     ]
+    },
+    {
+     "label": "idle tick: due senders when nothing is due",
+     "executionMs": 0.032,
+     "planningMs": 0.115,
+     "rowsVisited": 0,
+     "sharedBlocks": 9,
+     "scans": [
+      "Index Scan:idx_inbox_senders_due@inbox_senders rows=0 removed=0"
+     ]
+    },
+    {
+     "label": "recompute head (next outstanding of a sender)",
+     "executionMs": 0.041,
+     "planningMs": 6.787,
+     "rowsVisited": 1,
+     "sharedBlocks": 8,
+     "scans": [
+      "Index Scan:idx_inbox_items_outstanding@inbox_items rows=1 removed=0"
+     ]
+    },
+    {
+     "label": "enqueue: identity lookup",
+     "executionMs": 0.137,
+     "planningMs": 0.154,
+     "rowsVisited": 1,
+     "sharedBlocks": 5,
+     "scans": [
+      "Index Only Scan:inbox_items_namespace_role_phone_number_id_message_id_key@inbox_items rows=1 removed=0"
+     ]
+    },
+    {
+     "label": "cancel/resolve: sender rows by phone",
+     "executionMs": 0.155,
+     "planningMs": 0.358,
+     "rowsVisited": 1,
+     "sharedBlocks": 13,
+     "scans": [
+      "Index Scan:idx_inbox_senders_phone@inbox_senders rows=1 removed=0"
+     ]
+    },
+    {
+     "label": "resolve: held items by phone",
+     "executionMs": 0.036,
+     "planningMs": 0.277,
+     "rowsVisited": 0,
+     "sharedBlocks": 6,
+     "scans": [
+      "Index Scan:idx_inbox_items_held_phone@inbox_items rows=0 removed=0"
+     ]
+    },
+    {
+     "label": "review list page: status held",
+     "executionMs": 0.063,
+     "planningMs": 0.307,
+     "rowsVisited": 30,
+     "sharedBlocks": 26,
+     "scans": [
+      "Index Scan:idx_inbox_items_review@inbox_items rows=30 removed=0"
+     ]
+    },
+    {
+     "label": "review list page: status review",
+     "executionMs": 0.053,
+     "planningMs": 0.2,
+     "rowsVisited": 16,
+     "sharedBlocks": 22,
+     "scans": [
+      "Index Scan:idx_inbox_items_review@inbox_items rows=16 removed=0"
+     ]
+    },
+    {
+     "label": "metrics: oldest due",
+     "executionMs": 0.067,
+     "planningMs": 0.212,
+     "rowsVisited": 0,
+     "sharedBlocks": 9,
+     "scans": [
+      "Index Only Scan:idx_inbox_senders_due@inbox_senders rows=0 removed=0"
+     ]
+    },
+    {
+     "label": "cleanup: completed batch",
+     "executionMs": 0.105,
+     "planningMs": 0.22,
+     "rowsVisited": 0,
+     "sharedBlocks": 6,
+     "scans": [
+      "Index Only Scan:idx_inbox_items_completed_cleanup@inbox_items rows=0 removed=0"
+     ]
+    },
+    {
+     "label": "cleanup: payload purge batch",
+     "executionMs": 0.076,
+     "planningMs": 0.199,
+     "rowsVisited": 0,
+     "sharedBlocks": 6,
+     "scans": [
+      "Index Only Scan:idx_inbox_items_payload_purge@inbox_items rows=0 removed=0"
+     ]
+    },
+    {
+     "label": "counts: active statuses",
+     "executionMs": 0.417,
+     "planningMs": 0.237,
+     "rowsVisited": 510,
+     "sharedBlocks": 222,
+     "scans": [
+      "Bitmap Heap Scan@inbox_items rows=510 removed=0"
+     ]
+    }
+   ],
+   "endInvariantViolations": 0,
+   "lag": {
+    "burstMs": 349,
+    "processedInBurst": 150,
+    "eventLoopDelayMs": {
+     "p99": 15.6,
+     "max": 15.97
+    },
+    "heartbeatLagMs": {
+     "p99": 11.61,
+     "max": 11.61
+    }
+   },
+   "finalInvariantViolations": 0
+  },
+  {
+   "cell": {
+    "H": 5000,
+    "B": 0,
+    "scenario": "base"
+   },
+   "counts": {
+    "afterSeed": {
+     "completed": 3999,
+     "failed": 250,
+     "held": 500,
+     "review": 251,
+     "total": 5000
+    },
+    "afterOps": {
+     "retry": 10,
+     "held": 500,
+     "review": 251,
+     "failed": 250,
+     "completed": 4009,
+     "total": 5020
+    }
+   },
+   "seedInvariantViolations": 0,
+   "timingMs": {
+    "enqueue": {
+     "n": 20,
+     "p50": 2.926,
+     "p95": 4.158,
+     "max": 4.158
+    },
+    "claim": {
+     "n": 20,
+     "p50": 4.315,
+     "p95": 5.221,
+     "max": 5.221
+    },
+    "retry": {
+     "n": 10,
+     "p50": 3.691,
+     "p95": 4.272,
+     "max": 4.272
+    },
+    "complete": {
+     "n": 10,
+     "p50": 3.284,
+     "p95": 3.788,
+     "max": 3.788
+    },
+    "idle": {
+     "n": 10,
+     "p50": 0.987,
+     "p95": 1.051,
+     "max": 1.051
+    }
+   },
+   "walBytesPerRetry": 1818,
+   "walBytesTotal": 136440,
+   "plans": [
+    {
+     "label": "claim: due senders (limit 20, skip locked)",
+     "executionMs": 0.057,
+     "planningMs": 3.607,
+     "rowsVisited": 0,
+     "sharedBlocks": 9,
+     "scans": [
+      "Index Scan:idx_inbox_senders_due@inbox_senders rows=0 removed=0"
+     ]
+    },
+    {
+     "label": "idle tick: due senders when nothing is due",
+     "executionMs": 0.053,
+     "planningMs": 0.131,
+     "rowsVisited": 0,
+     "sharedBlocks": 9,
+     "scans": [
+      "Index Scan:idx_inbox_senders_due@inbox_senders rows=0 removed=0"
+     ]
+    },
+    {
+     "label": "recompute head (next outstanding of a sender)",
+     "executionMs": 0.07,
+     "planningMs": 7.636,
+     "rowsVisited": 1,
+     "sharedBlocks": 15,
+     "scans": [
+      "Bitmap Heap Scan@inbox_items rows=1 removed=0"
+     ]
+    },
+    {
+     "label": "enqueue: identity lookup",
+     "executionMs": 0.073,
+     "planningMs": 0.212,
+     "rowsVisited": 1,
+     "sharedBlocks": 7,
+     "scans": [
+      "Bitmap Heap Scan@inbox_items rows=1 removed=0"
+     ]
+    },
+    {
+     "label": "cancel/resolve: sender rows by phone",
+     "executionMs": 0.056,
+     "planningMs": 0.13,
+     "rowsVisited": 1,
+     "sharedBlocks": 13,
+     "scans": [
+      "Index Scan:idx_inbox_senders_phone@inbox_senders rows=1 removed=0"
+     ]
+    },
+    {
+     "label": "resolve: held items by phone",
+     "executionMs": 0.041,
+     "planningMs": 0.262,
+     "rowsVisited": 1,
+     "sharedBlocks": 12,
+     "scans": [
+      "Index Scan:idx_inbox_items_held_phone@inbox_items rows=1 removed=0"
+     ]
+    },
+    {
+     "label": "review list page: status held",
+     "executionMs": 0.67,
+     "planningMs": 0.421,
+     "rowsVisited": 100,
+     "sharedBlocks": 174,
+     "scans": [
+      "Index Scan:idx_inbox_items_review@inbox_items rows=100 removed=0"
+     ]
+    },
+    {
+     "label": "review list page: status review",
+     "executionMs": 0.211,
+     "planningMs": 0.239,
+     "rowsVisited": 100,
+     "sharedBlocks": 98,
+     "scans": [
+      "Index Scan:idx_inbox_items_review@inbox_items rows=100 removed=0"
+     ]
+    },
+    {
+     "label": "metrics: oldest due",
+     "executionMs": 0.037,
+     "planningMs": 0.224,
+     "rowsVisited": 0,
+     "sharedBlocks": 9,
+     "scans": [
+      "Index Only Scan:idx_inbox_senders_due@inbox_senders rows=0 removed=0"
+     ]
+    },
+    {
+     "label": "cleanup: completed batch",
+     "executionMs": 0.077,
+     "planningMs": 0.181,
+     "rowsVisited": 0,
+     "sharedBlocks": 6,
+     "scans": [
+      "Index Only Scan:idx_inbox_items_completed_cleanup@inbox_items rows=0 removed=0"
+     ]
+    },
+    {
+     "label": "cleanup: payload purge batch",
+     "executionMs": 0.092,
+     "planningMs": 0.248,
+     "rowsVisited": 0,
+     "sharedBlocks": 6,
+     "scans": [
+      "Index Only Scan:idx_inbox_items_payload_purge@inbox_items rows=0 removed=0"
+     ]
+    },
+    {
+     "label": "counts: active statuses",
+     "executionMs": 0.109,
+     "planningMs": 0.317,
+     "rowsVisited": 10,
+     "sharedBlocks": 21,
+     "scans": [
+      "Bitmap Heap Scan@inbox_items rows=10 removed=0"
+     ]
+    }
+   ],
+   "endInvariantViolations": 0,
+   "lag": {
+    "burstMs": 321,
+    "processedInBurst": 150,
+    "eventLoopDelayMs": {
+     "p99": 15.85,
+     "max": 15.91
+    },
+    "heartbeatLagMs": {
+     "p99": 11.2,
+     "max": 11.2
+    }
+   },
+   "finalInvariantViolations": 0
+  }
+ ]
+}

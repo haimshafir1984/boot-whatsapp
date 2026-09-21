@@ -1,0 +1,167 @@
+{
+  "startedAt": "2026-09-21T11:47:21.253Z",
+  "mutations": [
+    {
+      "id": "G1",
+      "protection": "the import runs without a verified backup",
+      "file": "dist/inbox/migration.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-inbox-migration-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "APPLY (client): backup + checksum BEFORE, import, counts/identity/payload/order verified, invariants clean, source RENAMED (not deleted), ma",
+            "APPLY (gateway): processing => retry due now (safe re-run), claimable immediately",
+            "INTERRUPTION at every checkpoint: a crash after any batch leaves the source untouched and NOT active; the rerun completes with no duplicate ",
+            "REFUSALS write nothing: corrupt input, duplicate identity, a writer still active, missing --confirm-stopped, already active, source changed ",
+            "VERIFICATION runs BEFORE activation: a conflicting row with the same identity in the target is never overwritten and blocks activation (sour",
+            "NO DUAL WRITERS: JSON backend refuses to start once the marker exists; PostgreSQL backend refuses to start over an unmigrated legacy file; n",
+            "ROLLBACK before SQL did any work: the untouched original is restored BYTE-FOR-BYTE; the guards then allow JSON again and refuse PostgreSQL",
+            "ROLLBACK after SQL received/processed work: the plain rollback REFUSES (it would lose work); a verified export keeps EVERY message; nothing "
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "G2",
+      "protection": "verification cannot block activation",
+      "file": "dist/inbox/migration.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-inbox-migration-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "VERIFICATION runs BEFORE activation: a conflicting row with the same identity in the target is never overwritten and blocks activation (sour"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "G3",
+      "protection": "a conflicting existing row is overwritten by the import",
+      "file": "dist/inbox/migration.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-inbox-migration-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "VERIFICATION runs BEFORE activation: a conflicting row with the same identity in the target is never overwritten and blocks activation (sour"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "G4",
+      "protection": "rollback restores the old file even after SQL did work (loses that work)",
+      "file": "dist/inbox/migration.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-inbox-migration-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "ROLLBACK after SQL received/processed work: the plain rollback REFUSES (it would lose work); a verified export keeps EVERY message; nothing "
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "G5",
+      "protection": "the source is deleted instead of renamed",
+      "file": "dist/inbox/migration.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-inbox-migration-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "APPLY (client): backup + checksum BEFORE, import, counts/identity/payload/order verified, invariants clean, source RENAMED (not deleted), ma",
+            "ROLLBACK before SQL did any work: the untouched original is restored BYTE-FOR-BYTE; the guards then allow JSON again and refuse PostgreSQL"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "G6",
+      "protection": "no startup guard: the JSON backend starts over a migrated inbox (two writers)",
+      "file": "dist/inbox/migration.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-inbox-migration-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "NO DUAL WRITERS: JSON backend refuses to start once the marker exists; PostgreSQL backend refuses to start over an unmigrated legacy file; n"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "G7",
+      "protection": "a still-active writer is not detected",
+      "file": "dist/inbox/migration.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-inbox-migration-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "REFUSALS write nothing: corrupt input, duplicate identity, a writer still active, missing --confirm-stopped, already active, source changed "
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "G8",
+      "protection": "the dry-run writes something",
+      "file": "dist/inbox/migration.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-inbox-migration-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "DRY-RUN changes NOTHING: source, .bak, directory, and every inbox table (no insert/update/delete/schema/ledger), with and without a database"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    }
+  ],
+  "allCaught": true,
+  "allRestored": true
+}

@@ -1,0 +1,146 @@
+{
+  "startedAt": "2026-09-21T07:58:24.349Z",
+  "mutations": [
+    {
+      "id": "V1",
+      "protection": "the outcome decision (uncertain) ignores evidence kept on the attempt (the reported bug)",
+      "file": "dist/storage.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-evidence-during-send.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "[tagging on] THE BUG: delivery callback while the POST is in the air, then the POST times out => NOT sent again, ends sent",
+            "[tagging on] through the REAL dispatcher: callback arrives mid-POST, the POST times out => exactly one POST, message sent, no uncertain aler"
+          ]
+        },
+        {
+          "test": "test-evidence-during-send-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "crash AFTER the delivery callback but BEFORE the send closed: the evidence survives the restart, the row is NOT an orphan, it ends sent and ",
+            "the callback and the timeout in one process, then restart: sent stays sent (PostgreSQL)"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "V2",
+      "protection": "the naive fix: processing is treated like uncertain and marked sent while the POST is in the air (race)",
+      "file": "dist/storage.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-evidence-during-send.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "[tagging on] THE BUG: delivery callback while the POST is in the air, then the POST times out => NOT sent again, ends sent"
+          ]
+        },
+        {
+          "test": "test-evidence-during-send-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "crash AFTER the delivery callback but BEFORE the send closed: the evidence survives the restart, the row is NOT an orphan, it ends sent and "
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "V3",
+      "protection": "a transient rejection after evidence still schedules a retry",
+      "file": "dist/storage.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-evidence-during-send.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "[tagging on] evidence during the POST, then a transient rejection => sent, not retried"
+          ]
+        },
+        {
+          "test": "test-evidence-during-send-postgres.js",
+          "exit": 0,
+          "timedOut": false,
+          "caught": false,
+          "failedScenarios": [],
+          "outputTail": "PASS  crash AFTER the delivery callback but BEFORE the send closed: the evidence survives the restart, the row is NOT an orphan, it ends sent and is never retried\nPASS  control: the same crash WITHOUT any evidence still becomes uncertain (unchanged)\nPASS  the callback and the timeout in one process, then restart: sent stays sent (PostgreSQL)\nevidence-during-send-postgres: 3 passed, 0 failed (real PostgreSQL localhost:5433/flowsbiz_test_18)\n"
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "V4",
+      "protection": "the retry decision (release) ignores confirmed attempts",
+      "file": "dist/storage.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-evidence-during-send.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "[tagging on] legacy row: uncertain with a confirmed attempt (written by the buggy version) is settled as sent at the retry decision, not ret"
+          ]
+        },
+        {
+          "test": "test-evidence-during-send-postgres.js",
+          "exit": 0,
+          "timedOut": false,
+          "caught": false,
+          "failedScenarios": [],
+          "outputTail": "PASS  crash AFTER the delivery callback but BEFORE the send closed: the evidence survives the restart, the row is NOT an orphan, it ends sent and is never retried\nPASS  control: the same crash WITHOUT any evidence still becomes uncertain (unchanged)\nPASS  the callback and the timeout in one process, then restart: sent stays sent (PostgreSQL)\nevidence-during-send-postgres: 3 passed, 0 failed (real PostgreSQL localhost:5433/flowsbiz_test_18)\n"
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "V5",
+      "protection": "crash recovery treats a confirmed processing row as an orphan again",
+      "file": "dist/storage.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-evidence-during-send.js",
+          "exit": 0,
+          "timedOut": false,
+          "caught": false,
+          "failedScenarios": [],
+          "outputTail": "PASS  [tagging on] callback during the POST, then the POST SUCCEEDS: sent with the delivery status applied\nPASS  [tagging off] callback that arrives AFTER the send closed: behaviour unchanged (row sent, delivery status recorded, no state change)\nPASS  [tagging off] callback during the POST, then the POST SUCCEEDS: sent with the delivery status applied\nPASS  [tagging off] KNOWN LIMIT (unchanged): untagged callback during the POST + a timeout cannot be matched (no attempt id, no provider id) => it is buffered, the message goes uncertain\nevidence-during-send: 10 passed, 0 failed\n"
+        },
+        {
+          "test": "test-evidence-during-send-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "crash AFTER the delivery callback but BEFORE the send closed: the evidence survives the restart, the row is NOT an orphan, it ends sent and "
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    }
+  ],
+  "allCaught": true,
+  "allRestored": true
+}

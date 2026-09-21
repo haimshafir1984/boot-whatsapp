@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { Storage } from './storage';
 import { createStorage } from './storageFactory';
-import { startAdminServer } from './adminServer';
+import { getAdminInboxWorker, startAdminServer } from './adminServer';
 import { config } from './config';
 import { startContactSaveQueue } from './contactQueue';
 import { startOutboxDispatcher } from './outboxDispatcher';
@@ -102,9 +102,10 @@ async function main(): Promise<void> {
 
   const server = startAdminServer(storage);
 
+  const inboxWorker = getAdminInboxWorker();
   const shutdown = createShutdownHandler({
     server,
-    workers: [contactQueue, outbox, followUps, deliveryRecovery],
+    workers: [contactQueue, outbox, followUps, deliveryRecovery, ...(inboxWorker ? [inboxWorker] : [])],
     storage,
   });
   process.on('SIGTERM', () => void shutdown('SIGTERM'));

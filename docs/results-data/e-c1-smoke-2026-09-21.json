@@ -1,0 +1,335 @@
+{
+ "criteria": {
+  "bytesWrittenRatioMin": 50,
+  "scannedAtLeastFractionOfItems": 0.9,
+  "p95TimeRatioMin": 10,
+  "backlogSlopeRatioMin": 5
+ },
+ "criteriaSha": "14d56393d9689834",
+ "scriptSha": "d954eccdfbb1192d",
+ "dist": "C:\\Users\\haim\\AppData\\Local\\Temp\\claude\\C--Users-haim-Projects-parpar-sagol\\b9f87141-7671-4090-bd51-54e492c7ae49\\scratchpad\\e_base\\dist",
+ "host": {
+  "cpu": "AMD Ryzen 7 PRO 5850U with Radeon Graphics     ",
+  "threads": 16,
+  "ramGB": 30,
+  "node": "v24.16.0"
+ },
+ "verdict": {
+  "evaluated": false,
+  "reason": "cells (300,0) and (50000,5000) were not both run"
+ },
+ "results": [
+  {
+   "cell": {
+    "H": 300,
+    "B": 0,
+    "scenario": "base",
+    "pass": "c"
+   },
+   "seeded": 300,
+   "fileBytesSeeded": 209723,
+   "counts": {
+    "afterSeed": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 0,
+     "completed": 0,
+     "failed": 150,
+     "held": 150,
+     "total": 300
+    },
+    "afterFirstEnqueues": {
+     "queued": 10,
+     "processing": 0,
+     "retry": 0,
+     "completed": 0,
+     "failed": 150,
+     "held": 150,
+     "total": 310
+    },
+    "afterOps": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 10,
+     "completed": 10,
+     "failed": 150,
+     "held": 150,
+     "total": 320
+    },
+    "end": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 10,
+     "completed": 160,
+     "failed": 150,
+     "held": 150,
+     "total": 470
+    }
+   },
+   "timingMs": {
+    "enqueue": {
+     "n": 10,
+     "p50": 5.153,
+     "p95": 14.718,
+     "max": 14.718,
+     "mean": 6.098
+    },
+    "claim": {
+     "n": 10,
+     "p50": 4.731,
+     "p95": 19.847,
+     "max": 19.847,
+     "mean": 6.457
+    },
+    "retry": {
+     "n": 5,
+     "p50": 5.403,
+     "p95": 5.727,
+     "max": 5.727,
+     "mean": 5.09
+    },
+    "complete": {
+     "n": 5,
+     "p50": 4.571,
+     "p95": 5.482,
+     "max": 5.482,
+     "mean": 4.66
+    },
+    "idle": {
+     "n": 5,
+     "p50": 0.089,
+     "p95": 0.301,
+     "max": 0.301,
+     "mean": 0.132
+    }
+   },
+   "bytesPerOpTimingPass": {
+    "enqueue": {
+     "written": 213386,
+     "copied": 212720
+    },
+    "claim": {
+     "written": 216675,
+     "copied": 216622
+    },
+    "retry": {
+     "written": 216979,
+     "copied": 216957
+    },
+    "complete": {
+     "written": 216873,
+     "copied": 216923
+    },
+    "idle": {
+     "written": 0,
+     "copied": 0
+    }
+   },
+   "perOp": {
+    "enqueue": {
+     "scanned": 1568,
+     "stringified": 220436,
+     "written": 220436,
+     "copied": 219770,
+     "n": 10
+    },
+    "claim": {
+     "scanned": 1600,
+     "stringified": 223725,
+     "written": 223725,
+     "copied": 223672,
+     "n": 10
+    },
+    "retry": {
+     "scanned": 628,
+     "stringified": 224029,
+     "written": 224029,
+     "copied": 224007,
+     "n": 5
+    },
+    "complete": {
+     "scanned": 634,
+     "stringified": 223923,
+     "written": 223923,
+     "copied": 223973,
+     "n": 5
+    },
+    "idle": {
+     "scanned": 960,
+     "stringified": 0,
+     "written": 0,
+     "copied": 0,
+     "n": 5
+    }
+   },
+   "lag": {
+    "burstMs": 1743,
+    "eventLoopDelayMs": {
+     "p99": 121.37,
+     "max": 124.32
+    },
+    "heartbeatLagMs": {
+     "p99": 114.28,
+     "max": 114.28
+    }
+   },
+   "fileBytesEnd": 324173
+  },
+  {
+   "cell": {
+    "H": 5000,
+    "B": 500,
+    "scenario": "base",
+    "pass": "c"
+   },
+   "seeded": 5500,
+   "fileBytesSeeded": 3867523,
+   "counts": {
+    "afterSeed": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 500,
+     "completed": 0,
+     "failed": 2500,
+     "held": 2500,
+     "total": 5500
+    },
+    "afterFirstEnqueues": {
+     "queued": 10,
+     "processing": 0,
+     "retry": 500,
+     "completed": 0,
+     "failed": 2500,
+     "held": 2500,
+     "total": 5510
+    },
+    "afterOps": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 510,
+     "completed": 10,
+     "failed": 2500,
+     "held": 2500,
+     "total": 5520
+    },
+    "end": {
+     "queued": 0,
+     "processing": 0,
+     "retry": 510,
+     "completed": 160,
+     "failed": 2500,
+     "held": 2500,
+     "total": 5670
+    }
+   },
+   "timingMs": {
+    "enqueue": {
+     "n": 10,
+     "p50": 26.492,
+     "p95": 35.776,
+     "max": 35.776,
+     "mean": 27.797
+    },
+    "claim": {
+     "n": 10,
+     "p50": 26.866,
+     "p95": 39.99,
+     "max": 39.99,
+     "mean": 27.982
+    },
+    "retry": {
+     "n": 5,
+     "p50": 25.417,
+     "p95": 26.705,
+     "max": 26.705,
+     "mean": 25.563
+    },
+    "complete": {
+     "n": 5,
+     "p50": 24.792,
+     "p95": 25.492,
+     "max": 25.492,
+     "mean": 24.781
+    },
+    "idle": {
+     "n": 5,
+     "p50": 1.483,
+     "p95": 2.338,
+     "max": 2.338,
+     "mean": 1.636
+    }
+   },
+   "bytesPerOpTimingPass": {
+    "enqueue": {
+     "written": 3871186,
+     "copied": 3870520
+    },
+    "claim": {
+     "written": 3874475,
+     "copied": 3874422
+    },
+    "retry": {
+     "written": 3874779,
+     "copied": 3874757
+    },
+    "complete": {
+     "written": 3874673,
+     "copied": 3874723
+    },
+    "idle": {
+     "written": 0,
+     "copied": 0
+    }
+   },
+   "perOp": {
+    "enqueue": {
+     "scanned": 27568,
+     "stringified": 3878236,
+     "written": 3878236,
+     "copied": 3877570,
+     "n": 10
+    },
+    "claim": {
+     "scanned": 28115,
+     "stringified": 3881525,
+     "written": 3881525,
+     "copied": 3881472,
+     "n": 10
+    },
+    "retry": {
+     "scanned": 11028,
+     "stringified": 3881829,
+     "written": 3881829,
+     "copied": 3881807,
+     "n": 5
+    },
+    "complete": {
+     "scanned": 11034,
+     "stringified": 3881723,
+     "written": 3881723,
+     "copied": 3881773,
+     "n": 5
+    },
+    "idle": {
+     "scanned": 17070,
+     "stringified": 0,
+     "written": 0,
+     "copied": 0,
+     "n": 5
+    }
+   },
+   "lag": {
+    "burstMs": 7502,
+    "eventLoopDelayMs": {
+     "p99": 487.33,
+     "max": 599.26
+    },
+    "heartbeatLagMs": {
+     "p99": 512.12,
+     "max": 588.97
+    }
+   },
+   "fileBytesEnd": 3981973
+  }
+ ]
+}

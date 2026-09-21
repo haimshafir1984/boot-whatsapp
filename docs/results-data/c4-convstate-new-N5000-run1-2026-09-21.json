@@ -1,0 +1,37 @@
+{
+ "label": "new",
+ "dist": "C:\\Users\\haim\\Projects\\parpar sagol\\dist",
+ "N": 5000,
+ "restored": 5000,
+ "rowsInDb": 5000,
+ "host": {
+  "cpu": "AMD Ryzen 7 PRO 5850U with Radeon Graphics     ",
+  "node": "v24.16.0"
+ },
+ "preflight": {
+  "at": "2026-09-21T11:28:18.512Z",
+  "freeMemGB": 12.1,
+  "totalMemGB": 29.9,
+  "load1m": 0,
+  "strayRepoNodeProcesses": [],
+  "otherNodeProcesses": {
+   "count": 94,
+   "MB": 5446
+  }
+ },
+ "setMs": {
+  "median": 0.076,
+  "p95": 0.13,
+  "max": 1.39
+ },
+ "wallPerChangeMs": {
+  "median": 1.118,
+  "p95": 1.442
+ },
+ "eventLoopDelayMs": {
+  "p99": 3.41,
+  "max": 6.36
+ },
+ "shadowFileBytes": 0,
+ "shadowFileWritten": false
+}

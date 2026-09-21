@@ -1,0 +1,123 @@
+{
+  "startedAt": "2026-09-21T11:03:10.347Z",
+  "mutations": [
+    {
+      "id": "W1",
+      "protection": "the gateway webhook is acknowledged before its messages are committed (no ACK before commit)",
+      "file": "dist/adminServer.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-inbox-runtime-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [],
+          "outputTail": "    at DisabledInboxStore.enqueueMany (C:\\Users\\haim\\Projects\\parpar sagol\\dist\\inbox\\store.js:170:33)\r\n    at C:\\Users\\haim\\Projects\\parpar sagol\\dist\\adminServer.js:2362:39\r\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\r\n\r\nNode.js v24.16.0\r\n"
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "W2",
+      "protection": "the client receipt returns 2xx before the items are committed",
+      "file": "dist/adminServer.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-inbox-runtime-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "B client receipt: 202 only AFTER the row is committed; a re-sent id creates no second row",
+            "B an EXPIRED trigger is kept for review (payload retained, alert path), NOT completed, and the campaign is NOT run",
+            "B a plain client (no gateway database): the gateway webhook is REFUSED (503), the client inbox works on its own DATABASE_URL",
+            "B shutdown race: stop() while a claim is in flight waits for it and for its handler - no store failure, item completed"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "W3",
+      "protection": "an expired trigger is recorded as completed (silent stale)",
+      "file": "dist/adminServer.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-inbox-runtime-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "B an EXPIRED trigger is kept for review (payload retained, alert path), NOT completed, and the campaign is NOT run"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "W4",
+      "protection": "an interrupted (ambiguous) item does not put the sender on hold",
+      "file": "dist/adminServer.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-inbox-runtime-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "B AMBIGUOUS: a worker died after effects may have started -> NOT re-run, item review(ambiguous_processing), sender held for review"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "W5",
+      "protection": "a held sender's message is completed instead of held",
+      "file": "dist/adminServer.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-inbox-runtime-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "B held: a sender under review -> the message is HELD (not completed); the next message of that sender is also visible as held"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "W6",
+      "protection": "shutdown ignores claims that are still in flight (items run against closed pools)",
+      "file": "dist/adminServer.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-inbox-runtime-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "B shutdown race: stop() while a claim is in flight waits for it and for its handler - no store failure, item completed"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    }
+  ],
+  "allCaught": true,
+  "allRestored": true
+}

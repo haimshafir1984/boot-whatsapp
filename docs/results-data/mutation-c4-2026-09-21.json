@@ -1,0 +1,146 @@
+{
+  "startedAt": "2026-09-21T11:29:47.503Z",
+  "mutations": [
+    {
+      "id": "K1",
+      "protection": "restore falls back to a leftover file in PostgreSQL mode (stale conversations come back)",
+      "file": "dist/conversationState.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-conversation-state-rows-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "T4 an EMPTY database never resurrects conversations from a stale leftover file"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "K2",
+      "protection": "removals are not sent to the database (a removed conversation comes back after a restart)",
+      "file": "dist/conversationState.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-conversation-state-rows-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "T1 flush -> restart from the database ALONE: same conversations, timers, needs_review + recovery + held messages; nothing else came back; no",
+            "T6 the database rows are what export / snapshot load see (backup and db:export do not need the file)"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "K3",
+      "protection": "the frozen copy keeps a removed row (the direct writer never sees the deletion)",
+      "file": "dist/database.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-conversation-state-rows-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "restore drops non-restorable rows from the database (as the old full rewrite did) and a change after restore still lands"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "K4",
+      "protection": "the direct row writer never deletes",
+      "file": "dist/database.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-conversation-state-rows-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "restore drops non-restorable rows from the database (as the old full rewrite did) and a change after restore still lands"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "K5",
+      "protection": "PostgreSQL mode still writes the synchronous shadow file",
+      "file": "dist/conversationState.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-conversation-state-rows-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "T1 flush -> restart from the database ALONE: same conversations, timers, needs_review + recovery + held messages; nothing else came back; no",
+            "T3 the cost of ONE change does not grow with resident conversations (100 vs 20,000)",
+            "T6 the database rows are what export / snapshot load see (backup and db:export do not need the file)"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "K6",
+      "protection": "non-restorable rows are left in the database after restore",
+      "file": "dist/conversationState.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-conversation-state-rows-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "restore drops non-restorable rows from the database (as the old full rewrite did) and a change after restore still lands"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    },
+    {
+      "id": "K7",
+      "protection": "a change is applied in memory but never queued for the database",
+      "file": "dist/storage.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-conversation-state-rows-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "T1 flush -> restart from the database ALONE: same conversations, timers, needs_review + recovery + held messages; nothing else came back; no",
+            "T2 a failing database write is never reported durable, is retried, and lands when the database is back",
+            "T6 the database rows are what export / snapshot load see (backup and db:export do not need the file)",
+            "restore drops non-restorable rows from the database (as the old full rewrite did) and a change after restore still lands"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    }
+  ],
+  "allCaught": true,
+  "allRestored": true
+}

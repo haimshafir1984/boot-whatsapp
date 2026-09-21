@@ -1,0 +1,62 @@
+17:22:18.103 [harness] SIGTERM sent
+17:22:18.111 [client] SIGTERM received, draining…
+17:22:18.111 [client] @@STAGE server.close called 1790011338110
+17:22:18.111 [client] @@STAGE at close: {"requestsInFlight":["POST /internal/meta/whatsapp age=100ms","POST /internal/meta/whatsapp age=94ms","POST /internal/meta/whatsapp age=92ms","POST /internal/meta/whatsapp age=88ms","POST /internal/meta/whatsapp age=85ms","POST /internal/meta/whatsapp age=84ms","POST /internal/meta
+17:22:18.113 [client] @@STAGE sockets at close: ["remote=::ffff:127.0.0.1:50646 local=50441 bytesRead=1267 idleSinceLastReadOrWrite=?","remote=::ffff:127.0.0.1:50652 local=50441 bytesRead=1009 idleSinceLastReadOrWrite=?","remote=::ffff:127.0.0.1:50653 local=50441 bytesRead=1009 idleSinceLastReadOrWrite=?","remote=::ffff:
+17:22:18.178 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.181 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.196 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.196 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.302 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:22:18.316 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.316 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.317 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.318 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.320 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.792 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:22:18.794 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:22:18.794 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:22:18.795 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:22:18.797 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.798 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.798 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.798 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.801 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.803 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:22:18.805 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:22:18.806 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.806 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:22:18.807 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.949 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.949 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.951 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.952 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.952 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.953 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.954 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.955 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:22:18.956 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:22:18.958 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:22:18.960 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:22:18.963 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:18.964 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:19.107 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:19.108 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:19.110 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:19.112 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:19.339 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:19.339 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:20.127 [client] @@STAGE close still pending after 2s: {"requestsInFlight":[],"n":0} sockets=["remote=::ffff:127.0.0.1:50654 local=50441 bytesRead=12961 idleSinceLastReadOrWrite=?","remote=::ffff:127.0.0.1:50655 local=50441 bytesRead=11643 idleSinceLastReadOrWrite=?","remote=::ffff:127.0.0.1:50656 local=50441 bytesR
+17:22:20.211 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:20.211 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:21.299 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:21.301 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:21.739 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:21.740 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:21.741 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:21.742 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:21.742 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:21.743 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:22:26.127 [client] Shutdown grace period exceeded, forcing exit. undefined
+17:22:26.193 [client] EXIT code=1 signal=null
+17:22:29.657 [META_ROUTES_CACHE_REFRESH_FAILED] client-0 [TypeError: fetch failed] {

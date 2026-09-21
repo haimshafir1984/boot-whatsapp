@@ -1,0 +1,160 @@
+18:34:21.108 [client] EXIT code=null signal=SIGKILL
+18:34:21.179 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.180 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.181 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.181 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.182 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.183 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.183 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.184 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.184 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.185 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.185 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.186 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.186 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.187 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.187 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.188 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.188 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.188 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.189 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.208 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-4 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.208 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-94 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.208 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-105 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.209 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-102 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.209 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-103 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.209 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-110 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.209 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-113 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.209 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-115 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.217 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-114 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.218 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.218 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.234 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-120 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.236 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-123 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.236 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-130 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.236 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-121 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.236 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-125 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.236 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-126 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.237 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-124 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.237 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-134 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.237 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-131 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.237 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-135 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.240 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-136 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.240 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-145 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.583 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.583 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.584 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.585 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.585 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.590 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-140 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.590 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-141 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.591 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-144 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.591 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-142 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.591 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-146 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.717 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.718 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.719 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.719 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.720 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.720 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.729 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-102 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.729 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-110 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.729 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-4 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.729 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-105 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.729 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-94 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.729 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-103 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.776 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.777 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.777 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.778 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.778 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.779 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.780 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.780 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.781 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.781 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.782 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.782 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.782 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.790 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-115 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.790 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-130 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.790 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-114 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.790 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-124 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.790 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-121 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.795 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-120 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.795 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-113 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.795 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-125 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.795 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-123 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.801 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.802 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:21.805 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-126 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.805 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-134 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.805 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-131 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.805 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-135 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.806 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-136 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:21.806 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-145 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:22.216 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:22.217 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:22.218 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:22.218 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:22.219 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+18:34:22.224 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-141 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:22.224 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-146 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:22.224 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-140 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:22.224 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-144 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:22.224 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-142 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.290 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-103 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.290 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-4 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.290 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-94 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.290 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-102 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.290 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-115 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.290 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-110 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.290 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-105 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.290 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-114 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.291 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-113 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.307 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-120 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.307 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-134 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.307 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-131 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.308 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-135 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.308 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-121 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.309 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-125 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.309 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-124 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.310 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-123 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.310 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-126 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.310 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-130 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.316 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-145 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.316 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-141 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.316 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-136 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.317 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-144 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.317 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-140 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.317 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-142 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.317 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-146 attempt=3 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:23.547 [META_ROUTES_CACHE_REFRESH_FAILED] client-0 [TypeError: fetch failed] {
+18:34:25.553 [META_ROUTES_CACHE_REFRESH_FAILED] client-0 [TypeError: fetch failed] {
+18:34:25.812 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-102 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.813 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-114 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.813 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-94 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.813 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-103 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.814 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-110 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.814 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-4 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.814 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-105 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.814 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-113 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.814 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-115 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.853 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-120 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.854 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-121 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.854 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-124 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.855 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-125 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.855 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-123 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.855 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-130 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.855 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-134 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.856 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-131 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.856 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-126 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.857 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-135 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.860 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-136 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.861 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-145 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.861 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-140 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.862 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-141 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.862 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-142 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.862 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-146 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:25.862 [META_GATEWAY_INBOX_RETRY] a-ldmubl3jaj-144 attempt=4 Error: Campaign routing incomplete for 1 client(s); refusing unsafe fallback
+18:34:27.559 [META_ROUTES_CACHE_REFRESH_FAILED] client-0 [TypeError: fetch failed] {

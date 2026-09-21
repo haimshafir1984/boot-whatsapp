@@ -10,6 +10,7 @@ import path from 'path';
 import { conversationState, HeldIncomingMessage, PendingConversation, PersistablePendingConversation } from './conversationState';
 import { notifySystemAlert } from './systemAlerts';
 import { deliveryRecoveryBus } from './deliveryRecoveryBus';
+import { reportInboundOutcome } from './inboundOutcome';
 import { redactSecrets } from './secretRedaction';
 import { Campaign, CampaignConversationSettings, CampaignResult, CampaignScoreAnswer, CompletionLink, DecisionFlowOption, DecisionFlowStep, OutboxMessage, ScoreResultRule, Storage } from './storage';
 import { detectTrigger } from './triggerDetector';
@@ -684,6 +685,28 @@ async function supersedeRecoveryHoldForFreshTrigger(
   return true;
 }
 
+/**
+ * The hold that holdSenderForAmbiguousInbox() creates exists to protect the participant from a run nobody can vouch for. It must not
+ * also be the thing that keeps them stuck: a fresh, exact trigger from the participant starts a new run, exactly as it already does for
+ * a delivery-recovery hold. ONLY the inbox-ambiguous hold (source 'inbox', no `recovery`) is released this way; every other hold -
+ * an admin/failure hold - is untouched and still admin-only. The interrupted item stays in the review list (nothing is hidden), and
+ * messages held meanwhile belong to the abandoned run: discarded with an explicit log line, never replayed into the new one.
+ */
+async function supersedeInboxAmbiguousHoldForFreshTrigger(
+  hold: { senderJid: string; senderPhone?: string; source?: string; recovery?: unknown; messageId?: string; heldMessages?: HeldIncomingMessage[] },
+  message: IncomingWhatsAppMessage,
+  storage: Storage,
+): Promise<boolean> {
+  if (hold.source !== 'inbox' || hold.recovery) return false;
+  if (message.isReaction || !detectTrigger(message.body || '', storage.getActiveCampaigns()).matched) return false;
+  if (Date.now() - (message.timestamp ?? Date.now() / 1000) * 1000 > MAX_TRIGGER_AGE_MS) return false;
+  const held = hold.heldMessages ?? [];
+  conversationState.remove(hold.senderJid);
+  await storage.flush();
+  console.warn(`[INBOX_AMBIGUOUS_HOLD_SUPERSEDED_BY_TRIGGER] item=${hold.messageId ?? ''} sender=${hold.senderJid} heldDiscarded=${held.length} previews=${JSON.stringify(held.map((entry) => entry.bodyPreview ?? ''))}`);
+  return true;
+}
+
 const HELD_REPLAY_BODY_MAX = 8_000;
 
 async function heldReplaySnapshot(message: IncomingWhatsAppMessage): Promise<NonNullable<HeldIncomingMessage['replay']>> {
@@ -755,6 +778,26 @@ export function holdSenderForUncertainFailure(senderJid: string, senderPhone: st
     reason: needsReviewReason(err), timestamp: Date.now(), recovery: { outboxId },
   } as PendingConversation);
   void outboxStorageScope.getStore()?.flush().catch((flushErr) => console.error('[DELIVERY_HOLD_PERSIST_FAILED]', flushErr));
+  return true;
+}
+
+/**
+ * The inbox found an item whose worker died (or lost its lease) after effects may have started. It is NOT run again; the sender is
+ * held for review (existing needs_review mechanism) so the participant's next messages are captured as held instead of running
+ * on a state nobody can vouch for. Idempotent: an existing hold is kept.
+ */
+export async function holdSenderForAmbiguousInbox(storage: Storage, senderPhone: string, messageId: string): Promise<boolean> {
+  const digits = String(senderPhone || '').replace(/\D/g, '');
+  if (!digits) return false;
+  const jid = `whatsapp:${digits}`;
+  const existing = conversationState.get(jid) || conversationState.findByPhone(digits);
+  if (existing?.kind === 'needs_review') return false;
+  conversationState.set(jid, {
+    kind: 'needs_review', senderJid: jid, senderPhone: digits, messageId, source: 'inbox',
+    reason: 'Inbox processing of this message was interrupted after effects may have started; it was NOT run again. Review before resuming.',
+    timestamp: Date.now(),
+  } as PendingConversation);
+  await storage.flush();
   return true;
 }
 
@@ -1303,6 +1346,9 @@ async function handleMessage(
   if (pending?.kind === 'needs_review' && pending.recovery && await supersedeRecoveryHoldForFreshTrigger(pending, message, senderPhone, storage)) {
     pending = conversationState.get(senderJid) || conversationState.findByPhone(senderPhone);
   }
+  if (pending?.kind === 'needs_review' && await supersedeInboxAmbiguousHoldForFreshTrigger(pending, message, storage)) {
+    pending = conversationState.get(senderJid) || conversationState.findByPhone(senderPhone);
+  }
   if (pending?.kind === 'needs_review') {
     // A prior failure for this sender could not be verified safe (finding
     // 01, point 4): every further message - trigger or not - is held here,
@@ -1642,6 +1688,9 @@ async function handleMessage(
   }
   if (messageAgeMs > MAX_TRIGGER_AGE_MS) {
     console.warn(`[MSG] stale trigger ignored via=${source} age=${Math.round(messageAgeMs / 1000)}s campaign="${trigger.campaignName}" from=${senderJid}`);
+    // The campaign is deliberately NOT run (expiry policy unchanged). Tell the inbox, so the item is kept for review instead of
+    // being recorded as completed.
+    reportInboundOutcome({ kind: 'stale_trigger', ageMs: messageAgeMs, campaignName: trigger.campaignName });
     return;
   }
   console.log(`[MSG] trigger matched via=${source} age=${Math.round(messageAgeMs / 1000)}s campaign="${trigger.campaignName}" from=${senderJid}`);

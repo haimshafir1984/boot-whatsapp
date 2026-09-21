@@ -1,0 +1,126 @@
+{
+ "label": "base-sustained1000-h5000-conv2000",
+ "side": "base",
+ "scenario": "sustained",
+ "participants": 1000,
+ "clients": 6,
+ "historyNeverPruned": 5000,
+ "completedHistoryNewOnly": 0,
+ "seededConversationsPerClient": 2000,
+ "fault": "none",
+ "faultLog": [],
+ "preflight": {
+  "at": "2026-09-21T12:25:18.960Z",
+  "freeMemGB": 13.9,
+  "totalMemGB": 29.9,
+  "load1m": 0,
+  "strayRepoNodeProcesses": [],
+  "otherNodeProcesses": {
+   "count": 88,
+   "MB": 4035
+  }
+ },
+ "posted": {
+  "ok": 1000,
+  "fail": 0
+ },
+ "durationS": 1222.5,
+ "driveS": 1206.4,
+ "firstResponseMs": {
+  "n": 1000,
+  "missing": 0,
+  "p50": 209,
+  "p95": 250,
+  "p99": 340,
+  "max": 374
+ },
+ "receiptToHandlerMs": {
+  "n": 1017,
+  "neverStarted": 633,
+  "p50": 44,
+  "p95": 50,
+  "p99": 5300,
+  "max": 11322
+ },
+ "gatewayEventLoopMs": {
+  "p99": 32.8,
+  "worstP99": 2755.7,
+  "max": 2755.7,
+  "samples": 605
+ },
+ "clientEventLoopMs": {
+  "p99": 16.6,
+  "worstP99": 99.5,
+  "max": 258.1,
+  "samples": 3654
+ },
+ "perClientResults": [
+  {
+   "client": 0,
+   "expected": 700,
+   "results": 700,
+   "distinctPhones": 700
+  },
+  {
+   "client": 1,
+   "expected": 0,
+   "results": 0,
+   "distinctPhones": 0
+  },
+  {
+   "client": 2,
+   "expected": 0,
+   "results": 0,
+   "distinctPhones": 0
+  },
+  {
+   "client": 3,
+   "expected": 100,
+   "results": 100,
+   "distinctPhones": 100
+  },
+  {
+   "client": 4,
+   "expected": 100,
+   "results": 100,
+   "distinctPhones": 100
+  },
+  {
+   "client": 5,
+   "expected": 100,
+   "results": 100,
+   "distinctPhones": 100
+  }
+ ],
+ "lostResults": 0,
+ "duplicateResults": 0,
+ "logs": {
+  "stale": 0,
+  "skipped": 214,
+  "inboxFailed": 0,
+  "storeFailed": 0,
+  "retry": 57,
+  "ambiguous": 0,
+  "groupFailed": 0,
+  "unhandled": 0,
+  "persistFailed": 0
+ },
+ "inboxActualCounts": {
+  "gateway": {
+   "failed": 2500,
+   "held": 2500,
+   "processing": 26,
+   "retry": 31,
+   "queued": 439,
+   "completed": 300
+  },
+  "clientsReview": 0,
+  "clientsByStatus": {}
+ },
+ "host": {
+  "cpu": "AMD Ryzen 7 PRO 5850U with Radeon Graphics     ",
+  "threads": 16,
+  "ramGB": 30,
+  "node": "v24.16.0"
+ }
+}

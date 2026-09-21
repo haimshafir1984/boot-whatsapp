@@ -1,0 +1,123 @@
+{
+ "label": "base-burst100-h300",
+ "side": "base",
+ "scenario": "burst",
+ "participants": 100,
+ "clients": 6,
+ "historyNeverPruned": 300,
+ "completedHistoryNewOnly": 0,
+ "seededConversationsPerClient": 0,
+ "fault": "none",
+ "faultLog": [],
+ "preflight": {
+  "at": "2026-09-21T12:04:54.000Z",
+  "freeMemGB": 14.4,
+  "totalMemGB": 29.9,
+  "load1m": 0,
+  "strayRepoNodeProcesses": [],
+  "otherNodeProcesses": {
+   "count": 88,
+   "MB": 4087
+  }
+ },
+ "posted": {
+  "ok": 100,
+  "fail": 0
+ },
+ "durationS": 15.6,
+ "driveS": 1.1,
+ "firstResponseMs": {
+  "n": 100,
+  "missing": 0,
+  "p50": 2478,
+  "p95": 3676,
+  "p99": 3684,
+  "max": 3684
+ },
+ "receiptToHandlerMs": {
+  "n": 165,
+  "neverStarted": 0,
+  "p50": 1681,
+  "p95": 3467,
+  "p99": 3473,
+  "max": 3473
+ },
+ "gatewayEventLoopMs": {
+  "p99": 73.7,
+  "worstP99": 315.6,
+  "max": 928.5,
+  "samples": 8
+ },
+ "clientEventLoopMs": {
+  "p99": 18.5,
+  "worstP99": 162.3,
+  "max": 194.9,
+  "samples": 43
+ },
+ "perClientResults": [
+  {
+   "client": 0,
+   "expected": 70,
+   "results": 70,
+   "distinctPhones": 70
+  },
+  {
+   "client": 1,
+   "expected": 0,
+   "results": 0,
+   "distinctPhones": 0
+  },
+  {
+   "client": 2,
+   "expected": 0,
+   "results": 0,
+   "distinctPhones": 0
+  },
+  {
+   "client": 3,
+   "expected": 10,
+   "results": 10,
+   "distinctPhones": 10
+  },
+  {
+   "client": 4,
+   "expected": 10,
+   "results": 10,
+   "distinctPhones": 10
+  },
+  {
+   "client": 5,
+   "expected": 10,
+   "results": 10,
+   "distinctPhones": 10
+  }
+ ],
+ "lostResults": 0,
+ "duplicateResults": 0,
+ "logs": {
+  "stale": 0,
+  "skipped": 0,
+  "inboxFailed": 0,
+  "storeFailed": 0,
+  "retry": 0,
+  "ambiguous": 0,
+  "groupFailed": 0,
+  "unhandled": 0,
+  "persistFailed": 0
+ },
+ "inboxActualCounts": {
+  "gateway": {
+   "failed": 150,
+   "held": 150,
+   "completed": 165
+  },
+  "clientsReview": 0,
+  "clientsByStatus": {}
+ },
+ "host": {
+  "cpu": "AMD Ryzen 7 PRO 5850U with Radeon Graphics     ",
+  "threads": 16,
+  "ramGB": 30,
+  "node": "v24.16.0"
+ }
+}

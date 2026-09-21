@@ -1,0 +1,26 @@
+{
+  "startedAt": "2026-09-21T10:20:03.307Z",
+  "mutations": [
+    {
+      "id": "E7",
+      "protection": "cleanup deletes held/failed/review evidence",
+      "file": "dist/inbox/postgresRepository.js",
+      "applied": true,
+      "tests": [
+        {
+          "test": "test-inbox-repository-postgres.js",
+          "exit": 1,
+          "timedOut": false,
+          "caught": true,
+          "failedScenarios": [
+            "cleanup: dedupe window keeps identity, expires it after 30 days; payload purged after 7; held/failed/review are NEVER deleted; sender rows o"
+          ]
+        }
+      ],
+      "caught": true,
+      "restoredExactly": true
+    }
+  ],
+  "allCaught": true,
+  "allRestored": true
+}

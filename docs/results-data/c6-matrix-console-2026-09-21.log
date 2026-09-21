@@ -1,0 +1,33 @@
+﻿RUN base-burst100-h300 (28s): firstResp p50/p99/max=2478/3684/3684 missing=0 | recv->handler p99/max=3473/3473 neverStarted=0 | gwLoop worstP99/max=315.6/928.5 | lost=0 dup=0 | stale=0 skipped=0 failed=0 retry=0 ambiguous=0 clientsReview=0 | gw counts={"failed":150,"held":150,"completed":165}
+RUN new-burst100-h300 (27s): firstResp p50/p99/max=1262/1911/1911 missing=0 | recv->handler p99/max=1735/1735 neverStarted=0 | gwLoop worstP99/max=42/107 | lost=0 dup=0 | stale=0 skipped=0 failed=0 retry=0 ambiguous=0 clientsReview=0 | gw counts={"completed":165,"failed":150,"held":150}
+RUN base-burst100-h50000 (249s): firstResp p50/p99/max=84118/225770/225770 missing=0 | recv->handler p99/max=185175/225515 neverStarted=0 | gwLoop worstP99/max=12708.7/12708.7 | lost=0 dup=0 | stale=0 skipped=1592 failed=0 retry=437 ambiguous=0 clientsReview=0 | gw counts={"failed":25000,"held":25000,"completed":165}
+RUN new-burst100-h50000 (32s): firstResp p50/p99/max=1379/2288/2288 missing=0 | recv->handler p99/max=2076/2077 neverStarted=0 | gwLoop worstP99/max=80.5/163.2 | lost=0 dup=0 | stale=0 skipped=0 failed=0 retry=0 ambiguous=0 clientsReview=0 | gw counts={"held":25000,"completed":165,"failed":25000}
+RUN new-burst100-h10000-c0 (27s): firstResp p50/p99/max=1295/1754/1754 missing=0 | recv->handler p99/max=1550/1551 neverStarted=0 | gwLoop worstP99/max=75.8/98 | lost=0 dup=0 | stale=0 skipped=0 failed=0 retry=0 ambiguous=0 clientsReview=0 | gw counts={"held":5000,"completed":165,"failed":5000}
+RUN new-burst100-h10000-c40000 (33s): firstResp p50/p99/max=1472/2459/2459 missing=0 | recv->handler p99/max=2253/2253 neverStarted=0 | gwLoop worstP99/max=74.5/97 | lost=0 dup=0 | stale=0 skipped=0 failed=0 retry=0 ambiguous=0 clientsReview=0 | gw counts={"held":5000,"failed":5000,"completed":40165}
+RUN base-stress150-h5000-conv2000 (35s): firstResp p50/p99/max=8073/11079/11751 missing=0 | recv->handler p99/max=10922/11370 neverStarted=5 | gwLoop worstP99/max=1467/4135.6 | lost=0 dup=0 | stale=0 skipped=300 failed=0 retry=50 ambiguous=0 clientsReview=0 | gw counts={"failed":2500,"held":2500,"completed":242}
+RUN new-stress150-h5000-conv2000 (30s): firstResp p50/p99/max=2018/2911/2912 missing=0 | recv->handler p99/max=2703/2703 neverStarted=0 | gwLoop worstP99/max=81.7/170.3 | lost=0 dup=0 | stale=0 skipped=0 failed=0 retry=0 ambiguous=0 clientsReview=0 | gw counts={"held":2500,"completed":247,"failed":2500}
+RUN base-fault-kill-client (38s): firstResp p50/p99/max=3564/13655/13655 missing=0 | recv->handler p99/max=13470/13471 neverStarted=34 | gwLoop worstP99/max=244.2/896.5 | lost=0 dup=0 | stale=0 skipped=119 failed=0 retry=221 ambiguous=0 clientsReview=0 | gw counts={"failed":150,"held":150,"completed":247}
+RUN new-fault-kill-client (30s): firstResp p50/p99/max=1909/2710/2711 missing=0 | recv->handler p99/max=9667/9667 neverStarted=0 | gwLoop worstP99/max=104.9/140.9 | lost=0 dup=0 | stale=0 skipped=86 failed=0 retry=172 ambiguous=0 clientsReview=0 | gw counts={"completed":247,"failed":150,"held":150}
+RUN new-fault-term-client (28s): firstResp p50/p99/max=1903/2583/2584 missing=0 | recv->handler p99/max=5084/5175 neverStarted=0 | gwLoop worstP99/max=85.5/167.1 | lost=0 dup=0 | stale=0 skipped=41 failed=0 retry=123 ambiguous=0 clientsReview=0 | gw counts={"completed":247,"failed":150,"held":150}
+RUN base-fault-kill-gateway (152s): firstResp p50/p99/max=11071/123504/123504 missing=0 | recv->handler p99/max=123167/123203 neverStarted=41 | gwLoop worstP99/max=263.1/1214.3 | lost=0 dup=0 | stale=0 skipped=0 failed=0 retry=0 ambiguous=0 clientsReview=0 | gw counts={"failed":150,"held":150,"completed":206}
+RUN new-fault-kill-gateway (33s): firstResp p50/p99/max=1933/3198/3199 missing=0 | recv->handler p99/max=3006/3006 neverStarted=95 | gwLoop worstP99/max=92.9/125.2 | lost=0 dup=0 | stale=0 skipped=0 failed=0 retry=0 ambiguous=0 clientsReview=0 | gw counts={"completed":152,"failed":150,"held":150}
+RUN new-fault-db-outage-60: NO RESULT exit=1 
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'postinit.c',
+  line: '365',
+  routine: 'CheckMyDatabase'
+}
+
+RUN new-fault-client-down-60 (429s): firstResp p50/p99/max=1848/67560/67562 missing=31 | recv->handler p99/max=66178/67358 neverStarted=0 | gwLoop worstP99/max=93.7/124.2 | lost=0 dup=0 | stale=0 skipped=858 failed=0 retry=1024 ambiguous=32 clientsReview=32 | gw counts={"completed":225,"failed":150,"held":150}
+RUN new-fault-client-down-180 (24s): firstResp p50/p99/max=1367/1985/1985 missing=0 | recv->handler p99/max=1803/1803 neverStarted=65 | gwLoop worstP99/max=61.9/71.8 | lost=0 dup=0 | stale=0 skipped=195 failed=0 retry=325 ambiguous=0 clientsReview=0 | gw counts={"completed":182,"failed":150,"held":150,"retry":65}
+RUN base-sustained1000-h5000-conv2000 (1232s): firstResp p50/p99/max=209/340/374 missing=0 | recv->handler p99/max=5300/11322 neverStarted=633 | gwLoop worstP99/max=2755.7/2755.7 | lost=0 dup=0 | stale=0 skipped=214 failed=0 retry=57 ambiguous=0 clientsReview=0 | gw counts={"failed":2500,"held":2500,"processing":26,"retry":31,"queued":439,"completed":300}
+RUN new-sustained1000-h5000-conv2000 (1233s): firstResp p50/p99/max=186/324/351 missing=0 | recv->handler p99/max=3140/3188 neverStarted=0 | gwLoop worstP99/max=39.3/39.5 | lost=0 dup=0 | stale=0 skipped=0 failed=0 retry=0 ambiguous=0 clientsReview=0 | gw counts={"held":2500,"completed":1650,"failed":2500}

@@ -209,7 +209,7 @@ export async function retryTransientMetaOperation<T extends MetaOperationResult>
 
 export interface SenderDrainerOptions<T> {
   /** Claim up to `limit` items. Must offer at most one item per sender. */
-  claim: (limit: number) => T[];
+  claim: (limit: number) => T[] | Promise<T[]>;
   groupBySender: (items: T[]) => T[][];
   runGroup: (items: T[]) => Promise<void>;
   /** Upper bound on senders being worked on at once. */
@@ -251,7 +251,7 @@ export function createSenderDrainer<T>(options: SenderDrainerOptions<T>): {
         const capacity = options.maxConcurrentSenders - inflight;
         if (capacity <= 0) break;
         // One item per sender, so an item of capacity is a sender of capacity.
-        const batch = options.claim(Math.min(options.batchSize, capacity));
+        const batch = await options.claim(Math.min(options.batchSize, capacity));
         if (!batch.length) break;
         for (const group of options.groupBySender(batch)) {
           inflight += 1;

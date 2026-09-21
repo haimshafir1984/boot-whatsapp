@@ -1,0 +1,400 @@
+17:16:10.818 [harness] SIGTERM sent
+17:16:10.820 [client] SIGTERM received, draining…
+17:16:10.820 [client] @@STAGE server.close called 1790010970820
+17:16:10.820 [client] @@STAGE at close: {"requestsInFlight":[],"n":0}
+17:16:11.049 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.053 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.058 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.063 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.066 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.067 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.068 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.074 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.079 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.083 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.087 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.092 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.096 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.096 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.097 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.097 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.098 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.098 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.098 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.099 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.099 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.099 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.100 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.100 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.100 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.101 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.101 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.101 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.102 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.104 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.105 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.110 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.112 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.113 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.113 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.114 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.114 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.116 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.116 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.117 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.117 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.118 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.118 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.189 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-37 attempt=1 [TypeError: fetch failed] {
+17:16:11.190 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.191 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.193 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.194 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.196 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.196 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.198 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.200 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-38 attempt=1 [TypeError: fetch failed] {
+17:16:11.212 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-39 attempt=1 [TypeError: fetch failed] {
+17:16:11.605 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:11.606 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:11.607 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:11.607 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:11.607 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:11.608 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:11.614 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:11.615 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:11.617 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:11.618 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:11.618 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:11.618 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:11.628 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:11.641 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:11.641 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:11.642 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:11.642 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:11.643 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:11.783 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:11.783 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:11.784 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:11.784 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:11.786 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.788 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.789 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.790 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.791 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.792 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.793 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.794 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.795 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.796 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.797 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.798 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.799 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.800 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.801 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.802 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.803 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.806 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.806 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.807 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.807 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.808 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.808 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.809 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.809 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.809 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.810 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.810 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.811 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.836 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-7 attempt=1 [TypeError: fetch failed] {
+17:16:11.836 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-67 attempt=1 [TypeError: fetch failed] {
+17:16:11.838 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-8 attempt=1 [TypeError: fetch failed] {
+17:16:11.862 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-9 attempt=1 [TypeError: fetch failed] {
+17:16:11.950 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.950 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.950 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.951 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.951 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.951 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:11.952 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.953 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.954 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.955 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.956 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.957 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:11.998 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:12.000 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:12.086 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:12.087 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:12.321 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:12.322 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:12.324 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:12.325 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:12.326 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:12.326 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:12.327 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+17:16:12.328 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:12.330 [META_GATEWAY_CLEAR_PENDING_FAILED] client-0 [TypeError: fetch failed] {
+17:16:12.345 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-129 attempt=1 [TypeError: fetch failed] {
+17:16:12.353 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-128 attempt=1 [TypeError: fetch failed] {
+17:16:12.411 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:12.412 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:12.413 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:12.413 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:12.414 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:12.415 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:12.415 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:12.416 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:12.441 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:12.441 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:12.470 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:12.471 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:12.471 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:12.472 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:12.472 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:12.472 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:12.475 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:12.832 [client] @@STAGE close still pending after 2s: {"requestsInFlight":[],"n":0}
+17:16:13.155 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+17:16:13.158 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+17:16:13.161 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+17:16:13.163 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+17:16:13.163 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+17:16:13.164 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+17:16:13.165 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+17:16:13.165 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+17:16:13.166 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+17:16:13.166 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+17:16:13.166 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+17:16:13.167 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+17:16:13.172 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:13.173 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:13.175 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:13.175 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:13.176 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:13.176 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:13.178 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:13.179 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:13.194 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-14 attempt=1 [TypeError: fetch failed] {
+17:16:13.194 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-22 attempt=1 [TypeError: fetch failed] {
+17:16:13.194 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-12 attempt=1 [TypeError: fetch failed] {
+17:16:13.195 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-2 attempt=1 [TypeError: fetch failed] {
+17:16:13.195 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-16 attempt=1 [TypeError: fetch failed] {
+17:16:13.195 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-13 attempt=1 [TypeError: fetch failed] {
+17:16:13.197 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-20 attempt=1 [TypeError: fetch failed] {
+17:16:13.197 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-23 attempt=1 [TypeError: fetch failed] {
+17:16:13.199 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-25 attempt=1 [TypeError: fetch failed] {
+17:16:13.203 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-32 attempt=1 [TypeError: fetch failed] {
+17:16:13.203 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-36 attempt=1 [TypeError: fetch failed] {
+17:16:13.205 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-33 attempt=1 [TypeError: fetch failed] {
+17:16:13.206 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-52 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:13.206 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-34 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:13.207 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-29 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:13.208 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-18 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:13.208 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-47 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:13.676 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:13.676 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:13.677 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:13.678 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:13.678 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:13.679 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:13.689 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-57 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:13.689 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-55 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:13.753 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:13.753 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:13.753 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:13.754 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:13.754 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:13.755 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:13.756 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:13.756 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:13.757 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:13.758 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:13.759 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:13.760 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:13.761 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:13.761 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:13.763 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:13.763 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:13.766 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:13.768 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:13.788 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-73 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:13.804 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-35 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:13.809 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-24 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.354 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:14.355 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:14.355 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:14.357 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:14.357 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:14.358 [META_GATEWAY_RETRY] client-0 attempt=2 network_error [TypeError: fetch failed] {
+17:16:14.361 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.361 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.362 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.362 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.363 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.363 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.364 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.364 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.365 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.365 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.365 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.366 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:14.366 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.367 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:14.368 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.368 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:14.370 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:14.371 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:14.383 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-56 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.384 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-92 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.384 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-60 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.385 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-89 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.385 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-65 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.426 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-97 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.468 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-77 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.468 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-94 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.468 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-76 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.470 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:14.470 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:14.470 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:14.471 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:14.471 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:14.472 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:14.472 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.473 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.473 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.474 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.474 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.474 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.475 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.475 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.475 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.476 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.476 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.477 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.477 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.480 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-88 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.480 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-99 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.481 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-98 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.482 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-104 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.493 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-110 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.494 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-144 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.503 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-109 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.503 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-123 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.503 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-113 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.506 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-131 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.507 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-130 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.507 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-108 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.512 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-134 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.512 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-118 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.513 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-120 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.513 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-119 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.513 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-135 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.687 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.688 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.689 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:14.714 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-8 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.714 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-139 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:14.714 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-141 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.248 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:15.249 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:15.249 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:15.250 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:15.251 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.251 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.252 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.252 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.253 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.253 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.254 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.255 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.255 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.256 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.256 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.257 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.257 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.268 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-88 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.269 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-60 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.269 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-92 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.269 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-109 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.270 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-89 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.271 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-104 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.271 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-113 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.352 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:15.353 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:15.353 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:15.353 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:15.354 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:15.354 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:15.355 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.356 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.356 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.357 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.357 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.358 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.358 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.359 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.359 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.359 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.360 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.360 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.362 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-65 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.363 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-131 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.363 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-123 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.363 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-130 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.364 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-144 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.364 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-97 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.370 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-129 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.370 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-46 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.371 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-8 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.371 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-118 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.371 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-119 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.372 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-141 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.372 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-139 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.372 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-51 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.372 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-10 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.376 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-41 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.376 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-42 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.376 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-44 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.709 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:15.709 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:15.716 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-63 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:15.862 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+17:16:15.863 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+17:16:15.866 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+17:16:15.867 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+17:16:15.867 [META_GATEWAY_FAILED] client-0 network_error [TypeError: fetch failed] {
+17:16:15.877 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-32 attempt=2 [TypeError: fetch failed] {
+17:16:15.878 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-36 attempt=2 [TypeError: fetch failed] {
+17:16:15.879 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-33 attempt=2 [TypeError: fetch failed] {
+17:16:15.880 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-2 attempt=2 [TypeError: fetch failed] {
+17:16:15.880 [META_GATEWAY_INBOX_RETRY] t-ldmubib2zp-22 attempt=2 [TypeError: fetch failed] {
+17:16:16.217 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:16.222 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:16.223 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:16.226 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:16.228 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:16.236 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-46 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:16.237 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-42 attempt=2 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:16.237 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-83 attempt=1 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:16.838 [META_GATEWAY_RETRY] client-0 attempt=1 network_error [TypeError: fetch failed] {
+17:16:16.840 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:16.841 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:16.842 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:16.842 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:16.843 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:16.843 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:16.844 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:16.844 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:16.845 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:16.845 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:16.846 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:16.846 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:16.846 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:16.846 [META_GATEWAY_PENDING_CHECK_FAILED] client-0 [TypeError: fetch failed] {
+17:16:16.860 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-65 attempt=3 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:16.864 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-139 attempt=3 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:16.864 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-118 attempt=3 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:16.869 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-92 attempt=3 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:16.870 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-123 attempt=3 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback
+17:16:16.872 [META_GATEWAY_INBOX_RETRY] a-ldmubib2zp-8 attempt=3 Error: Pending Meta routing incomplete for 1 client(s); refusing unsafe fallback

@@ -173,7 +173,85 @@ const MUTATIONS_EV = [
     find: /if \(this\.markOutboxUncertain\(message\.id, `Process ended while sending[^\n]*\)\)\s*continue;/, replace: 'this.markOutboxUncertain(message.id, "orphan");', tests: TEV },
 ];
 
-const SELECTED = process.env.MUT_SET === 'ev' ? MUTATIONS_EV : process.env.MUT_SET === 'b2s45' ? MUTATIONS_B2S45 : process.env.MUT_SET === 'b2s3b' ? MUTATIONS_B2S3B : process.env.MUT_SET === 'b2s3' ? MUTATIONS_B2S3 : process.env.MUT_SET === 'b2s2' ? MUTATIONS_B2S2 : process.env.MUT_SET === 'b2' ? MUTATIONS_B2 : MUTATIONS;
+// Stage E / C2 (MUT_SET=inbox): the PostgreSQL inbox repository's safety properties. Each mutation must make test-inbox-repository-postgres.js fail.
+const TINBOX = ['test-inbox-repository-postgres.js'];
+const MUTATIONS_INBOX = [
+  { id: 'E1', protection: 'a worker transition does not republish the sender pointer (scheduler goes stale)', file: 'dist/inbox/postgresRepository.js',
+    find: /else if \(!r\.rowCount\)\s*return null;\s*await this\.recomputeHead\(c, item\.sender_key\);/, replace: 'else if (!r.rowCount) return null;', tests: TINBOX },
+  { id: 'E2', protection: 'the lease token no longer fences a stale worker on completion/retry/hold/fail/review', file: 'dist/inbox/postgresRepository.js',
+    find: /where id = \$1 and status = 'processing' and lease_token = \$2 returning id`, \[id, leaseToken, to,/, replace: "where id = $1 and status = 'processing' and $2::text is not null returning id`, [id, leaseToken, to,", tests: TINBOX },
+  { id: 'E3', protection: 'a CLIENT item with an expired lease is re-run instead of going to review (duplicate business effect)', file: 'dist/inbox/postgresRepository.js',
+    find: /\(this\.role === 'gateway' \? claimIds : reviewIds\)\.push\(h\.id\);/, replace: 'claimIds.push(h.id);', tests: TINBOX },
+  { id: 'E4', protection: 'renew does not move the sender due_at (pointer drift)', file: 'dist/inbox/postgresRepository.js',
+    find: /await this\.recomputeHead\(c, item\.sender_key\); \/\/ due_at follows the new lease expiry \(I3\)/, replace: '', tests: TINBOX },
+  { id: 'E5', protection: 'requeue keeps the old sequence (a requeued message can overtake active work)', file: 'dist/inbox/postgresRepository.js',
+    find: /sender_seq = \$2, attempts = 0, next_attempt_at = null, last_error = null,\s*resolution = null/, replace: 'sender_seq = sender_seq + 0 * $2, attempts = 0, next_attempt_at = null, last_error = null, resolution = null', tests: TINBOX },
+  { id: 'E6', protection: 'the per-sender sequence counter is not advanced (order / uniqueness lost)', file: 'dist/inbox/postgresRepository.js',
+    find: /do update set next_seq = inbox_senders\.next_seq \+ 1, updated_at = \$\{this\.T\}/, replace: 'do update set updated_at = ${this.T}', tests: TINBOX },
+  { id: 'E7', protection: 'cleanup deletes held/failed/review evidence', file: 'dist/inbox/postgresRepository.js',
+    find: /select id from inbox_items where namespace = \$1 and role = \$2 and status = 'completed'\n\s*and updated_at < \$\{this\.TS\} - \(\$3::int \* interval '1 day'\) order by updated_at, id limit \$4 for update skip locked\)`,\s*\[this\.ns, this\.role, dedupeDays, batch\]/, replace: "select id from inbox_items where namespace = $1 and role = $2 and status in ('completed','held','failed','review')\n            and updated_at < ${this.TS} - ($3::int * interval '1 day') order by updated_at, id limit $4 for update skip locked)`, [this.ns, this.role, dedupeDays, batch]", tests: TINBOX },
+  { id: 'E8', protection: 'a late completion by ANY token closes an ambiguous item', file: 'dist/inbox/postgresRepository.js',
+    find: /where id = \$1 and status = 'review' and resolution = 'ambiguous_processing' and lease_token = \$2 returning id`, \[id, leaseToken\]/, replace: "where id = $1 and status = 'review' and resolution = 'ambiguous_processing' and $2::text is not null returning id`, [id, leaseToken]", tests: TINBOX },
+];
+
+// Stage E / C3 (MUT_SET=c3): the runtime wiring of the inboxes. Each mutation must make test-inbox-runtime-postgres.js fail.
+const TC3 = ['test-inbox-runtime-postgres.js'];
+const MUTATIONS_C3 = [
+  { id: 'W1', protection: 'the gateway webhook is acknowledged before its messages are committed (no ACK before commit)', file: 'dist/adminServer.js',
+    find: /await metaGatewayInbox\.enqueueMany\(/, replace: 'void metaGatewayInbox.enqueueMany(', tests: TC3 },
+  { id: 'W2', protection: 'the client receipt returns 2xx before the items are committed', file: 'dist/adminServer.js',
+    find: /await metaClientInbox\.enqueueMany\(/, replace: 'void metaClientInbox.enqueueMany(', tests: TC3 },
+  { id: 'W3', protection: 'an expired trigger is recorded as completed (silent stale)', file: 'dist/adminServer.js',
+    find: /if \(outcome\?\.kind === 'stale_trigger'\)\s*await parkStaleTrigger\(metaClientInbox/, replace: "if (false) await parkStaleTrigger(metaClientInbox", tests: TC3 },
+  { id: 'W4', protection: 'an interrupted (ambiguous) item does not put the sender on hold', file: 'dist/adminServer.js',
+    find: /for \(const r of reviewed\)\s*void handleAmbiguousInbox\(r\);/, replace: '', tests: TC3 },
+  { id: 'W5', protection: 'a held sender\'s message is completed instead of held', file: 'dist/adminServer.js',
+    find: /metaClientInbox\.hold\(item, err\)/, replace: 'metaClientInbox.complete(item, "processed")', tests: TC3 },
+  { id: 'W6', protection: 'shutdown ignores claims that are still in flight (items run against closed pools)', file: 'dist/adminServer.js',
+    find: /while \(\(pendingInboxClaims > 0 \|\| metaGatewayDrainer/, replace: 'while ((false || metaGatewayDrainer', tests: TC3 },
+];
+
+// Stage E / C4 (MUT_SET=c4): conversation state row persistence in PostgreSQL mode. Each mutation must make test-conversation-state-rows-postgres.js fail.
+const TC4 = ['test-conversation-state-rows-postgres.js'];
+const MUTATIONS_C4 = [
+  { id: 'K1', protection: 'restore falls back to a leftover file in PostgreSQL mode (stale conversations come back)', file: 'dist/conversationState.js',
+    find: /\?\? \(this\.rowsMode \? undefined : this\.readSnapshotFile\(\)\)/, replace: '?? this.readSnapshotFile()', tests: TC4 },
+  { id: 'K2', protection: 'removals are not sent to the database (a removed conversation comes back after a restart)', file: 'dist/conversationState.js',
+    find: /removed\.push\(jid\);\s*continue;/, replace: 'continue;', tests: TC4 },
+  { id: 'K3', protection: 'the frozen copy keeps a removed row (the direct writer never sees the deletion)', file: 'dist/database.js',
+    find: /else\s*delete conv\[jid\];/, replace: ';', tests: TC4 },
+  { id: 'K4', protection: 'the direct row writer never deletes', file: 'dist/database.js',
+    find: /async function syncConversationRowsDirect\(pool, jids, conversations\) \{[\s\S]*?if \(removed\.length\)/, replace: (m) => m.replace(/if \(removed\.length\)$/, 'if (false)'), tests: TC4 },
+  { id: 'K5', protection: 'PostgreSQL mode still writes the synchronous shadow file', file: 'dist/conversationState.js',
+    find: /console\.warn\('Could not persist conversation state:', err\);\s*\}\s*return;\s*\}/, replace: "console.warn('Could not persist conversation state:', err);\n            }\n            /* mutated: no early return */\n        }", tests: TC4 },
+  { id: 'K6', protection: 'non-restorable rows are left in the database after restore', file: 'dist/conversationState.js',
+    find: /if \(dropped\.length\)/, replace: 'if (false)', tests: TC4 },
+  { id: 'K7', protection: 'a change is applied in memory but never queued for the database', file: 'dist/storage.js',
+    find: /this\.persist\(\['conversationStateSnapshot'\], \{ conversationStateSnapshot: \[\.\.\.Object\.keys\(upserts\), \.\.\.removed\] \}\);/, replace: '', tests: TC4 },
+];
+
+// Stage E / C5 (MUT_SET=mig): migration safety properties. Each mutation must make test-inbox-migration-postgres.js fail.
+const TMIG = ['test-inbox-migration-postgres.js'];
+const MUTATIONS_MIG = [
+  { id: 'G1', protection: 'the import runs without a verified backup', file: 'dist/inbox/migration.js',
+    find: /const backup = writeImmutableBackup\(o\.sourceFile, o\.backupDir, read\.sha256\);/, replace: "const backup = { path: path.join(o.backupDir, 'none'), sha256: read.sha256 };", tests: TMIG },
+  { id: 'G2', protection: 'verification cannot block activation', file: 'dist/inbox/migration.js',
+    find: /if \(!v\.ok\) \{/, replace: 'if (false) {', tests: TMIG },
+  { id: 'G3', protection: 'a conflicting existing row is overwritten by the import', file: 'dist/inbox/migration.js',
+    find: /on conflict \(namespace, role, phone_number_id, message_id\) do nothing/, replace: 'on conflict (namespace, role, phone_number_id, message_id) do update set payload = excluded.payload, status = excluded.status', tests: TMIG },
+  { id: 'G4', protection: 'rollback restores the old file even after SQL did work (loses that work)', file: 'dist/inbox/migration.js',
+    find: /const unchanged = \(0, exports\.digestRows\)\(cur\) === marker\.importedDigest;|const unchanged = digestRows\(cur\) === marker\.importedDigest;/, replace: 'const unchanged = true;', tests: TMIG },
+  { id: 'G5', protection: 'the source is deleted instead of renamed', file: 'dist/inbox/migration.js',
+    find: /fs_1\.default\.renameSync\(o\.sourceFile, migratedName\);/, replace: 'fs_1.default.unlinkSync(o.sourceFile);', tests: TMIG },
+  { id: 'G6', protection: 'no startup guard: the JSON backend starts over a migrated inbox (two writers)', file: 'dist/inbox/migration.js',
+    find: /if \(backend === 'json' && fs_1\.default\.existsSync\(markerPath\(jsonFile\)\)\)/, replace: "if (false)", tests: TMIG },
+  { id: 'G7', protection: 'a still-active writer is not detected', file: 'dist/inbox/migration.js',
+    find: /await ensureQuiet\(o\.sourceFile, o\.quietMs \?\? 2000\);/, replace: '', tests: TMIG },
+  { id: 'G8', protection: 'the dry-run writes something', file: 'dist/inbox/migration.js',
+    find: /report\.markerPresent = /, replace: "fs_1.default.writeFileSync(o.sourceFile + '.dryrun', 'x'); report.markerPresent = ", tests: TMIG },
+];
+
+const SELECTED = process.env.MUT_SET === 'mig' ? MUTATIONS_MIG : process.env.MUT_SET === 'c4' ? MUTATIONS_C4 : process.env.MUT_SET === 'c3' ? MUTATIONS_C3 : process.env.MUT_SET === 'inbox' ? MUTATIONS_INBOX : process.env.MUT_SET === 'ev' ? MUTATIONS_EV : process.env.MUT_SET === 'b2s45' ? MUTATIONS_B2S45 : process.env.MUT_SET === 'b2s3b' ? MUTATIONS_B2S3B : process.env.MUT_SET === 'b2s3' ? MUTATIONS_B2S3 : process.env.MUT_SET === 'b2s2' ? MUTATIONS_B2S2 : process.env.MUT_SET === 'b2' ? MUTATIONS_B2 : MUTATIONS;
 const out = process.argv[2];
 const report = { startedAt: new Date().toISOString(), mutations: [] };
 let restoredOk = true;

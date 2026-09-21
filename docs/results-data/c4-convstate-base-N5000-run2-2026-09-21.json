@@ -1,0 +1,37 @@
+{
+ "label": "base",
+ "dist": "C:\\Users\\haim\\AppData\\Local\\Temp\\claude\\C--Users-haim-Projects-parpar-sagol\\b9f87141-7671-4090-bd51-54e492c7ae49\\scratchpad\\e_base\\dist",
+ "N": 5000,
+ "restored": 5000,
+ "rowsInDb": 5000,
+ "host": {
+  "cpu": "AMD Ryzen 7 PRO 5850U with Radeon Graphics     ",
+  "node": "v24.16.0"
+ },
+ "preflight": {
+  "at": "2026-09-21T11:28:45.410Z",
+  "freeMemGB": 12.1,
+  "totalMemGB": 29.9,
+  "load1m": 0,
+  "strayRepoNodeProcesses": [],
+  "otherNodeProcesses": {
+   "count": 94,
+   "MB": 5446
+  }
+ },
+ "setMs": {
+  "median": 40.997,
+  "p95": 53.839,
+  "max": 72.034
+ },
+ "wallPerChangeMs": {
+  "median": 49.955,
+  "p95": 72.999
+ },
+ "eventLoopDelayMs": {
+  "p99": 54.95,
+  "max": 72.81
+ },
+ "shadowFileBytes": 1299217,
+ "shadowFileWritten": true
+}
