@@ -1239,6 +1239,13 @@ export class Storage {
       return false;
     }
     // sent / delivered / read
+    if (message.status === 'processing') {
+      // The POST is still in the air: the send itself decides its own outcome (markOutboxSent / markOutboxUncertain). Marking the
+      // row `sent` here would race with that call. The evidence is already durable on the attempt record (deliveryStatus +
+      // providerMessageId, persisted by applyMetaStatus) and is consulted where the outcome is decided - see
+      // settleSentByDeliveryEvidence (markOutboxUncertain, markOutboxRetry, releaseUncertainForRetry).
+      return false;
+    }
     if (message.status === 'uncertain' || message.status === 'retry' || message.status === 'queued') {
       attempt.status = 'accepted'; attempt.endedAt = attempt.endedAt ?? now; attempt.providerMessageId = attempt.providerMessageId ?? wamid;
       this.claimedInThisProcess.delete(message.id);
@@ -1254,8 +1261,34 @@ export class Storage {
     return false;
   }
 
+  /** An attempt of this message that the provider has confirmed (a `sent` / `delivered` / `read` status matched to it). */
+  private attemptWithDeliveryEvidence(message: OutboxMessage): OutboxAttemptRecord | undefined {
+    return message.attemptLog?.find((entry) => entry.status !== 'rejected'
+      && (entry.deliveryStatus === 'sent' || entry.deliveryStatus === 'delivered' || entry.deliveryStatus === 'read'));
+  }
+
+  /**
+   * Delivery evidence that arrived while the send was still in the air (or before the outcome was decided) wins over an
+   * unknown / retryable outcome: the provider already confirmed a copy, so the message is `sent` and no further POST may
+   * be granted. Returns true when it settled the message.
+   */
+  private settleSentByDeliveryEvidence(message: OutboxMessage): boolean {
+    const attempt = this.attemptWithDeliveryEvidence(message);
+    if (!attempt) return false;
+    const now = new Date().toISOString();
+    attempt.status = 'accepted'; attempt.endedAt = attempt.endedAt ?? now;
+    this.claimedInThisProcess.delete(message.id);
+    message.status = 'sent'; message.providerMessageId = attempt.providerMessageId ?? message.providerMessageId; message.nextAttemptAt = undefined;
+    message.processingStartedAt = undefined; message.lastError = undefined; message.updatedAt = now;
+    if (message.recovery) message.recovery.lastDecision = 'delivery_evidence_during_send';
+    this.persist(['outboxMessages'], { outboxMessages: message.id });
+    this.emitOutboxTransition({ type: 'sent_after_recovery', id: message.id });
+    return true;
+  }
+
   /** uncertain -> retry (a new POST attempt) if the budget allows, else recoverable_failed. */
   private releaseUncertainForRetry(message: OutboxMessage, reason: string): void {
+    if (reason !== 'delivery_failed_evidence' && this.settleSentByDeliveryEvidence(message)) return;
     const possiblyDelivered = (message.attemptLog ?? []).filter((a) => a.status === 'uncertain' || a.status === 'accepted' || a.status === 'started').length;
     const now = new Date().toISOString();
     message.updatedAt = now;
@@ -1428,9 +1461,11 @@ export class Storage {
   }
 
   /** Provider acceptance is unknown. Never retried automatically; see OutboxMessageStatus. */
-  markOutboxUncertain(id: string, error: unknown): void {
+  /** Returns true when delivery evidence that arrived during the send settled the message as `sent` (it is then NOT uncertain). */
+  markOutboxUncertain(id: string, error: unknown): boolean {
     const message = this.data.outboxMessages.find((item) => item.id === id);
-    if (!message) return;
+    if (!message) return false;
+    if (this.settleSentByDeliveryEvidence(message)) return true;
     this.claimedInThisProcess.delete(id);
     this.closeCurrentAttempt(message, 'uncertain', { error });
     message.status = 'uncertain';
@@ -1451,6 +1486,7 @@ export class Storage {
     message.processingStartedAt = undefined;
     message.updatedAt = new Date().toISOString();
     this.persist(['outboxMessages'], { outboxMessages: message.id });
+    return false;
   }
 
   /**
@@ -1462,7 +1498,8 @@ export class Storage {
     const recovered: OutboxMessage[] = [];
     for (const message of this.data.outboxMessages) {
       if (message.status !== 'processing' || this.claimedInThisProcess.has(message.id)) continue;
-      this.markOutboxUncertain(message.id, `Process ended while sending (attempt ${message.attempts}); provider acceptance unknown - needs review.`);
+      // Evidence that arrived before the crash settles it as sent: it is not an orphan any more, and nothing alerts.
+      if (this.markOutboxUncertain(message.id, `Process ended while sending (attempt ${message.attempts}); provider acceptance unknown - needs review.`)) continue;
       recovered.push(this.copyOutboxMessage(message));
     }
     return recovered;
@@ -1519,6 +1556,7 @@ export class Storage {
   markOutboxRetry(id: string, error: unknown, nextAttemptAt?: string): void {
     const message = this.data.outboxMessages.find((item) => item.id === id);
     if (!message) return;
+    if (this.settleSentByDeliveryEvidence(message)) return;   // the provider already confirmed a copy: no further POST
     this.claimedInThisProcess.delete(id);
     this.closeCurrentAttempt(message, 'rejected', { error });
     message.status = 'retry';

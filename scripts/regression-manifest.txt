@@ -69,3 +69,5 @@ test-delivery-recovery-postgres.js
 test-early-status-journal.js
 test-delivery-recovery-paths.js
 test-delivery-recovery-s45.js
+test-evidence-during-send.js
+test-evidence-during-send-postgres.js

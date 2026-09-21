@@ -330,3 +330,32 @@ prompt-שם וטיימרים לפני שם; `tryRecoverMissingFlow`; `continueAf
 | יתומי קריסה של בוט שירות בלי hold | **פתוח** (ה-controller ישחזר את ה-unit, אבל אין hold בזמן החלון) |
 | Baileys: הודעות מוחזקות נזרקות בשחרור | **נסגר** (9.1), שארית: קריסה באמצע replay |
 | Meta: הודעת טריגר חדשה שמחכה מאחורי שורת uncertain של אותו נמען כשאין hold | קיים כהתנהגות head-of-queue; לא שונה |
+
+## 10. תיקון ממוקד: ראיית מסירה שהגיעה בזמן שה-POST באוויר (2026-09-21, מקומי בלבד)
+
+### 10.1 הבאג (Codex, אומת בקוד)
+`applyDeliveryEvidence` טיפל רק ב-`uncertain`/`retry`/`queued`. כש-callback מסירה הותאם (עם תיוג) לניסיון בזמן שהשורה `processing`, הפונקציה החזירה false והראיה לא השפיעה על ההחלטה. ה-POST עבר timeout -> `uncertain` -> חלון -> `retry` -> **שליחה חוזרת אף שהספק כבר אישר**. עם תיוג כבוי הסטטוס לא מותאם ולכן נכנס ליומן הסטטוסים המוקדמים — אבל רק כשה-POST חוזר עם provider id (ראו 10.4).
+
+### 10.2 התיקון (בלי מרוץ חדש)
+- **לא מסמנים `sent` בזמן `processing`** — ה-POST עדיין באוויר ויכריע בעצמו (`markOutboxSent` / `markOutboxUncertain`); סימון כאן היה מרוץ. `applyDeliveryEvidence` מחזיר במפורש false ל-`processing` (הערה בקוד).
+- הראיה כבר נשמרת על **רשומת הניסיון** (`attemptLog[].deliveryStatus` + `providerMessageId`) ונכתבת בעמידות (`applyMetaStatus` מבצע persist). היא נבדקת בנקודות שבהן מוכרעת תוצאת השליחה, דרך `settleSentByDeliveryEvidence`:
+  1. `markOutboxUncertain` (timeout / ניתוק) — אם יש ניסיון מאושר → השורה `sent`, לא `uncertain`; מחזיר `true` (ה-dispatcher לא מתריע `alertUncertain`).
+  2. `markOutboxRetry` (דחייה זמנית אחרי קבלה) — אם יש ניסיון מאושר → `sent`, לא retry.
+  3. `releaseUncertainForRetry` (חגורת ביטחון, כולל שורות ישנות שנכתבו ע"י הגרסה הבאגית) — אם יש ניסיון מאושר → `sent`, לא retry.
+  4. `recoverOrphanedOutboxProcessing` (אחרי קריסה) — שורה עם ראיה שרדה אינה יתומה: לא `uncertain`, לא התראה.
+- ראיית `failed` בזמן `processing` לא משנה דבר (ה-POST מכריע) — נבדק.
+- מעבר ל-`sent` מפיץ `sent_after_recovery` כמו ראיה רגילה, כך ש-continuation/שחרור hold עובדים במסלול הקיים.
+
+### 10.3 בדיקות
+`scripts/test-evidence-during-send.js` (10) + `scripts/test-evidence-during-send-postgres.js` (3, PG אמיתי 18.6), שתיהן ב-manifest:
+- שחזור מדויק: callback ב-`processing` ואז timeout → נשלח פעם אחת, `sent`, בלי retry (גם דרך ה-dispatcher האמיתי: POST אחד, ואחרי חלון+ שניה עדיין POST אחד).
+- callback שמגיע אחרי שהשליחה נסגרה — התנהגות ללא שינוי; callback ב-processing ואז POST מצליח — `sent` + סטטוס מסירה.
+- דחייה זמנית אחרי ראיה; ראיית failed; שורה ישנה (legacy).
+- **PG:** crash אחרי ה-callback ולפני סגירת השליחה → הראיה שרדה ב-DB, השורה אינה יתומה, מסתיימת `sent`, בלי retry, גם אחרי שני restarts; בקרה: אותו crash בלי ראיה עדיין `uncertain`.
+
+### 10.4 תיוג דלוק מול כבוי — בלי ליפות
+- **דלוק:** הבאג תוקן (כל המקרים לעיל).
+- **כבוי:** callback שמגיע ב-`processing` ו-POST שמצליח → מותאם (מהיומן/הבאפר) ו-`sent` — נבדק. **אבל callback + timeout ללא תיוג עדיין לא ניתן להתאמה**: אין attempt id ואין provider id (ה-POST לא חזר), לכן הוא נשאר בבאפר וההודעה עוברת `uncertain` -> retry עיוור. זו המגבלה הידועה של "בלי תיוג שלבים 1-3 רדומים" — לא שונתה (התאמה לפי טלפון+זמן נפסלה). נבדק כ-"KNOWN LIMIT".
+
+### 10.5 מוטציות (`MUT_SET=ev`)
+V1 (החלטת uncertain מתעלמת מהראיה — הבאג), V2 (התיקון הנאיבי: processing→sent, מרוץ), V3 (retry אחרי ראיה), V4 (release מתעלם), V5 (קריסה מתייחסת לשורה כיתומה): **5/5 נתפסו**, שחזור SHA מאומת. `docs/results-data/mutation-evidence-during-send-2026-09-21.json`.

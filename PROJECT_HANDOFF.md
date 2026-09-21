@@ -2039,3 +2039,9 @@ Commit: `60de4cc`
 - שלב 4: טריגר מדויק וטרי בזמן hold *של התאוששות* מתחיל ריצה חדשה בלי מנהל (ההודעה הלא-פתורה נזנחת כ-recoverable_failed; hold של מנהל לא נדרס). שלב 5: retry לא נשלח אם המשתתף עבר לריצה חדשה (`runMembership.ts`), ספירה יחידה של שני עותקי שאלה, כל provider IDs.
 - בדיקות: `test-delivery-recovery-paths` (P7,P8), `test-delivery-recovery-s45` (8), PG round-trip; מוטציות b2s45 9/9 נתפסו; רגרסיה 65 סוויטות: 64 עברו, 1 BLOCKED (`test-backup-tool`, דורש BACKUP_TEST_PG_URL).
 - פערים פתוחים: T5, name/pre-name timers, `tryRecoverMissingFlow`, `continueAfterContactCard`, יתומי בוט שירות בלי hold. שלב 6 לא התחיל. פירוט: results doc סעיף 9.
+
+## עדכון 2026-09-21 (תיקון ממוקד: ראיית מסירה בזמן processing — מקומי בלבד)
+
+- באג (Codex): callback מסירה שהותאם לניסיון בזמן `processing` נזרק, ואז timeout -> uncertain -> retry = שליחה חוזרת אחרי אישור ספק. התיקון: הראיה נשמרת על רשומת הניסיון (כבר עמיד) ונבדקת בנקודות ההכרעה (`markOutboxUncertain`, `markOutboxRetry`, `releaseUncertainForRetry`, `recoverOrphanedOutboxProcessing`) דרך `settleSentByDeliveryEvidence`; **לא** מסמנים sent בזמן processing (מרוץ).
+- בדיקות: `test-evidence-during-send` (10) + PG (3); מוטציות ev 5/5.
+- מגבלה נשארת: ללא תיוג, callback+timeout לא ניתן להתאמה (retry עיוור). פירוט: results doc סעיף 10. שלב 6 לא התחיל. **צריך לפרוס לפני שהתנועה חוזרת** (לא נפרס).

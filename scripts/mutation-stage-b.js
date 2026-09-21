@@ -158,7 +158,22 @@ const MUTATIONS_B2S45 = [
     find: /\|\| item\.attemptLog\?\.some\(\(entry\) => entry\.providerMessageId === id \|\| entry\.providerMessageIds\?\.includes\(id\)\)\);/, replace: ');', tests: T45 },
 ];
 
-const SELECTED = process.env.MUT_SET === 'b2s45' ? MUTATIONS_B2S45 : process.env.MUT_SET === 'b2s3b' ? MUTATIONS_B2S3B : process.env.MUT_SET === 'b2s3' ? MUTATIONS_B2S3 : process.env.MUT_SET === 'b2s2' ? MUTATIONS_B2S2 : process.env.MUT_SET === 'b2' ? MUTATIONS_B2 : MUTATIONS;
+// Evidence during the send (MUT_SET=ev): a delivery callback that arrives while the POST is in the air must not be lost.
+const TEV = ['test-evidence-during-send.js', 'test-evidence-during-send-postgres.js'];
+const MUTATIONS_EV = [
+  { id: 'V1', protection: 'the outcome decision (uncertain) ignores evidence kept on the attempt (the reported bug)', file: 'dist/storage.js',
+    find: /if \(this\.settleSentByDeliveryEvidence\(message\)\)\s*return true;/, replace: '', tests: TEV },
+  { id: 'V2', protection: 'the naive fix: processing is treated like uncertain and marked sent while the POST is in the air (race)', file: 'dist/storage.js',
+    find: /if \(message\.status === 'processing'\) \{\s*\/\/[\s\S]*?return false;\s*\}\s*if \(message\.status === 'uncertain' \|\| message\.status === 'retry'/, replace: "if (message.status === 'processing' || message.status === 'uncertain' || message.status === 'retry'", tests: TEV },
+  { id: 'V3', protection: 'a transient rejection after evidence still schedules a retry', file: 'dist/storage.js',
+    find: /if \(this\.settleSentByDeliveryEvidence\(message\)\)\s*return;\s*\/\/ the provider already confirmed a copy: no further POST/, replace: '', tests: TEV },
+  { id: 'V4', protection: 'the retry decision (release) ignores confirmed attempts', file: 'dist/storage.js',
+    find: /if \(reason !== 'delivery_failed_evidence' && this\.settleSentByDeliveryEvidence\(message\)\)\s*return;/, replace: '', tests: TEV },
+  { id: 'V5', protection: 'crash recovery treats a confirmed processing row as an orphan again', file: 'dist/storage.js',
+    find: /if \(this\.markOutboxUncertain\(message\.id, `Process ended while sending[^\n]*\)\)\s*continue;/, replace: 'this.markOutboxUncertain(message.id, "orphan");', tests: TEV },
+];
+
+const SELECTED = process.env.MUT_SET === 'ev' ? MUTATIONS_EV : process.env.MUT_SET === 'b2s45' ? MUTATIONS_B2S45 : process.env.MUT_SET === 'b2s3b' ? MUTATIONS_B2S3B : process.env.MUT_SET === 'b2s3' ? MUTATIONS_B2S3 : process.env.MUT_SET === 'b2s2' ? MUTATIONS_B2S2 : process.env.MUT_SET === 'b2' ? MUTATIONS_B2 : MUTATIONS;
 const out = process.argv[2];
 const report = { startedAt: new Date().toISOString(), mutations: [] };
 let restoredOk = true;

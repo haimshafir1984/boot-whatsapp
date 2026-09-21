@@ -91,8 +91,8 @@ async function dispatchMessage(storage: Storage, transport: WhatsAppTransport, m
     } else {
       const outcome = classifySendError(err);
       if (outcome.outcome === 'uncertain') {
-        storage.markOutboxUncertain(claimed.id, err);
-        alertUncertain(claimed, err instanceof Error ? err.message : String(err));
+        // Delivery evidence that arrived during the send settles it as sent: nothing is uncertain then.
+        if (!storage.markOutboxUncertain(claimed.id, err)) alertUncertain(claimed, err instanceof Error ? err.message : String(err));
       } else if (outcome.outcome === 'rejected_permanent' || claimed.attempts >= OUTBOX_MAX_ATTEMPTS) {
         storage.markOutboxFailed(claimed.id, err);
       } else {
