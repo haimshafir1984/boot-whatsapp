@@ -27,7 +27,7 @@ globalThis.fetch = async function fakeFetch(input, init) {
 const hist = monitorEventLoopDelay({ resolution: 5 });
 hist.enable();
 const timer = setInterval(() => {
-  console.log('@@LAG ' + JSON.stringify({ t: Date.now(), p99: +(hist.percentile(99) / 1e6).toFixed(1), max: +(hist.max / 1e6).toFixed(1) }));
+  console.log('@@LAG ' + JSON.stringify({ t: Date.now(), p99: +(hist.percentile(99) / 1e6).toFixed(1), max: +(hist.max / 1e6).toFixed(1), rssMB: Math.round(process.memoryUsage().rss / 1048576) }));
   hist.reset();
 }, 2000);
 timer.unref();
@@ -61,4 +61,32 @@ process.on('message', (m) => { if (m === 'SIGTERM') process.emit('SIGTERM', 'SIG
     const origEnd = pg.Pool.prototype.end;
     pg.Pool.prototype.end = function patchedEnd() { console.log('@@STAGE pg pool.end called ' + Date.now()); return origEnd.apply(this, arguments); };
   } catch { /* pg not resolvable from here */ }
+}
+
+// measurement-only: cost of every conversationState.set()/remove() call (the synchronous part the bot pays per message), windowed per
+// 60s, plus the number of conversations held. Nothing about the behaviour changes.
+{
+  const Module = require('node:module');
+  const origLoad = Module._load;
+  let win = []; let size = () => null; let wrapped = false;
+  Module._load = function patchedLoad(request) {
+    const m = origLoad.apply(this, arguments);
+    if (!wrapped && m && m.conversationState && typeof m.conversationState.set === 'function') {
+      wrapped = true;
+      const cs = m.conversationState;
+      size = () => { try { return cs.size(); } catch { return null; } };
+      for (const name of ['set', 'remove']) {
+        const orig = cs[name].bind(cs);
+        cs[name] = function timed() { const t = process.hrtime.bigint(); try { return orig.apply(null, arguments); } finally { win.push(Number(process.hrtime.bigint() - t) / 1e6); } };
+      }
+    }
+    return m;
+  };
+  const csTimer = setInterval(() => {
+    if (!wrapped) return;
+    const a = win; win = []; a.sort((x, y) => x - y);
+    const q = (p) => (a.length ? +a[Math.min(a.length - 1, Math.floor(p / 100 * a.length))].toFixed(3) : null);
+    console.log('@@CS ' + JSON.stringify({ t: Date.now(), ops: a.length, p50: q(50), p99: q(99), max: a.length ? +a[a.length - 1].toFixed(3) : null, size: size() }));
+  }, 60000);
+  csTimer.unref();
 }

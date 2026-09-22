@@ -46,11 +46,12 @@ const gwDbName = fault.startsWith('db-outage') ? 'flowsbiz_inbox_test_gw' : base
 const gwInboxUrl = (() => { const u = new URL(baseUrl); u.pathname = '/' + gwDbName; return u.toString(); })();
 const schemaUrl = (schema) => { const u = new URL(baseUrl); u.searchParams.set('options', `-c search_path=${schema}`); return u.toString(); };
 
-const events = { gwLines: [], firstSend: new Map(), sendCount: new Map(), handlerStart: new Map(), lag: { gateway: [], client: [] }, logs: { stale: 0, skipped: 0, inboxFailed: 0, storeFailed: 0, retry: 0, ambiguous: 0, groupFailed: 0, unhandled: 0, persistFailed: 0 } };
+const events = { cs: {}, gwLines: [], firstSend: new Map(), sendCount: new Map(), handlerStart: new Map(), lag: { gateway: [], client: [] }, logs: { stale: 0, skipped: 0, inboxFailed: 0, storeFailed: 0, retry: 0, ambiguous: 0, groupFailed: 0, unhandled: 0, persistFailed: 0 } };
 const procs = [];
 function onLine(name, line, isGateway) {
   if (line.startsWith('@@SEND ')) { const j = JSON.parse(line.slice(7)); if (!events.firstSend.has(j.to)) events.firstSend.set(j.to, j.t); events.sendCount.set(j.to, (events.sendCount.get(j.to) || 0) + 1); return; }
-  if (line.startsWith('@@LAG ')) { const j = JSON.parse(line.slice(6)); events.lag[isGateway ? 'gateway' : 'client'].push({ t: j.t, p99: j.p99, max: j.max }); return; }
+  if (line.startsWith('@@LAG ')) { const j = JSON.parse(line.slice(6)); events.lag[isGateway ? 'gateway' : 'client'].push({ t: j.t, p99: j.p99, max: j.max, rssMB: j.rssMB, name }); return; }
+  if (line.startsWith('@@CS ')) { const j = JSON.parse(line.slice(5)); (events.cs[name] = events.cs[name] || []).push(j); return; }
   if (!isGateway && /@@STAGE|SIGTERM|SIGINT|draining|Shutdown|grace|INBOX_SHUTDOWN|INBOX_AMBIGUOUS|INBOX_STORE|INBOX_LEASE|META_INBOUND\] shutdown/i.test(line) && events.gwLines.length < 400) events.gwLines.push(new Date().toISOString().slice(11, 23) + ' [client] ' + line.slice(0, 300));
   if (isGateway && /INBOX|ERROR|error|FAILED|Unhandled|Uncaught/.test(line) && events.gwLines.length < 400) events.gwLines.push(new Date().toISOString().slice(11, 23) + ' ' + line.slice(0, 300));
   let m;
@@ -225,6 +226,33 @@ const post = (port, pathname, body, headers = {}) => new Promise((resolve) => {
     }, atMs);
   };
   scheduleFault();
+  // ---- soak instrumentation (sustained only): participants answer WHILE the drive runs (not after it), and a 60s timeline is appended
+  // to a .jsonl as it goes (a crash mid-run keeps everything so far).
+  let answerer = null; let timelineTimer = null; const timeline = [];
+  if (scenario === 'sustained') {
+    answerer = setInterval(() => { for (const p of participants) if (p.t0 && !p.abandon && !p.answered && events.firstSend.has(p.phone) && Date.now() - events.firstSend.get(p.phone) > 1500) void sendAnswer(p); }, 500);
+    const tlFile = resultsPath(`c6-${label}-timeline-${new Date().toISOString().slice(0, 10)}.jsonl`); fs.writeFileSync(tlFile, '');
+    const tp = new Pool({ connectionString: gwInboxUrl, max: 1 }); let lastAt = Date.now();
+    timelineTimer = setInterval(async () => {
+      const now = Date.now(); const from = lastAt; lastAt = now;
+      const win = (arr) => arr.filter((x) => x.t > from && x.t <= now);
+      const gl = win(events.lag.gateway); const cl0 = win(events.lag.client.filter((x) => x.name === 'client0' || x.name === 'client0b'));
+      const posted = participants.filter((p) => p.t0 && p.t0 > from && p.t0 <= now);
+      const fr = posted.filter((p) => events.firstSend.has(p.phone)).map((p) => events.firstSend.get(p.phone) - p.t0);
+      const rh = []; for (const p of posted) { const h = events.handlerStart.get(p.tid); if (h !== undefined) rh.push(h - p.t0); }
+      const cs = {}; for (const [k, arr] of Object.entries(events.cs)) { const w = arr.filter((x) => x.t > from && x.t <= now); if (w.length) { const last = w[w.length - 1]; cs[k] = { ops: last.ops, p50: last.p50, p99: last.p99, max: last.max, conversations: last.size }; } }
+      let gwCounts = null, oldest = null, convRows = null;
+      try {
+        gwCounts = Object.fromEntries((await tp.query("select status, count(*)::int n from inbox_items where namespace = $1 and role = 'gateway' and status in ('queued','retry','processing','review','held','failed') group by status", [RUN])).rows.map((r) => [r.status, r.n]));
+        oldest = (await tp.query("select coalesce(extract(epoch from (clock_timestamp() - min(due_at))) * 1000, 0)::int as ms from inbox_senders where namespace = $1 and role = 'gateway' and head_id is not null and due_at <= statement_timestamp()", [RUN])).rows[0].ms;
+        convRows = 0; for (const c of clients) convRows += (await admin.query(`select count(*)::int n from ${c.schema}.conversation_state`)).rows[0].n;
+      } catch { /* keep sampling */ }
+      const row = { tMin: +((now - startedAt) / 60000).toFixed(1), posted: posted.length, firstResponseMs: { n: fr.length, p50: pct(fr, 50), p99: pct(fr, 99), max: fr.length ? Math.max(...fr) : null }, receiptToHandlerMs: { n: rh.length, p50: pct(rh, 50), p99: pct(rh, 99) },
+        gatewayLagMs: { p99Worst: gl.length ? Math.max(...gl.map((x) => x.p99)) : null, max: gl.length ? Math.max(...gl.map((x) => x.max)) : null, samples: gl.length }, clientLagMs: { p99Worst: cl0.length ? Math.max(...cl0.map((x) => x.p99)) : null, max: cl0.length ? Math.max(...cl0.map((x) => x.max)) : null },
+        rssMB: { gateway: gl.length ? gl[gl.length - 1].rssMB : null, client0: cl0.length ? cl0[cl0.length - 1].rssMB : null }, conversationStateOpMs: cs, conversationRowsAllClients: convRows, gatewayInbox: gwCounts, gatewayOldestDueMs: oldest, sentTotal: [...events.sendCount.values()].reduce((a, b) => a + b, 0) };
+      timeline.push(row); fs.appendFileSync(tlFile, JSON.stringify(row) + '\n');
+    }, 60000);
+  }
   if (scenario === 'burst') {
     await Promise.all(participants.map((p) => sendTrigger(p)));
   } else {
@@ -255,6 +283,7 @@ const post = (port, pathname, body, headers = {}) => new Promise((resolve) => {
   }
   await sleep(scenario === 'sustained' ? 15000 : 8000);
   const endedAt = Date.now();
+  if (answerer) clearInterval(answerer); if (timelineTimer) clearInterval(timelineTimer);
 
   // ---- collect
   const lat = []; let missing = 0;
@@ -319,7 +348,7 @@ const post = (port, pathname, body, headers = {}) => new Promise((resolve) => {
     receiptToHandlerMs: { n: recv.length, neverStarted: noHandler, acknowledgedButNeverStarted: ackedNoHandler, notAcknowledgedByDriverGiveUp: postAttempts.gaveUp, redeliveredWebhooks: postAttempts.retried, p50: pct(recv, 50), p95: pct(recv, 95), p99: pct(recv, 99), max: recv.length ? Math.max(...recv) : null },
     gatewayEventLoopMs: lagOf(events.lag.gateway, startedAt, endedAt), clientEventLoopMs: lagOf(events.lag.client, startedAt, endedAt),
     perClientResults: results, lostResults: results.reduce((a, r) => a + Math.max(0, r.expected - r.distinctPhones), 0), duplicateResults: results.reduce((a, r) => a + Math.max(0, r.results - r.distinctPhones), 0),
-    logs: events.logs, inboxActualCounts: inboxCounts, traceProbe, host: { cpu: os.cpus()[0].model, threads: os.cpus().length, ramGB: Math.round(os.totalmem() / 1e9), node: process.version },
+    logs: events.logs, inboxActualCounts: inboxCounts, traceProbe, timeline, host: { cpu: os.cpus()[0].model, threads: os.cpus().length, ramGB: Math.round(os.totalmem() / 1e9), node: process.version },
   };
   console.log(JSON.stringify(summary));
   if (events.gwLines.length) fs.writeFileSync(resultsPath(`c6-${label}-gateway-lines-${new Date().toISOString().slice(0, 10)}.log`), events.gwLines.join(String.fromCharCode(10)));

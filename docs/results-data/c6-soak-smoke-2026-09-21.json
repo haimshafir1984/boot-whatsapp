@@ -1,0 +1,396 @@
+{
+ "label": "soak-smoke",
+ "side": "new",
+ "scenario": "sustained",
+ "participants": 60,
+ "clients": 6,
+ "historyNeverPruned": 300,
+ "completedHistoryNewOnly": 0,
+ "seededConversationsPerClient": 500,
+ "fault": "none",
+ "faultLog": [],
+ "preflight": {
+  "at": "2026-09-21T19:39:21.286Z",
+  "freeMemGB": 13.2,
+  "totalMemGB": 29.9,
+  "load1m": 0,
+  "strayRepoNodeProcesses": [],
+  "otherNodeProcesses": {
+   "count": 87,
+   "MB": 3888
+  }
+ },
+ "posted": {
+  "ok": 60,
+  "fail": 0
+ },
+ "durationS": 185.4,
+ "driveS": 100.4,
+ "firstResponseMs": {
+  "n": 60,
+  "missing": 0,
+  "p50": 205,
+  "p95": 320,
+  "p99": 434,
+  "max": 434
+ },
+ "receiptToHandlerMs": {
+  "n": 98,
+  "neverStarted": 0,
+  "acknowledgedButNeverStarted": 0,
+  "notAcknowledgedByDriverGiveUp": 0,
+  "redeliveredWebhooks": 0,
+  "p50": 37,
+  "p95": 52,
+  "p99": 232,
+  "max": 232
+ },
+ "gatewayEventLoopMs": {
+  "p99": 16.9,
+  "worstP99": 35.3,
+  "max": 38.3,
+  "samples": 93
+ },
+ "clientEventLoopMs": {
+  "p99": 16.8,
+  "worstP99": 38.5,
+  "max": 87.7,
+  "samples": 552
+ },
+ "perClientResults": [
+  {
+   "client": 0,
+   "expected": 42,
+   "results": 42,
+   "distinctPhones": 42
+  },
+  {
+   "client": 1,
+   "expected": 0,
+   "results": 0,
+   "distinctPhones": 0
+  },
+  {
+   "client": 2,
+   "expected": 0,
+   "results": 0,
+   "distinctPhones": 0
+  },
+  {
+   "client": 3,
+   "expected": 6,
+   "results": 6,
+   "distinctPhones": 6
+  },
+  {
+   "client": 4,
+   "expected": 6,
+   "results": 6,
+   "distinctPhones": 6
+  },
+  {
+   "client": 5,
+   "expected": 6,
+   "results": 6,
+   "distinctPhones": 6
+  }
+ ],
+ "lostResults": 0,
+ "duplicateResults": 0,
+ "logs": {
+  "stale": 0,
+  "skipped": 0,
+  "inboxFailed": 0,
+  "storeFailed": 0,
+  "retry": 0,
+  "ambiguous": 0,
+  "groupFailed": 0,
+  "unhandled": 0,
+  "persistFailed": 0
+ },
+ "inboxActualCounts": {
+  "gateway": {
+   "completed": 98,
+   "failed": 150,
+   "held": 150
+  },
+  "clientsReview": 0,
+  "clientsByStatus": {
+   "completed": 98
+  }
+ },
+ "traceProbe": {
+  "ambiguous": 0,
+  "clean": 0,
+  "withTrace": 0,
+  "byType": {},
+  "providerSendSeenButNoDbTrace": 0,
+  "items": []
+ },
+ "timeline": [
+  {
+   "tMin": 1,
+   "posted": 35,
+   "firstResponseMs": {
+    "n": 35,
+    "p50": 205,
+    "p99": 329,
+    "max": 329
+   },
+   "receiptToHandlerMs": {
+    "n": 35,
+    "p50": 40,
+    "p99": 68
+   },
+   "gatewayLagMs": {
+    "p99Worst": 35.3,
+    "max": 38.3,
+    "samples": 30
+   },
+   "clientLagMs": {
+    "p99Worst": 38.5,
+    "max": 49.4
+   },
+   "rssMB": {
+    "gateway": 160,
+    "client0": 148
+   },
+   "conversationStateOpMs": {
+    "client0": {
+     "ops": 36,
+     "p50": 0.102,
+     "p99": 0.472,
+     "max": 0.472,
+     "conversations": 508
+    },
+    "client1": {
+     "ops": 0,
+     "p50": null,
+     "p99": null,
+     "max": null,
+     "conversations": 500
+    },
+    "client2": {
+     "ops": 0,
+     "p50": null,
+     "p99": null,
+     "max": null,
+     "conversations": 500
+    },
+    "client3": {
+     "ops": 3,
+     "p50": 0.226,
+     "p99": 0.588,
+     "max": 0.588,
+     "conversations": 503
+    },
+    "client4": {
+     "ops": 5,
+     "p50": 0.167,
+     "p99": 0.52,
+     "max": 0.52,
+     "conversations": 501
+    },
+    "client5": {
+     "ops": 6,
+     "p50": 0.143,
+     "p99": 0.537,
+     "max": 0.537,
+     "conversations": 500
+    },
+    "gateway": {
+     "ops": 0,
+     "p50": null,
+     "p99": null,
+     "max": null,
+     "conversations": 0
+    }
+   },
+   "conversationRowsAllClients": 3014,
+   "gatewayInbox": {
+    "failed": 150,
+    "held": 150
+   },
+   "gatewayOldestDueMs": 0,
+   "sentTotal": 130
+  },
+  {
+   "tMin": 2,
+   "posted": 24,
+   "firstResponseMs": {
+    "n": 24,
+    "p50": 205,
+    "p99": 305,
+    "max": 305
+   },
+   "receiptToHandlerMs": {
+    "n": 24,
+    "p50": 39,
+    "p99": 46
+   },
+   "gatewayLagMs": {
+    "p99Worst": 20.7,
+    "max": 24.6,
+    "samples": 30
+   },
+   "clientLagMs": {
+    "p99Worst": 24.4,
+    "max": 27.1
+   },
+   "rssMB": {
+    "gateway": 162,
+    "client0": 149
+   },
+   "conversationStateOpMs": {
+    "client0": {
+     "ops": 36,
+     "p50": 0.087,
+     "p99": 0.194,
+     "max": 0.194,
+     "conversations": 512
+    },
+    "client1": {
+     "ops": 0,
+     "p50": null,
+     "p99": null,
+     "max": null,
+     "conversations": 500
+    },
+    "client2": {
+     "ops": 0,
+     "p50": null,
+     "p99": null,
+     "max": null,
+     "conversations": 500
+    },
+    "client3": {
+     "ops": 5,
+     "p50": 0.132,
+     "p99": 0.157,
+     "max": 0.157,
+     "conversations": 504
+    },
+    "client4": {
+     "ops": 3,
+     "p50": 0.172,
+     "p99": 0.339,
+     "max": 0.339,
+     "conversations": 504
+    },
+    "client5": {
+     "ops": 4,
+     "p50": 0.117,
+     "p99": 0.141,
+     "max": 0.141,
+     "conversations": 502
+    },
+    "gateway": {
+     "ops": 0,
+     "p50": null,
+     "p99": null,
+     "max": null,
+     "conversations": 0
+    }
+   },
+   "conversationRowsAllClients": 3022,
+   "gatewayInbox": {
+    "failed": 150,
+    "held": 150
+   },
+   "gatewayOldestDueMs": 0,
+   "sentTotal": 218
+  },
+  {
+   "tMin": 3,
+   "posted": 0,
+   "firstResponseMs": {
+    "n": 0,
+    "p50": null,
+    "p99": null,
+    "max": null
+   },
+   "receiptToHandlerMs": {
+    "n": 0,
+    "p50": null,
+    "p99": null
+   },
+   "gatewayLagMs": {
+    "p99Worst": 19.9,
+    "max": 27.2,
+    "samples": 30
+   },
+   "clientLagMs": {
+    "p99Worst": 18.6,
+    "max": 26.2
+   },
+   "rssMB": {
+    "gateway": 162,
+    "client0": 149
+   },
+   "conversationStateOpMs": {
+    "client0": {
+     "ops": 0,
+     "p50": null,
+     "p99": null,
+     "max": null,
+     "conversations": 512
+    },
+    "client1": {
+     "ops": 0,
+     "p50": null,
+     "p99": null,
+     "max": null,
+     "conversations": 500
+    },
+    "client2": {
+     "ops": 0,
+     "p50": null,
+     "p99": null,
+     "max": null,
+     "conversations": 500
+    },
+    "client3": {
+     "ops": 0,
+     "p50": null,
+     "p99": null,
+     "max": null,
+     "conversations": 504
+    },
+    "client4": {
+     "ops": 0,
+     "p50": null,
+     "p99": null,
+     "max": null,
+     "conversations": 504
+    },
+    "client5": {
+     "ops": 0,
+     "p50": null,
+     "p99": null,
+     "max": null,
+     "conversations": 502
+    },
+    "gateway": {
+     "ops": 0,
+     "p50": null,
+     "p99": null,
+     "max": null,
+     "conversations": 0
+    }
+   },
+   "conversationRowsAllClients": 3022,
+   "gatewayInbox": {
+    "failed": 150,
+    "held": 150
+   },
+   "gatewayOldestDueMs": 0,
+   "sentTotal": 218
+  }
+ ],
+ "host": {
+  "cpu": "AMD Ryzen 7 PRO 5850U with Radeon Graphics     ",
+  "threads": 16,
+  "ramGB": 30,
+  "node": "v24.16.0"
+ }
+}
