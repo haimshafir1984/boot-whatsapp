@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { Pool } from 'pg';
+import { Pool, PoolClient } from 'pg';
 import { migrateInboxSchema } from './schema';
 import { PostgresInboxRepository } from './postgresRepository';
 import { InboxRole } from './types';
@@ -204,8 +204,8 @@ export interface MigrationOptions { role: InboxRole; namespace: string; sourceFi
 export const sourceIdOf = (o: { role: string; namespace: string; sourceFile: string }): string => `${o.role}:${o.namespace}:${path.basename(o.sourceFile)}`;
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-async function tablesExist(pool: Pool): Promise<boolean> {
-  const r = await pool.query("select to_regclass('public.inbox_items') as items, to_regclass('public.inbox_import_ledger') as ledger");
+async function tablesExist(queryable: Pool | PoolClient): Promise<boolean> {
+  const r = await queryable.query("select to_regclass('public.inbox_items') as items, to_regclass('public.inbox_import_ledger') as ledger");
   return Boolean(r.rows[0].items && r.rows[0].ledger);
 }
 
@@ -217,7 +217,7 @@ export async function dryRun(pool: Pool | null, o: MigrationOptions): Promise<Re
     const client = await pool.connect();
     try {
       await client.query('begin read only');
-      if (await tablesExist(pool)) {
+      if (await tablesExist(client)) {
         const ledger = await client.query('select source_id, source_sha256, status, counts from inbox_import_ledger where source_id = $1', [sourceIdOf(o)]);
         const counts = await client.query('select status, count(*)::int n from inbox_items where namespace = $1 and role = $2 group by status', [o.namespace, o.role]);
         report.target = { schema: 'present', ledger: ledger.rows[0] ?? null, itemsByStatus: Object.fromEntries(counts.rows.map((r) => [r.status, r.n])), sourceMatchesLedger: ledger.rows[0] ? ledger.rows[0].source_sha256 === read.sha256 : null };
