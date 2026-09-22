@@ -82,11 +82,30 @@ export class PostgresInboxRepository implements InboxRepository {
   }
 
   /** Recomputes the sender's head from its OUTSTANDING items (partial index) and republishes the pointer. Caller holds the sender row lock. */
+  /**
+   * The single place that decides what a sender's next claimable item is - anything that could make a new item
+   * visible for a sender (a fresh claim, an enqueue, an admin/trigger resolution) must go through this, not
+   * duplicate its own "set head" logic, or it will bypass the block below.
+   *
+   * A sender with an outstanding `ambiguous_processing` review item is parked: head stays null no matter what
+   * else is queued behind it. That review item means a worker died where it could not be proven the client's
+   * business logic had NOT already run for it - the next message for that sender must not be claimed (and so
+   * must not reach the client) until an admin or a fresh exact trigger resolves it (resolveForPhone(), which
+   * clears the block by changing the item's status away from 'review' and then calls this same function).
+   * Before this, that block existed only as a side effect applied after commit in a separate call
+   * (handleAmbiguousInbox / holdSenderForAmbiguousInbox) - a crash between the two left the block unenforced
+   * anywhere durable. It is now atomic with the transaction that creates the review item.
+   */
   private async recomputeHead(c: PoolClient, senderKey: string): Promise<void> {
     await c.query(
-      `with h as (
+      `with blocking as (
+         select 1 from inbox_items where namespace = $1 and role = $2 and sender_key = $3
+          and status = 'review' and resolution = 'ambiguous_processing'
+          and not (coalesce(resolution_detail, '{}'::jsonb) ? 'supersededByTrigger') limit 1),
+       h as (
          select id, status, received_at, next_attempt_at, lease_expires_at from inbox_items
           where namespace = $1 and role = $2 and sender_key = $3 and status in ${OUTSTANDING}
+            and not exists (select 1 from blocking)
           order by sender_seq limit 1)
        update inbox_senders s set
          head_id = (select id from h),
@@ -139,14 +158,10 @@ export class PostgresInboxRepository implements InboxRepository {
         );
         if (!inserted.rowCount) { result.duplicates.push(input.messageId); continue; }   // lost a race on identity: the other insert won
         result.inserted.push(input.messageId);
-        if (seq.rows[0].head_id === null) {
-          await c.query(
-            // due_at is copied by SQL from the item row (a JS Date would drop the microseconds and make the pointer drift).
-            `update inbox_senders s set head_id = i.id, head_status = 'queued', due_at = i.received_at, updated_at = ${this.T}
-               from inbox_items i where i.id = $4 and s.namespace = $1 and s.role = $2 and s.sender_key = $3`,
-            [this.ns, this.role, input.senderKey, inserted.rows[0].id],
-          );
-        }
+        // Route through the same head-selection recomputeHead uses everywhere else, rather than setting head
+        // directly here: a sender parked behind an unresolved ambiguous-review item must stay parked even
+        // though this new item just arrived, not have this fast path quietly hand it a head anyway.
+        if (seq.rows[0].head_id === null) await this.recomputeHead(c, input.senderKey);
       }
     });
     return result;
@@ -216,7 +231,7 @@ export class PostgresInboxRepository implements InboxRepository {
   // ---------------------------------------------------------------------------------------------------- worker transitions
 
   async renew(id: string, leaseToken: string, leaseMs = DEFAULT_LEASE_MS): Promise<boolean> {
-    return this.workerTransition(id, leaseToken, async (c, item) => {
+    const key = await this.workerTransition(id, leaseToken, async (c, item) => {
       const r = await c.query(
         `update inbox_items set lease_expires_at = ${this.T} + ($3::int * interval '1 millisecond'), updated_at = ${this.T}
           where id = $1 and status = 'processing' and lease_token = $2 returning id`,
@@ -226,44 +241,44 @@ export class PostgresInboxRepository implements InboxRepository {
       await this.recomputeHead(c, item.sender_key);   // due_at follows the new lease expiry (I3)
       return item.sender_key;
     });
+    return key !== null;
   }
 
-  complete(id: string, leaseToken: string, resolution: InboxResolution = 'processed', detail?: unknown): Promise<boolean> {
+  async complete(id: string, leaseToken: string, resolution: InboxResolution = 'processed', detail?: unknown): Promise<{ ok: boolean; late: boolean }> {
     return this.finish(id, leaseToken, 'completed', { resolution, detail, allowLate: true });
   }
 
-  retry(id: string, leaseToken: string, error: unknown, nextAttemptAt: Date): Promise<boolean> {
-    return this.finish(id, leaseToken, 'retry', { error, nextAttemptAt });
+  async retry(id: string, leaseToken: string, error: unknown, nextAttemptAt: Date): Promise<boolean> {
+    return (await this.finish(id, leaseToken, 'retry', { error, nextAttemptAt })).ok;
   }
 
-  hold(id: string, leaseToken: string, reason: unknown): Promise<boolean> {
-    return this.finish(id, leaseToken, 'held', { error: reason, resolution: 'sender_held' });
+  async hold(id: string, leaseToken: string, reason: unknown): Promise<boolean> {
+    return (await this.finish(id, leaseToken, 'held', { error: reason, resolution: 'sender_held' })).ok;
   }
 
-  fail(id: string, leaseToken: string, error: unknown, resolution: InboxResolution = 'exhausted'): Promise<boolean> {
-    return this.finish(id, leaseToken, 'failed', { error, resolution });
+  async fail(id: string, leaseToken: string, error: unknown, resolution: InboxResolution = 'exhausted'): Promise<boolean> {
+    return (await this.finish(id, leaseToken, 'failed', { error, resolution })).ok;
   }
 
-  review(id: string, leaseToken: string, resolution: InboxResolution, detail?: unknown): Promise<boolean> {
-    return this.finish(id, leaseToken, 'review', { resolution, detail });
+  async review(id: string, leaseToken: string, resolution: InboxResolution, detail?: unknown): Promise<boolean> {
+    return (await this.finish(id, leaseToken, 'review', { resolution, detail })).ok;
   }
 
-  /** Lock order: sender row first, then the item. Returns false for a stale token (a stale worker changes NOTHING). */
-  private async workerTransition(id: string, leaseToken: string, body: (c: PoolClient, item: Row) => Promise<string | null>): Promise<boolean> {
+  /** Lock order: sender row first, then the item. Resolves to null for a stale token (a stale worker changes NOTHING). */
+  private async workerTransition<T>(id: string, leaseToken: string, body: (c: PoolClient, item: Row) => Promise<T | null>): Promise<T | null> {
     return this.tx(async (c) => {
       const found = await c.query('select sender_key from inbox_items where id = $1 and namespace = $2 and role = $3', [id, this.ns, this.role]);
-      if (!found.rowCount) return false;
+      if (!found.rowCount) return null;
       await this.lockSenders(c, [found.rows[0].sender_key]);
-      const key = await body(c, found.rows[0]);
-      return key !== null;
+      return body(c, found.rows[0]);
     });
   }
 
   private async finish(
     id: string, leaseToken: string, to: 'completed' | 'retry' | 'held' | 'failed' | 'review',
     f: { resolution?: InboxResolution; detail?: unknown; error?: unknown; nextAttemptAt?: Date; allowLate?: boolean },
-  ): Promise<boolean> {
-    return this.workerTransition(id, leaseToken, async (c, item) => {
+  ): Promise<{ ok: boolean; late: boolean }> {
+    const result = await this.workerTransition(id, leaseToken, async (c, item) => {
       const keepLease = to === 'review';
       const r = await c.query(
         `update inbox_items set status = $3, resolution = $4, resolution_detail = $5::jsonb,
@@ -273,19 +288,22 @@ export class PostgresInboxRepository implements InboxRepository {
           where id = $1 and status = 'processing' and lease_token = $2 returning id`,
         [id, leaseToken, to, f.resolution ?? null, f.detail === undefined ? null : JSON.stringify(f.detail), f.error === undefined ? null : errText(f.error), f.nextAttemptAt ?? null, keepLease],
       );
+      let late = false;
       if (!r.rowCount && f.allowLate) {
         // The original worker finished after its lease was declared ambiguous: nobody else ever ran it, so this is truthful.
-        const late = await c.query(
+        const lateRes = await c.query(
           `update inbox_items set status = 'completed', resolution = 'processed_late', completed_at = ${this.T}, updated_at = ${this.T},
                   lease_token = null, lease_expires_at = null, last_error = null
             where id = $1 and status = 'review' and resolution = 'ambiguous_processing' and lease_token = $2 returning id`,
           [id, leaseToken],
         );
-        if (!late.rowCount) return null;
+        if (!lateRes.rowCount) return null;
+        late = true;
       } else if (!r.rowCount) return null;
       await this.recomputeHead(c, item.sender_key);
-      return item.sender_key;
+      return { senderKey: item.sender_key, late };
     });
+    return { ok: result !== null, late: result?.late ?? false };
   }
 
   // ---------------------------------------------------------------------------------------------------- admin / cancel
@@ -358,6 +376,48 @@ export class PostgresInboxRepository implements InboxRepository {
     });
   }
 
+  /**
+   * A needs_review conversationState hold created for a reclaimed item (holdSenderForAmbiguousInbox) is stale once
+   * that exact item finishes - truthfully, late (resolution `processed_late`) or otherwise. The in-process release
+   * at completion time (adminServer.ts) is best-effort and not atomic with the SQL completion; this lets a
+   * restart-time reconciliation sweep ask the durable truth directly instead of trusting that release ran
+   * (stage-e-fix-followup-review-2026-09-22, P1: late-completion hold release is not crash-safe).
+   */
+  async isItemCompleted(senderPhone: string, messageId: string): Promise<boolean> {
+    const r = await this.pool.query(
+      `select 1 from inbox_items where namespace = $1 and role = $2 and sender_phone = $3 and message_id = $4 and status = 'completed' limit 1`,
+      [this.ns, this.role, senderPhone, messageId],
+    );
+    return !!r.rowCount;
+  }
+
+  /**
+   * A fresh exact trigger releases the block an ambiguous-review item placed on its sender, WITHOUT touching the
+   * item's own status/resolution - it stays 'review'/'ambiguous_processing' for audit, exactly as the design
+   * intends ("the interrupted item stays in the review list"). Only a marker in resolution_detail is set, which
+   * recomputeHead's blocking check also excludes. Idempotent: an item already marked is skipped and not counted.
+   */
+  async supersedeAmbiguousForPhone(phoneDigits: string): Promise<number> {
+    return this.tx(async (c) => {
+      const marked = await c.query(
+        `update inbox_items set resolution_detail = coalesce(resolution_detail, '{}'::jsonb) || '{"supersededByTrigger": true}'::jsonb,
+                updated_at = ${this.T}
+          where namespace = $1 and role = $2 and sender_phone = $3 and status = 'review' and resolution = 'ambiguous_processing'
+            and not (coalesce(resolution_detail, '{}'::jsonb) ? 'supersededByTrigger')
+          returning id, sender_key`,
+        [this.ns, this.role, phoneDigits],
+      );
+      if (!marked.rowCount) return 0;
+      const keys = new Set<string>(marked.rows.map((r) => r.sender_key));
+      for (const id of marked.rows.map((r) => r.id)) {
+        await c.query('insert into inbox_admin_audit(actor, action, item_id, from_status, to_status, detail) values ($1, $2, $3, $4, $5, $6::jsonb)',
+          ['system:fresh-trigger', 'supersede', id, 'review', 'review', JSON.stringify({ note: 'block released by a fresh exact trigger; item kept for audit' })]);
+      }
+      for (const key of keys) await this.recomputeHead(c, key);
+      return marked.rowCount;
+    });
+  }
+
   async listReview(opts: { statuses?: Array<'held' | 'failed' | 'review'>; limit?: number; after?: { updatedAt: Date | string; id: string } }): Promise<InboxItem[]> {
     const statuses = opts.statuses ?? ['held', 'failed', 'review'];
     const limit = Math.min(1000, Math.max(1, opts.limit ?? 100));
@@ -391,9 +451,16 @@ export class PostgresInboxRepository implements InboxRepository {
   }
 
   async metrics(): Promise<InboxMetrics> {
+    // Age is measured from when the message first arrived (inbox_items.received_at), not from the scheduler's
+    // due_at - due_at is when the NEXT attempt is scheduled, and after a retry it can be an hour in the future
+    // relative to when the message actually arrived. Measuring from due_at made a message that had been
+    // genuinely stuck for minutes through several retries report as freshly due (near-zero age) the moment
+    // its next attempt became due, hiding exactly the case this metric exists to catch. due_at is still what
+    // decides whether the sender counts as "actionable now" at all.
     const oldest = await this.pool.query(
-      `select extract(epoch from (${this.TS} - min(due_at))) * 1000 as age_ms from inbox_senders
-        where namespace = $1 and role = $2 and head_id is not null and due_at <= ${this.TS}`, [this.ns, this.role]);
+      `select extract(epoch from (${this.TS} - min(it.received_at))) * 1000 as age_ms
+         from inbox_senders s join inbox_items it on it.id = s.head_id
+        where s.namespace = $1 and s.role = $2 and s.head_id is not null and s.due_at <= ${this.TS}`, [this.ns, this.role]);
     const counts = await this.pool.query(
       `select count(*)::int as with_outstanding, count(*) filter (where due_at <= ${this.TS})::int as due
          from inbox_senders where namespace = $1 and role = $2 and head_id is not null`, [this.ns, this.role]);
@@ -430,12 +497,21 @@ export class PostgresInboxRepository implements InboxRepository {
   /** Cost is O(outstanding items), never O(history). Used by tests, the reconciler and the admin endpoint. */
   async checkInvariants(): Promise<InvariantViolation[]> {
     const v: InvariantViolation[] = [];
-    // I2/I3: every sender's pointer equals the computed head (lowest outstanding seq) and its derived due_at.
+    // I2/I3: every sender's pointer equals the computed head (lowest outstanding seq) and its derived due_at -
+    // EXCEPT a sender parked behind an unresolved ambiguous-review item, whose expected head is null by design
+    // (recomputeHead's `blocking` CTE). Without excluding those senders here, every parked sender with anything
+    // queued behind the blocking item would show up as drift, even though head_id=null there is correct.
     const drift = await this.pool.query(
-      `with exp as (
+      `with blocked as (
+         select distinct sender_key from inbox_items where namespace = $1 and role = $2
+          and status = 'review' and resolution = 'ambiguous_processing'
+          and not (coalesce(resolution_detail, '{}'::jsonb) ? 'supersededByTrigger')),
+       exp as (
          select distinct on (sender_key) sender_key, id, status,
                 case status when 'queued' then received_at when 'retry' then next_attempt_at when 'processing' then lease_expires_at end as due
-           from inbox_items where namespace = $1 and role = $2 and status in ${OUTSTANDING} order by sender_key, sender_seq)
+           from inbox_items where namespace = $1 and role = $2 and status in ${OUTSTANDING}
+             and sender_key not in (select sender_key from blocked)
+           order by sender_key, sender_seq)
        select coalesce(e.sender_key, s.sender_key) as sender_key, e.id as exp_id, e.status as exp_status, e.due as exp_due,
               s.head_id, s.head_status, s.due_at
          from exp e full join (select * from inbox_senders where namespace = $1 and role = $2 and head_id is not null) s using (sender_key)

@@ -115,7 +115,11 @@ const dbStats = async (pool) => JSON.stringify((await pool.query("select relname
     const repo = new PostgresInboxRepository(pool, { namespace: t.ns, role: 'client' });
     const review = (await repo.getByMessage(PN, 'q1')); assert.equal(review.status, 'review'); assert.equal(review.resolution, 'ambiguous_processing'); assert.equal(review.effectsState, 'possible');
     const claimed = (await repo.claim(50, { workerId: 'post-migration' })).claimed.map((x) => x.item.messageId).sort();
-    assert.deepEqual(claimed, ['q2', 'p2', 'r1'].sort(), '(r1: its legacy retry boundary is long past) the next queued message of each interrupted sender is offered (review does not block), in order. got: ' + JSON.stringify(claimed));
+    // Fixed 2026-09-22 (finding #2): a migrated ambiguous_processing review item parks its sender exactly like
+    // one created at runtime does - q2/p2 (queued behind q1/p1's interrupted 'processing') stay unclaimable
+    // until an admin or a fresh trigger resolves the review item. Only r1, whose sender has no review item at
+    // all, is offered. Previously q2 and p2 were claimed right alongside it - the bug this fixes.
+    assert.deepEqual(claimed, ['r1'], 'only the sender with no ambiguous review item is offered; q2/p2 stay parked behind q1/p1. got: ' + JSON.stringify(claimed));
     assert.deepEqual((await repo.enqueueMany([{ messageId: 'c1', phoneNumberId: PN, senderKey: key('972501000002'), senderPhone: '972501000002', payload: {} }])).duplicates, ['c1'], 'a migrated message id is deduplicated');
     assert.equal((await repo.checkInvariants()).length, 0);
   });

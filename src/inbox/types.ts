@@ -88,7 +88,9 @@ export interface InboxRepository {
   enqueueMany(inputs: InboxEnqueueInput[]): Promise<EnqueueResult>;
   claim(limit: number, opts: { workerId: string; leaseMs?: number }): Promise<InboxClaimResult>;
   renew(id: string, leaseToken: string, leaseMs?: number): Promise<boolean>;
-  complete(id: string, leaseToken: string, resolution?: InboxResolution, detail?: unknown): Promise<boolean>;
+  /** `late: true` means the item had already been reclaimed as `review`/`ambiguous_processing` (its lease looked expired) and this
+   *  completion is the original worker finishing anyway, after the fact - truthful, but any hold created for that reclaim needs releasing. */
+  complete(id: string, leaseToken: string, resolution?: InboxResolution, detail?: unknown): Promise<{ ok: boolean; late: boolean }>;
   retry(id: string, leaseToken: string, error: unknown, nextAttemptAt: Date): Promise<boolean>;
   hold(id: string, leaseToken: string, reason: unknown): Promise<boolean>;
   fail(id: string, leaseToken: string, error: unknown, resolution?: InboxResolution): Promise<boolean>;

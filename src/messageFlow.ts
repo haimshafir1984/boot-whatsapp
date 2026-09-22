@@ -704,6 +704,11 @@ async function supersedeInboxAmbiguousHoldForFreshTrigger(
   conversationState.remove(hold.senderJid);
   await storage.flush();
   console.warn(`[INBOX_AMBIGUOUS_HOLD_SUPERSEDED_BY_TRIGGER] item=${hold.messageId ?? ''} sender=${hold.senderJid} heldDiscarded=${held.length} previews=${JSON.stringify(held.map((entry) => entry.bodyPreview ?? ''))}`);
+  // The conversationState hold above is what a human/product sees; on a PostgreSQL client inbox the same ambiguous
+  // item also durably blocked this sender at the database layer (finding #2, 2026-09-22) - clearing only the
+  // hold here would leave this participant's own fresh trigger stuck behind that block, unclaimed. This releases
+  // it without touching the review item's status (it stays 'review' for audit). No-op in JSON mode.
+  deliveryRecoveryBus.emit('inboxAmbiguousSuperseded', { jid: hold.senderJid, phone: hold.senderPhone ?? message.senderPhone });
   return true;
 }
 

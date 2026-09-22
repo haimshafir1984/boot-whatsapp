@@ -85,6 +85,22 @@ export const INBOX_MIGRATIONS: Array<{ id: string; sql: string }> = [
       create index idx_inbox_admin_audit_item on inbox_admin_audit (item_id);
     `,
   },
+  {
+    id: '002_inbox_ambiguous_block_index',
+    sql: `
+      -- recomputeHead() and checkInvariants() both check "does this sender have an unresolved ambiguous-review
+      -- block" on every claim/complete/retry/hold/fail/review transition (stage-e-fix-followup-review-2026-09-22,
+      -- P1: the hot-path blocking check must not scan retained review history). A superseded item's
+      -- resolution_detail changes (the 'supersededByTrigger' marker is added) but its status/resolution never
+      -- do - they stay 'review'/'ambiguous_processing' forever for audit - so this predicate is the only thing
+      -- that shrinks the index back down as blocks get resolved; Postgres drops a row from a partial index the
+      -- moment an UPDATE makes its predicate false, so this index only ever holds CURRENTLY unresolved blocks,
+      -- not the full review history.
+      create index idx_inbox_items_ambiguous_block on inbox_items (namespace, role, sender_key)
+        where status = 'review' and resolution = 'ambiguous_processing'
+          and not (coalesce(resolution_detail, '{}'::jsonb) ? 'supersededByTrigger');
+    `,
+  },
 ];
 
 /** Idempotent; safe to run concurrently (advisory lock). Never touches any non-inbox table. */

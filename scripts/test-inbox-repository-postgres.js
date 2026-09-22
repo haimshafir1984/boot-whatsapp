@@ -24,6 +24,7 @@ const newRepo = (role = 'client', ns) => new PostgresInboxRepository(pool, { nam
 const ok = async (repo) => assert.deepEqual(await repo.checkInvariants(), [], 'scheduler invariants');
 const claimAll = (repo, limit = 100, leaseMs = 60_000) => repo.claim(limit, { workerId: 'w1', leaseMs });
 const statusOf = async (repo, id, pn = PN) => (await repo.getByMessage(pn, id))?.status;
+const completeOk = async (repo, ...args) => (await repo.complete(...args)).ok;
 
 (async () => {
   await ensureInboxTestDb();
@@ -91,10 +92,10 @@ const statusOf = async (repo, id, pn = PN) => (await repo.getByMessage(pn, id))?
     await repo.enqueueMany([msg('t1')]);
     const [{ item, leaseToken }] = (await claimAll(repo)).claimed;
     const wrong = '00000000-0000-0000-0000-000000000000';
-    for (const fn of [() => repo.complete(item.id, wrong), () => repo.retry(item.id, wrong, 'e', new Date()), () => repo.hold(item.id, wrong, 'h'), () => repo.fail(item.id, wrong, 'f'), () => repo.review(item.id, wrong, 'stale_trigger'), () => repo.renew(item.id, wrong)]) assert.equal(await fn(), false);
+    for (const fn of [() => completeOk(repo, item.id, wrong), () => repo.retry(item.id, wrong, 'e', new Date()), () => repo.hold(item.id, wrong, 'h'), () => repo.fail(item.id, wrong, 'f'), () => repo.review(item.id, wrong, 'stale_trigger'), () => repo.renew(item.id, wrong)]) assert.equal(await fn(), false);
     assert.equal(await statusOf(repo, 't1'), 'processing');
-    assert.equal(await repo.complete(item.id, leaseToken), true);
-    assert.equal(await repo.complete(item.id, leaseToken), false, 'completed items never transition again');
+    assert.equal(await completeOk(repo, item.id, leaseToken), true);
+    assert.equal(await completeOk(repo, item.id, leaseToken), false, 'completed items never transition again');
     assert.equal(await repo.retry(item.id, leaseToken, 'e', new Date()), false);
     const done = await repo.getByMessage(PN, 't1'); assert.equal(done.status, 'completed'); assert.equal(done.resolution, 'processed'); assert.equal(done.leaseToken, null);
     await ok(repo);
@@ -145,9 +146,9 @@ const statusOf = async (repo, id, pn = PN) => (await repo.getByMessage(pn, id))?
     repo.clockOffsetMs = 5_000;
     const second = (await claimAll(repo)).claimed[0];
     assert.equal(second.item.messageId, 'g1'); assert.equal(second.item.attempts, 2); assert.notEqual(second.leaseToken, first.leaseToken);
-    assert.equal(await repo.complete(first.item.id, first.leaseToken), false, 'old worker is fenced');
+    assert.equal(await completeOk(repo, first.item.id, first.leaseToken), false, 'old worker is fenced');
     assert.equal(await repo.retry(first.item.id, first.leaseToken, 'x', new Date()), false);
-    assert.equal(await repo.complete(second.item.id, second.leaseToken, 'forwarded'), true);
+    assert.equal(await completeOk(repo, second.item.id, second.leaseToken, 'forwarded'), true);
     await ok(repo);
   });
 
@@ -162,13 +163,17 @@ const statusOf = async (repo, id, pn = PN) => (await repo.getByMessage(pn, id))?
     const rev = await repo.getByMessage(PN, 'c1');
     assert.equal(rev.status, 'review'); assert.equal(rev.resolution, 'ambiguous_processing'); assert.equal(rev.resolutionDetail.attempts, 1);
     await ok(repo);
-    // the next message of the same sender is offered (review does not block; the caller holds the sender - D2)
-    const nxt = await claimAll(repo); assert.deepEqual(nxt.claimed.map((x) => x.item.messageId), ['c2']);
+    // Fixed 2026-09-22 (finding #2): the sender is parked at the DB layer while c1 is an unresolved ambiguous review - the
+    // next message of the same sender is NOT offered until an admin resolves c1 (or a fresh trigger supersedes it). This is
+    // what makes the hold atomic with the review transition instead of racing it.
+    const nxt = await claimAll(repo); assert.deepEqual(nxt.claimed.map((x) => x.item.messageId), []);
     // a stranger token cannot close it; the original worker (merely slow) can
-    assert.equal(await repo.complete(first.item.id, '00000000-0000-0000-0000-000000000000'), false);
-    assert.equal(await repo.complete(first.item.id, first.leaseToken), true);
+    assert.equal(await completeOk(repo, first.item.id, '00000000-0000-0000-0000-000000000000'), false);
+    assert.equal(await completeOk(repo, first.item.id, first.leaseToken), true);
     const late = await repo.getByMessage(PN, 'c1'); assert.equal(late.status, 'completed'); assert.equal(late.resolution, 'processed_late');
     await ok(repo);
+    // c1 is no longer blocking (it completed): c2 is now claimable.
+    const after = await claimAll(repo); assert.deepEqual(after.claimed.map((x) => x.item.messageId), ['c2']);
   });
 
   await scenario('CLIENT ambiguous item: requeue needs an explicit duplicate-risk acknowledgement; discard is always possible', async () => {
@@ -201,7 +206,7 @@ const statusOf = async (repo, id, pn = PN) => (await repo.getByMessage(pn, id))?
     const [c] = (await repo.claim(1, { workerId: 'w' })).claimed;
     assert.equal(await repo.cancelForPhone('972501000061'), 2);
     assert.equal(await statusOf(repo, 'x1'), 'failed'); assert.equal((await repo.getByMessage(PN, 'x2')).resolution, 'superseded');
-    assert.equal(await repo.complete(c.item.id, c.leaseToken), false, 'the running worker cannot complete a cancelled item');
+    assert.equal(await completeOk(repo, c.item.id, c.leaseToken), false, 'the running worker cannot complete a cancelled item');
     assert.equal(await statusOf(repo, 'y1', '999'), 'queued', 'other phones untouched');
     await repo.enqueueMany([msg('x3', '972501000061')]);
     assert.deepEqual((await claimAll(repo)).claimed.map((x) => x.item.messageId).sort(), ['x3', 'y1']);
@@ -271,7 +276,7 @@ const statusOf = async (repo, id, pn = PN) => (await repo.getByMessage(pn, id))?
           await sleep(2);
           done.set(x.item.messageId, (done.get(x.item.messageId) || 0) + 1);
           held.delete(x.item.senderKey);
-          assert.equal(await repo.complete(x.item.id, x.leaseToken), true);
+          assert.equal(await completeOk(repo, x.item.id, x.leaseToken), true);
         }
       }
     };
@@ -289,7 +294,7 @@ const statusOf = async (repo, id, pn = PN) => (await repo.getByMessage(pn, id))?
     const b = new PostgresInboxRepository(pool, { namespace: ns, role: 'client' });          // "restart": no in-memory state at all
     assert.equal((await b.counts()).processing, 1);
     assert.equal((await b.claim(10, { workerId: 'w2' })).claimed.length, 1, 'only the other sender is offered');
-    assert.equal(await b.complete(c.item.id, c.leaseToken), true, 'the lease survives the restart');
+    assert.equal(await completeOk(b, c.item.id, c.leaseToken), true, 'the lease survives the restart');
     await ok(b);
   });
 
@@ -312,7 +317,10 @@ const statusOf = async (repo, id, pn = PN) => (await repo.getByMessage(pn, id))?
       const st = new Map();            // messageId -> {sender, seq, status, attempts, next, lease, token}
       const senderList = Array.from({ length: 6 }, (_, i) => '97250500' + String(i).padStart(4, '0'));
       let idN = 0; const tokens = new Map();
-      const headOf = (s) => [...st.values()].filter((m) => m.sender === s && ['queued', 'retry', 'processing'].includes(m.status)).sort((a, b) => a.seq - b.seq)[0];
+      // Fixed 2026-09-22 (finding #2): a sender with an unresolved review/ambiguous_processing item is parked - no head at
+      // all - until that item resolves (late completion here; an admin action or a fresh-trigger supersede in production).
+      const isBlocked = (s) => [...st.values()].some((m) => m.sender === s && m.status === 'review' && m.res === 'ambiguous_processing');
+      const headOf = (s) => isBlocked(s) ? undefined : [...st.values()].filter((m) => m.sender === s && ['queued', 'retry', 'processing'].includes(m.status)).sort((a, b) => a.seq - b.seq)[0];
       const nextSeq = new Map();
       const now = () => model.t;
       const modelClaim = () => {
@@ -359,7 +367,7 @@ const statusOf = async (repo, id, pn = PN) => (await repo.getByMessage(pn, id))?
           const m = pick(procs); const tk = tokens.get(m.id);
           const stale = rnd() < 0.15; const token = stale ? '00000000-0000-0000-0000-000000000000' : tk.token;
           let res;
-          if (op === 'complete') { res = await repo.complete(tk.itemId, token); if (!stale) m.status = 'completed'; }
+          if (op === 'complete') { res = (await repo.complete(tk.itemId, token)).ok; if (!stale) m.status = 'completed'; }
           else if (op === 'retry') { const delta = pick([5_000, 50_000]); const nextAt = new Date(Date.now() + model.t + delta); res = await repo.retry(tk.itemId, token, 'e', nextAt); if (!stale) { m.status = 'retry'; m.next = model.t + delta; } }
           else if (op === 'hold') { res = await repo.hold(tk.itemId, token, 'h'); if (!stale) m.status = 'held'; }
           else if (op === 'fail') { res = await repo.fail(tk.itemId, token, 'f'); if (!stale) m.status = 'failed'; }

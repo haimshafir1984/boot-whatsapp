@@ -153,12 +153,17 @@ export function planRows(role: InboxRole, items: SourceItem[], nowIso = new Date
       lastError, resolution, effectsState: effects, completedAt: status === 'completed' ? updated : null, claimedBy: null, resolutionDetail,
     });
   }
+  // A migrated 'review'/'ambiguous_processing' row (a client-role item that was 'processing' when the source
+  // file was taken) parks its sender exactly like recomputeHead() does at runtime - it must not get a head
+  // just because it wasn't the first outstanding row for that sender. Computed once, order-independent, to
+  // match the runtime blocking check (existence, not position).
+  const blockedSenders = new Set(rows.filter((r) => r.status === 'review' && r.resolution === 'ambiguous_processing').map((r) => r.senderKey));
   const senders = new Map<string, { phone: string; nextSeq: number; head: PlannedRow | null }>();
   for (const row of rows) {
     const s = senders.get(row.senderKey) ?? { phone: row.senderPhone, nextSeq: 1, head: null };
     s.nextSeq = Math.max(s.nextSeq, row.senderSeq + 1);
     if (!s.phone && row.senderPhone) s.phone = row.senderPhone;
-    if (!s.head && (row.status === 'queued' || row.status === 'retry' || row.status === 'processing')) s.head = row;
+    if (!blockedSenders.has(row.senderKey) && !s.head && (row.status === 'queued' || row.status === 'retry' || row.status === 'processing')) s.head = row;
     senders.set(row.senderKey, s);
   }
   return { rows, senders };
@@ -291,10 +296,20 @@ export async function applyMigration(pool: Pool, o: MigrationOptions): Promise<R
         `insert into inbox_senders(namespace, role, sender_key, sender_phone, next_seq) values ($1,$2,$3,$4,$5)
            on conflict (namespace, role, sender_key) do update set next_seq = greatest(inbox_senders.next_seq, excluded.next_seq)`, [o.namespace, o.role, key, s.phone, s.nextSeq]);
     }
+    // A third, independent head-selection - `planRows`'s in-memory pass computes the same thing for reporting,
+    // and recomputeHead() does it again at runtime; all three must agree on the same blocking rule, or this one
+    // (the one that actually gets written to inbox_senders here) is what checkInvariants() will disagree with,
+    // exactly as it did until this excluded senders with an unresolved 'ambiguous_processing' review row.
     await c2.query(
-      `with heads as (
+      `with blocked as (
+         select distinct sender_key from inbox_items where namespace = $1 and role = $2
+          and status = 'review' and resolution = 'ambiguous_processing'
+          and not (coalesce(resolution_detail, '{}'::jsonb) ? 'supersededByTrigger')),
+       heads as (
          select distinct on (sender_key) sender_key, id, status, received_at, next_attempt_at from inbox_items
-          where namespace = $1 and role = $2 and status in ('queued','retry','processing') order by sender_key, sender_seq)
+          where namespace = $1 and role = $2 and status in ('queued','retry','processing')
+            and sender_key not in (select sender_key from blocked)
+          order by sender_key, sender_seq)
        update inbox_senders s set head_id = h.id, head_status = h.status,
               due_at = case h.status when 'queued' then h.received_at when 'retry' then h.next_attempt_at end, updated_at = clock_timestamp()
          from heads h where s.namespace = $1 and s.role = $2 and s.sender_key = h.sender_key`, [o.namespace, o.role]);
@@ -408,8 +423,17 @@ export async function rollback(pool: Pool, o: { role: InboxRole; namespace: stri
     if (!fs.existsSync(o.useExport)) throw new Error('export file not found');
     const exported = readSource(o.useExport);
     if (exported.error || exported.items.length !== cur.length) throw new Error('the export file does not match the current SQL contents; regenerate it with `export`');
-    const ids = new Set(exported.items.map((i) => i.id));
-    for (const c of cur) if (!ids.has(c.messageId)) throw new Error(`export is missing ${c.messageId}`);
+    const exportedById = new Map(exported.items.map((i) => [i.id, i]));
+    // Identity and count alone are not enough: an export taken before a message finished would still list it,
+    // just with a stale status - restoring it would resurrect a completed/failed message as queued and let it
+    // process again. Every current item's status must match what exportLegacy() would have written for it NOW
+    // (the same role-dependent mapping it uses), not just exist somewhere in the file.
+    for (const c of cur) {
+      const item = exportedById.get(c.messageId);
+      if (!item) throw new Error(`export is missing ${c.messageId}`);
+      const expected = c.status === 'processing' ? (o.role === 'gateway' ? 'retry' : 'failed') : LEGACY_STATUS(c.status);
+      if (item.status !== expected) throw new Error(`export is stale: ${c.messageId} is now '${c.status}' (would export as '${expected}') but the file has '${item.status}'; regenerate it with \`export\``);
+    }
     if (fs.existsSync(o.sourceFile)) throw new Error(`${o.sourceFile} exists; refusing to overwrite`);
     fs.copyFileSync(o.useExport, o.sourceFile);
   } else {

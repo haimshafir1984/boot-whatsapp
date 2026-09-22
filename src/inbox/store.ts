@@ -45,7 +45,8 @@ export interface InboxStore {
   enqueueMany(items: Array<{ id: string; payload: any }>): Promise<{ inserted: string[]; duplicates: string[] }>;
   claim(limit: number): Promise<{ claimed: StoredInboxItem[]; reviewed: AmbiguousInboxItem[] }>;
   renew(item: StoredInboxItem): Promise<boolean>;
-  complete(item: StoredInboxItem, resolution?: InboxResolution): Promise<boolean>;
+  /** `late: true` means this completion is a truthful late finish of an item already reclaimed as ambiguous - any hold that reclaim created should be released. */
+  complete(item: StoredInboxItem, resolution?: InboxResolution): Promise<{ ok: boolean; late: boolean }>;
   retry(item: StoredInboxItem, error: unknown, nextAttemptAt: Date): Promise<boolean>;
   hold(item: StoredInboxItem, reason: unknown): Promise<boolean>;
   fail(item: StoredInboxItem, error: unknown): Promise<boolean>;
@@ -53,6 +54,17 @@ export interface InboxStore {
   cancelForPhone(phoneDigits: string): Promise<number>;
   /** Default: held items only (existing behaviour). Review items need `statuses` including 'review' (+ ack for ambiguous). */
   resolveForPhone(phoneDigits: string, action: 'requeue' | 'discard', actor: string, opts?: { statuses?: Array<'held' | 'failed' | 'review'>; acknowledgeDuplicateRisk?: boolean }): Promise<number>;
+  /**
+   * A fresh exact trigger supersedes an ambiguous-review item WITHOUT changing its status (it stays 'review' for
+   * audit - resolveForPhone('discard') would overwrite that). This only clears the block it durably placed on the
+   * sender, so the trigger's own message (and anything else already queued behind it) becomes claimable again.
+   * JSON mode never parks a sender this way, so it is a no-op there.
+   */
+  supersedeAmbiguousForPhone(phoneDigits: string): Promise<number>;
+  /** True once the item with this messageId for this sender is `completed` - used to reconcile a conversationState
+   *  needs_review hold that a crash left stranded between the SQL completion and the in-process hold release.
+   *  JSON mode has no such hold to reconcile, so it is a no-op (always false) there. */
+  isItemCompleted(senderPhone: string, messageId: string): Promise<boolean>;
   /** Items that need attention (held / failed / review), oldest first, keyset-paginated. */
   listReview(opts: { statuses?: Array<'held' | 'failed' | 'review'>; limit?: number; after?: { updatedAt: string; id: string } }): Promise<InboxReviewItem[]>;
   counts(): Promise<InboxCountsView>;
@@ -124,7 +136,7 @@ export class PostgresInboxStore implements InboxStore {
   }
 
   async renew(item: StoredInboxItem): Promise<boolean> { return this.r.renew(item.ref, item.token, this.cfg.leaseMs); }
-  async complete(item: StoredInboxItem, resolution: InboxResolution = 'processed'): Promise<boolean> { return this.r.complete(item.ref, item.token, resolution); }
+  async complete(item: StoredInboxItem, resolution: InboxResolution = 'processed'): Promise<{ ok: boolean; late: boolean }> { return this.r.complete(item.ref, item.token, resolution); }
   async retry(item: StoredInboxItem, error: unknown, nextAttemptAt: Date): Promise<boolean> { return this.r.retry(item.ref, item.token, error, nextAttemptAt); }
   async hold(item: StoredInboxItem, reason: unknown): Promise<boolean> { return this.r.hold(item.ref, item.token, reason); }
   async fail(item: StoredInboxItem, error: unknown): Promise<boolean> { return this.r.fail(item.ref, item.token, error); }
@@ -133,6 +145,8 @@ export class PostgresInboxStore implements InboxStore {
   async resolveForPhone(phoneDigits: string, action: 'requeue' | 'discard', actor: string, opts?: { statuses?: Array<'held' | 'failed' | 'review'>; acknowledgeDuplicateRisk?: boolean }): Promise<number> {
     return this.r.resolveForPhone(phoneDigits, action, actor, opts);
   }
+  async supersedeAmbiguousForPhone(phoneDigits: string): Promise<number> { return this.r.supersedeAmbiguousForPhone(phoneDigits); }
+  async isItemCompleted(senderPhone: string, messageId: string): Promise<boolean> { return this.r.isItemCompleted(senderPhone, messageId); }
 
   async listReview(opts: { statuses?: Array<'held' | 'failed' | 'review'>; limit?: number; after?: { updatedAt: string; id: string } }): Promise<InboxReviewItem[]> {
     const items = await this.r.listReview({ statuses: opts.statuses, limit: opts.limit, after: opts.after ? { updatedAt: opts.after.updatedAt, id: opts.after.id } : undefined });
@@ -194,7 +208,7 @@ export class JsonInboxStore implements InboxStore {
   }
 
   async renew(): Promise<boolean> { return true; }
-  async complete(item: StoredInboxItem): Promise<boolean> { this.i.markCompleted(item.ref); return true; }
+  async complete(item: StoredInboxItem): Promise<{ ok: boolean; late: boolean }> { this.i.markCompleted(item.ref); return { ok: true, late: false }; }
   async retry(item: StoredInboxItem, error: unknown, nextAttemptAt: Date): Promise<boolean> { this.i.markRetry(item.ref, error, nextAttemptAt); return true; }
   async hold(item: StoredInboxItem, reason: unknown): Promise<boolean> { this.i.markHeld(item.ref, reason); return true; }
   async fail(item: StoredInboxItem, error: unknown): Promise<boolean> { this.i.markFailed(item.ref, error); return true; }
@@ -212,6 +226,9 @@ export class JsonInboxStore implements InboxStore {
     };
     return this.i.resolveHeldForSender(phoneDigits, matcher, action);
   }
+  /** No-op: review() above never parks a sender in JSON mode (it marks the item failed, not review), so there is nothing to clear. */
+  async supersedeAmbiguousForPhone(): Promise<number> { return 0; }
+  async isItemCompleted(): Promise<boolean> { return false; }
 
   async listReview(opts: { statuses?: Array<'held' | 'failed' | 'review'>; limit?: number; after?: { updatedAt: string; id: string } }): Promise<InboxReviewItem[]> {
     const wanted = (opts.statuses ?? ['held', 'failed', 'review']).filter((st) => st !== 'review') as Array<'held' | 'failed'>;   // the legacy file has no review state (recorded as failed)
@@ -250,13 +267,15 @@ export class DisabledInboxStore implements InboxStore {
   async enqueueMany(): Promise<{ inserted: string[]; duplicates: string[] }> { throw new Error(`the ${this.role} inbox is disabled on this process (no managed clients and no INBOX_DATABASE_URL): message refused, not acknowledged`); }
   async claim(): Promise<{ claimed: StoredInboxItem[]; reviewed: AmbiguousInboxItem[] }> { return { claimed: [], reviewed: [] }; }
   async renew(): Promise<boolean> { return false; }
-  async complete(): Promise<boolean> { return false; }
+  async complete(): Promise<{ ok: boolean; late: boolean }> { return { ok: false, late: false }; }
   async retry(): Promise<boolean> { return false; }
   async hold(): Promise<boolean> { return false; }
   async fail(): Promise<boolean> { return false; }
   async review(): Promise<boolean> { return false; }
   async cancelForPhone(): Promise<number> { return 0; }
   async resolveForPhone(): Promise<number> { return 0; }
+  async supersedeAmbiguousForPhone(): Promise<number> { return 0; }
+  async isItemCompleted(): Promise<boolean> { return false; }
   async listReview(): Promise<InboxReviewItem[]> { return []; }
   async counts(): Promise<InboxCountsView> { return { queued: 0, processing: 0, retry: 0, held: 0, failed: 0, review: 0, completed: 0 }; }
   async oldestDueAgeMs(): Promise<number | null> { return null; }

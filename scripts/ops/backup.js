@@ -415,7 +415,12 @@ function listBackups(cfg, targetId) {
     .map((d) => { try { return { dir: d, m: readManifest(d) }; } catch { return null; } }).filter(Boolean)
     .sort((a, b) => a.m.startedAt.localeCompare(b.m.startedAt));
 }
-const isGood = (b) => b.m.status.created === 'ok' && b.m.status.transferred === 'ok';
+// A backup whose verify step ran and found a problem (checksum mismatch, corrupt archive) is not "good" just
+// because the upload succeeded - created/transferred only prove the bytes moved, not that they are restorable.
+// A backup that simply has not been verified yet ('not_run'/absent - verify() is a separate step, not part of
+// backupOne()) is NOT excluded: it is still the newest thing that actually landed, and restore() re-verifies
+// for real at restore time regardless of this stored flag, so nothing here is ever trusted blind.
+const isGood = (b) => b.m.status.created === 'ok' && b.m.status.transferred === 'ok' && b.m.status.verified !== 'failed';
 function pruneTarget(cfg, target, dryRun, now = new Date()) {
   const r = cfg.retention; const removed = [];
   for (const kind of KINDS) {

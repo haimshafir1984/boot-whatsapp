@@ -61,7 +61,7 @@ const baseIdx = process.argv.indexOf('--base');
     assert.equal(r.reviewed.length, 1); assert.equal(r.reviewed[0].resolution, 'ambiguous_processing');
     assert.equal(effects, 1, 'the action ran exactly once');
     assert.equal((await restarted.getByMessage('1', 'wamid.C')).status, 'review');
-    assert.equal(await restarted.complete(a.item.id, '00000000-0000-0000-0000-000000000000'), false, 'a stranger token cannot close it');
+    assert.equal((await restarted.complete(a.item.id, '00000000-0000-0000-0000-000000000000')).ok, false, 'a stranger token cannot close it');
     assert.equal((await restarted.checkInvariants()).length, 0);
     console.log('PASS  NEW (client): crash after the action => review(ambiguous_processing), the action ran ONCE, nothing re-run automatically');
     // GATEWAY

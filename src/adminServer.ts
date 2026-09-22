@@ -39,6 +39,7 @@ import { ManagedClient, OwnerStorage } from './ownerStorage';
 import { DokployProvisioner } from './dokployProvisioner';
 import { conversationState } from './conversationState';
 import { getFlowHealthSnapshot, handleIncomingWhatsAppMessage, holdSenderForAmbiguousInbox, SenderHeldForReviewError } from './messageFlow';
+import { detectTrigger } from './triggerDetector';
 import { redactSecrets } from './secretRedaction';
 import { TwilioProvider } from './providers/TwilioProvider';
 import { MetaCloudProvider } from './providers/MetaCloudProvider';
@@ -1295,15 +1296,35 @@ export function startAdminServer(storage: Storage): import('http').Server {
   const metaClientInbox: InboxStore = createInboxStore(clientInboxCfg, path.join(path.dirname(config.STORAGE_PATH), 'meta-client-inbox.json'));
   let inboxStopping = false;
   let pendingInboxClaims = 0;   // claims in flight: shutdown must wait for them, or their items would run against closed pools
-  const inboxReady: Promise<void> = Promise.all([metaGatewayInbox.init(), metaClientInbox.init()]).then(() => undefined);
-  inboxReady.catch((err) => {
-    console.error('[INBOX_INIT_FAILED]', err);
-    notifySystemAlert({
-      key: 'inbox-init-failed', severity: 'critical', title: 'Inbox could not start',
-      message: 'The message inbox could not be initialised. Inbound messages are refused (503) until it is fixed; nothing falls back to a file.',
-      details: { error: err instanceof Error ? err.message : String(err), backend: clientInboxCfg.backend },
-    });
-  });
+  // A transient failure here (the inbox database not accepting connections yet at the exact moment this process
+  // started) must not disable the inbox until someone restarts the process. `inboxReady` is reassigned on every
+  // retry, so every fresh `await inboxReady` picks up the latest attempt - a caller mid-flight when an attempt
+  // fails still gets that attempt's rejection (still an honest 503), but the NEXT caller gets a new attempt
+  // instead of the same permanently-rejected promise. Retries stop once init succeeds.
+  let inboxReady: Promise<void>;
+  let inboxInitOk = false;
+  let inboxInitLastError: string | null = null;
+  let inboxInitAttempts = 0;
+  const attemptInboxInit = (): void => {
+    inboxReady = Promise.all([metaGatewayInbox.init(), metaClientInbox.init()]).then(() => undefined).then(
+      () => { inboxInitOk = true; inboxInitLastError = null; inboxInitAttempts = 0; },
+      (err) => {
+        inboxInitOk = false;
+        inboxInitLastError = err instanceof Error ? err.message : String(err);
+        console.error('[INBOX_INIT_FAILED]', err);
+        notifySystemAlert({
+          key: 'inbox-init-failed', severity: 'critical', title: 'Inbox could not start',
+          message: 'The message inbox could not be initialised. Inbound messages are refused (503) until it recovers; nothing falls back to a file. Retrying automatically.',
+          details: { error: inboxInitLastError, backend: clientInboxCfg.backend, attempt: inboxInitAttempts + 1 },
+        });
+        const delayMs = Math.min(2_000 * 2 ** inboxInitAttempts, 30_000);
+        inboxInitAttempts += 1;
+        setTimeout(attemptInboxInit, delayMs).unref();
+        throw err;   // this attempt's own promise stays rejected for whoever is already awaiting it
+      },
+    );
+  };
+  attemptInboxInit();
   console.log(`  Inbox backend: gateway=${metaGatewayInbox.backend}${gatewayInboxDisabled ? ' (disabled on this process)' : ''} client=${metaClientInbox.backend}`);
   // Durable, retried forwarding of delivery statuses from the gateway to the clients (stage B2, step 2).
   storage.attachEarlyStatusJournal(path.join(path.dirname(config.STORAGE_PATH), 'meta-early-statuses.jsonl'));
@@ -1535,6 +1556,9 @@ export function startAdminServer(storage: Storage): import('http').Server {
       alerts: {
         emailConfigured: systemAlertEmailConfigured(),
       },
+      // Surfaces a stuck inbox even though `ok` above stays true - `ok` is read by broader health/redeploy
+      // checks that predate this and changing its meaning is a separate decision; this is additive.
+      inboxInit: { ok: inboxInitOk, lastError: inboxInitLastError },
       conversations: {
         pending: conversationState.size(),
         durableTimers: storage.getDurableTimerHealth(),
@@ -2182,6 +2206,34 @@ export function startAdminServer(storage: Storage): import('http').Server {
     });
     try { await holdSenderForAmbiguousInbox(storage, r.senderPhone, r.id); } catch (err) { console.error('[INBOX_AMBIGUOUS_HOLD_FAILED]', r.id, err); }
   };
+  // The item that triggered handleAmbiguousInbox() above sometimes turns out to be truthful after all: the original worker's
+  // send was merely slow, not dead, and it lands after the reclaim already parked the sender. The hold it created was a false
+  // alarm for THIS item - release it (only if it is still the exact hold that item created; an admin decision or a newer hold
+  // is never touched).
+  const releaseLateCompletedAmbiguousHold = (senderPhone: string, itemId: string): void => {
+    const digits = String(senderPhone || '').replace(/\D/g, '');
+    if (!digits) return;
+    const jid = `whatsapp:${digits}`;
+    const hold = conversationState.getNeedsReview(jid);
+    if (hold && hold.source === 'inbox' && hold.messageId === itemId) {
+      conversationState.remove(jid);
+      console.log(`[INBOX_AMBIGUOUS_HOLD_RELEASED_LATE_COMPLETION] item=${itemId} sender=${jid}`);
+    }
+  };
+  // releaseLateCompletedAmbiguousHold() above is best-effort and NOT atomic with the SQL completion it reacts to: a
+  // crash between the two leaves a completed item and a conversationState hold nobody will ever release (the item
+  // cannot be reclaimed again - it is already 'completed'). This sweep asks the durable truth directly and is safe
+  // to run any number of times: run once the inbox is ready (recovers whatever a crash stranded before this start),
+  // and again on every drain tick (recovers the same window without a restart, and self-heals if a release attempt
+  // itself failed for some other reason). The list is normally empty, so a quiet run costs nothing but a JS filter.
+  const reconcileLateCompletedAmbiguousHolds = async (): Promise<void> => {
+    for (const { jid, state } of conversationState.listNeedsReview()) {
+      if (state.source !== 'inbox' || state.recovery || !state.messageId || !state.senderPhone) continue;
+      try {
+        if (await metaClientInbox.isItemCompleted(state.senderPhone, state.messageId)) releaseLateCompletedAmbiguousHold(state.senderPhone, state.messageId);
+      } catch (err) { console.error('[INBOX_AMBIGUOUS_HOLD_RECONCILE_FAILED]', jid, err); }
+    }
+  };
   const failedExhaustedAlert = (kind: 'gateway' | 'client', item: StoredInboxItem, err: unknown): void => {
     notifySystemAlert(kind === 'gateway' ? {
       key: 'meta-gateway-inbox-failed', severity: 'critical', title: 'Meta gateway message failed',
@@ -2223,7 +2275,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
               } catch (err) { handlerError = err; }
 
               if (!handlerError) {
-                const settled = await storeOp('complete', item.id, async () => { if (outcome?.kind === 'stale_trigger') await parkStaleTrigger(metaGatewayInbox, item, outcome); else if (!(await metaGatewayInbox.complete(item, 'forwarded'))) console.warn('[INBOX_COMPLETE_FENCED]', item.id, 'the lease was lost; the result was not recorded'); });
+                const settled = await storeOp('complete', item.id, async () => { if (outcome?.kind === 'stale_trigger') await parkStaleTrigger(metaGatewayInbox, item, outcome); else if (!(await metaGatewayInbox.complete(item, 'forwarded')).ok) console.warn('[INBOX_COMPLETE_FENCED]', item.id, 'the lease was lost; the result was not recorded'); });
                 if (!settled.ok) break;
                 continue;
               }
@@ -2305,7 +2357,12 @@ export function startAdminServer(storage: Storage): import('http').Server {
               } catch (err) { handlerError = err; }
 
               if (!handlerError) {
-                const settled = await storeOp('complete', item.id, async () => { if (outcome?.kind === 'stale_trigger') await parkStaleTrigger(metaClientInbox, item, outcome); else if (!(await metaClientInbox.complete(item, 'processed'))) console.warn('[INBOX_COMPLETE_FENCED]', item.id, 'the lease was lost; the result was not recorded'); });
+                const settled = await storeOp('complete', item.id, async () => {
+                  if (outcome?.kind === 'stale_trigger') { await parkStaleTrigger(metaClientInbox, item, outcome); return; }
+                  const result = await metaClientInbox.complete(item, 'processed');
+                  if (!result.ok) { console.warn('[INBOX_COMPLETE_FENCED]', item.id, 'the lease was lost; the result was not recorded'); return; }
+                  if (result.late) releaseLateCompletedAmbiguousHold(String(item.payload?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from || ''), item.id);
+                });
                 if (!settled.ok) break;
                 continue;
               }
@@ -2331,7 +2388,9 @@ export function startAdminServer(storage: Storage): import('http').Server {
           }
     },
   });
-  const processMetaClientInbox = (): Promise<void> => metaClientDrainer.drain().catch(logInboxDrainFailure('META_CLIENT_INBOX'));
+  const processMetaClientInbox = (): Promise<void> => metaClientDrainer.drain()
+    .then(() => reconcileLateCompletedAmbiguousHolds())
+    .catch(logInboxDrainFailure('META_CLIENT_INBOX'));
   trackTimer(setInterval(() => { void processMetaClientInbox(); }, META_INBOX_DRAIN_MS));
   void processMetaClientInbox();
 
@@ -3398,6 +3457,20 @@ export function startAdminServer(storage: Storage): import('http').Server {
       if (statusChanged) await storage.flush();
       if (messagePayloads.length) {
         await inboxReady;
+        // A fresh trigger must be able to reach its own unblock handler even while its sender is durably parked
+        // behind an unresolved ambiguous-review item (stage-e-fix-followup-review-2026-09-22, P1): the parking in
+        // recomputeHead() excludes EVERY outstanding item for that sender, including the trigger itself, so nothing
+        // would ever get claimed to run supersedeInboxAmbiguousHoldForFreshTrigger() and release it. Detect the
+        // trigger here, before it is enqueued, and release the block first so it lands as a normal, claimable head.
+        const triggerSenders = new Set<string>();
+        for (const item of messagePayloads) {
+          const message = item.payload?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+          const from = String(message?.from || '').trim();
+          if (from && detectTrigger(getMetaInboundBody(message), storage.getActiveCampaigns()).matched) triggerSenders.add(from);
+        }
+        for (const phone of triggerSenders) {
+          await metaClientInbox.supersedeAmbiguousForPhone(phone).catch((err) => console.error('[INBOX_PRE_ENQUEUE_SUPERSEDE_FAILED]', phone, err));
+        }
         await metaClientInbox.enqueueMany(messagePayloads.map((item) => ({ id: item.id, payload: item.payload })));   // 2xx only after commit
       }
       res.status(messagePayloads.length ? 202 : 200).json({
@@ -4310,6 +4383,18 @@ export function startAdminServer(storage: Storage): import('http').Server {
     })().catch((err) => console.error('[DELIVERY_RECOVERY_SUPERSEDE_DISCARD_FAILED]', event.outboxId, err));
   };
   deliveryRecoveryBus.on('superseded', onDeliveryRecoverySuperseded);
+  // A fresh trigger superseded an inbox-ambiguous hold (messageFlow.ts): release the durable block that item
+  // placed on the sender at the DB layer, so the trigger's own message - queued behind it - becomes claimable.
+  const onInboxAmbiguousSuperseded = (event: { jid: string; phone?: string }): void => {
+    const phoneDigits = String(event.phone || event.jid).replace(/\D/g, '');
+    if (!phoneDigits) return;
+    void (async () => {
+      await inboxReady;
+      const resolved = await metaClientInbox.supersedeAmbiguousForPhone(phoneDigits);
+      if (resolved) { console.log(`[INBOX_AMBIGUOUS_SUPERSEDE_RELEASED] sender=${event.jid} items=${resolved}`); void processMetaClientInbox(); }
+    })().catch((err) => console.error('[INBOX_AMBIGUOUS_SUPERSEDE_RELEASE_FAILED]', event.jid, err));
+  };
+  deliveryRecoveryBus.on('inboxAmbiguousSuperseded', onInboxAmbiguousSuperseded);
 
   app.get('/api/files', (_req, res) => {
     res.json(storage.getUploadedFiles());
@@ -5239,6 +5324,6 @@ export function startAdminServer(storage: Storage): import('http').Server {
   });
   // The status forwarder is a timer owned by this server: it must stop when the server closes
   // (the rest of the background workers created in here are a separate shutdown item).
-  listeningServer.once('close', () => { clearInterval(statusDrainTimer); deliveryRecoveryBus.off('released', onDeliveryRecoveryReleased); deliveryRecoveryBus.off('superseded', onDeliveryRecoverySuperseded); });
+  listeningServer.once('close', () => { clearInterval(statusDrainTimer); deliveryRecoveryBus.off('released', onDeliveryRecoveryReleased); deliveryRecoveryBus.off('superseded', onDeliveryRecoverySuperseded); deliveryRecoveryBus.off('inboxAmbiguousSuperseded', onInboxAmbiguousSuperseded); });
   return listeningServer;
 }
