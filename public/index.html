@@ -3794,7 +3794,7 @@
           </div>
           <div class="decision-next-row" data-message-next>
             <label>אחרי ההודעה לעבור אל</label>
-            <select data-step-next onchange="updateCampaignConversationPreview()" data-selected-next="${esc(step.nextStepId || '__END__')}"></select>
+            <select data-step-next onchange="updateCampaignConversationPreview()" data-selected-next="${esc(step.nextStepId || '__NEXT__')}"></select>
           </div>
           <div data-email-capture-settings style="display:none;margin:8px 0 10px;padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc">
             <label>הודעה במקרה שכתובת המייל אינה תקינה</label>
@@ -4392,7 +4392,7 @@
         .filter(step => step.id !== select.closest('[data-decision-step]')?.dataset.stepId)
         .map(step => `<option value="${esc(step.id)}">${esc(step.label)}${step.text ? ` - ${esc(step.text.slice(0, 24))}` : ''}</option>`)
         .join('');
-      const optionDefault = select.hasAttribute('data-option-next') ? '__NEXT__' : (isStepNextSelect ? '__END__' : '');
+      const optionDefault = select.hasAttribute('data-option-next') ? '__NEXT__' : (isStepNextSelect ? '__NEXT__' : '');
       select.value = steps.some(step => step.id === selected) || selected === '__NEXT__' || selected === '__END__' ? selected : optionDefault;
       select.dataset.selectedNext = select.value;
     });
