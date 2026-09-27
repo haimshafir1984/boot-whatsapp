@@ -79,6 +79,7 @@
       font-family: Consolas, monospace;
       font-size: .78rem;
     }
+    .secret-note { color: #92400e; font-size: .75rem; line-height: 1.45; margin-top: 6px; }
     .form-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .danger { border: 1px solid #fecaca; background: #fff1f2; color: #b91c1c; border-radius: 6px; padding: 6px 9px; cursor: pointer; font-weight: 700; }
     .mini { border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 6px; padding: 6px 9px; cursor: pointer; font-weight: 700; }
@@ -323,6 +324,40 @@
               <button class="retry" type="button" onclick="saveTwilioNumber()">שמור ועדכן יחידה</button>
               <button class="secondary" type="button" onclick="copyTwilioWebhookUrl()">העתקת Webhook</button>
               <span class="muted" id="twilioSaveState"></span>
+            </div>
+          </div>
+        </section>
+        <section id="metaSettingsSection" style="display:none">
+          <h2>חיבור Meta ייעודי ללקוחה</h2>
+          <div class="owner-form">
+            <div class="full">
+              <label>Phone Number ID</label>
+              <input id="clientMetaPhoneNumberIdEdit" type="text" dir="ltr" inputmode="numeric" placeholder="1207335449126872" />
+              <div class="help-text">זה המזהה הפנימי של Meta, לא מספר הטלפון. כאשר השדה מלא, היחידה תעבוד על המספר הייעודי הזה במקום המספר המרכזי.</div>
+            </div>
+            <div class="full">
+              <label>Display phone number</label>
+              <input id="clientMetaDisplayPhoneEdit" type="tel" dir="ltr" placeholder="972529771002" />
+              <div class="help-text">מספר בינלאומי בספרות בלבד, בלי + ובלי רווחים.</div>
+            </div>
+            <div class="full">
+              <label>Access token ייעודי</label>
+              <input id="clientMetaAccessTokenEdit" type="password" dir="ltr" autocomplete="new-password" placeholder="להשאיר ריק כדי לא לשנות" />
+              <div class="secret-note">מטעמי אבטחה הערך הקיים לא מוצג. מילוי השדה יחליף את ה-token של הלקוחה; ריק משאיר את הקיים או את ברירת המחדל המרכזית.</div>
+            </div>
+            <div class="full">
+              <label>Verify token ייעודי</label>
+              <input id="clientMetaVerifyTokenEdit" type="password" dir="ltr" autocomplete="new-password" placeholder="להשאיר ריק כדי להשתמש בברירת המחדל" />
+            </div>
+            <div class="full">
+              <label>Webhook ב-Meta</label>
+              <div class="webhook-box" id="metaWebhookUrl">-</div>
+              <div class="help-text">את הכתובת הזו מגדירים פעם אחת ב-App/WABA של Meta תחת אירוע messages. במספרים דרך Embedded Signup לרוב אותו webhook מרכזי מספיק.</div>
+            </div>
+            <div class="full form-actions">
+              <button class="retry" type="button" onclick="saveMetaSettings()">שמור ועדכן יחידה</button>
+              <button class="secondary" type="button" onclick="copyMetaWebhookUrl()">העתקת Webhook</button>
+              <span class="muted" id="metaSaveState"></span>
             </div>
           </div>
         </section>
@@ -807,14 +842,21 @@
         currentClient.whatsappProvider === 'BAILEYS' ? 'Baileys' :
         'WhatsApp Web';
       const isTwilioClient = currentClient.whatsappProvider === 'TWILIO_API';
+      const isMetaClient = currentClient.whatsappProvider === 'META_CLOUD_API';
       document.getElementById('twilioFromLine').style.display = isTwilioClient ? '' : 'none';
       document.getElementById('botReplyDelayLine').style.display = isTwilioClient ? '' : 'none';
       document.getElementById('twilioSettingsSection').style.display = isTwilioClient ? '' : 'none';
+      document.getElementById('metaSettingsSection').style.display = isMetaClient ? '' : 'none';
       document.getElementById('twilioFromValue').textContent = displayTwilioFrom(currentClient.twilioFrom) || '-';
       document.getElementById('botReplyDelayValue').textContent = displayDelay(currentClient.botReplyDelayMs);
       document.getElementById('clientTwilioFromEdit').value = displayTwilioFrom(currentClient.twilioFrom);
       document.getElementById('clientBotReplyDelayEdit').value = currentClient.botReplyDelayMs ?? 1000;
       document.getElementById('twilioWebhookUrl').textContent = currentClient.twilioWebhookUrl || '-';
+      document.getElementById('clientMetaPhoneNumberIdEdit').value = currentClient.metaPhoneNumberId || '';
+      document.getElementById('clientMetaDisplayPhoneEdit').value = currentClient.metaDisplayPhoneNumber || '';
+      document.getElementById('clientMetaAccessTokenEdit').value = '';
+      document.getElementById('clientMetaVerifyTokenEdit').value = '';
+      document.getElementById('metaWebhookUrl').textContent = currentClient.metaWebhookUrl || '-';
       document.getElementById('accessCode').textContent = currentClient.accessCode;
       document.getElementById('retryButton').style.display = 'none';
       document.getElementById('updateUnitButton').style.display = 'none';
@@ -860,6 +902,13 @@
       }
     }
 
+    function copyMetaWebhookUrl() {
+      if (currentClient?.metaWebhookUrl) {
+        navigator.clipboard.writeText(currentClient.metaWebhookUrl);
+        document.getElementById('metaSaveState').textContent = 'ה-Webhook הועתק.';
+      }
+    }
+
     async function saveTwilioNumber() {
       if (!currentClient) return;
       const state = document.getElementById('twilioSaveState');
@@ -890,6 +939,45 @@
         return;
       }
       state.textContent = 'נשמר. הפריסה עודכנה.';
+      loadClient();
+    }
+
+    async function saveMetaSettings() {
+      if (!currentClient || currentClient.whatsappProvider !== 'META_CLOUD_API') return;
+      const state = document.getElementById('metaSaveState');
+      const error = document.getElementById('error');
+      state.textContent = 'שומר ומעדכן יחידה...';
+      error.textContent = '';
+      const payload = {
+        metaPhoneNumberId: document.getElementById('clientMetaPhoneNumberIdEdit').value,
+        metaDisplayPhoneNumber: document.getElementById('clientMetaDisplayPhoneEdit').value,
+      };
+      const accessToken = document.getElementById('clientMetaAccessTokenEdit').value.trim();
+      const verifyToken = document.getElementById('clientMetaVerifyTokenEdit').value.trim();
+      if (accessToken) payload.metaAccessToken = accessToken;
+      if (verifyToken) payload.metaVerifyToken = verifyToken;
+
+      const response = await fetch(`/owner/api/clients/${encodeURIComponent(currentClient.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        state.textContent = '';
+        error.textContent = body.error || 'שמירת פרטי Meta נכשלה';
+        return;
+      }
+      currentClient = body;
+      const provisionResponse = await fetch(`/owner/api/clients/${encodeURIComponent(currentClient.id)}/provision`, { method: 'POST' });
+      const provisionBody = await provisionResponse.json().catch(() => ({}));
+      if (!provisionResponse.ok) {
+        state.textContent = '';
+        error.textContent = provisionBody.error || 'עדכון היחידה נכשל';
+        loadClient();
+        return;
+      }
+      state.textContent = 'נשמר. היחידה תעבוד עם מספר Meta הייעודי אחרי שהפריסה תעלה.';
       loadClient();
     }
 

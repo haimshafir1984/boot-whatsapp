@@ -198,6 +198,18 @@ function clientTwilioMediaBaseUrl(config: DokployProvisioningConfig, service: st
   return `${baseUrl}/twilio-media`;
 }
 
+function clientMetaConfig(config: DokployProvisioningConfig, client: ManagedClient) {
+  return {
+    accessToken: client.metaAccessToken?.trim() || config.metaAccessToken,
+    phoneNumberId: client.metaPhoneNumberId?.trim() || config.metaPhoneNumberId,
+    displayPhoneNumber: client.metaDisplayPhoneNumber?.trim() || config.metaDisplayPhoneNumber,
+    verifyToken: client.metaVerifyToken?.trim() || config.metaVerifyToken,
+    appSecret: config.metaAppSecret,
+    webhookUrl: config.metaWebhookUrl,
+    usesDedicatedNumber: Boolean(client.metaPhoneNumberId?.trim()),
+  };
+}
+
 export class DokployProvisioner {
   private readonly config: DokployProvisioningConfig | null;
   private provisioningQueue: Promise<void> = Promise.resolve();
@@ -622,17 +634,19 @@ export class DokployProvisioner {
       envLines.push('TWILIO_REQUIRE_SIGNATURE=true');
     }
     if (current.whatsappProvider === 'META_CLOUD_API') {
+      const meta = clientMetaConfig(this.config, current);
       current = saveProgress({
-        metaPhoneNumberId: this.config.metaPhoneNumberId,
-        metaDisplayPhoneNumber: this.config.metaDisplayPhoneNumber,
+        metaPhoneNumberId: meta.phoneNumberId,
+        metaDisplayPhoneNumber: meta.displayPhoneNumber,
       });
-      envLines.push('META_ACCESS_TOKEN=' + escapeEnvValue(this.config.metaAccessToken!));
-      envLines.push('META_PHONE_NUMBER_ID=' + escapeEnvValue(this.config.metaPhoneNumberId!));
-      envLines.push('META_DISPLAY_PHONE_NUMBER=' + escapeEnvValue(this.config.metaDisplayPhoneNumber!));
-      envLines.push('META_VERIFY_TOKEN=' + escapeEnvValue(this.config.metaVerifyToken!));
-      if (this.config.metaAppSecret) envLines.push('META_APP_SECRET=' + escapeEnvValue(this.config.metaAppSecret));
+      envLines.push('META_ACCESS_TOKEN=' + escapeEnvValue(meta.accessToken!));
+      envLines.push('META_PHONE_NUMBER_ID=' + escapeEnvValue(meta.phoneNumberId!));
+      envLines.push('META_DISPLAY_PHONE_NUMBER=' + escapeEnvValue(meta.displayPhoneNumber!));
+      envLines.push('META_VERIFY_TOKEN=' + escapeEnvValue(meta.verifyToken!));
+      if (meta.appSecret) envLines.push('META_APP_SECRET=' + escapeEnvValue(meta.appSecret));
       envLines.push('META_GRAPH_API_VERSION="v23.0"');
-      envLines.push('META_GATEWAY_BASE_URL=' + escapeEnvValue(new URL('/', this.config.metaWebhookUrl!).toString().replace(/\/$/, '')));
+      envLines.push('META_GATEWAY_BASE_URL=' + escapeEnvValue(new URL('/', meta.webhookUrl!).toString().replace(/\/$/, '')));
+      envLines.push('META_DEDICATED_NUMBER=' + (meta.usesDedicatedNumber ? 'true' : 'false'));
     }
 
       await this.post('application.saveEnvironment', {
@@ -680,11 +694,12 @@ export class DokployProvisioner {
 
   private assertClientProvisioningConfig(client: ManagedClient): void {
     if (client.whatsappProvider === 'META_CLOUD_API') {
+      const meta = this.config ? clientMetaConfig(this.config, client) : null;
       const missing = [
-        !this.config?.metaAccessToken && 'DOKPLOY_META_ACCESS_TOKEN',
-        !this.config?.metaPhoneNumberId && 'DOKPLOY_META_PHONE_NUMBER_ID',
-        !this.config?.metaDisplayPhoneNumber && 'DOKPLOY_META_DISPLAY_PHONE_NUMBER',
-        !this.config?.metaVerifyToken && 'DOKPLOY_META_VERIFY_TOKEN',
+        !meta?.accessToken && 'Meta access token (client metaAccessToken or DOKPLOY_META_ACCESS_TOKEN)',
+        !meta?.phoneNumberId && 'Meta phone number id (client metaPhoneNumberId or DOKPLOY_META_PHONE_NUMBER_ID)',
+        !meta?.displayPhoneNumber && 'Meta display phone number (client metaDisplayPhoneNumber or DOKPLOY_META_DISPLAY_PHONE_NUMBER)',
+        !meta?.verifyToken && 'Meta verify token (client metaVerifyToken or DOKPLOY_META_VERIFY_TOKEN)',
       ].filter(Boolean);
       if (missing.length) throw new Error('Meta client configuration is missing: ' + missing.join(', '));
       return;

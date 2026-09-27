@@ -10,6 +10,7 @@ test-meta-cancellation-boundary.js
 test-meta-mixed-rollout-routing.js  # flaky: pre-existing, reproduces on the HEAD copy (2/10 via runner)
 test-meta-gateway-reliability.js
 test-meta-gateway-lookup-failure-isolation.js
+test-meta-dedicated-number-trigger-scope.js
 test-meta-gateway-inbox.js
 test-meta-routes-cache.js
 test-inbox-sender-concurrency.js

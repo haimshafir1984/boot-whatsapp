@@ -34,6 +34,11 @@ const env = {
   DOKPLOY_GIT_URL: 'https://github.example.test/org/repo.git',
   DOKPLOY_GIT_BRANCH: 'master',
   DOKPLOY_CLIENT_DOMAIN_SUFFIX: 'clients.example.test',
+  DOKPLOY_META_ACCESS_TOKEN: 'central-token',
+  DOKPLOY_META_PHONE_NUMBER_ID: '111111111111111',
+  DOKPLOY_META_DISPLAY_PHONE_NUMBER: '972529771002',
+  DOKPLOY_META_VERIFY_TOKEN: 'central-verify',
+  DOKPLOY_META_APP_SECRET: 'central-app-secret',
 };
 
 let current = {
@@ -112,6 +117,78 @@ let current = {
   assert(!legacyRoutes.includes('postgres.create'), 'legacy client must not receive a new PostgreSQL database');
   assert(!legacyRoutes.includes('application.saveEnvironment'), 'legacy client environment must not be overwritten');
   assert(!legacyRoutes.includes('mounts.create'), 'legacy client volume must not be replaced');
+
+  calls.length = 0;
+  let metaClient = {
+    ...current,
+    id: '87654321-90ab-cdef-1234-567890abcdef',
+    name: 'Meta Dedicated',
+    whatsappProvider: 'META_CLOUD_API',
+    dokployApplicationId: undefined,
+    dokployAppName: undefined,
+    dokployMountId: undefined,
+    dokployDomainId: undefined,
+    dokployDeploymentRequested: undefined,
+    dokployPostgresId: undefined,
+    dokployPostgresAppName: undefined,
+    dokployPostgresDatabaseName: undefined,
+    dokployPostgresDatabaseUser: undefined,
+    dokployPostgresDatabasePassword: undefined,
+    managementUrl: '',
+    metaAccessToken: 'dedicated-token',
+    metaPhoneNumberId: '222222222222222',
+    metaDisplayPhoneNumber: '972555123456',
+    metaVerifyToken: 'dedicated-verify',
+  };
+  metaClient = await provisioner.provision(metaClient, (patch) => {
+    metaClient = { ...metaClient, ...patch };
+    return metaClient;
+  });
+  const metaEnv = calls.find((call) => call.route === 'application.saveEnvironment').body.env;
+  assert(metaEnv.includes('META_ACCESS_TOKEN="dedicated-token"'), 'dedicated Meta token should be written when present');
+  assert(metaEnv.includes('META_PHONE_NUMBER_ID="222222222222222"'), 'dedicated phone number id should be written when present');
+  assert(metaEnv.includes('META_DISPLAY_PHONE_NUMBER="972555123456"'), 'dedicated display phone should be written when present');
+  assert(metaEnv.includes('META_VERIFY_TOKEN="dedicated-verify"'), 'dedicated verify token should be written when present');
+  assert(metaEnv.includes('META_APP_SECRET="central-app-secret"'), 'central app secret should still be written');
+  assert(metaEnv.includes('META_DEDICATED_NUMBER=true'), 'dedicated Meta client should be marked explicitly');
+  assert.strictEqual(metaClient.metaPhoneNumberId, '222222222222222');
+  assert.strictEqual(metaClient.metaDisplayPhoneNumber, '972555123456');
+
+  // Fallback path: a Meta client with NO dedicated fields of its own (the shape of every one of the
+  // 11 existing shared-number clients today) must still fall back to the central DOKPLOY_META_*
+  // values, byte for byte - this is the change that could quietly break existing campaigns.
+  calls.length = 0;
+  let sharedClient = {
+    ...current,
+    id: 'abcdef12-90ab-cdef-1234-567890abcdef',
+    name: 'Meta Shared',
+    whatsappProvider: 'META_CLOUD_API',
+    dokployApplicationId: undefined,
+    dokployAppName: undefined,
+    dokployMountId: undefined,
+    dokployDomainId: undefined,
+    dokployDeploymentRequested: undefined,
+    dokployPostgresId: undefined,
+    dokployPostgresAppName: undefined,
+    dokployPostgresDatabaseName: undefined,
+    dokployPostgresDatabaseUser: undefined,
+    dokployPostgresDatabasePassword: undefined,
+    managementUrl: '',
+    // metaAccessToken / metaPhoneNumberId / metaDisplayPhoneNumber / metaVerifyToken intentionally absent.
+  };
+  sharedClient = await provisioner.provision(sharedClient, (patch) => {
+    sharedClient = { ...sharedClient, ...patch };
+    return sharedClient;
+  });
+  const sharedEnv = calls.find((call) => call.route === 'application.saveEnvironment').body.env;
+  assert(sharedEnv.includes('META_ACCESS_TOKEN="central-token"'), 'no dedicated token: must fall back to the central shared token');
+  assert(sharedEnv.includes('META_PHONE_NUMBER_ID="111111111111111"'), 'no dedicated phone id: must fall back to the shared number');
+  assert(sharedEnv.includes('META_DISPLAY_PHONE_NUMBER="972529771002"'), 'no dedicated display phone: must fall back to the shared display number');
+  assert(sharedEnv.includes('META_VERIFY_TOKEN="central-verify"'), 'no dedicated verify token: must fall back to the shared verify token');
+  assert(sharedEnv.includes('META_APP_SECRET="central-app-secret"'), 'central app secret still written for a shared-number client');
+  assert(sharedEnv.includes('META_DEDICATED_NUMBER=false'), 'a shared-number client must be marked as NOT dedicated');
+  assert.strictEqual(sharedClient.metaPhoneNumberId, '111111111111111', 'the shared phone number id is recorded on the client too, exactly as before this feature');
+  assert.strictEqual(sharedClient.metaDisplayPhoneNumber, '972529771002');
 
   console.log('Dokploy PostgreSQL provisioning regression passed.');
 })();

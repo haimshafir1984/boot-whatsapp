@@ -1376,8 +1376,21 @@ export function startAdminServer(storage: Storage): import('http').Server {
   ) => {
     const normalizedTrigger = normalizeMetaTrigger(triggerPhrase);
     if (!normalizedTrigger) return { available: false, conflicts: [], sameClientConflicts: [], crossClientConflicts: [] };
+    const sharedMetaPhoneNumberId = String(config.META_PHONE_NUMBER_ID || '').trim();
+    const metaTriggerScope = (client: ManagedClient) => {
+      const phoneNumberId = String(client.metaPhoneNumberId || '').trim();
+      if (phoneNumberId && (!sharedMetaPhoneNumberId || phoneNumberId !== sharedMetaPhoneNumberId)) {
+        return `phone:${phoneNumberId}`;
+      }
+      return 'shared';
+    };
+    const requesterScope = metaTriggerScope(requester);
+    // Scoped BEFORE querying: a client on a dedicated number must not be blocked by an unrelated client - on the
+    // shared number or on a different dedicated number - being unreachable. Only requester's own scope is ever
+    // queried or required to answer, so the "unavailable" fail-closed below stays scoped too, not fleet-wide.
     const metaClients = ownerStorage.getClients().filter((client) =>
-      client.whatsappProvider === 'META_CLOUD_API' && client.managementUrl && client.ownerAccessToken && client.provisioningStatus !== 'disabled');
+      client.whatsappProvider === 'META_CLOUD_API' && client.managementUrl && client.ownerAccessToken && client.provisioningStatus !== 'disabled'
+      && (client.id === requester.id || metaTriggerScope(client) === requesterScope));
     const results = await Promise.all(metaClients.map(async (client) => {
       const routeResult = await fetchClientAsOwner<MetaGatewayRoute[]>(client, '/owner-api/meta-routes');
       if (routeResult.ok && Array.isArray(routeResult.body)) return { client, result: routeResult };
@@ -1539,6 +1552,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
       ok: true,
       clientConfigured: Boolean(process.env.CLIENT_ACCESS_TOKEN?.trim()),
       whatsappProvider: config.WHATSAPP_PROVIDER,
+      metaDedicatedNumber: config.WHATSAPP_PROVIDER === 'META_CLOUD_API' ? config.META_DEDICATED_NUMBER : undefined,
       twilioConfigured: twilioConfigured(),
       googleConnected: isGoogleConnected(),
       readonlyDashboard: config.CLIENT_READONLY_DASHBOARD,
@@ -3035,6 +3049,30 @@ export function startAdminServer(storage: Storage): import('http').Server {
         return;
       }
       patch.botReplyDelayMs = botReplyDelayMs;
+    }
+    if ('metaPhoneNumberId' in req.body) {
+      const metaPhoneNumberId = String(req.body?.metaPhoneNumberId ?? '').trim();
+      if (metaPhoneNumberId && !/^\d{5,32}$/.test(metaPhoneNumberId)) {
+        res.status(400).json({ error: 'Phone Number ID של Meta חייב להכיל ספרות בלבד.' });
+        return;
+      }
+      patch.metaPhoneNumberId = metaPhoneNumberId || undefined;
+    }
+    if ('metaDisplayPhoneNumber' in req.body) {
+      const metaDisplayPhoneNumber = String(req.body?.metaDisplayPhoneNumber ?? '').replace(/\D/g, '');
+      if (metaDisplayPhoneNumber && !/^\d{8,18}$/.test(metaDisplayPhoneNumber)) {
+        res.status(400).json({ error: 'מספר התצוגה של Meta חייב להיות בפורמט בינלאומי, ספרות בלבד.' });
+        return;
+      }
+      patch.metaDisplayPhoneNumber = metaDisplayPhoneNumber || undefined;
+    }
+    if ('metaAccessToken' in req.body) {
+      const metaAccessToken = String(req.body?.metaAccessToken ?? '').trim();
+      if (metaAccessToken) patch.metaAccessToken = metaAccessToken;
+    }
+    if ('metaVerifyToken' in req.body) {
+      const metaVerifyToken = String(req.body?.metaVerifyToken ?? '').trim();
+      if (metaVerifyToken) patch.metaVerifyToken = metaVerifyToken;
     }
     if (patch.maxCampaigns !== undefined && client.managementUrl && client.provisioningStatus !== 'disabled') {
       try {

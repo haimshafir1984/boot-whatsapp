@@ -32,6 +32,8 @@ export const config = {
   META_APP_SECRET: envValue(process.env.META_APP_SECRET ?? process.env.DOKPLOY_META_APP_SECRET),
   META_GRAPH_API_VERSION: envValue(process.env.META_GRAPH_API_VERSION, 'v23.0'),
   META_GATEWAY_BASE_URL: envValue(process.env.META_GATEWAY_BASE_URL, 'https://admin.flowsbiz.com'),
+  /** True when this client was provisioned with its own Meta phone number (customer-owned-whatsapp-number-meta-plan.md), not the shared one. Operational visibility only - the gateway already routes by matching phone_number_id, not by this flag. */
+  META_DEDICATED_NUMBER: envFlag(process.env.META_DEDICATED_NUMBER, false),
   WHATSAPP_KEEP_CONNECTED: envFlag(process.env.WHATSAPP_KEEP_CONNECTED, true),
   BOT_REPLY_DELAY_MS: Number(process.env.BOT_REPLY_DELAY_MS ?? (envValue(process.env.WHATSAPP_PROVIDER, 'BAILEYS') === 'META_CLOUD_API' ? 250 : 1000)),
   FILE_DELIVERY_WAIT_TIMEOUT_MS: Number(process.env.FILE_DELIVERY_WAIT_TIMEOUT_MS ?? 20_000),
