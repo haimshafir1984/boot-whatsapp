@@ -37,11 +37,19 @@ export interface MetaWebhookItem {
  * Meta may batch several entries, changes, or messages in one webhook request.
  * Downstream routing is intentionally one-message-at-a-time so every reply gets
  * its own durable inbox record instead of silently dropping all but index zero.
+ *
+ * Coexistence adds `history`, `smb_app_state_sync`, and `smb_message_echoes`
+ * changes to the same webhook (embedded-signup-automation-plan-2026-09-28,
+ * section 3.7). Those use their own array names (`history`, `message_echoes`),
+ * not `messages`, but the `field` check is kept as an explicit guard so a
+ * future Meta payload shape can never be misread as an inbound customer
+ * message - the business's own echoed reply must never reach the flow engine.
  */
 export function splitMetaWebhookMessages(payload: any): MetaWebhookItem[] {
   const items: MetaWebhookItem[] = [];
   for (const entry of Array.isArray(payload?.entry) ? payload.entry : []) {
     for (const change of Array.isArray(entry?.changes) ? entry.changes : []) {
+      if (change?.field !== 'messages') continue;
       const value = change?.value;
       for (const message of Array.isArray(value?.messages) ? value.messages : []) {
         const id = String(message?.id || '').trim();

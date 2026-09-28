@@ -998,7 +998,7 @@ async function testR1RealHttpInboxHoldsBlockedReplyNotCompleted(harness) {
   });
 
   const messageId = 'r1-held-http-' + Date.now();
-  const payload = { entry: [{ changes: [{ value: { metadata: { phone_number_id: 'r1-number' },
+  const payload = { entry: [{ changes: [{ field: 'messages', value: { metadata: { phone_number_id: 'r1-number' },
     messages: [{ id: messageId, from: phone, type: 'text', text: { body: 'are you still there' }, timestamp: String(Math.floor(Date.now() / 1000)) }] } }] }] };
   const response = await fetch(`${harness.base}/internal/meta/whatsapp`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Owner-Token': 'sdlf-http-owner-token' }, body: JSON.stringify(payload),

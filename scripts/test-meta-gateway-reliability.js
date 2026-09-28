@@ -138,6 +138,29 @@ async function main() {
   assert.equal(splitStatuses[0].entry[0].changes[0].value.messages, undefined);
   assert.equal(splitStatuses[0].entry[0].changes[0].value.statuses[0].id, 'outbound-1');
 
+  // Coexistence (embedded-signup-automation-plan-2026-09-28, 3.7): `history`, `smb_app_state_sync`,
+  // and `smb_message_echoes` changes must never be read as an inbound customer message, even if a
+  // future Meta payload shape happened to carry a `messages` array under one of those fields.
+  for (const field of ['smb_message_echoes', 'history', 'smb_app_state_sync']) {
+    const coexistenceWebhook = {
+      object: 'whatsapp_business_account',
+      entry: [{
+        id: 'waba-1',
+        changes: [{
+          field,
+          value: {
+            metadata: { phone_number_id: 'phone-1' },
+            messages: [{ id: `${field}-1`, from: '15550009999', type: 'text', text: { body: 'echoed by the business itself' } }],
+          },
+        }],
+      }],
+    };
+    assert.deepEqual(splitMetaWebhookMessages(coexistenceWebhook), [], `a '${field}' change must never be treated as an inbound message`);
+  }
+  // A change with no `field` at all (malformed or pre-coexistence payload) is rejected the same way, fail-closed.
+  const noFieldWebhook = { entry: [{ changes: [{ value: { messages: [{ id: 'no-field-1', from: '15550009999' }] } }] }] };
+  assert.deepEqual(splitMetaWebhookMessages(noFieldWebhook), [], 'a change with no field must not be treated as an inbound message');
+
   console.log('Meta gateway reliability tests passed.');
 }
 
