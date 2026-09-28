@@ -19,7 +19,7 @@ import { conversationState } from './conversationState';
 import { scheduleRestoredConversationTimeout } from './messageFlow';
 import { botState } from './botState';
 import { TwilioProvider } from './providers/TwilioProvider';
-import { MetaCloudProvider } from './providers/MetaCloudProvider';
+import { MetaCloudProvider, prewarmMetaMedia } from './providers/MetaCloudProvider';
 import { WhatsAppTransport } from './types/whatsapp';
 
 process.on('unhandledRejection', (reason) => {
@@ -115,6 +115,16 @@ async function main(): Promise<void> {
     console.log('  WhatsApp provider: Twilio API (webhook mode, no Chromium scheduler)');
   } else if (config.WHATSAPP_PROVIDER === 'META_CLOUD_API') {
     console.log('  WhatsApp provider: Meta Cloud API (webhook mode, no Chromium scheduler)');
+    if (config.META_ACCESS_TOKEN && config.META_PHONE_NUMBER_ID) {
+      // Pre-upload every stored file to Meta so no participant waits on an upload - after a restart, and again
+      // twice a day to renew ids before Meta's ~30-day expiry. Delayed so it does not compete with startup.
+      const prewarmAll = (reason: string): void => {
+        const files = storage.getUploadedFiles().map((file) => path.join(config.UPLOADS_PATH, file.filename));
+        void prewarmMetaMedia(files, reason);
+      };
+      setTimeout(() => prewarmAll('startup'), 5_000).unref();
+      setInterval(() => prewarmAll('refresh'), 12 * 60 * 60 * 1000).unref();
+    }
   } else {
     startWhatsAppScheduler(storage);
   }

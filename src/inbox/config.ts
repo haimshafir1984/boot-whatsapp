@@ -11,6 +11,7 @@
  *   INBOX_DEDUPE_DAYS           default 30   - how long the identity of a finished message is remembered
  *   INBOX_PAYLOAD_RETENTION_DAYS default 7   - how long a finished message keeps its payload
  *   INBOX_SHUTDOWN_WAIT_MS      default 5000 - how long stop() waits for in-flight items
+ *   INBOX_AUTO_MIGRATE          default true (client only) - move an unmigrated JSON client inbox into PostgreSQL at startup
  */
 import { InboxRole } from './types';
 
@@ -24,6 +25,8 @@ export interface InboxRuntimeConfig {
   dedupeDays: number;
   payloadDays: number;
   shutdownWaitMs: number;
+  /** Client role only: a PostgreSQL process that finds an unmigrated JSON inbox file imports it at startup (handoff.ts). INBOX_AUTO_MIGRATE=false restores the strict refuse-to-start guard. */
+  autoMigrate: boolean;
 }
 
 const intEnv = (env: NodeJS.ProcessEnv, name: string, dflt: number, min: number, max: number): number => {
@@ -55,5 +58,6 @@ export function readInboxConfig(role: InboxRole, env: NodeJS.ProcessEnv = proces
     dedupeDays: intEnv(env, 'INBOX_DEDUPE_DAYS', 30, 1, 3650),
     payloadDays: intEnv(env, 'INBOX_PAYLOAD_RETENTION_DAYS', 7, 1, 3650),
     shutdownWaitMs: intEnv(env, 'INBOX_SHUTDOWN_WAIT_MS', 5_000, 0, 10 * 60_000),
+    autoMigrate: role === 'client' && String(env.INBOX_AUTO_MIGRATE ?? 'true').trim().toLowerCase() !== 'false',
   };
 }

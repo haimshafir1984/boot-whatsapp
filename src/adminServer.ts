@@ -42,7 +42,7 @@ import { getFlowHealthSnapshot, handleIncomingWhatsAppMessage, holdSenderForAmbi
 import { detectTrigger } from './triggerDetector';
 import { redactSecrets } from './secretRedaction';
 import { TwilioProvider } from './providers/TwilioProvider';
-import { MetaCloudProvider } from './providers/MetaCloudProvider';
+import { MetaCloudProvider, prewarmMetaMedia } from './providers/MetaCloudProvider';
 import { IncomingWhatsAppMessage } from './types/whatsapp';
 import { getTwilioEvents, recordTwilioEvent } from './twilioEvents';
 import { isMetaAuthError, notifySystemAlert, systemAlertEmailConfigured, SystemAlert, testSystemAlertEmail } from './systemAlerts';
@@ -4492,6 +4492,10 @@ export function startAdminServer(storage: Storage): import('http').Server {
       size: buffer.length,
     });
     res.status(201).json(file);
+    // Upload to Meta right away, in the background, so the campaign's first participant does not wait on it.
+    if (config.WHATSAPP_PROVIDER === 'META_CLOUD_API' && config.META_ACCESS_TOKEN && config.META_PHONE_NUMBER_ID) {
+      void prewarmMetaMedia([path.join(config.UPLOADS_PATH, filename)], 'upload');
+    }
   });
 
   app.get('/api/campaigns', (_req, res) => {

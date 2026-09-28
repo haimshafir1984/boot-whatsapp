@@ -7,6 +7,7 @@ import { InboxRuntimeConfig } from './config';
 import { PostgresInboxRepository } from './postgresRepository';
 import { createInboxPool, migrateInboxSchema } from './schema';
 import { assertBackendConsistency } from './migration';
+import { needsAutoMigration, runAutoMigration, startJsonHandoffWatcher } from './handoff';
 import { InboxResolution } from './types';
 
 /**
@@ -97,7 +98,7 @@ export class PostgresInboxStore implements InboxStore {
   private pool?: Pool;
   private repo?: PostgresInboxRepository;
   private readonly workerId = `${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
-  constructor(private readonly cfg: InboxRuntimeConfig) {}
+  constructor(private readonly cfg: InboxRuntimeConfig, private readonly pendingMigrationFile?: string) {}
   get role(): 'gateway' | 'client' { return this.cfg.role; }
 
   async init(): Promise<void> {
@@ -107,6 +108,13 @@ export class PostgresInboxStore implements InboxStore {
     try {
       await migrateInboxSchema(pool);
       await pool.query('select 1');
+      // Nothing is claimed or acknowledged before this returns: receipts wait on init, so a message that arrives during the
+      // import is refused with 503 and redelivered by the gateway - never written to the file, never lost.
+      if (this.pendingMigrationFile && needsAutoMigration(this.pendingMigrationFile)) {
+        console.warn('[INBOX_AUTO_MIGRATE_START]', this.pendingMigrationFile);
+        const result = await runAutoMigration(pool, this.pendingMigrationFile, { role: 'client', namespace: this.cfg.namespace });
+        console.warn('[INBOX_AUTO_MIGRATED]', JSON.stringify({ result: result.result, imported: result.imported, byStatusInSql: result.byStatusInSql }));
+      }
     } catch (err) {
       await pool.end().catch(() => {});
       throw err;
@@ -182,39 +190,68 @@ export class PostgresInboxStore implements InboxStore {
 export class JsonInboxStore implements InboxStore {
   readonly backend = 'json' as const;
   private inbox?: MetaGatewayInbox;
+  // Handoff to a PostgreSQL process (handoff.ts): frozen = no new receipts or claims; sealed = no writes at all, ever.
+  private frozen = false;
+  private sealed = false;
+  private readonly inflight = new Set<string>();
+  private watcher?: { stop(): void };
   constructor(private readonly filePath: string, readonly role: 'gateway' | 'client') {}
 
   async init(): Promise<void> {
     if (!this.inbox) {
       fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
       this.inbox = new MetaGatewayInbox(this.filePath);
+      if (this.role === 'client') {
+        this.watcher = startJsonHandoffWatcher(this.filePath, {
+          freeze: async () => {
+            this.frozen = true;
+            // Bounded: an item still unsettled after this is imported as `processing`, which the client role records as
+            // review(ambiguous_processing) - not re-run, visible for review. Never a silent loss or a double run.
+            const deadline = Date.now() + 60_000;
+            while (this.inflight.size > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+            if (this.inflight.size > 0) console.warn('[INBOX_HANDOFF_INFLIGHT_LEFT]', [...this.inflight].join(','));
+          },
+          seal: () => { this.sealed = true; },
+        });
+      }
     }
   }
   private get i(): MetaGatewayInbox {
     if (!this.inbox) throw new Error('JSON inbox is not initialised');
+    if (this.sealed) throw new Error('this client inbox was handed over to PostgreSQL; this process no longer writes it');
     return this.inbox;
   }
+  /** Reads stay available after the handoff (health, counts), so the old process answers truthfully until Swarm stops it. */
+  private get ro(): MetaGatewayInbox {
+    if (!this.inbox) throw new Error('JSON inbox is not initialised');
+    return this.inbox;
+  }
+  private settled(item: StoredInboxItem): void { this.inflight.delete(item.ref); }
   /** Test/migration access to the legacy object. */
   legacy(): MetaGatewayInbox { return this.i; }
 
   async enqueueMany(items: Array<{ id: string; payload: any }>): Promise<{ inserted: string[]; duplicates: string[] }> {
+    // Refused, not acknowledged: the caller answers 503 and the gateway redelivers - by then to the PostgreSQL process.
+    if (this.frozen) throw new Error('this client inbox is being moved to PostgreSQL; message refused, not acknowledged (it will be redelivered)');
     for (const item of items) this.i.enqueue(item.id, item.payload);   // legacy: idempotent by id, throws when the write fails
     return { inserted: items.map((item) => item.id), duplicates: [] };
   }
 
   async claim(limit: number): Promise<{ claimed: StoredInboxItem[]; reviewed: AmbiguousInboxItem[] }> {
+    if (this.frozen) return { claimed: [], reviewed: [] };
     const items = this.i.claimBatch(limit, (item) => metaPayloadSenderKey(item.payload));
+    for (const item of items) this.inflight.add(item.id);
     return { claimed: items.map((item) => ({ id: item.id, ref: item.id, token: String(item.attempts), payload: item.payload, attempts: item.attempts })), reviewed: [] };
   }
 
   async renew(): Promise<boolean> { return true; }
-  async complete(item: StoredInboxItem): Promise<{ ok: boolean; late: boolean }> { this.i.markCompleted(item.ref); return { ok: true, late: false }; }
-  async retry(item: StoredInboxItem, error: unknown, nextAttemptAt: Date): Promise<boolean> { this.i.markRetry(item.ref, error, nextAttemptAt); return true; }
-  async hold(item: StoredInboxItem, reason: unknown): Promise<boolean> { this.i.markHeld(item.ref, reason); return true; }
-  async fail(item: StoredInboxItem, error: unknown): Promise<boolean> { this.i.markFailed(item.ref, error); return true; }
+  async complete(item: StoredInboxItem): Promise<{ ok: boolean; late: boolean }> { try { this.i.markCompleted(item.ref); } finally { this.settled(item); } return { ok: true, late: false }; }
+  async retry(item: StoredInboxItem, error: unknown, nextAttemptAt: Date): Promise<boolean> { try { this.i.markRetry(item.ref, error, nextAttemptAt); } finally { this.settled(item); } return true; }
+  async hold(item: StoredInboxItem, reason: unknown): Promise<boolean> { try { this.i.markHeld(item.ref, reason); } finally { this.settled(item); } return true; }
+  async fail(item: StoredInboxItem, error: unknown): Promise<boolean> { try { this.i.markFailed(item.ref, error); } finally { this.settled(item); } return true; }
   async review(item: StoredInboxItem, _resolution: InboxResolution, detail?: unknown): Promise<boolean> {
     // The legacy file has no `review` state. It is recorded as failed with the reason, never as completed (nothing is silently completed).
-    this.i.markFailed(item.ref, new Error(`[REVIEW:${_resolution}] ${JSON.stringify(detail ?? {})}`));
+    try { this.i.markFailed(item.ref, new Error(`[REVIEW:${_resolution}] ${JSON.stringify(detail ?? {})}`)); } finally { this.settled(item); }
     return true;
   }
   async cancelForPhone(phoneDigits: string): Promise<number> { return this.i.cancelPendingForPhone(phoneDigits); }
@@ -233,7 +270,7 @@ export class JsonInboxStore implements InboxStore {
   async listReview(opts: { statuses?: Array<'held' | 'failed' | 'review'>; limit?: number; after?: { updatedAt: string; id: string } }): Promise<InboxReviewItem[]> {
     const wanted = (opts.statuses ?? ['held', 'failed', 'review']).filter((st) => st !== 'review') as Array<'held' | 'failed'>;   // the legacy file has no review state (recorded as failed)
     const after = opts.after;
-    return this.i.listByStatus(wanted)
+    return this.ro.listByStatus(wanted)
       .filter((item) => !after || item.updatedAt > after.updatedAt || (item.updatedAt === after.updatedAt && item.id > after.id))
       .slice(0, Math.min(1000, Math.max(1, opts.limit ?? 100)))
       .map((item) => ({
@@ -243,15 +280,19 @@ export class JsonInboxStore implements InboxStore {
   }
 
   async counts(): Promise<InboxCountsView> {
-    const c = this.i.counts();
+    const c = this.ro.counts();
     return { queued: c.queued, processing: c.processing, retry: c.retry, held: c.held, failed: c.failed, review: 0, completed: c.completed };
   }
   async oldestDueAgeMs(): Promise<number | null> { return null; }
-  async close(): Promise<void> { this.inbox = undefined; }
+  async close(): Promise<void> { this.watcher?.stop(); this.inbox = undefined; }
 }
 
 export function createInboxStore(cfg: InboxRuntimeConfig, jsonFilePath: string): InboxStore {
-  // Two backends are never active writers, and an unmigrated legacy file is never silently ignored.
+  // A client inbox moving to PostgreSQL imports its file at init (handoff.ts) instead of refusing to start. Everything else keeps the
+  // strict guard: two backends are never active writers, and an unmigrated legacy file is never silently ignored.
+  if (cfg.backend === 'postgres' && cfg.role === 'client' && cfg.autoMigrate && needsAutoMigration(jsonFilePath)) {
+    return new PostgresInboxStore(cfg, jsonFilePath);
+  }
   assertBackendConsistency(cfg.backend, jsonFilePath);
   return cfg.backend === 'postgres' ? new PostgresInboxStore(cfg) : new JsonInboxStore(jsonFilePath, cfg.role);
 }

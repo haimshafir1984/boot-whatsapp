@@ -25,6 +25,54 @@ export const metaSendTimeoutMs = (): number => budgetMs('META_SEND_TIMEOUT_MS', 
 export const metaMediaUploadTimeoutMs = (): number => budgetMs('META_MEDIA_UPLOAD_TIMEOUT_MS', 60_000, 1_000, 300_000);
 const metaMediaCache = new Map<string, CachedMetaMedia>();
 const metaMediaUploads = new Map<string, Promise<string>>();
+// A media id close to expiry is re-uploaded ahead of time by the pre-warm pass, never by a participant's send.
+const META_MEDIA_REFRESH_BEFORE_MS = 3 * 24 * 60 * 60 * 1000;
+const META_MEDIA_CACHE_MAX = 500;
+
+// The cache used to live only in memory, so the first participant after every restart/deploy paid a full media
+// upload before their first message. It is persisted to a small file on the data volume (rewritten only when an
+// upload happens - rare, and tiny: at most META_MEDIA_CACHE_MAX short entries). Tests opt in explicitly so runs
+// cannot leak cached ids into each other.
+function metaMediaCacheFile(): string | null {
+  const explicit = (process.env.META_MEDIA_CACHE_PATH || '').trim();
+  if (explicit) return explicit;
+  if (process.env.NODE_ENV === 'test') return null;
+  return path.join(path.dirname(config.UPLOADS_PATH), 'meta-media-cache.json');
+}
+
+let metaMediaCacheLoadedFrom: string | null | undefined;
+function ensureMetaMediaCacheLoaded(): void {
+  const file = metaMediaCacheFile();
+  if (metaMediaCacheLoadedFrom === file) return;
+  metaMediaCacheLoadedFrom = file;
+  if (!file) return;
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, CachedMetaMedia>;
+    const now = Date.now();
+    for (const [key, entry] of Object.entries(raw)) {
+      if (metaMediaCache.size >= META_MEDIA_CACHE_MAX) break;
+      if (entry && typeof entry.id === 'string' && Number(entry.expiresAt) > now && !metaMediaCache.has(key)) {
+        metaMediaCache.set(key, { id: entry.id, expiresAt: Number(entry.expiresAt) });
+      }
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') console.warn('[META_MEDIA_CACHE_LOAD_FAILED]', describeFetchError(err));
+  }
+}
+
+function persistMetaMediaCache(): void {
+  const file = metaMediaCacheFile();
+  if (!file) return;
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const temp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(temp, JSON.stringify(Object.fromEntries(metaMediaCache)), 'utf-8');
+    fs.renameSync(temp, file);
+  } catch (err) {
+    // Never fatal: the in-memory cache still works; only the restart benefit is lost.
+    console.warn('[META_MEDIA_CACHE_PERSIST_FAILED]', describeFetchError(err));
+  }
+}
 
 export class MetaCloudProvider implements WhatsAppProvider {
   async initialize(): Promise<void> { this.assertConfigured(); }
@@ -69,9 +117,24 @@ export class MetaCloudProvider implements WhatsAppProvider {
       // sending again would duplicate it.
       if (classifySendError(err).outcome === 'uncertain') throw err;
       metaMediaCache.delete(cacheKey);
+      persistMetaMediaCache();
       mediaId = await this.uploadAndCacheMedia(cacheKey, filePath, mimeType, fileName);
       return await send();
     }
+  }
+
+  /**
+   * Upload a file to Meta ahead of any send, so no participant waits on the upload. No message is sent.
+   * Skips a file whose cached id is still comfortably valid; re-uploads one that is close to Meta's expiry.
+   */
+  async prewarmFile(filePath: string): Promise<'cached' | 'uploaded'> {
+    this.assertConfigured();
+    const cacheKey = metaMediaCacheKey(filePath);
+    const cached = getCachedMetaMedia(cacheKey);
+    if (cached && cached.expiresAt - Date.now() > META_MEDIA_REFRESH_BEFORE_MS) return 'cached';
+    const fileName = path.basename(filePath);
+    await this.uploadAndCacheMedia(cacheKey, filePath, mimeTypeForFile(fileName), fileName);
+    return 'uploaded';
   }
 
   async sendContactCard(to: string, vcard: string, displayName: string): Promise<WhatsAppSendResult> {
@@ -169,8 +232,11 @@ export class MetaCloudProvider implements WhatsAppProvider {
     const pending = metaMediaUploads.get(cacheKey);
     if (pending) return await pending;
     const upload = this.uploadMedia(filePath, mimeType, fileName).then((id) => {
-      if (metaMediaCache.size >= 500) metaMediaCache.delete(metaMediaCache.keys().next().value as string);
+      ensureMetaMediaCacheLoaded();
+      metaMediaCache.delete(cacheKey);
+      if (metaMediaCache.size >= META_MEDIA_CACHE_MAX) metaMediaCache.delete(metaMediaCache.keys().next().value as string);
       metaMediaCache.set(cacheKey, { id, expiresAt: Date.now() + META_MEDIA_CACHE_MS });
+      persistMetaMediaCache();
       return id;
     }).finally(() => {
       metaMediaUploads.delete(cacheKey);
@@ -224,12 +290,36 @@ function describeFetchError(err: unknown): string {
   return [anyErr?.message, anyErr?.cause?.code || anyErr?.cause?.message].filter(Boolean).join(' / ') || String(err);
 }
 
+/**
+ * Background pre-upload of campaign/bot files to Meta. Never throws; a failure just means that file is uploaded
+ * on first send, exactly as before. Two at a time so it cannot compete with live sends.
+ */
+export async function prewarmMetaMedia(filePaths: string[], reason: string): Promise<{ uploaded: number; cached: number; failed: number }> {
+  const result = { uploaded: 0, cached: 0, failed: 0 };
+  const provider = new MetaCloudProvider();
+  const queue = [...new Set(filePaths)].filter((filePath) => fs.existsSync(filePath));
+  const worker = async (): Promise<void> => {
+    for (let filePath = queue.shift(); filePath; filePath = queue.shift()) {
+      try {
+        result[await provider.prewarmFile(filePath)] += 1;
+      } catch (err) {
+        result.failed += 1;
+        console.warn('[META_MEDIA_PREWARM_FAILED]', path.basename(filePath), describeFetchError(err));
+      }
+    }
+  };
+  await Promise.all([worker(), worker()]);
+  if (result.uploaded || result.failed) console.log(`[META_MEDIA_PREWARM] reason=${reason} uploaded=${result.uploaded} cached=${result.cached} failed=${result.failed}`);
+  return result;
+}
+
 function metaMediaCacheKey(filePath: string): string {
   const stat = fs.statSync(filePath);
   return `${config.META_PHONE_NUMBER_ID}:${path.resolve(filePath)}:${stat.size}:${stat.mtimeMs}`;
 }
 
 function getCachedMetaMedia(key: string): CachedMetaMedia | undefined {
+  ensureMetaMediaCacheLoaded();
   const cached = metaMediaCache.get(key);
   if (!cached) return undefined;
   if (cached.expiresAt <= Date.now()) {

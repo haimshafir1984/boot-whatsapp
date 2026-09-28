@@ -16,6 +16,7 @@ test-meta-routes-cache.js
 test-inbox-sender-concurrency.js
 test-meta-webhook-signature.js
 test-meta-media-cache.js
+test-meta-media-cache-persist.js
 test-meta-contact-payload.js
 test-meta-typing-indicator.js
 test-meta-trigger-age-window.js
@@ -80,4 +81,5 @@ test-inbox-crash-after-effect.js
 test-inbox-runtime-postgres.js
 test-conversation-state-rows-postgres.js
 test-inbox-migration-postgres.js
+test-inbox-auto-migrate-handoff.js
 test-shutdown-idle-connections.js

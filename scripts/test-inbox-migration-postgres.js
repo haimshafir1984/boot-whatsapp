@@ -179,7 +179,9 @@ const dbStats = async (pool) => JSON.stringify((await pool.query("select relname
 
   await scenario('NO DUAL WRITERS: JSON backend refuses to start once the marker exists; PostgreSQL backend refuses to start over an unmigrated legacy file; neither ignores data silently', async () => {
     const t = fresh('guard'); buildLegacy(t.file);
-    const cfgPg = readInboxConfig('client', { INBOX_BACKEND: 'postgres', INBOX_DATABASE_URL: inboxTestUrl(), INBOX_NAMESPACE: t.ns });
+    // Strict mode (INBOX_AUTO_MIGRATE=false). With the default auto mode the store imports at init instead - see
+    // test-inbox-auto-migrate-handoff.js - but it still never ignores the file.
+    const cfgPg = readInboxConfig('client', { INBOX_BACKEND: 'postgres', INBOX_DATABASE_URL: inboxTestUrl(), INBOX_NAMESPACE: t.ns, INBOX_AUTO_MIGRATE: 'false' });
     const cfgJson = readInboxConfig('client', { INBOX_BACKEND: 'json' });
     assert.throws(() => createInboxStore(cfgPg, t.file), /has not been migrated/, 'postgres over an unmigrated file');
     createInboxStore(cfgJson, t.file);                                                       // legacy default keeps working before migration
@@ -197,7 +199,7 @@ const dbStats = async (pool) => JSON.stringify((await pool.query("select relname
     assert.match(r.result, /byte-for-byte/); assert.equal(sha(t.file), originalSha); assert.equal(fs.existsSync(mig.markerPath(t.file)), false);
     assert.equal((await pool.query('select status from inbox_import_ledger where source_id = $1', [mig.sourceIdOf(opts(t))])).rows[0].status, 'rolled_back');
     createInboxStore(readInboxConfig('client', { INBOX_BACKEND: 'json' }), t.file);
-    assert.throws(() => createInboxStore(readInboxConfig('client', { INBOX_BACKEND: 'postgres', INBOX_DATABASE_URL: inboxTestUrl(), INBOX_NAMESPACE: t.ns }), t.file), /has not been migrated/);
+    assert.throws(() => createInboxStore(readInboxConfig('client', { INBOX_BACKEND: 'postgres', INBOX_DATABASE_URL: inboxTestUrl(), INBOX_NAMESPACE: t.ns, INBOX_AUTO_MIGRATE: 'false' }), t.file), /has not been migrated/);
     await assert.rejects(() => mig.rollback(pool, { role: 'client', namespace: t.ns, sourceFile: t.file, confirmStopped: true }), /nothing to roll back/);
   });
 
