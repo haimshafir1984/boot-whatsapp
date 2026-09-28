@@ -3,6 +3,7 @@
  * Entry point – starts the admin HTTP server then the WhatsApp client.
  */
 
+import { installSecretLogFilter } from './secretLogFilter';
 import fs from 'fs';
 import path from 'path';
 import { Storage } from './storage';
@@ -83,6 +84,7 @@ function restoreConversationState(storage: Storage): void {
   }
 }
 async function main(): Promise<void> {
+  installSecretLogFilter();
   console.log('─'.repeat(50));
   console.log('  WhatsApp Status Bot – starting up…');
   console.log('─'.repeat(50));

@@ -47,6 +47,7 @@ test-graceful-shutdown.js
 test-provider-health.js
 test-client-disable.js
 test-system-alerts.js
+test-secret-log-filter.js
 test-dokploy-provisioner-postgres.js
 test-redeploy-existing-client.js
 test-bulk-redeploy-status.js
