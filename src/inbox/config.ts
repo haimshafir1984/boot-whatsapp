@@ -2,7 +2,8 @@
  * Stage E inbox configuration (environment). Nothing here silently falls back: a PostgreSQL inbox that cannot be configured
  * or reached is an error (receipts fail with 503, workers stop claiming), never a reason to write JSON files instead.
  *
- *   INBOX_BACKEND               'json' (default, legacy file - NOT scalable) | 'postgres'
+ *   INBOX_BACKEND               'json' (legacy file - NOT scalable) | 'postgres'. Default: 'postgres' for a client that has a
+ *                               database (DATABASE_URL / INBOX_DATABASE_URL), otherwise 'json'. Explicit 'json' is still honoured.
  *   INBOX_DATABASE_URL          connection string of the inbox database. REQUIRED for the gateway when INBOX_BACKEND=postgres
  *                               (the gateway has no other database). A client falls back to its own DATABASE_URL.
  *   INBOX_NAMESPACE             identity of this storage inside a shared database (default: 'gateway' / 'client')
@@ -38,11 +39,14 @@ const intEnv = (env: NodeJS.ProcessEnv, name: string, dflt: number, min: number,
 };
 
 export function readInboxConfig(role: InboxRole, env: NodeJS.ProcessEnv = process.env): InboxRuntimeConfig {
-  const requested = String(env.INBOX_BACKEND ?? 'json').trim().toLowerCase();
-  if (requested !== 'json' && requested !== 'postgres') throw new Error(`INBOX_BACKEND must be "json" or "postgres" (got "${requested}")`);
   const databaseUrl = role === 'gateway'
     ? (env.INBOX_DATABASE_URL || '').trim()
     : ((env.INBOX_DATABASE_URL || env.DATABASE_URL || '').trim());
+  // A client that has a database keeps its inbox there by default (its JSON file, if any, is imported at startup - handoff.ts).
+  // The gateway keeps an explicit opt-in: it has no database of its own unless INBOX_DATABASE_URL is set.
+  const explicit = String(env.INBOX_BACKEND ?? '').trim().toLowerCase();
+  const requested = explicit || (role === 'client' && databaseUrl ? 'postgres' : 'json');
+  if (requested !== 'json' && requested !== 'postgres') throw new Error(`INBOX_BACKEND must be "json" or "postgres" (got "${requested}")`);
   if (requested === 'postgres' && !databaseUrl) {
     throw new Error(role === 'gateway'
       ? 'INBOX_BACKEND=postgres requires INBOX_DATABASE_URL for the gateway (the gateway has no other database). Refusing to fall back to JSON.'

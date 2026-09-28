@@ -179,6 +179,15 @@ async function sqlItems(pool, ns) {
     assert.equal((await sqlItems(pool, t.ns)).length, 0, 'nothing imported');
   });
 
+  await scenario('DEFAULT BACKEND: a client with a database defaults to PostgreSQL; explicit json is honoured; no database = json; the gateway stays opt-in', async () => {
+    assert.equal(readInboxConfig('client', { DATABASE_URL: 'postgres://x' }).backend, 'postgres');
+    assert.equal(readInboxConfig('client', { INBOX_DATABASE_URL: 'postgres://x' }).backend, 'postgres');
+    assert.equal(readInboxConfig('client', { DATABASE_URL: 'postgres://x', INBOX_BACKEND: 'json' }).backend, 'json');
+    assert.equal(readInboxConfig('client', {}).backend, 'json');
+    assert.equal(readInboxConfig('gateway', { DATABASE_URL: 'postgres://x' }).backend, 'json');
+    assert.equal(readInboxConfig('gateway', { INBOX_DATABASE_URL: 'postgres://x' }).backend, 'json');
+  });
+
   await scenario('STRICT MODE (INBOX_AUTO_MIGRATE=false) and the gateway role keep the old refuse-to-start guard', async () => {
     const t = fresh('strict'); buildLegacy(t.file);
     assert.throws(() => createInboxStore(pgCfg(t.ns, { INBOX_AUTO_MIGRATE: 'false' }), t.file), /has not been migrated/);
