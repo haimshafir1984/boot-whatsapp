@@ -4,6 +4,24 @@ import path from 'path';
 
 export type ClientProvisioningStatus = 'pending_setup' | 'pending_railway_setup' | 'provisioning' | 'deploying' | 'ready' | 'failed' | 'disabled';
 
+/**
+ * Embedded Signup completion status (embedded-signup-automation-plan-2026-09-28,
+ * section 3.3). `step` names the last step attempted/completed, e.g.
+ * 'code_exchanged', 'token_verified', 'phone_verified', 'subscribed_apps',
+ * 'smb_history_sync', 'smb_contacts_sync', 'provisioned' - it drives the
+ * "retry from the failed step" button and is not itself validated here, the
+ * same way `provisioningError` below is a free-form string.
+ */
+export type MetaOnboardingStatus = 'in_progress' | 'connected' | 'failed';
+
+export interface MetaOnboardingState {
+  status: MetaOnboardingStatus;
+  step: string;
+  error?: string;
+  completedAt?: string;
+  updatedAt: string;
+}
+
 export interface ManagedClient {
   id: string;
   name: string;
@@ -18,6 +36,14 @@ export interface ManagedClient {
   metaDisplayPhoneNumber?: string;
   metaAccessToken?: string;
   metaVerifyToken?: string;
+  /** WABA that owns metaPhoneNumberId - set once Embedded Signup completes; not used for routing. */
+  metaWabaId?: string;
+  metaOnboarding?: MetaOnboardingState;
+  /** One-time Embedded Signup connect link (section 3.1). Only the SHA-256 hash of the link
+   * token is stored, never the token itself - see docs/embedded-signup-automation-plan-2026-09-28.md. */
+  metaConnectLinkTokenHash?: string;
+  metaConnectLinkExpiresAt?: string;
+  metaConnectLinkUsedAt?: string;
   twilioFrom?: string;
   botReplyDelayMs?: number;
   managementUrl: string;
@@ -74,6 +100,10 @@ function isValidClientRecord(raw: unknown): raw is Record<string, unknown> {
   if ('readonlyDashboard' in record && typeof record.readonlyDashboard !== 'boolean') return false;
   if ('managementUrl' in record && typeof record.managementUrl !== 'string') return false;
   if ('provisioningStatus' in record && typeof record.provisioningStatus !== 'string') return false;
+  if ('metaOnboarding' in record) {
+    const onboarding = record.metaOnboarding;
+    if (onboarding !== undefined && (typeof onboarding !== 'object' || onboarding === null || Array.isArray(onboarding))) return false;
+  }
   return true;
 }
 

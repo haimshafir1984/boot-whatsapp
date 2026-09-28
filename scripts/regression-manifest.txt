@@ -84,3 +84,5 @@ test-conversation-state-rows-postgres.js
 test-inbox-migration-postgres.js
 test-inbox-auto-migrate-handoff.js
 test-shutdown-idle-connections.js
+# embedded signup (2026-09-28), stage 7 step 2
+test-meta-embedded-signup-model.js

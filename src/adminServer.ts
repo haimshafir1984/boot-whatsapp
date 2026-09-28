@@ -2947,6 +2947,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
     ...client,
     metaAccessToken: undefined,
     metaVerifyToken: undefined,
+    metaConnectLinkTokenHash: undefined,
     dokployPostgresDatabasePassword: undefined,
     postgresStorageEnabled: Boolean(client.dokployPostgresId),
     metaWebhookUrl: dokployProvisioner.getMetaWebhookUrl(client),
