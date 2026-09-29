@@ -31,6 +31,12 @@ export const config = {
   META_VERIFY_TOKEN: envValue(process.env.META_VERIFY_TOKEN ?? process.env.DOKPLOY_META_VERIFY_TOKEN),
   META_APP_SECRET: envValue(process.env.META_APP_SECRET ?? process.env.DOKPLOY_META_APP_SECRET),
   META_GRAPH_API_VERSION: envValue(process.env.META_GRAPH_API_VERSION, 'v23.0'),
+  /** Embedded Signup (embedded-signup-automation-plan-2026-09-28), admin/gateway service only.
+   * `boot1`'s App ID (public, safe to send to the browser) and the Facebook-Login-for-Business
+   * Configuration ID for the WhatsApp Embedded Signup flow. Either missing hides the connect-link
+   * button and 404s /connect/meta/*. */
+  META_APP_ID: envValue(process.env.META_APP_ID),
+  META_EMBEDDED_SIGNUP_CONFIG_ID: envValue(process.env.META_EMBEDDED_SIGNUP_CONFIG_ID),
   META_GATEWAY_BASE_URL: envValue(process.env.META_GATEWAY_BASE_URL, 'https://admin.flowsbiz.com'),
   /** True when this client was provisioned with its own Meta phone number (customer-owned-whatsapp-number-meta-plan.md), not the shared one. Operational visibility only - the gateway already routes by matching phone_number_id, not by this flag. */
   META_DEDICATED_NUMBER: envFlag(process.env.META_DEDICATED_NUMBER, false),

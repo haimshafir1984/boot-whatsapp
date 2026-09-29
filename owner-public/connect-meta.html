@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>חיבור מספר WhatsApp</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: center;
+      padding: 20px; font-family: 'Segoe UI', Arial, sans-serif;
+      color: #111827; background: #f3f4f6;
+    }
+    main { width: min(520px, 100%); background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 30px 26px; }
+    h1 { margin: 0 0 8px; font-size: 1.2rem; }
+    p { color: #4b5563; font-size: .9rem; line-height: 1.6; }
+    ul { color: #4b5563; font-size: .87rem; line-height: 1.7; padding-inline-start: 20px; margin: 10px 0 20px; }
+    button { width: 100%; border: none; border-radius: 7px; padding: 13px; background: #111827; color: #fff; font-weight: 700; font-size: .95rem; cursor: pointer; }
+    button:disabled { background: #9ca3af; cursor: default; }
+    #status { min-height: 20px; font-size: .85rem; margin-top: 14px; line-height: 1.5; }
+    #status.error { color: #b91c1c; }
+    #status.success { color: #15803d; }
+    #status.pending { color: #6b7280; }
+  </style>
+</head>
+<body>
+  <main id="app">
+    <h1>טוען...</h1>
+  </main>
+  <script>
+    (function () {
+      var token = window.location.pathname.split('/').filter(Boolean).pop();
+      var app = document.getElementById('app');
+
+      function renderInvalid() {
+        app.innerHTML = '<h1>הקישור אינו תקף</h1>'
+          + '<p>ייתכן שהקישור פג תוקף, כבר נעשה בו שימוש, או שאינו נכון. יש לפנות לבעל המערכת לקבלת קישור חדש.</p>';
+      }
+
+      function renderForm(config) {
+        app.innerHTML =
+          '<h1>חיבור מספר WhatsApp קיים</h1>'
+          + '<p>החיבור נעשה מול חשבון הפייסבוק שלך, ומאשר ל-FlowsBiz לשלוח ולקבל הודעות דרך המספר שלך ב-WhatsApp Business, ' +
+            'בלי לנתק את האפליקציה מהטלפון.</p>'
+          + '<p><strong>חשוב לדעת לפני שממשיכים:</strong></p>'
+          + '<ul>'
+          + '<li>הודעות נעלמות, צפייה חד-פעמית ומיקום חי בשיחות פרטיות ייכבו.</li>'
+          + '<li>רשימות תפוצה ייכבו.</li>'
+          + '<li>כל המכשירים המקושרים לאפליקציה יתנתקו. WhatsApp ל-Windows אינו נתמך.</li>'
+          + '<li>נדרשת אפליקציית WhatsApp Business בגרסה 2.24.17 ומעלה.</li>'
+          + '<li>קצב שליחה קבוע של 20 הודעות לשנייה - מספיק לעסק קטן.</li>'
+          + '</ul>'
+          + '<button id="connectBtn">התחבר עם פייסבוק</button>'
+          + '<div id="status"></div>';
+
+        var statusEl = document.getElementById('status');
+        var setStatus = function (text, kind) {
+          statusEl.textContent = text || '';
+          statusEl.className = kind || '';
+        };
+
+        var pendingCode = null;
+        var pendingWabaId = null;
+        var submitted = false;
+
+        var trySubmit = function () {
+          if (submitted || !pendingCode || !pendingWabaId) return;
+          submitted = true;
+          document.getElementById('connectBtn').disabled = true;
+          setStatus('מעדכן את המערכת...', 'pending');
+          fetch(window.location.pathname.replace(/\/$/, '') + '/complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: pendingCode, wabaId: pendingWabaId }),
+          })
+            .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
+            .then(function (result) {
+              if (result.ok) {
+                setStatus('החיבור הושלם בהצלחה. אפשר לסגור את החלון.', 'success');
+              } else {
+                submitted = false;
+                document.getElementById('connectBtn').disabled = false;
+                setStatus('שגיאה: ' + (result.body && result.body.error ? result.body.error : 'לא ניתן היה להשלים את החיבור.'), 'error');
+              }
+            })
+            .catch(function () {
+              submitted = false;
+              document.getElementById('connectBtn').disabled = false;
+              setStatus('שגיאת רשת. יש לנסות שוב.', 'error');
+            });
+        };
+
+        window.addEventListener('message', function (event) {
+          if (typeof event.origin !== 'string' || !/(^|\.)facebook\.com$/.test(event.origin.replace(/^https?:\/\//, ''))) return;
+          var data;
+          try { data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data; } catch (err) { return; }
+          if (!data || data.type !== 'WA_EMBEDDED_SIGNUP') return;
+          if (data.event === 'FINISH' || data.event === 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING') {
+            // Coexistence's FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING only ever carries waba_id - the
+            // server always re-derives the phone number itself (see docs/embedded-signup-
+            // coexistence-event-contract-finding-2026-09-29.md), so a phone_number_id here, if
+            // present, is not used.
+            pendingWabaId = data.data && data.data.waba_id;
+            setStatus('מתחבר...', 'pending');
+            trySubmit();
+          } else if (data.event === 'CANCEL') {
+            setStatus('החיבור בוטל.', 'error');
+          }
+        });
+
+        document.getElementById('connectBtn').addEventListener('click', function () {
+          if (typeof FB === 'undefined') {
+            setStatus('שגיאה בטעינת פייסבוק. נסו לרענן את הדף.', 'error');
+            return;
+          }
+          setStatus('נפתח חלון פייסבוק...', 'pending');
+          FB.login(function (response) {
+            var code = response && response.authResponse && response.authResponse.code;
+            if (!code) {
+              setStatus('החיבור לא הושלם.', 'error');
+              return;
+            }
+            pendingCode = code;
+            trySubmit();
+          }, {
+            config_id: config.configId,
+            response_type: 'code',
+            override_default_response_type: true,
+            extras: { setup: {} },
+          });
+        });
+
+        window.fbAsyncInit = function () {
+          FB.init({ appId: config.appId, autoLogAppEvents: false, xfbml: false, version: config.graphApiVersion });
+        };
+        (function (d, s, id) {
+          var js, fjs = d.getElementsByTagName(s)[0];
+          if (d.getElementById(id)) return;
+          js = d.createElement(s); js.id = id;
+          js.src = 'https://connect.facebook.net/he_IL/sdk.js';
+          fjs.parentNode.insertBefore(js, fjs);
+        }(document, 'script', 'facebook-jssdk'));
+      }
+
+      fetch(window.location.pathname.replace(/\/$/, '') + '/info')
+        .then(function (res) { return res.ok ? res.json() : { valid: false }; })
+        .then(function (config) {
+          if (!config || !config.valid) { renderInvalid(); return; }
+          renderForm(config);
+        })
+        .catch(renderInvalid);
+    })();
+  </script>
+</body>
+</html>

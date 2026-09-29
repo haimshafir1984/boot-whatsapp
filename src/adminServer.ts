@@ -35,8 +35,20 @@ import {
 } from './googleContacts';
 import { createAccessControl } from './accessControl';
 import { createMetaSignatureVerifier } from './metaWebhookSignature';
-import { ManagedClient, OwnerStorage } from './ownerStorage';
+import { ManagedClient, MetaOnboardingStatus, OwnerStorage } from './ownerStorage';
 import { DokployProvisioner } from './dokployProvisioner';
+import {
+  discoverMetaDedicatedPhoneNumberId,
+  exchangeMetaEmbeddedSignupCode,
+  getMetaPhoneNumberDetails,
+  hashConnectLinkToken,
+  generateConnectLinkToken,
+  META_CONNECT_LINK_TTL_MS,
+  subscribeMetaWabaApp,
+  syncMetaSmbAppData,
+  validateConnectLinkToken,
+  verifyMetaEmbeddedSignupToken,
+} from './metaEmbeddedSignup';
 import { conversationState } from './conversationState';
 import { getFlowHealthSnapshot, handleIncomingWhatsAppMessage, holdSenderForAmbiguousInbox, SenderHeldForReviewError } from './messageFlow';
 import { detectTrigger } from './triggerDetector';
@@ -2954,6 +2966,281 @@ export function startAdminServer(storage: Storage): import('http').Server {
     twilioWebhookUrl: dokployProvisioner.getTwilioWebhookUrl(client),
   });
 
+  // ── Embedded Signup for a customer-owned WhatsApp number (Coexistence) ──────
+  // docs/embedded-signup-automation-plan-2026-09-28.md, sections 3.1-3.3, and the
+  // owner-approved correction in docs/embedded-signup-coexistence-event-contract-finding-2026-09-29.md.
+  const metaEmbeddedSignupConfigured = (): boolean =>
+    Boolean(config.META_APP_ID && config.META_EMBEDDED_SIGNUP_CONFIG_ID && config.META_APP_SECRET);
+
+  const saveMetaOnboardingState = (clientId: string, patch: { status: MetaOnboardingStatus; step: string; error?: string; completedAt?: string }) => {
+    ownerStorage.updateClient(clientId, {
+      metaOnboarding: {
+        status: patch.status,
+        step: patch.step,
+        error: patch.error ? redactSecrets(patch.error) : undefined,
+        completedAt: patch.completedAt,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  };
+
+  /**
+   * Steps 3.3.3-3.3.10: token verification through provisioning. Reused by both
+   * the initial /connect/meta/:token/complete call (right after the code
+   * exchange, step 3.3.2, already saved metaAccessToken + metaWabaId) and the
+   * owner's "retry from failed step" action. Every Graph call here is
+   * idempotent (plan section 3.3: "כל צעד חייב להיות אידמפוטנטי"), so a retry
+   * simply re-runs the whole sequence instead of tracking a precise resume
+   * point - it can never repeat the one-shot code exchange, because that
+   * already happened and is not part of this function.
+   */
+  const runMetaEmbeddedSignupSteps = async (clientId: string): Promise<ManagedClient> => {
+    const client = ownerStorage.getClient(clientId);
+    if (!client || !client.metaAccessToken || !client.metaWabaId) {
+      throw new Error('אין נתוני חיבור שמורים ללקוחה הזו - יש להתחיל מקישור חיבור חדש.');
+    }
+    const graphApiVersion = config.META_GRAPH_API_VERSION;
+    const accessToken = client.metaAccessToken;
+    const wabaId = client.metaWabaId;
+
+    try {
+      await verifyMetaEmbeddedSignupToken({ graphApiVersion, appId: config.META_APP_ID, appSecret: config.META_APP_SECRET, accessToken, wabaId });
+      saveMetaOnboardingState(clientId, { status: 'in_progress', step: 'token_verified' });
+
+      // Coexistence's FINISH event never gives us phone_number_id (see the finding doc) - the
+      // server discovers it itself and, per the owner's decision there, refuses anything but
+      // exactly one phone number under the WABA rather than guessing which one to use.
+      const phoneNumberId = await discoverMetaDedicatedPhoneNumberId({ graphApiVersion, wabaId, accessToken });
+      const details = await getMetaPhoneNumberDetails({ graphApiVersion, phoneNumberId, accessToken });
+      saveMetaOnboardingState(clientId, { status: 'in_progress', step: 'phone_verified' });
+
+      if (phoneNumberId === config.META_PHONE_NUMBER_ID) {
+        throw new Error('המספר שהתקבל הוא המספר המשותף של המערכת - לא ניתן לחבר אותו כמספר ייעודי.');
+      }
+      const conflicting = ownerStorage.getClients().find((other) => other.id !== clientId && String(other.metaPhoneNumberId || '').trim() === phoneNumberId);
+      if (conflicting) {
+        throw new Error(`המספר הזה כבר מחובר ללקוחה אחרת (${conflicting.name}).`);
+      }
+      saveMetaOnboardingState(clientId, { status: 'in_progress', step: 'uniqueness_checked' });
+
+      await subscribeMetaWabaApp({ graphApiVersion, wabaId, accessToken });
+      saveMetaOnboardingState(clientId, { status: 'in_progress', step: 'subscribed_apps' });
+
+      // Coexistence never calls .../register (Meta: the number is already registered and doing so
+      // risks disconnecting the WhatsApp Business app). These two syncs replace it, run immediately,
+      // and are tracked separately from the steps above because - unlike them - a failure here must
+      // not block the client from going live: the number is already usable, and Meta gives 24h
+      // before it disconnects the business app over an unsynced number (plan section 3.3.7).
+      // Each sync is attempted independently - contacts and history are unrelated operations, so a
+      // failure in one must not skip the other (plan: "מבצעים את שניהם מיד").
+      const smbSyncErrors: string[] = [];
+      for (const syncType of ['smb_app_state_sync', 'history'] as const) {
+        try {
+          await syncMetaSmbAppData({ graphApiVersion, phoneNumberId, accessToken, syncType });
+        } catch (err: any) {
+          smbSyncErrors.push(`${syncType}: ${err?.message ?? String(err)}`);
+        }
+      }
+      const smbSyncError = smbSyncErrors.length ? smbSyncErrors.join(' | ') : undefined;
+
+      ownerStorage.updateClient(clientId, {
+        metaPhoneNumberId: phoneNumberId,
+        metaDisplayPhoneNumber: details.displayPhoneNumber,
+        provisioningError: undefined,
+      });
+
+      const provisioned = await provisionClient(clientId);
+
+      if (smbSyncError) {
+        saveMetaOnboardingState(clientId, { status: 'in_progress', step: 'smb_sync_failed', error: smbSyncError });
+        // First failure only - this is the anchor the 20h stale-sync sweep (below) measures against.
+        if (!ownerStorage.getClient(clientId)?.metaSmbSyncFirstFailedAt) {
+          ownerStorage.updateClient(clientId, { metaSmbSyncFirstFailedAt: new Date().toISOString() });
+        }
+        notifySystemAlert({
+          key: `meta-embedded-signup-smb-sync-failed-${clientId}`,
+          severity: 'warning',
+          title: 'סנכרון היסטוריה/אנשי קשר נכשל בחיבור מספר ייעודי',
+          message: 'המספר חובר ופרוס, אך סנכרון smb_app_data נכשל. יש ללחוץ "נסה שוב" בדשבורד הלקוחה - אם הסנכרון לא יצליח תוך 24 שעות מהחיבור, Meta תנתק את הלקוחה מהאפליקציה.',
+          details: { clientId, error: smbSyncError },
+        });
+      } else {
+        saveMetaOnboardingState(clientId, { status: 'connected', step: 'completed', completedAt: new Date().toISOString() });
+        ownerStorage.updateClient(clientId, { metaSmbSyncFirstFailedAt: undefined });
+      }
+
+      notifySystemAlert({
+        key: `meta-embedded-signup-connected-${clientId}`,
+        severity: 'warning',
+        title: 'לקוחה חיברה מספר WhatsApp ייעודי',
+        message: `הלקוחה "${provisioned.name}" סיימה את תהליך ה-Embedded Signup${smbSyncError ? ' (עם כשל בסנכרון smb_app_data)' : ''}.`,
+        details: { clientId, phoneNumberId, displayPhoneNumber: details.displayPhoneNumber },
+      });
+
+      return ownerStorage.getClient(clientId)!;
+    } catch (err: any) {
+      const message = err?.message ?? String(err);
+      const lastStep = ownerStorage.getClient(clientId)?.metaOnboarding?.step || 'token_verified';
+      saveMetaOnboardingState(clientId, { status: 'failed', step: lastStep, error: message });
+      throw new Error(message);
+    }
+  };
+
+  // Section 3.3.7: Meta disconnects the WhatsApp Business app if smb_app_data sync has not
+  // succeeded within ~24h of connecting. A critical alert at 20h gives the owner a window to
+  // retry before that happens. notifySystemAlert's own 30-minute per-key throttle keeps this
+  // from spamming on every sweep once a client is past the threshold.
+  const META_SMB_SYNC_STALE_ALERT_MS = 20 * 60 * 60 * 1000;
+  const META_SMB_SYNC_STALE_SWEEP_MS = 15 * 60 * 1000;
+  const sweepStaleMetaSmbSyncs = () => {
+    const now = Date.now();
+    for (const client of ownerStorage.getClients()) {
+      if (!client.metaSmbSyncFirstFailedAt) continue;
+      const failedAt = new Date(client.metaSmbSyncFirstFailedAt).getTime();
+      if (!Number.isFinite(failedAt) || now - failedAt < META_SMB_SYNC_STALE_ALERT_MS) continue;
+      notifySystemAlert({
+        key: `meta-embedded-signup-smb-sync-stale-${client.id}`,
+        severity: 'critical',
+        title: 'סנכרון smb_app_data תקוע מעל 20 שעות',
+        message: `הלקוחה "${client.name}" מחוברת עם מספר ייעודי אך הסנכרון עם WhatsApp Business נכשל ולא הצליח מעל 20 שעות. Meta עלולה לנתק את האפליקציה בטלפון תוך כ-24 שעות מהחיבור. יש ללחוץ "נסה שוב" בדשבורד הלקוחה בהקדם.`,
+        details: { clientId: client.id, firstFailedAt: client.metaSmbSyncFirstFailedAt },
+      });
+    }
+  };
+  const staleMetaSmbSyncTimer = setInterval(sweepStaleMetaSmbSyncs, META_SMB_SYNC_STALE_SWEEP_MS);
+  if (typeof (staleMetaSmbSyncTimer as any).unref === 'function') (staleMetaSmbSyncTimer as any).unref();
+
+  // Serializes concurrent requests for the SAME one-time link - a double-click must complete
+  // exactly once (plan section 6, test 1: "לחיצה כפולה מקבילה שמשלימה פעם אחת בלבד").
+  const metaConnectLinkInFlight = new Set<string>();
+
+  // Section 5: rate limit on /connect/meta/* - these are the first PUBLIC, unauthenticated
+  // routes on the admin/gateway service, and every request (even a wrong token) scans the
+  // full client list. An in-memory per-IP sliding window is enough here - no new dependency,
+  // and unlike the owner/client login limiter (accessControl.ts) this counts every request,
+  // not just failures, since there is no notion of a "failed" GET.
+  const CONNECT_LINK_RATE_LIMIT_WINDOW_MS = 60_000;
+  const CONNECT_LINK_RATE_LIMIT_MAX = 20;
+  const connectLinkRateLimitState = new Map<string, { count: number; windowStart: number }>();
+  const connectLinkRateLimitKey = (req: express.Request): string => {
+    const forwarded = String(req.get('x-forwarded-for') || '').split(',')[0]?.trim();
+    return forwarded || req.ip || req.socket.remoteAddress || 'unknown';
+  };
+  const connectLinkRateLimit = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const key = connectLinkRateLimitKey(req);
+    const now = Date.now();
+    const entry = connectLinkRateLimitState.get(key);
+    if (!entry || now - entry.windowStart >= CONNECT_LINK_RATE_LIMIT_WINDOW_MS) {
+      connectLinkRateLimitState.set(key, { count: 1, windowStart: now });
+      next();
+      return;
+    }
+    entry.count += 1;
+    if (entry.count > CONNECT_LINK_RATE_LIMIT_MAX) {
+      res.setHeader('Retry-After', String(Math.ceil((CONNECT_LINK_RATE_LIMIT_WINDOW_MS - (now - entry.windowStart)) / 1000)));
+      res.status(429).json({ error: 'יותר מדי בקשות. נא לנסות שוב בעוד דקה.' });
+      return;
+    }
+    next();
+  };
+  // Bounds memory - without this, every unique IP that ever hit /connect/meta/* stays in the
+  // map forever, even long after its window expired.
+  const connectLinkRateLimitSweepTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of connectLinkRateLimitState) {
+      if (now - entry.windowStart >= CONNECT_LINK_RATE_LIMIT_WINDOW_MS) connectLinkRateLimitState.delete(key);
+    }
+  }, CONNECT_LINK_RATE_LIMIT_WINDOW_MS);
+  if (typeof (connectLinkRateLimitSweepTimer as any).unref === 'function') (connectLinkRateLimitSweepTimer as any).unref();
+  // Scoped to this one path prefix - every other route (including /owner/api/*) is untouched.
+  app.use('/connect/meta', connectLinkRateLimit);
+
+  app.get('/connect/meta/:token', (_req, res) => {
+    if (!metaEmbeddedSignupConfigured()) {
+      res.status(404).send('Not found');
+      return;
+    }
+    res.sendFile(path.join(ownerPublicDir, 'connect-meta.html'));
+  });
+
+  app.get('/connect/meta/:token/info', (req, res) => {
+    if (!metaEmbeddedSignupConfigured()) {
+      res.status(404).json({ valid: false });
+      return;
+    }
+    const tokenHash = hashConnectLinkToken(req.params.token);
+    const now = Date.now();
+    const client = ownerStorage.getClients().find((candidate) => validateConnectLinkToken(candidate, tokenHash, now).ok);
+    if (!client) {
+      res.status(410).json({ valid: false });
+      return;
+    }
+    res.json({ valid: true, appId: config.META_APP_ID, configId: config.META_EMBEDDED_SIGNUP_CONFIG_ID, graphApiVersion: config.META_GRAPH_API_VERSION });
+  });
+
+  app.post('/connect/meta/:token/complete', async (req, res) => {
+    if (!metaEmbeddedSignupConfigured()) {
+      res.status(404).json({ error: 'לא נמצא' });
+      return;
+    }
+    const tokenHash = hashConnectLinkToken(req.params.token);
+    if (metaConnectLinkInFlight.has(tokenHash)) {
+      res.status(409).json({ error: 'הבקשה כבר בטיפול. נא להמתין.' });
+      return;
+    }
+    metaConnectLinkInFlight.add(tokenHash);
+    try {
+      const now = Date.now();
+      const client = ownerStorage.getClients().find((candidate) => validateConnectLinkToken(candidate, tokenHash, now).ok);
+      if (!client) {
+        res.status(410).json({ error: 'הקישור אינו תקף, פג תוקפו, או שכבר נעשה בו שימוש.' });
+        return;
+      }
+      const code = String(req.body?.code || '').trim();
+      const wabaId = String(req.body?.wabaId || '').trim();
+      if (!code || !wabaId) {
+        res.status(400).json({ error: 'חסרים נתונים מתהליך ההתחברות של Meta.' });
+        return;
+      }
+
+      // Step 1 (3.3): mark the link used atomically, before anything else runs. Meta's `code` is
+      // one-time-use regardless, so nothing is gained by delaying this, and it is what makes a
+      // concurrent double-click land on "invalid link" instead of running the flow twice.
+      ownerStorage.updateClient(client.id, { metaConnectLinkUsedAt: new Date().toISOString(), metaWabaId: wabaId });
+      saveMetaOnboardingState(client.id, { status: 'in_progress', step: 'link_validated' });
+
+      // Step 2 (3.3): exchange the code and persist the token immediately, before verification -
+      // so a failure in any later step can be retried (via runMetaEmbeddedSignupSteps) without
+      // ever repeating Embedded Signup itself.
+      let accessToken: string;
+      try {
+        const exchanged = await exchangeMetaEmbeddedSignupCode({
+          graphApiVersion: config.META_GRAPH_API_VERSION,
+          appId: config.META_APP_ID,
+          appSecret: config.META_APP_SECRET,
+          code,
+        });
+        accessToken = exchanged.accessToken;
+      } catch (err: any) {
+        const message = err?.message ?? String(err);
+        saveMetaOnboardingState(client.id, { status: 'failed', step: 'code_exchanged', error: message });
+        res.status(502).json({ error: message });
+        return;
+      }
+      ownerStorage.updateClient(client.id, { metaAccessToken: accessToken });
+      saveMetaOnboardingState(client.id, { status: 'in_progress', step: 'code_exchanged' });
+
+      try {
+        const updated = await runMetaEmbeddedSignupSteps(client.id);
+        res.json({ ok: true, client: exposeOwnerClient(updated) });
+      } catch (err: any) {
+        res.status(502).json({ error: err?.message ?? String(err) });
+      }
+    } finally {
+      metaConnectLinkInFlight.delete(tokenHash);
+    }
+  });
+
   app.post('/owner/api/clients', async (req, res) => {
     const name = String(req.body?.name ?? '').trim();
     const accessCode = String(req.body?.accessCode ?? '').trim();
@@ -3237,6 +3524,57 @@ export function startAdminServer(storage: Storage): import('http').Server {
       return;
     }
     res.json(exposeOwnerClient(client));
+  });
+
+  // Section 3.1: creating a new link invalidates any previous one for this client - it simply
+  // overwrites the stored hash/expiry, so the old token (which no longer matches any stored hash)
+  // is rejected by validateConnectLinkToken() without any extra bookkeeping.
+  app.post('/owner/api/clients/:id/meta-connect-link', (req, res) => {
+    const client = ownerStorage.getClient(req.params.id);
+    if (!client) {
+      res.status(404).json({ error: 'לקוחה לא נמצאה' });
+      return;
+    }
+    if (client.whatsappProvider !== 'META_CLOUD_API') {
+      res.status(400).json({ error: 'קישור חיבור זמין רק ללקוחות Meta Cloud API.' });
+      return;
+    }
+    if (!metaEmbeddedSignupConfigured()) {
+      res.status(400).json({ error: 'META_APP_ID / META_EMBEDDED_SIGNUP_CONFIG_ID / META_APP_SECRET לא מוגדרים בשירות המנהל.' });
+      return;
+    }
+    const { token, hash } = generateConnectLinkToken();
+    const expiresAt = new Date(Date.now() + META_CONNECT_LINK_TTL_MS).toISOString();
+    ownerStorage.updateClient(client.id, {
+      metaConnectLinkTokenHash: hash,
+      metaConnectLinkExpiresAt: expiresAt,
+      metaConnectLinkUsedAt: undefined,
+    });
+    const url = new URL(`/connect/meta/${token}`, config.CLIENT_DIRECTORY_URL).toString();
+    res.json({ url, expiresAt });
+  });
+
+  // Backend half of the dashboard's "נסה שוב מהשלב שנכשל" button (section 3.6) - resumes from the
+  // already-stored metaAccessToken/metaWabaId, never touching the one-time link or the Meta `code`.
+  app.post('/owner/api/clients/:id/meta-connect-retry', async (req, res) => {
+    const client = ownerStorage.getClient(req.params.id);
+    if (!client) {
+      res.status(404).json({ error: 'לקוחה לא נמצאה' });
+      return;
+    }
+    if (!client.metaAccessToken || !client.metaWabaId) {
+      res.status(409).json({ error: 'אין נתוני חיבור שמורים ללקוחה הזו - יש ליצור קישור חיבור חדש.' });
+      return;
+    }
+    try {
+      const updated = await runMetaEmbeddedSignupSteps(client.id);
+      res.json(exposeOwnerClient(updated));
+    } catch (err: any) {
+      res.status(502).json({
+        error: err?.message ?? String(err),
+        client: ownerStorage.getClient(client.id) ? exposeOwnerClient(ownerStorage.getClient(client.id)!) : null,
+      });
+    }
   });
 
   app.post('/owner/api/clients/redeploy-all', async (_req, res) => {
@@ -5367,6 +5705,6 @@ export function startAdminServer(storage: Storage): import('http').Server {
   });
   // The status forwarder is a timer owned by this server: it must stop when the server closes
   // (the rest of the background workers created in here are a separate shutdown item).
-  listeningServer.once('close', () => { clearInterval(statusDrainTimer); deliveryRecoveryBus.off('released', onDeliveryRecoveryReleased); deliveryRecoveryBus.off('superseded', onDeliveryRecoverySuperseded); deliveryRecoveryBus.off('inboxAmbiguousSuperseded', onInboxAmbiguousSuperseded); });
+  listeningServer.once('close', () => { clearInterval(statusDrainTimer); clearInterval(staleMetaSmbSyncTimer); clearInterval(connectLinkRateLimitSweepTimer); deliveryRecoveryBus.off('released', onDeliveryRecoveryReleased); deliveryRecoveryBus.off('superseded', onDeliveryRecoverySuperseded); deliveryRecoveryBus.off('inboxAmbiguousSuperseded', onInboxAmbiguousSuperseded); });
   return listeningServer;
 }

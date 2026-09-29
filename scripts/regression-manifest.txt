@@ -86,3 +86,6 @@ test-inbox-auto-migrate-handoff.js
 test-shutdown-idle-connections.js
 # embedded signup (2026-09-28), stage 7 step 2
 test-meta-embedded-signup-model.js
+# embedded signup (2026-09-28), stage 7 step 3
+test-meta-embedded-signup-graph-calls.js
+test-meta-embedded-signup-connect-flow.js

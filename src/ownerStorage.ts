@@ -39,6 +39,10 @@ export interface ManagedClient {
   /** WABA that owns metaPhoneNumberId - set once Embedded Signup completes; not used for routing. */
   metaWabaId?: string;
   metaOnboarding?: MetaOnboardingState;
+  /** Set the first time a post-connection smb_app_data sync fails, cleared once it succeeds.
+   * Anchor for the 20h-stale critical alert (section 3.3.7) - Meta disconnects the WhatsApp
+   * Business app if the sync has not succeeded within ~24h of connecting. */
+  metaSmbSyncFirstFailedAt?: string;
   /** One-time Embedded Signup connect link (section 3.1). Only the SHA-256 hash of the link
    * token is stored, never the token itself - see docs/embedded-signup-automation-plan-2026-09-28.md. */
   metaConnectLinkTokenHash?: string;
