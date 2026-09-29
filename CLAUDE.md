@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-מסמך עבודה למפתח/סוכן שעובד על הפרויקט. עודכן לאחרונה: 2026-09-18.
+מסמך עבודה למפתח/סוכן שעובד על הפרויקט. עודכן לאחרונה: 2026-09-29.
 
 המטרה: להסביר מה המערכת עושה היום, איך היא בנויה ונפרסת, מה המגבלות, ומה חשוב לדעת לפני שמשנים קוד או נוגעים בפרודקשן.
 
@@ -45,6 +45,18 @@
 קבצים: `src/metaGatewayInbox.ts`, `src/metaGatewayReliability.ts` (`decideMetaFallbackRoute`, `AsyncExpiringCache`, `createSenderDrainer`), `src/metaCampaignRouting.ts`, `src/metaWebhookSignature.ts`.
 
 רקע והיסטוריה: `docs/shared-number-resilience-*`, `docs/meta-gateway-lookup-failure-blast-radius-plan-2026-09-16.md`, `docs/load-testing-and-deploy-findings-2026-09-18.md`.
+
+## מספר ייעודי ללקוחה — Embedded Signup (Coexistence)
+
+לקוחה שרוצה מספר WhatsApp משלה (לרוב לבוט שירות לקוחות) מקבלת קישור חד-פעמי מדף הלקוחה בדשבורד המנהל (`POST /owner/api/clients/:id/meta-connect-link`, בתוקף 7 ימים), מתחברת לפייסבוק ב-`GET /connect/meta/:token`, ומאשרת. מכאן הכול אוטומטי, ללא מגע ידני: החלפת קוד לטוקן, גילוי `Phone Number ID` **על ידי השרת** (לא מהדפדפן — ראו למטה), בדיקת ייחודיות, מינוי webhooks, סנכרון Coexistence, שמירה ופריסה מחדש (`POST /connect/meta/:token/complete` ב-`src/adminServer.ts`, לוגיקת ה-Graph API ב-`src/metaEmbeddedSignup.ts`).
+
+**הבוט פועל רק לפי משפט טריגר, גם על מספר ייעודי** — אין ניתוב בעלים בלעדי ואין בוט ברירת מחדל (הוצאו מהיקף בכוונה). מסלול Coexistence: הלקוחה ממשיכה לעבוד גם מאפליקציית WhatsApp Business בטלפון; לכן **אין קורא ל-`.../register`** — סנכרון `smb_app_data` (אנשי קשר + היסטוריה) מחליף אותו, וכשל שם לא חוסם את החיבור אבל מפעיל התראת critical אם לא נפתר תוך 20 שעות (Meta מנתקת בערך אחרי 24 שעות).
+
+**ממצא חשוב (2026-09-29):** אירוע ה-`FINISH` של Coexistence (`FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING`) מכיל **רק `waba_id`, לא `phone_number_id`** — בניגוד למה שהונח בתחילת התכנון. השרת מגלה את המספר בעצמו דרך `GET /<wabaId>/phone_numbers`, ועוצר בשגיאה אם יש יותר ממספר אחד (בלי מסך בחירה). פירוט מלא: `docs/embedded-signup-coexistence-event-contract-finding-2026-09-29.md`.
+
+**מגבלת אבטחה קיימת:** טוקני Meta (כולל אלה שהתקבלו מ-Embedded Signup) נשמרים גלויים (לא מוצפנים) בקובץ ה-JSON של אחסון המנהל בדיסק — זהה לאיך ש-`metaAccessToken` נשמר היום לכל לקוח. `exposeOwnerClient` מסיר אותם מתשובות ה-API לדשבורד, אבל לא מהאחסון עצמו.
+
+קבצים: `src/metaEmbeddedSignup.ts` (קריאות Graph API + טוקן קישור), `owner-public/connect-meta.html` (דף הלקוחה), `docs/embedded-signup-automation-plan-2026-09-28.md` (תכנון מלא), `docs/customer-owned-whatsapp-number-meta-plan.md` (רקע ארוך-טווח).
 
 ## פקודות
 
@@ -106,6 +118,7 @@ node scripts/test-load-multiprocess-focus.js
 | `src/systemAlerts.ts` | התראות מערכת במייל (`notifySystemAlert`, throttle 30 דק' לכל key) |
 | `src/ownerStorage.ts` | נתוני דשבורד המנהל (לקוחות, ניתוב) |
 | `src/whatsappLifecycle.ts` | watchdog וחיבור מחדש |
+| `src/metaEmbeddedSignup.ts` | Embedded Signup למספר ייעודי (Graph API, טוקן קישור חד-פעמי) |
 | `public/index.html`, `public/login.html` | ה-frontend — HTML יחיד בלי build |
 
 ## מודל קמפיינים
@@ -124,6 +137,7 @@ node scripts/test-load-multiprocess-focus.js
 | `DATABASE_URL` | Postgres |
 | `OWNER_ACCESS_TOKEN` / `CLIENT_ACCESS_TOKEN` | סיסמאות דשבורד מנהל / לקוחה |
 | `META_*` | `ACCESS_TOKEN`, `APP_SECRET`, `VERIFY_TOKEN`, `PHONE_NUMBER_ID`, `DISPLAY_PHONE_NUMBER`, `GRAPH_API_VERSION`, `GATEWAY_BASE_URL` |
+| `META_APP_ID`, `META_EMBEDDED_SIGNUP_CONFIG_ID` | Embedded Signup למספר ייעודי (שירות מנהל בלבד) — חסר אחד מהם מסתיר את כפתור הקישור ומחזיר 404 מ-`/connect/meta/*` |
 | `DOKPLOY_*` | ערכי ברירת מחדל שהמנהל מעביר ללקוחות חדשים (Meta/Twilio) + גישת API |
 | `TWILIO_*` | הגדרות Twilio |
 | `GOOGLE_*` | OAuth של Google Contacts |
@@ -137,6 +151,7 @@ node scripts/test-load-multiprocess-focus.js
 3. לקוחות Baileys עלולים להיכנס ללולאת QR ולדרוש סריקה מחדש (נכון ל-2026-09-18: "רות", `1e970c66`).
 4. `AsyncExpiringCache` מוחק רשומה כשרענון נכשל — מועמד ל-grace period.
 5. סף ה-SLO של `scripts/test-load-shared-campaign-isolation.js` (median 7s) לא יציב בין ריצות.
+6. Embedded Signup למספר ייעודי (`docs/embedded-signup-automation-plan-2026-09-28.md`) עדיין לא נבדק מול Meta עם לקוחה אמיתית/ניסיונית — Configuration אמיתי ב-`boot1` טרם הוקם. ניתוב בעלים בלעדי ובוט ברירת מחדל הוצאו מהיקף בכוונה (הבוט פועל רק לפי טריגר, גם על מספר ייעודי).
 
 ## הערות פיתוח
 

@@ -18,6 +18,15 @@
 
 חשוב: המערכת תומכת כיום גם ב-Meta Cloud API רשמי וב-Twilio API. לקוחות Meta אינם צריכים QR או Chromium; לקוחות WhatsApp Web/Baileys עדיין משתמשים בחשבון מקושר. במודל הפעיל כיום רוב הלקוחות עובדים דרך מספר Meta מרכזי של FlowsBiz, עם ניתוב לפי משפט טריגר.
 
+## תמונת מצב 2026-09-29
+
+- **אוטומציית Embedded Signup למספר WhatsApp ייעודי של לקוחה הושלמה** (5 שלבים, קומיטים `ef24887`..`f91e59e`, תכנון מלא ב-`docs/embedded-signup-automation-plan-2026-09-28.md`): לקוחה מקבלת קישור חד-פעמי מדף הלקוחה בדשבורד המנהל, מתחברת לפייסבוק, והשרת עושה את השאר לגמרי אוטומטית — החלפת קוד, גילוי `Phone Number ID` (על ידי השרת, לא מהדפדפן), אימות ייחודיות, מינוי webhooks, סנכרון Coexistence (בלי `.../register`), שמירה ופריסה מחדש.
+- **ממצא לפני הבנייה:** אירוע ה-`FINISH` של Coexistence מחזיר רק `waba_id`, לא `phone_number_id` כפי שהונח בתכנון המקורי — תוקן ותועד ב-`docs/embedded-signup-coexistence-event-contract-finding-2026-09-29.md`.
+- ניתוב בעלים בלעדי למספר ייעודי ובוט ברירת מחדל הוצאו מהיקף בהחלטת בעל המערכת — הבוט על מספר ייעודי ממשיך לפעול רק לפי משפט טריגר, כמו היום. **לא נוגע בכלל בקוד הזרימה** (`messageFlow.ts`).
+- regression manifest המלא נשאר ירוק לאורך כל 5 השלבים (78 → 82 חבילות, אותה חסימה סביבתית יחידה).
+- **טרם נבדק מול Meta עם לקוחה אמיתית/ניסיונית** — צריך קודם להקים Configuration אמיתי ב-`boot1` (App Dashboard) ולעבור על רשימת האימותים בסעיף 4 באותו מסמך.
+- פירוט מלא בסעיף "עדכון 2026-09-29" בסוף המסמך.
+
 ## תמונת מצב 2026-09-18
 
 - כל 16 האפליקציות (מנהל + 15 לקוחות) אומתו על קומיט `afd5334` ובריאות, חוץ מ"רות" (`1e970c66`, Baileys) שדורשת סריקת QR מחדש.
@@ -2094,3 +2103,25 @@ Commit: `60de4cc`
 - קוד `d008b2b`, שער + 6 לקוחות בתהליכים נפרדים על PG 18.6 מקומי. 1000 משתתפים / 2h (בפועל 135 דק' עקב שינת מארח) + שעת מעקב; 35% נטישה; 2000 שיחות זרע לכל לקוח; היסטוריית שער 5000.
 - תוצאה: 1000/1000 נענו, lost 0, dup 0, תגובה ראשונה p99 387ms, lag שער p99 חציוני 21–23ms ושיא חלון 66ms, `set/remove` של `conversationState` p50 ~0.1ms שטוח (12,004→12,350 שיחות; שיפוע −0.29ms ל-1000), RSS שער 152→139MB, תור ריק בסוף. 3 חלונות Modern Standby (348s/10s/547s lag) הוחרגו — לא ממצא. **לא נבדק:** חלון 24 שעות, retention 7/30 יום, הצטברות של אלפי נטושים.
 - פירוט: `docs/stage-e-soak-results-2026-09-22.md`. שני קבצי מדידה (`measure-inbox-system.js`, `load-preload.js`) שונו אחרי `d008b2b` ועדיין לא ב-commit.
+
+## עדכון 2026-09-29 (Embedded Signup למספר WhatsApp ייעודי — Coexistence, כולל commit)
+
+תוכנית: `docs/embedded-signup-automation-plan-2026-09-28.md`. יושם ב-5 שלבים, כל שלב עם commit נפרד ו-regression מלא ירוק ביניהם:
+
+1. **סינון לפי `change.field` בשער** (`ef24887`): `splitMetaWebhookMessages` מקבל רק `field === 'messages'`, כך ש-webhooks עתידיים של Coexistence (`history`/`smb_app_state_sync`/`smb_message_echoes`) לעולם לא ייקראו כהודעה נכנסת מלקוח קצה — גם אם ייכללו מערך בשם `messages` בטעות. אומת מול תיעוד Meta הרשמי: בפועל שלושת הסוגים משתמשים במערכים בשמות אחרים (`history`, `message_echoes`), כך שהמספר המשותף לא מושפע בכל מקרה.
+2. **שדות מודל** (`53f1fd2`): `metaWabaId`, `metaOnboarding` (status/step/error/completedAt), שדות קישור חיבור חד-פעמי (`metaConnectLinkTokenHash`/`ExpiresAt`/`UsedAt` — נשמר רק ה-hash). `exposeOwnerClient` מסתיר גם את ה-hash.
+3. **קישור, דף חיבור והשלמה** (`bf6a64e`): `src/metaEmbeddedSignup.ts` (קריאות Graph API), `POST /owner/api/clients/:id/meta-connect-link`, `GET /connect/meta/:token` (+`/info`), `POST /connect/meta/:token/complete`, `POST /owner/api/clients/:id/meta-connect-retry`, `owner-public/connect-meta.html`, הגבלת קצב per-IP על `/connect/meta/*` (60s / 20 בקשות, נוספה לפי בקשת בעל המערכת אחרי אישור ראשוני), והתראת critical אחרי 20 שעות של סנכרון `smb_app_data` תקוע.
+   - **ממצא לפני הבנייה** (`docs/embedded-signup-coexistence-event-contract-finding-2026-09-29.md`): אירוע ה-`FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING` (Coexistence) מכיל **רק `waba_id`**, לא `phone_number_id` כפי שהתוכנית המקורית הניחה. תוקן: השרת מגלה את `phoneNumberId` בעצמו דרך `GET /<wabaId>/phone_numbers`, ועוצר בשגיאה אם יש יותר ממספר אחד (בלי מסך בחירה) — אושר על ידי בעל המערכת.
+   - **באג שנתפס ותוקן תוך כדי בנייה:** שני סנכרוני `smb_app_data` (אנשי קשר/היסטוריה) רצו ב-`try` משותף — כשל בראשון דילג על השני. תוקן: כל אחד מנוסה בנפרד.
+4. **דשבורד** (`f91e59e`): כפתור יצירת קישור עם העתקה, שורת סטטוס (לא מחובר/ממתין/מחובר/נכשל) וכפתור "נסה שוב" בדף הלקוחה. המסך הידני הקיים עבר תחת `<details>` מקופל ("מתקדם: חיבור Meta ידני"), וטקסט העזרה תוקן — לקוחה עם WABA משלה **חייבת** טוקן משלה, ואין להשאיר את השדה ריק (הטקסט הקודם רמז שגוי על נפילה לברירת מחדל מרכזית).
+5. תיעוד (המסמך הזה, `CLAUDE.md`, `docs/customer-owned-whatsapp-number-meta-plan.md`).
+
+**הוצא מהיקף בהחלטת בעל המערכת:** ניתוב בעלים בלעדי למספר ייעודי (3.4 בתוכנית) ובוט ברירת מחדל (3.5) — הבוט ממשיך לפעול רק לפי משפט טריגר, בדיוק כמו היום, על כל מספר. **אין שום שינוי ב-`messageFlow.ts` או בבוט השירות.**
+
+בדיקות חדשות (כולן ב-`scripts/regression-manifest.txt`): `test-meta-embedded-signup-model.js`, `test-meta-embedded-signup-graph-calls.js` (יחידה, `fetch` מדומה מול הקוד האמיתי), `test-meta-embedded-signup-connect-flow.js` (10 תרחישים מול שרת מנהל אמיתי — כולל הגבלת הקצב, לחיצה כפולה מקבילה, וכשל+נסה-שוב בלי החלפת קוד נוסף), `test-meta-embedded-signup-dashboard.js` (בדיקת מקור לדף הסטטי, כמו `test-client-disable.js`). regression מלא נשאר ירוק לאורך כל 5 השלבים: 78 → 82 חבילות, תמיד אותה חסימה סביבתית יחידה (`test-backup-tool.js`), 0 כשלים.
+
+**פתוח:**
+- טרם נבדק מול Meta בפועל עם לקוחה אמיתית/ניסיונית — צריך קודם להקים Configuration אמיתי ב-App Dashboard של `boot1` ולעבור על רשימת האימותים בסעיף 4 של התוכנית (Allowed Domains, Advanced Access בפועל, session logging וכו').
+- ניתוב בעלים בלעדי ובוט ברירת מחדל — שלב עתידי, לא בהיקף.
+- הטוקנים (כולל אלה שהתקבלו מ-Embedded Signup) נשמרים גלויים בקובץ ה-JSON של אחסון המנהל — מגבלה קיימת, לא חדשה, תועדה ב-CLAUDE.md.
+- לא נבדק deploy בפועל — כל העבודה הזו רק ב-`master` המקומי/מרוחק, שום דבר לא פרוס לפרודקשן.
