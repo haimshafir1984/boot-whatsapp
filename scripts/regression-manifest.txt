@@ -89,3 +89,5 @@ test-meta-embedded-signup-model.js
 # embedded signup (2026-09-28), stage 7 step 3
 test-meta-embedded-signup-graph-calls.js
 test-meta-embedded-signup-connect-flow.js
+# embedded signup (2026-09-28), stage 7 step 4
+test-meta-embedded-signup-dashboard.js

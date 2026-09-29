@@ -327,8 +327,26 @@
             </div>
           </div>
         </section>
-        <section id="metaSettingsSection" style="display:none">
-          <h2>חיבור Meta ייעודי ללקוחה</h2>
+        <section id="metaEmbeddedSignupSection" style="display:none">
+          <h2>חיבור מספר WhatsApp ייעודי (Embedded Signup)</h2>
+          <div class="owner-form">
+            <div class="full">
+              <div id="metaOnboardingStatus" class="muted">-</div>
+            </div>
+            <div class="full form-actions">
+              <button class="retry" type="button" onclick="createMetaConnectLink()">צור קישור חיבור WhatsApp</button>
+              <button class="secondary" id="metaConnectRetryButton" type="button" style="display:none" onclick="retryMetaEmbeddedSignup()">נסה שוב מהשלב שנכשל</button>
+              <span class="muted" id="metaConnectState"></span>
+            </div>
+            <div class="full" id="metaConnectLinkBox" style="display:none">
+              <label>קישור חיבור (חד-פעמי, בתוקף 7 ימים)</label>
+              <div class="webhook-box" id="metaConnectLinkUrl">-</div>
+              <div class="help-text">יש לשלוח את הקישור הזה ללקוחה. לחיצה על הקישור פותחת מסך חיבור מול פייסבוק. הקישור ניתן לשימוש פעם אחת בלבד; יצירת קישור חדש מבטלת קישור קודם שלא נוצל.</div>
+            </div>
+          </div>
+        </section>
+        <details id="metaSettingsSection" style="display:none">
+          <summary>מתקדם: חיבור Meta ידני (מסלול גיבוי)</summary>
           <div class="owner-form">
             <div class="full">
               <label>Phone Number ID</label>
@@ -343,7 +361,7 @@
             <div class="full">
               <label>Access token ייעודי</label>
               <input id="clientMetaAccessTokenEdit" type="password" dir="ltr" autocomplete="new-password" placeholder="להשאיר ריק כדי לא לשנות" />
-              <div class="secret-note">מטעמי אבטחה הערך הקיים לא מוצג. מילוי השדה יחליף את ה-token של הלקוחה; ריק משאיר את הקיים או את ברירת המחדל המרכזית.</div>
+              <div class="secret-note">לקוחה עם WABA משלה (מספר ייעודי) <strong>חייבת</strong> טוקן משלה - הטוקן המרכזי שייך ל-WABA של המספר המשותף ואין לו גישה ל-WABA של הלקוחה, כך ששליחה תיכשל. אין להשאיר את השדה ריק כשמגדירים מסלול ידני. מטעמי אבטחה הערך הקיים לא מוצג; מילוי השדה מחליף את ה-token של הלקוחה.</div>
             </div>
             <div class="full">
               <label>Verify token ייעודי</label>
@@ -360,7 +378,7 @@
               <span class="muted" id="metaSaveState"></span>
             </div>
           </div>
-        </section>
+        </details>
         <button class="retry" id="retryButton" style="display:none" onclick="retryProvision()">נסה שוב להקים את היחידה</button>
         <button class="secondary" id="updateUnitButton" style="display:none" onclick="retryProvision()">עדכן יחידה וקמפיינים</button>
         <button class="secondary" id="migrateToMetaButton" style="display:none" onclick="migrateToMeta()">&#1492;&#1506;&#1489;&#1512; &#1500;-Meta Cloud API</button>
@@ -847,6 +865,8 @@
       document.getElementById('botReplyDelayLine').style.display = isTwilioClient ? '' : 'none';
       document.getElementById('twilioSettingsSection').style.display = isTwilioClient ? '' : 'none';
       document.getElementById('metaSettingsSection').style.display = isMetaClient ? '' : 'none';
+      document.getElementById('metaEmbeddedSignupSection').style.display = isMetaClient ? '' : 'none';
+      if (isMetaClient) renderMetaOnboardingStatus();
       document.getElementById('twilioFromValue').textContent = displayTwilioFrom(currentClient.twilioFrom) || '-';
       document.getElementById('botReplyDelayValue').textContent = displayDelay(currentClient.botReplyDelayMs);
       document.getElementById('clientTwilioFromEdit').value = displayTwilioFrom(currentClient.twilioFrom);
@@ -907,6 +927,85 @@
         navigator.clipboard.writeText(currentClient.metaWebhookUrl);
         document.getElementById('metaSaveState').textContent = 'ה-Webhook הועתק.';
       }
+    }
+
+    const META_ONBOARDING_STEP_LABEL = {
+      link_validated: 'אימות קישור',
+      code_exchanged: 'החלפת קוד',
+      token_verified: 'אימות טוקן',
+      phone_verified: 'אימות מספר',
+      uniqueness_checked: 'בדיקת ייחודיות',
+      subscribed_apps: 'מינוי webhooks',
+      smb_sync_failed: 'סנכרון אנשי קשר/היסטוריה',
+      completed: 'הושלם',
+    };
+
+    // Section 3.6: "לא מחובר / ממתין / מחובר, עם מספר תצוגה, או נכשל, עם השלב והשגיאה."
+    function renderMetaOnboardingStatus() {
+      const el = document.getElementById('metaOnboardingStatus');
+      const retryButton = document.getElementById('metaConnectRetryButton');
+      const onboarding = currentClient?.metaOnboarding;
+      retryButton.style.display = 'none';
+      if (!onboarding) {
+        el.textContent = currentClient?.metaPhoneNumberId ? `מחובר. מספר תצוגה: ${currentClient.metaDisplayPhoneNumber || '-'}` : 'לא מחובר.';
+        el.style.color = '';
+        return;
+      }
+      const stepLabel = META_ONBOARDING_STEP_LABEL[onboarding.step] || onboarding.step;
+      if (onboarding.status === 'connected') {
+        el.textContent = `מחובר. מספר תצוגה: ${currentClient.metaDisplayPhoneNumber || '-'}`;
+        el.style.color = '#166534';
+      } else if (onboarding.status === 'failed') {
+        el.textContent = `נכשל בשלב "${stepLabel}": ${onboarding.error || 'שגיאה לא ידועה'}`;
+        el.style.color = '#991b1b';
+        retryButton.style.display = '';
+      } else if (onboarding.step === 'smb_sync_failed') {
+        el.textContent = `מחובר, אך סנכרון אנשי קשר/היסטוריה נכשל: ${onboarding.error || ''}. יש ללחוץ "נסה שוב", אחרת Meta עלולה לנתק את האפליקציה בטלפון תוך כ-24 שעות מהחיבור.`;
+        el.style.color = '#92400e';
+        retryButton.style.display = '';
+      } else {
+        el.textContent = `ממתין... (שלב: ${stepLabel})`;
+        el.style.color = '#92400e';
+      }
+    }
+
+    async function createMetaConnectLink() {
+      if (!currentClient) return;
+      const state = document.getElementById('metaConnectState');
+      const error = document.getElementById('error');
+      state.textContent = 'יוצר קישור...';
+      error.textContent = '';
+      const response = await fetch(`/owner/api/clients/${encodeURIComponent(currentClient.id)}/meta-connect-link`, { method: 'POST' });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        state.textContent = '';
+        error.textContent = body.error || 'יצירת קישור החיבור נכשלה.';
+        return;
+      }
+      document.getElementById('metaConnectLinkBox').style.display = '';
+      document.getElementById('metaConnectLinkUrl').textContent = body.url;
+      navigator.clipboard?.writeText(body.url).catch(() => {});
+      state.textContent = `נוצר קישור (בתוקף עד ${new Date(body.expiresAt).toLocaleString('he-IL')}) והועתק ללוח.`;
+    }
+
+    async function retryMetaEmbeddedSignup() {
+      if (!currentClient) return;
+      const state = document.getElementById('metaConnectState');
+      const error = document.getElementById('error');
+      state.textContent = 'מנסה שוב...';
+      error.textContent = '';
+      const response = await fetch(`/owner/api/clients/${encodeURIComponent(currentClient.id)}/meta-connect-retry`, { method: 'POST' });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        state.textContent = '';
+        error.textContent = (body && body.error) || 'הניסיון החוזר נכשל.';
+        currentClient = body?.client || currentClient;
+        renderMetaOnboardingStatus();
+        return;
+      }
+      state.textContent = 'הצליח.';
+      currentClient = body;
+      renderMetaOnboardingStatus();
     }
 
     async function saveTwilioNumber() {
