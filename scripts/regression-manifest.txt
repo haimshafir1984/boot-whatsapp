@@ -64,6 +64,8 @@ test-outbox-attempt-id.js
 test-outbox-attempts-postgres.js
 # stage B2 step 2
 test-meta-status-forwarding.js
+test-meta-status-queue-compaction.js
+test-meta-status-queue-kill.js
 test-meta-status-postgres.js
 test-service-bot-outbox.js
 # stage B2 step 3

@@ -125,11 +125,19 @@ export class MetaStatusQueue {
     return { added: fresh.length, duplicates };
   }
 
-  /** Entries that are due and not currently being delivered, oldest first. Marks nothing. */
+  /**
+   * Entries that are due and not currently being delivered, oldest first. Marks nothing.
+   *
+   * Scans in Map insertion order rather than sorting a copy: entries are inserted by enqueue() in
+   * `createdAt` order and are never re-inserted (fail() mutates in place), and both replay() and
+   * maybeCompact() rebuild the map in that same order - so insertion order already IS createdAt
+   * order. The previous full sort ran on every call, and the drain loop calls this repeatedly until
+   * the queue empties, which made draining a large backlog quadratic.
+   */
   due(limit: number): StatusQueueItem[] {
     const now = this.now();
     const out: StatusQueueItem[] = [];
-    for (const item of [...this.pending.values()].sort((a, b) => a.createdAt - b.createdAt)) {
+    for (const item of this.pending.values()) {
       if (out.length >= limit) break;
       if (this.inFlight.has(item.id) || item.nextAttemptAt > now) continue;
       out.push(item);
@@ -190,9 +198,22 @@ export class MetaStatusQueue {
     return { pending: this.pending.size, inFlight: this.inFlight.size, oldestAgeMs: oldest, journalLines: this.journalLines };
   }
 
-  /** Rewrites the journal with only what is still pending (+ recent done ids) once it has grown. */
+  /**
+   * Rewrites the journal with only what is still pending (+ recent done ids) once it has grown.
+   *
+   * The trigger is measured against everything a rewrite WRITES - pending AND recentDone - not
+   * against `pending` alone. Comparing only against pending.size let the journal a compaction had
+   * just produced sit above its own trigger whenever recentDone outgrew pending (the normal steady
+   * state, since a done id is kept for doneRetentionMs), so every later complete() rewrote the whole
+   * journal again: a 23k-delivery drain cost 907 full rewrites and 2.2GB of synchronous writes, which
+   * is what blocked the gateway's event loop. Requiring the journal to be twice what a rewrite would
+   * produce keeps compaction amortised - each one is paid for by at least that many appends since
+   * the last.
+   */
   private maybeCompact(): void {
-    if (this.journalLines < 5000 || this.journalLines < this.pending.size * 4) return;
+    const afterCompaction = this.pending.size + this.recentDone.size;
+    if (this.journalLines < 5000 || this.journalLines < afterCompaction * 2) return;
+    this.pruneDone();   // only now: this walks recentDone, and maybeCompact() runs on every complete()
     const records: JournalRecord[] = [
       ...[...this.pending.values()].map((item) => ({ t: 'add' as const, id: item.id, clientId: item.clientId, payload: item.payload, at: item.createdAt })),
       ...[...this.recentDone.entries()].map(([id, at]) => ({ t: 'done' as const, id, at })),
