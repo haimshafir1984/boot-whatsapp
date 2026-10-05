@@ -80,7 +80,7 @@ import {
 import { createInboxStore, DisabledInboxStore, InboxStore, PostgresInboxStore, StoredInboxItem } from './inbox/store';
 import { readInboxConfig } from './inbox/config';
 import { runWithInboundOutcome } from './inboundOutcome';
-import { MetaStatusQueue, statusDedupeKey } from './metaStatusQueue';
+import { MetaStatusQueue, StatusQueueItem, statusDedupeKey } from './metaStatusQueue';
 import { DeliveryRecoveryRelease } from './deliveryRecovery';
 import { deliveryRecoveryBus } from './deliveryRecoveryBus';
 interface TwilioGatewaySession {
@@ -2185,7 +2185,13 @@ export function startAdminServer(storage: Storage): import('http').Server {
   // under a 100-participant peak answered the gateway in 2-88ms with
   // event-loop lag under 140ms. There is no evidence this cap is a
   // bottleneck, so it stays where it is.
-  const META_MAX_CONCURRENT_SENDERS = 50;
+  //
+  // MEASUREMENT KNOB: META_MAX_CONCURRENT_SENDERS overrides it (integer 1..1000). Unset or invalid = 50, exactly as before.
+  const META_MAX_CONCURRENT_SENDERS_DEFAULT = 50;
+  const metaMaxConcurrentSendersEnv = Number(process.env.META_MAX_CONCURRENT_SENDERS);
+  const META_MAX_CONCURRENT_SENDERS = Number.isInteger(metaMaxConcurrentSendersEnv) && metaMaxConcurrentSendersEnv >= 1 && metaMaxConcurrentSendersEnv <= 1000
+    ? metaMaxConcurrentSendersEnv : META_MAX_CONCURRENT_SENDERS_DEFAULT;
+  if (META_MAX_CONCURRENT_SENDERS !== META_MAX_CONCURRENT_SENDERS_DEFAULT) console.log(`  Meta concurrent senders overridden by META_MAX_CONCURRENT_SENDERS=${META_MAX_CONCURRENT_SENDERS} (default ${META_MAX_CONCURRENT_SENDERS_DEFAULT})`);
 
   // ---- inbox worker plumbing (stage E) -------------------------------------------------------------------------------------------
   const inboxHealth: { gateway: Record<string, number> | null; client: Record<string, number> | null; gatewayOldestMs: number | null; clientOldestMs: number | null } =
@@ -2459,6 +2465,38 @@ export function startAdminServer(storage: Storage): import('http').Server {
   // corrects itself. Routing authority is not touched here.
   const META_STATUS_FORWARD_CONCURRENCY = 20;
   const META_STATUS_DRAIN_MS = 1_000;
+  /**
+   * EXPERIMENT (2026-10-05), default off: carry several statuses for the same client in ONE request
+   * instead of one request each, and journal their completions in one append.
+   *
+   * Nothing about WHO receives a status changes - the same entries go to the same clients, the
+   * durable queue stays the source of truth, and each entry keeps its own identity, retry and
+   * completion. Only the transport is shared. The client endpoint already splits an incoming body
+   * into every envelope it contains and flushes once, so this needs no client-side change.
+   *
+   *   off           current behaviour, one request and one journal append per status
+   *   http          one request per client per round
+   *   http+journal  the above, plus a single journal append for the whole batch
+   */
+  const META_STATUS_BATCH_MODE = (() => {
+    const raw = String(process.env.META_STATUS_BATCH || 'off').trim().toLowerCase();
+    return raw === 'http' || raw === 'http+journal' ? raw : 'off';
+  })();
+  const META_STATUS_BATCH_MAX = Math.max(1, Number(process.env.META_STATUS_BATCH_MAX) || 20);
+  /** A batch must also stay small in bytes - a client blocked on one huge body is the risk here. */
+  const META_STATUS_BATCH_MAX_BYTES = Math.max(16_384, Number(process.env.META_STATUS_BATCH_MAX_BYTES) || 512_000);
+  /**
+   * Builds one request body out of several queued envelopes. Each queued payload holds exactly one
+   * `entry` (splitMetaWebhookStatuses produces them that way), and every entry carries its own
+   * `value.metadata`, so concatenating entries keeps each status with its own business number -
+   * statuses for different phone numbers may safely share a request.
+   */
+  const mergeStatusPayloads = (payloads: any[]): any => {
+    if (payloads.length === 1) return payloads[0] ?? {};
+    const entries: any[] = [];
+    for (const payload of payloads) for (const entry of Array.isArray(payload?.entry) ? payload.entry : []) entries.push(entry);
+    return { ...(payloads[0] ?? {}), entry: entries };
+  };
   const statusTargetClients = () => ownerStorage.getClients().filter((client) =>
     client.whatsappProvider === 'META_CLOUD_API' && client.managementUrl && client.ownerAccessToken && client.provisioningStatus !== 'disabled');
   const enqueueMetaStatusForward = (payload: any): void => {
@@ -2478,23 +2516,92 @@ export function startAdminServer(storage: Storage): import('http').Server {
           details: { clientId: expired.clientId, ageMs: Date.now() - expired.createdAt },
         });
       }
+      /** One request carrying `items` (all for the same client). Each item keeps its own retry and
+       * completion: a batch is acknowledged only as a whole, and the client's endpoint flushes
+       * before answering, so a 2xx means every status in it is durable there. A failure - including
+       * a partial one the client could not finish - fails every item in the batch, and they are
+       * re-sent; applyMetaStatus() is idempotent, so re-delivering ones that did land is harmless. */
+      const forwardBatch = async (client: ManagedClient, items: StatusQueueItem[]): Promise<void> => {
+        for (const item of items) metaStatusQueue.begin(item.id);
+        const body = JSON.stringify(mergeStatusPayloads(items.map((item) => item.payload ?? {})));
+        try {
+          const result = await fetchClientAsOwner(client, '/internal/meta/whatsapp', { method: 'POST', body, signal: AbortSignal.timeout(5_000) });
+          if (!result.ok) { for (const item of items) metaStatusQueue.fail(item.id); return; }
+          if (META_STATUS_BATCH_MODE === 'http+journal') metaStatusQueue.completeMany(items.map((item) => item.id));
+          else for (const item of items) metaStatusQueue.complete(item.id);
+        } catch (err) {
+          for (const item of items) metaStatusQueue.fail(item.id);
+          console.warn('[META_STATUS_FORWARD_RETRY]', client.id, items.length, err instanceof Error ? err.message : String(err));
+        }
+      };
+      /** How many statuses an envelope carries. A queued payload normally holds one, but
+       * splitMetaWebhookStatuses keeps a `statuses` ARRAY intact, so one envelope can hold several -
+       * and the limit that matters to the receiving client is statuses, not envelopes. */
+      const countStatuses = (payload: any): number => {
+        let n = 0;
+        for (const entry of Array.isArray(payload?.entry) ? payload.entry : []) {
+          for (const change of Array.isArray(entry?.changes) ? entry.changes : []) {
+            n += Array.isArray(change?.value?.statuses) ? change.value.statuses.length : 0;
+          }
+        }
+        return Math.max(1, n);   // an envelope with no statuses still costs one slot
+      };
+      /**
+       * Splits one client's due entries into batches bounded by STATUS COUNT and by UTF-8 BYTES.
+       *
+       * Bytes, not `String.length`: the payloads carry Hebrew, where a character is one UTF-16 unit
+       * but two UTF-8 bytes, so measuring length would let a batch be about twice the intended size
+       * on the wire.
+       *
+       * A single entry larger than the byte limit is sent on its own rather than dropped or split -
+       * it cannot be made smaller, and refusing it would strand the status forever.
+       */
+      const splitIntoBatches = (items: StatusQueueItem[]): StatusQueueItem[][] => {
+        const batches: StatusQueueItem[][] = [];
+        let current: StatusQueueItem[] = [];
+        let bytes = 0;
+        let statuses = 0;
+        for (const item of items) {
+          const size = Buffer.byteLength(JSON.stringify(item.payload ?? {}), 'utf8');
+          const count = countStatuses(item.payload);
+          if (current.length && (statuses + count > META_STATUS_BATCH_MAX || bytes + size > META_STATUS_BATCH_MAX_BYTES)) {
+            batches.push(current); current = []; bytes = 0; statuses = 0;
+          }
+          current.push(item); bytes += size; statuses += count;
+        }
+        if (current.length) batches.push(current);
+        return batches;
+      };
       for (;;) {
-        const batch = metaStatusQueue.due(META_STATUS_FORWARD_CONCURRENCY);
+        // Claim a window big enough to fill one batch per client; `off` keeps the original window.
+        const window = META_STATUS_BATCH_MODE === 'off'
+          ? META_STATUS_FORWARD_CONCURRENCY
+          : META_STATUS_FORWARD_CONCURRENCY * META_STATUS_BATCH_MAX;
+        const batch = metaStatusQueue.due(window);
         if (!batch.length) break;
         const clients = new Map(statusTargetClients().map((client) => [client.id, client]));
-        await Promise.all(batch.map(async (item) => {
-          const client = clients.get(item.clientId);
-          if (!client) { metaStatusQueue.drop(item.id, 'client_not_a_target'); return; }
-          metaStatusQueue.begin(item.id);
-          try {
-            const result = await fetchClientAsOwner(client, '/internal/meta/whatsapp', { method: 'POST', body: JSON.stringify(item.payload ?? {}), signal: AbortSignal.timeout(5_000) });
-            if (result.ok) metaStatusQueue.complete(item.id);
-            else { metaStatusQueue.fail(item.id); }
-          } catch (err) {
-            metaStatusQueue.fail(item.id);
-            console.warn('[META_STATUS_FORWARD_RETRY]', item.clientId, err instanceof Error ? err.message : String(err));
+
+        if (META_STATUS_BATCH_MODE === 'off') {
+          await Promise.all(batch.map(async (item) => {
+            const client = clients.get(item.clientId);
+            if (!client) { metaStatusQueue.drop(item.id, 'client_not_a_target'); return; }
+            await forwardBatch(client, [item]);
+          }));
+        } else {
+          const byClient = new Map<string, StatusQueueItem[]>();
+          for (const item of batch) {
+            const client = clients.get(item.clientId);
+            if (!client) { metaStatusQueue.drop(item.id, 'client_not_a_target'); continue; }
+            const list = byClient.get(item.clientId);
+            if (list) list.push(item); else byClient.set(item.clientId, [item]);
           }
-        }));
+          // One request per client at a time: HTTP concurrency stays at most the client count,
+          // never above the per-status mode, and no client is handed more than one body at once.
+          await Promise.all([...byClient.entries()].map(async ([clientId, items]) => {
+            const client = clients.get(clientId)!;
+            for (const part of splitIntoBatches(items)) await forwardBatch(client, part);
+          }));
+        }
         // Failed items back off; only loop again if something else is due right now.
       }
     } catch (err) {
@@ -3830,8 +3937,14 @@ export function startAdminServer(storage: Storage): import('http').Server {
     try {
       let statusChanged = false;
       for (const statusPayload of statusPayloads) if (handleMetaStatusesForStorage(statusPayload)) statusChanged = true;
-      // A status that changed an outbox row is acknowledged only once it is durable; otherwise the gateway keeps retrying it.
-      if (statusChanged) await storage.flush();
+      // A status is acknowledged only once it is durable; otherwise the gateway keeps retrying it.
+      //
+      // Flushing only when THIS request changed something was not enough, and batching made it
+      // matter: a first attempt could apply a status to memory, fail to flush, and answer 503; the
+      // gateway's retry then saw the same status as a duplicate (no new change), so nothing was
+      // flushed and it answered 200 while the first attempt's write was still only in memory. So
+      // flush whenever the backend is holding anything, not only when this request is the cause.
+      if (statusChanged || storage.getStorageHealth().pendingWrites > 0) await storage.flush();
       if (messagePayloads.length) {
         await inboxReady;
         // A fresh trigger must be able to reach its own unblock handler even while its sender is durably parked

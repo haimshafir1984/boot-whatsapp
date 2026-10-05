@@ -158,6 +158,31 @@ export class MetaStatusQueue {
     this.maybeCompact();
   }
 
+  /**
+   * complete() for several ids at once, with ONE journal append instead of one per id.
+   *
+   * Identical semantics to calling complete() in a loop - an id that is not pending is skipped, the
+   * rest are remembered for dedupe - but the synchronous write is paid once. A status delivery costs
+   * one appendFileSync today (~0.2ms measured), and a burst run does ~320k of them, so this is the
+   * difference between the write being a third of the gateway's time and being noise. Only call it
+   * once the client has acknowledged ALL of these ids: a lost 'done' record is safe (the entry is
+   * delivered again after a restart, and delivery is idempotent), but a premature one is not.
+   */
+  completeMany(ids: string[]): void {
+    const at = this.now();
+    const records: JournalRecord[] = [];
+    for (const id of ids) {
+      this.inFlight.delete(id);
+      if (!this.pending.delete(id)) continue;
+      this.recentDone.set(id, at);
+      this.counters.delivered++;
+      records.push({ t: 'done', id, at });
+    }
+    if (!records.length) return;
+    try { this.append(records); } catch { /* see complete() */ }
+    this.maybeCompact();
+  }
+
   /** Delivery failed: keep it, retry with capped exponential backoff. */
   fail(id: string): number {
     this.inFlight.delete(id);
