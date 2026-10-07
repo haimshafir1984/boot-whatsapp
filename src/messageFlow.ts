@@ -51,7 +51,19 @@ const FILE_DELIVERY_WAIT_TIMEOUT_MS = Math.max(
   0,
   Number.isFinite(config.FILE_DELIVERY_WAIT_TIMEOUT_MS) ? config.FILE_DELIVERY_WAIT_TIMEOUT_MS : 20_000,
 );
-const FILE_DELIVERY_POLL_INTERVAL_MS = 300;
+/**
+ * How often waitForOutboxFileDelivery() re-checks whether the `delivered` status landed.
+ *
+ * MEASUREMENT KNOB: FILE_DELIVERY_POLL_INTERVAL_MS overrides it (10..5000ms). Unset or invalid = 300,
+ * exactly as before. This does NOT remove the wait - it only decides how long the flow sleeps past
+ * the moment the status actually arrived. Since the status now lands in ~40ms (it used to take
+ * 8-12s), the sleep itself is most of what the wait still costs; a smaller value trades CPU for that
+ * latency, which is why it is a knob to measure rather than a number to guess.
+ */
+const FILE_DELIVERY_POLL_INTERVAL_MS = (() => {
+  const raw = Number(process.env.FILE_DELIVERY_POLL_INTERVAL_MS);
+  return Number.isFinite(raw) && raw >= 10 && raw <= 5_000 ? Math.round(raw) : 300;
+})();
 const TEXT_SEND_RETRY_DELAY_MS = 3_000;
 const TEXT_SEND_ATTEMPTS = 2;
 const CONFIGURED_BOT_REPLY_DELAY_MS = Math.max(
@@ -3214,7 +3226,9 @@ async function sendDecisionStepInner(
     try {
       if (step.fileId) {
         const stepFile = storage.getUploadedFile(step.fileId);
-        // Videos, images and documents support a caption. Only stickers must be sent without one.
+        // Videos, images and documents support a caption; stickers must be sent without one, so
+        // the text goes first here. Audio also cannot carry a caption, but sendDecisionFile()
+        // handles that itself for every caller, so it does not need a second case here.
         const sendTextSeparately = Boolean(step.fileAsSticker);
         if (sendTextSeparately && step.text.trim()) {
           await sendBotMessage(transport, senderJid, step.text.trim(), stepDelayMs);
@@ -3795,12 +3809,22 @@ async function sendDecisionFile(
   if (file && transport.sendFile) {
     const canSendAsSticker = Boolean(asSticker && file.mimeType.startsWith('image/'));
     const filePath = path.join(config.UPLOADS_PATH, file.filename);
+    // WhatsApp has no caption on an audio message - Meta accepts the send and simply ignores
+    // the text, so a step's words would vanish with no error anywhere. Send them as their own
+    // message just before the clip instead: the same shape the sticker path uses, and the order
+    // a quiz needs ("listen and guess", then play). The clip itself still waits for `delivered`
+    // before the flow moves on, so nothing can overtake it.
+    let mediaCaption = caption;
+    if (caption?.trim() && file.mimeType.startsWith('audio/')) {
+      await sendBotMessage(transport, senderJid, caption.trim(), 0);
+      mediaCaption = undefined;   // already its own message - never resend it, fallback included
+    }
     try {
       await sendFileWithRetry(
         transport,
         senderJid,
         filePath,
-        caption,
+        mediaCaption,
         { asSticker: canSendAsSticker },
         file.originalName,
       );
@@ -3830,7 +3854,7 @@ async function sendDecisionFile(
           label: file.originalName,
         });
       }
-      return await sendFileFallback(transport, senderJid, caption);
+      return await sendFileFallback(transport, senderJid, mediaCaption);
     }
   } else {
     if (campaignId) {

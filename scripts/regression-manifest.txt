@@ -67,6 +67,8 @@ test-meta-status-forwarding.js
 test-meta-status-queue-compaction.js
 test-meta-status-queue-kill.js
 test-meta-status-batching.js
+test-audio-upload-and-send.js
+test-audio-step-caption.js
 test-meta-status-flush-durability.js
 test-meta-status-postgres.js
 test-service-bot-outbox.js

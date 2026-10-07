@@ -105,6 +105,10 @@ export class MetaCloudProvider implements WhatsAppProvider {
       }
       const media: Record<string, string> = { id: mediaId };
       if (caption && (type === 'image' || type === 'video' || type === 'document')) media.caption = caption;
+      // Audio and stickers carry no caption. Callers are expected to send the text as its own
+      // message (sendDecisionFile does), so reaching here with one means it is about to be lost -
+      // say so, because Meta will not: it accepts the send and drops the text without an error.
+      else if (caption?.trim()) console.warn(`[CAPTION_DROPPED] type=${type} chars=${caption.trim().length} - WhatsApp has no caption on this type; send it as a separate message.`);
       if (type === 'document') media.filename = fileName;
       return await this.postMessages({ messaging_product: 'whatsapp', to: recipient, type, [type]: media });
     };
@@ -335,7 +339,7 @@ function normalizePhone(value: string): string {
 
 function mimeTypeForFile(fileName: string): string {
   const ext = path.extname(fileName).toLowerCase();
-  return ({ '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.jfif': 'image/jpeg', '.jpe': 'image/jpeg', '.pjpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.3gp': 'video/3gpp', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.pdf': 'application/pdf', '.vcf': 'text/vcard' } as Record<string, string>)[ext] || 'application/octet-stream';
+  return ({ '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.jfif': 'image/jpeg', '.jpe': 'image/jpeg', '.pjpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.3gp': 'video/3gpp', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.amr': 'audio/amr', '.pdf': 'application/pdf', '.vcf': 'text/vcard' } as Record<string, string>)[ext] || 'application/octet-stream';
 }
 
 export function buildMetaContactFromVCard(vcard: string, fallbackName: string): Record<string, unknown> | null {

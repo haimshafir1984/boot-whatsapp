@@ -4910,20 +4910,35 @@ export function startAdminServer(storage: Storage): import('http').Server {
       return;
     }
 
+    // Audio is here so a campaign step can play a clip (e.g. "name this song"). The provider already
+    // sends anything audio/* as a WhatsApp voice/audio message rather than a document; these are the
+    // types Meta accepts for it. Browsers label the same file inconsistently, hence the aliases:
+    // Chrome reports audio/mp3 and audio/x-m4a where Firefox reports audio/mpeg and audio/mp4.
     const allowedTypes = new Set([
       'application/pdf',
       'image/jpeg',
       'image/png',
       'image/webp',
       'video/mp4',
+      'audio/mpeg', 'audio/mp3',
+      'audio/mp4', 'audio/x-m4a', 'audio/m4a',
+      'audio/aac',
+      'audio/amr',
+      'audio/ogg',
     ]);
     const detectedMimeType = match[1] || mimeType;
     if (!allowedTypes.has(detectedMimeType)) {
-      res.status(400).json({ error: 'סוג קובץ לא נתמך. ניתן להעלות PDF, תמונה או MP4.' });
+      res.status(400).json({ error: 'סוג קובץ לא נתמך. ניתן להעלות PDF, תמונה, MP4 או קובץ שמע.' });
       return;
     }
 
     const buffer = Buffer.from(match[2], 'base64');
+    // A clip, not a whole track: 2MB is roughly two minutes of 128kbps MP3, far more than a quiz
+    // snippet needs, and it keeps the step from stalling on an upload nobody meant to make.
+    if (detectedMimeType.startsWith('audio/') && buffer.length > 2 * 1024 * 1024) {
+      res.status(400).json({ error: 'קובץ השמע גדול מדי. ניתן להעלות שמע עד 2MB (קטע קצר, לא שיר מלא).' });
+      return;
+    }
     if (detectedMimeType.startsWith('image/') && buffer.length > 5 * 1024 * 1024) {
       res.status(400).json({ error: '\u05d4\u05ea\u05de\u05d5\u05e0\u05d4 \u05d2\u05d3\u05d5\u05dc\u05d4 \u05de\u05d3\u05d9. \u05e0\u05d9\u05ea\u05df \u05dc\u05d4\u05e2\u05dc\u05d5\u05ea \u05ea\u05de\u05d5\u05e0\u05d4 \u05e2\u05d3 5MB.' });
       return;

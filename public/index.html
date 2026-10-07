@@ -1748,7 +1748,7 @@
             <div class="hint">אפשר להעלות כאן קטלוגים, תמונות מוצרים, מחירונים או קבצי PDF. הקבצים נשמרים ברמת הלקוח וזמינים לכל הקמפיינים.</div>
           </div>
           <button type="button" class="btn-small" onclick="document.getElementById('clientFileUpload').click()">+ העלאת קובץ</button>
-          <input id="clientFileUpload" type="file" accept=".pdf,image/jpeg,image/png,image/webp,video/mp4" onchange="uploadCampaignFile(this)" />
+          <input id="clientFileUpload" type="file" accept=".pdf,image/jpeg,image/png,image/webp,video/mp4,audio/mpeg,audio/mp4,audio/aac,audio/ogg,.mp3,.m4a,.aac,.ogg,.amr" onchange="uploadCampaignFile(this)" />
         </div>
         <div class="file-list" id="campaignFilesList"></div>
         <div class="toast" id="filesToast"></div>
@@ -3806,7 +3806,7 @@
             <select data-step-file data-selected-file="${esc(step.fileId || '')}" onchange="updateCampaignConversationPreview()">${fileOptions(step.fileId || '')}</select>
             <div class="inline-file-upload">
               <button type="button" class="btn-small" onclick="this.closest('[data-message-file]').querySelector('[data-step-file-upload]').click()">&#1492;&#1506;&#1500;&#1492; &#1511;&#1493;&#1489;&#1509;</button>
-              <input data-step-file-upload type="file" accept=".pdf,image/jpeg,image/png,image/webp,video/mp4" style="display:none" onchange="uploadCampaignFile(this)" />
+              <input data-step-file-upload type="file" accept=".pdf,image/jpeg,image/png,image/webp,video/mp4,audio/mpeg,audio/mp4,audio/aac,audio/ogg,.mp3,.m4a,.aac,.ogg,.amr" style="display:none" onchange="uploadCampaignFile(this)" />
               <span data-step-file-upload-status></span>
             </div>
           </div>
