@@ -14,6 +14,33 @@ const { execFileSync } = require('node:child_process');
 
 const repoRoot = path.resolve(__dirname, '..');
 
+/**
+ * Which ruler produced this number.
+ *
+ * A result file used to record the machine state and nothing about the code, so two runs could be
+ * compared as "identical settings" while the harness itself had changed between them - and nothing
+ * in either file would say so. That is not hypothetical: the duplicate-counting rule changed on
+ * 2026-10-08, so runs before it report 48 duplicates and runs after report 0, for the same product.
+ *
+ * `dirty` is the honest part: a measurement taken with uncommitted changes is reproducible only
+ * from that working tree, so the hash alone would overstate what we know. Never throws - a missing
+ * git, a tarball without .git, or a detached worktree must not fail a run.
+ */
+function codeVersion() {
+  const git = (args) => execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  try {
+    return {
+      commit: git(['rev-parse', '--short', 'HEAD']),
+      branch: git(['rev-parse', '--abbrev-ref', 'HEAD']),
+      // Tracked files only; untracked results and scratch files are not part of the ruler.
+      dirty: git(['status', '--porcelain', '--untracked-files=no']).length > 0,
+      committedAt: git(['show', '-s', '--format=%cI', 'HEAD']),
+    };
+  } catch {
+    return { commit: null, branch: null, dirty: null, committedAt: null, note: 'git unavailable - this result cannot be tied to a code version' };
+  }
+}
+
 function nodeProcesses() {
   if (process.platform !== 'win32') return [];
   const ps = "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Select-Object ProcessId, WorkingSetSize, CommandLine | ConvertTo-Json -Compress";
@@ -30,6 +57,7 @@ function preflight({ failOnStray = true } = {}) {
   const others = procs.filter((p) => !mine.includes(p));
   const state = {
     at: new Date().toISOString(),
+    code: codeVersion(),
     freeMemGB: +(os.freemem() / 1e9).toFixed(1), totalMemGB: +(os.totalmem() / 1e9).toFixed(1),
     load1m: os.loadavg()[0],
     strayRepoNodeProcesses: mine.map((p) => ({ pid: p.pid, mb: p.mb, cmd: p.cmd.slice(0, 160) })),

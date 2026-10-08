@@ -6,6 +6,11 @@
  * Nothing leaves the machine. Real code paths otherwise: the real gateway, the real clients, PostgreSQL.
  */
 const { monitorEventLoopDelay } = require('node:perf_hooks');
+// measurement-only: Storage.flush() calls (all callers, and the ones made while serving /internal/meta/whatsapp - the gateway's status endpoint),
+// cumulative, printed every 5s as @@FL. `ms` is how long callers WAITED for the flush (an async wait), not event-loop blocking.
+const { AsyncLocalStorage } = require('node:async_hooks');
+const flowCtx = new AsyncLocalStorage();
+const fl = { calls: 0, ms: 0, max: 0, epCalls: 0, epMs: 0, epRequests: 0, outboxLookups: 0 };
 
 const TEXT_MS = Number(process.env.FAKE_META_TEXT_MS || 150);
 const MEDIA_MS = Number(process.env.FAKE_META_MEDIA_MS || 900);
@@ -14,6 +19,9 @@ let seq = 0;
 globalThis.fetch = async function fakeFetch(input, init) {
   const url = typeof input === 'string' ? input : input?.url || String(input);
   if (!/graph\.facebook\.com/.test(url)) return realFetch(input, init);
+  // Shared fake Meta (scripts/lib/fake-meta-server.js): one process for every client, so the number-wide throughput limit, faults and
+  // delivery-status webhooks are modelled once. Without it each process fakes Meta on its own (legacy mode, unchanged).
+  if (process.env.FAKE_META_URL) return realFetch(url.replace(/^https:\/\/graph\.facebook\.com/, process.env.FAKE_META_URL), init);
   let body = {};
   try { body = init?.body && typeof init.body === 'string' ? JSON.parse(init.body) : {}; } catch { /* multipart upload etc. */ }
   const isMedia = /\/media$/.test(url) || body?.type === 'image' || body?.type === 'video' || body?.type === 'document';
@@ -24,10 +32,13 @@ globalThis.fetch = async function fakeFetch(input, init) {
   return new Response(JSON.stringify({ messaging_product: 'whatsapp', contacts: [{ input: body?.to, wa_id: body?.to }], messages: [{ id }] }), { status: 200, headers: { 'content-type': 'application/json' } });
 };
 
+let cpuPrev = process.cpuUsage(); let tPrev = Date.now();
 const hist = monitorEventLoopDelay({ resolution: 5 });
 hist.enable();
 const timer = setInterval(() => {
-  console.log('@@LAG ' + JSON.stringify({ t: Date.now(), p99: +(hist.percentile(99) / 1e6).toFixed(1), max: +(hist.max / 1e6).toFixed(1), rssMB: Math.round(process.memoryUsage().rss / 1048576) }));
+  const nowT = Date.now(); const elapsedMs = nowT - tPrev; tPrev = nowT;
+  const cpu = process.cpuUsage(cpuPrev); cpuPrev = process.cpuUsage();
+  console.log('@@LAG ' + JSON.stringify({ t: Date.now(), p99: +(hist.percentile(99) / 1e6).toFixed(1), max: +(hist.max / 1e6).toFixed(1), rssMB: Math.round(process.memoryUsage().rss / 1048576), elapsedMs, cpuPct: Math.round((cpu.user + cpu.system) / 10 / Math.max(elapsedMs, 1)) }));   // CPU time / REAL wall time between samples (the timer itself fires late when the loop is blocked)
   hist.reset();
 }, 2000);
 timer.unref();
@@ -43,6 +54,7 @@ process.on('message', (m) => { if (m === 'SIGTERM') process.emit('SIGTERM', 'SIG
   const origEmit = http.Server.prototype.emit;
   http.Server.prototype.emit = function patchedEmit(ev, req, res) {
     if (ev === 'request' && req && res) { const id = Symbol(); live.set(id, { url: String(req.url).slice(0, 80), method: req.method, at: Date.now() }); res.on('close', () => live.delete(id)); }
+    if (ev === 'request' && req && res && String(req.url).startsWith('/internal/meta/whatsapp')) { fl.epRequests += 1; const args = arguments; return flowCtx.run({ ep: true }, () => origEmit.apply(this, args)); }
     return origEmit.apply(this, arguments);
   };
   const origClose = http.Server.prototype.close;
@@ -68,9 +80,17 @@ process.on('message', (m) => { if (m === 'SIGTERM') process.emit('SIGTERM', 'SIG
 {
   const Module = require('node:module');
   const origLoad = Module._load;
-  let win = []; let size = () => null; let wrapped = false;
+  let win = []; let size = () => null; let wrapped = false; let flWrapped = false;
   Module._load = function patchedLoad(request) {
     const m = origLoad.apply(this, arguments);
+    if (!flWrapped && m && m.Storage && m.Storage.prototype && typeof m.Storage.prototype.flush === 'function') {
+      flWrapped = true; const proto = m.Storage.prototype; const origFlush = proto.flush;
+      if (typeof proto.getOutboxMessage === 'function') { const origGet = proto.getOutboxMessage; proto.getOutboxMessage = function countedGet() { fl.outboxLookups += 1; return origGet.apply(this, arguments); }; }   // waitForOutboxFileDelivery polls this
+      proto.flush = async function timedFlush() {
+        const t = process.hrtime.bigint(); const ep = Boolean(flowCtx.getStore() && flowCtx.getStore().ep); fl.calls += 1; if (ep) fl.epCalls += 1;
+        try { return await origFlush.apply(this, arguments); } finally { const ms = Number(process.hrtime.bigint() - t) / 1e6; fl.ms += ms; if (ms > fl.max) fl.max = ms; if (ep) fl.epMs += ms; }
+      };
+    }
     if (!wrapped && m && m.conversationState && typeof m.conversationState.set === 'function') {
       wrapped = true;
       const cs = m.conversationState;
@@ -90,3 +110,32 @@ process.on('message', (m) => { if (m === 'SIGTERM') process.emit('SIGTERM', 'SIG
   }, 60000);
   csTimer.unref();
 }
+
+// measurement-only: every synchronous write to the gateway's status journal (meta-status-forward.jsonl) - how many, how many bytes, how long
+// the event loop was blocked inside them - and every compaction rewrite (writeFileSync of the .tmp + rename). Cumulative, printed every 5s;
+// nothing is printed in processes that never touch that file.
+{
+  const fsm = require('node:fs');
+  const jw = { appends: 0, appendedLines: 0, appendedBytes: 0, appendMs: 0, rewrites: 0, rewriteMs: 0, rewrittenBytes: 0 };
+  const isJournal = (p) => typeof p === 'string' && /meta-status-forward\.jsonl(\.tmp)?$/.test(p);
+  const origAppend = fsm.appendFileSync;
+  fsm.appendFileSync = function patchedAppend(p, data) {
+    if (!isJournal(p)) return origAppend.apply(this, arguments);
+    const t = process.hrtime.bigint();
+    try { return origAppend.apply(this, arguments); } finally {
+      jw.appendMs += Number(process.hrtime.bigint() - t) / 1e6; jw.appends += 1;
+      const str = typeof data === 'string' ? data : String(data); jw.appendedBytes += Buffer.byteLength(str); jw.appendedLines += (str.match(/\n/g) || []).length;
+    }
+  };
+  const origWrite = fsm.writeFileSync;
+  fsm.writeFileSync = function patchedWrite(p, data, opts) {
+    // appendFileSync() calls writeFileSync(..., {flag:'a'}) internally: that is an append, already counted above, not a compaction rewrite
+    if (!isJournal(p) || (opts && typeof opts === 'object' && opts.flag === 'a')) return origWrite.apply(this, arguments);
+    const t = process.hrtime.bigint();
+    try { return origWrite.apply(this, arguments); } finally { jw.rewriteMs += Number(process.hrtime.bigint() - t) / 1e6; jw.rewrites += 1; jw.rewrittenBytes += typeof data === 'string' ? Buffer.byteLength(data) : (data && data.length) || 0; }
+  };
+  const jwTimer = setInterval(() => { if (jw.appends || jw.rewrites) console.log('@@JW ' + JSON.stringify({ t: Date.now(), ...jw, appendMs: Math.round(jw.appendMs), rewriteMs: Math.round(jw.rewriteMs) })); }, 5000);
+  jwTimer.unref();
+}
+
+{ const flTimer = setInterval(() => { if (fl.calls) console.log('@@FL ' + JSON.stringify({ t: Date.now(), ...fl, ms: Math.round(fl.ms), epMs: Math.round(fl.epMs), max: Math.round(fl.max) })); }, 5000); flTimer.unref(); }
