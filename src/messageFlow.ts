@@ -15,6 +15,7 @@ import { redactSecrets } from './secretRedaction';
 import { Campaign, CampaignConversationSettings, CampaignResult, CampaignScoreAnswer, CompletionLink, DecisionFlowOption, DecisionFlowStep, OutboxMessage, ScoreResultRule, Storage } from './storage';
 import { detectTrigger } from './triggerDetector';
 import { matchesServiceBotTrigger, tryHandleServiceBotMessage } from './serviceBot';
+import { findAutoAdvanceCycleStepIds } from './flowCycles';
 import {
   IncomingWhatsAppMessage,
   WhatsAppMessageSource,
@@ -3100,6 +3101,13 @@ function armWaitReplyTimeout(
   });
 }
 
+/** True (and logged) when this step is part of a circle of auto-advancing steps, which would otherwise send forever. */
+function stopsAutoAdvanceCycle(flow: DecisionFlowStep[], step: DecisionFlowStep, campaignId?: string): boolean {
+  if (!findAutoAdvanceCycleStepIds(flow).has(step.id)) return false;
+  console.error(`[FLOW_CYCLE] step ${step.id} of campaign ${campaignId ?? '-'} is part of a loop of auto-advancing steps; not continuing to ${step.nextStepId}.`);
+  return true;
+}
+
 export async function sendDecisionStep(
   transport: WhatsAppTransport,
   storage: Storage,
@@ -3204,7 +3212,9 @@ async function sendDecisionStepInner(
         });
       }
     }
-    if (step.nextStepId) {
+    if (step.nextStepId && stopsAutoAdvanceCycle(flow, step, campaignId)) {
+      // Configured as a circle of auto-advancing steps: sending on would repeat forever.
+    } else if (step.nextStepId) {
       // The next step applies its own configured pacing. An additional fixed
       // four-second pause here made the normal contact-card flow wait twice.
       if (failed) await sleep(FLOW_STEP_FAILURE_CONTINUE_DELAY_MS);
@@ -3276,7 +3286,9 @@ async function sendDecisionStepInner(
         });
       }
     }
-    if (step.nextStepId) {
+    if (step.nextStepId && stopsAutoAdvanceCycle(flow, step, campaignId)) {
+      // Configured as a circle of auto-advancing steps: sending on would repeat forever.
+    } else if (step.nextStepId) {
       if (failed) await sleep(FLOW_STEP_FAILURE_CONTINUE_DELAY_MS);
       await sendDecisionStep(transport, storage, senderJid, flow, step.nextStepId, campaignId, campaignResultId, senderPhone, humanHandoff);
     } else if (campaignId) {

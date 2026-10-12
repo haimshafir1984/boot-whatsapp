@@ -83,6 +83,7 @@ import { runWithInboundOutcome } from './inboundOutcome';
 import { MetaStatusQueue, StatusQueueItem, statusDedupeKey } from './metaStatusQueue';
 import { DeliveryRecoveryRelease } from './deliveryRecovery';
 import { deliveryRecoveryBus } from './deliveryRecoveryBus';
+import { findAutoAdvanceCycleStepIds } from './flowCycles';
 interface TwilioGatewaySession {
   from: string;
   clientId: string;
@@ -793,6 +794,15 @@ async function fetchClientAsOwner<T>(
   });
   const body = await response.json().catch(() => ({}));
   return { ok: response.ok, status: response.status, body };
+}
+
+/** Rejects a campaign whose steps send on to each other in a circle (the bot would send the same messages forever). */
+function autoAdvanceCycleError(conversation: CampaignConversationSettings): string | undefined {
+  const flow = conversation.decisionFlow ?? [];
+  const ids = findAutoAdvanceCycleStepIds(flow);
+  if (!ids.size) return undefined;
+  const labels = flow.map((step, index) => ({ id: step.id, label: `שלב ${index + 1}` })).filter((item) => ids.has(item.id)).map((item) => item.label);
+  return `הזרימה לא נשמרה: ${labels.join(', ')} שולחים זה לזה בלי הפסקה ויגרמו ללולאה אינסופית של הודעות. שנו את "השלב הבא" באחד מהם ל"שלח וסיים" או לשלב שמאוחר יותר ברשימה.`;
 }
 
 function conversationSettings(
@@ -4163,6 +4173,8 @@ export function startAdminServer(storage: Storage): import('http').Server {
       return;
     }
 
+    const cycleError = autoAdvanceCycleError(conversationSettings(conversation, storage.getAdminSettings()));
+    if (cycleError) { res.status(400).json({ error: cycleError }); return; }
     const campaign = storage.addCampaign({
       name: name.trim(),
       triggerType,
@@ -5628,6 +5640,8 @@ export function startAdminServer(storage: Storage): import('http').Server {
       return;
     }
 
+    const cycleError = autoAdvanceCycleError(conversationSettings(conversation, storage.getAdminSettings()));
+    if (cycleError) { res.status(400).json({ error: cycleError }); return; }
     const campaign = storage.addCampaign({
       name: name.trim(),
       triggerType,
@@ -5699,6 +5713,8 @@ export function startAdminServer(storage: Storage): import('http').Server {
     if ('conversation' in req.body) {
       const defaults = storage.getCampaignConversationSettings(existing);
       patch.conversation = conversationSettings(conversation, defaults);
+      const cycleError = autoAdvanceCycleError(patch.conversation);
+      if (cycleError) { res.status(400).json({ error: cycleError }); return; }
     }
     if ('twilio' in req.body) {
       patch.twilio = campaignTwilioSettings(twilio);
