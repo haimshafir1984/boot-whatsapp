@@ -157,13 +157,23 @@ async function main() {
     assert.equal(await detectMetaOnboardingPath({ graphApiVersion: 'v23.0', phoneNumberId: 'phone-1', accessToken: 'tok' }), 'coexistence');
 
     global.fetch = async () => json({ is_on_biz_app: false, platform_type: 'CLOUD_API' });
-    assert.equal(await detectMetaOnboardingPath({ graphApiVersion: 'v23.0', phoneNumberId: 'phone-1', accessToken: 'tok' }), 'cloud_api');
+    assert.equal(await detectMetaOnboardingPath({ graphApiVersion: 'v23.0', phoneNumberId: 'phone-1', accessToken: 'tok' }), 'cloud_api', 'false + CLOUD_API: a retry after a successful register() re-detects the same path');
+
+    // Section 9 of docs/embedded-signup-first-live-test-2026-10-13.md: the EXACT raw response
+    // measured live against the first live test's not-yet-registered Cloud-API number.
+    global.fetch = async () => json({ is_on_biz_app: false, platform_type: 'NOT_APPLICABLE', status: 'PENDING', code_verification_status: 'VERIFIED', name_status: 'AVAILABLE_WITHOUT_REVIEW' });
+    assert.equal(
+      await detectMetaOnboardingPath({ graphApiVersion: 'v23.0', phoneNumberId: 'phone-1', accessToken: 'tok' }),
+      'cloud_api',
+      'false + NOT_APPLICABLE (the measured pre-registration response) must resolve to cloud_api, not error',
+    );
 
     for (const body of [
       { is_on_biz_app: true }, // platform_type missing
       { platform_type: 'CLOUD_API' }, // is_on_biz_app missing
       { is_on_biz_app: 'true', platform_type: 'CLOUD_API' }, // non-boolean
       { is_on_biz_app: true, platform_type: 'ON_PREMISE' }, // undocumented value
+      { is_on_biz_app: true, platform_type: 'NOT_APPLICABLE' }, // section 9: NOT_APPLICABLE only widens the false branch
       {}, // both missing
     ]) {
       global.fetch = async () => json(body);
@@ -178,7 +188,7 @@ async function main() {
     global.fetch = async (url) => { lastUrl = String(url); return json({ is_on_biz_app: true, platform_type: 'CLOUD_API' }); };
     await detectMetaOnboardingPath({ graphApiVersion: 'v23.0', phoneNumberId: 'phone-1', accessToken: 'tok' });
     assert.match(lastUrl, /\/v23\.0\/phone-1\?fields=is_on_biz_app,platform_type$/);
-    console.log('  detectMetaOnboardingPath - true/false/5 ambiguous cases passed');
+    console.log('  detectMetaOnboardingPath - true+CLOUD_API/false+CLOUD_API/false+NOT_APPLICABLE (measured)/6 ambiguous cases passed');
   }
 
   // ── generateMetaRegistrationPin / registerMetaPhoneNumber (section 7.2) ──

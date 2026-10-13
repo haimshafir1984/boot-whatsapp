@@ -140,9 +140,17 @@ global.fetch = async (url, init) => {
     // etc.) and detectMetaOnboardingPath (is_on_biz_app/platform_type): the real Graph API returns
     // only the fields actually requested, but returning the superset here is harmless since each
     // caller only reads the fields it asked for.
+    //
+    // Section 9 of docs/embedded-signup-first-live-test-2026-10-13.md: for is_on_biz_app: false,
+    // Meta reports platform_type: NOT_APPLICABLE before the number is registered, and CLOUD_API
+    // once it is - this mirrors that by flipping to CLOUD_API only after a register() call that
+    // did not fail, exactly like the real sequence a retry after a successful register exercises.
+    const effectivePlatformType = graph.isOnBizApp === false && graph.platformType === 'NOT_APPLICABLE' && graph.registerCalls > 0 && !graph.registerShouldFail
+      ? 'CLOUD_API'
+      : graph.platformType;
     return jsonResponse({
       display_phone_number: graph.displayPhoneNumber, verified_name: 'עסק לדוגמה', quality_rating: 'GREEN', code_verification_status: 'VERIFIED',
-      is_on_biz_app: graph.isOnBizApp, platform_type: graph.platformType,
+      is_on_biz_app: graph.isOnBizApp, platform_type: effectivePlatformType, status: graph.isOnBizApp === false ? 'PENDING' : undefined, name_status: graph.isOnBizApp === false ? 'AVAILABLE_WITHOUT_REVIEW' : undefined,
     });
   }
   if (urlStr.startsWith('https://dokploy.example.test/api/')) {
@@ -435,9 +443,10 @@ async function main() {
   });
   console.log('  11. is_on_biz_app: true -> Coexistence, zero register calls, two syncs - passed');
 
-  // ── 12. is_on_biz_app: false (+ platform_type CLOUD_API) -> plain Cloud-API path ─────────
+  // ── 12. is_on_biz_app: false (+ platform_type NOT_APPLICABLE, the measured raw response of
+  // section 9) -> plain Cloud-API path ──────────────────────────────────────────────────────
   await withHarness([baseClient('c12')], async ({ adminUrl, ownerCookie }) => {
-    resetGraph({ isOnBizApp: false, wabaId: 'waba-12', phoneNumberIds: ['phone-12'] });
+    resetGraph({ isOnBizApp: false, platformType: 'NOT_APPLICABLE', wabaId: 'waba-12', phoneNumberIds: ['phone-12'] });
     const linkRes = await httpRequest(adminUrl, 'POST', '/owner/api/clients/c12/meta-connect-link', { headers: { cookie: ownerCookie } });
     const token = extractToken(linkRes.body.url);
     const complete = await httpRequest(adminUrl, 'POST', `/connect/meta/${token}/complete`, { body: { code: 'code-1', wabaId: 'waba-12' } });
@@ -451,7 +460,7 @@ async function main() {
     assert.equal(graph.registerCalls, 1);
     assert.match(graph.registerPins[0], /^\d{6}$/, 'the pin sent to register() must be exactly 6 digits');
   });
-  console.log('  12. is_on_biz_app: false -> plain Cloud-API path, one register() with a 6-digit pin, zero syncs - passed');
+  console.log('  12. is_on_biz_app: false + platform_type: NOT_APPLICABLE (measured) -> plain Cloud-API path, one register() with a 6-digit pin, zero syncs - passed');
 
   // ── 13. Missing / ambiguous is_on_biz_app or platform_type -> error, no register, no sync ──
   for (const [label, overrides] of [
@@ -459,6 +468,9 @@ async function main() {
     ['platform_type unexpected value', { platformType: 'ON_PREMISE' }],
     ['is_on_biz_app missing', { isOnBizApp: undefined }],
     ['is_on_biz_app non-boolean', { isOnBizApp: 'true' }],
+    // Section 9: NOT_APPLICABLE only widens the is_on_biz_app: false branch - paired with true it
+    // must still be rejected, never guessed into Coexistence.
+    ['is_on_biz_app: true + platform_type: NOT_APPLICABLE', { isOnBizApp: true, platformType: 'NOT_APPLICABLE' }],
   ]) {
     await withHarness([baseClient('c13')], async ({ adminUrl, ownerCookie }) => {
       resetGraph({ wabaId: 'waba-13', phoneNumberIds: ['phone-13'], ...overrides });
@@ -476,8 +488,10 @@ async function main() {
   }
 
   // ── 14. register() fails -> register_failed; retry succeeds with the SAME pin, no re-exchange ──
+  // platform_type: NOT_APPLICABLE throughout (section 9) - the number is still unregistered after
+  // the failed attempt, and the stub only reports CLOUD_API once a register() call has SUCCEEDED.
   await withHarness([baseClient('c14')], async ({ adminUrl, ownerCookie }) => {
-    resetGraph({ isOnBizApp: false, registerShouldFail: true, wabaId: 'waba-14', phoneNumberIds: ['phone-14'] });
+    resetGraph({ isOnBizApp: false, platformType: 'NOT_APPLICABLE', registerShouldFail: true, wabaId: 'waba-14', phoneNumberIds: ['phone-14'] });
     const linkRes = await httpRequest(adminUrl, 'POST', '/owner/api/clients/c14/meta-connect-link', { headers: { cookie: ownerCookie } });
     const token = extractToken(linkRes.body.url);
     const complete = await httpRequest(adminUrl, 'POST', `/connect/meta/${token}/complete`, { body: { code: 'code-1', wabaId: 'waba-14' } });
@@ -512,7 +526,7 @@ async function main() {
     metaSmbSyncFirstFailedAt: new Date(Date.now() - 60_000).toISOString(),
     metaOnboarding: { status: 'in_progress', step: 'smb_sync_failed', error: 'smb_app_state_sync: Graph API (400): (#133010) Account not registered', updatedAt: new Date().toISOString() },
   })], async ({ adminUrl, ownerCookie }) => {
-    resetGraph({ isOnBizApp: false, wabaId: 'waba-15', phoneNumberIds: ['phone-15'] });
+    resetGraph({ isOnBizApp: false, platformType: 'NOT_APPLICABLE', wabaId: 'waba-15', phoneNumberIds: ['phone-15'] });
     const retry = await httpRequest(adminUrl, 'POST', '/owner/api/clients/c15/meta-connect-retry', { headers: { cookie: ownerCookie } });
     assert.equal(retry.status, 200, JSON.stringify(retry.body));
     assert.equal(retry.body.metaOnboardingPath, 'cloud_api', 'retry must re-detect the path - it was never recorded on this pre-existing client');
@@ -525,7 +539,7 @@ async function main() {
 
   // ── 16. The pin never leaks: API responses, retry response, or console output ────────────
   await withHarness([baseClient('c16')], async ({ adminUrl, ownerCookie }) => {
-    resetGraph({ isOnBizApp: false, registerShouldFail: true, wabaId: 'waba-16', phoneNumberIds: ['phone-16'] });
+    resetGraph({ isOnBizApp: false, platformType: 'NOT_APPLICABLE', registerShouldFail: true, wabaId: 'waba-16', phoneNumberIds: ['phone-16'] });
     const originalLog = console.log, originalWarn = console.warn, originalError = console.error;
     const captured = [];
     console.log = (...args) => { captured.push(args.map(String).join(' ')); };

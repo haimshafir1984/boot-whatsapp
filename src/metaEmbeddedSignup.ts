@@ -176,13 +176,21 @@ export async function subscribeMetaWabaApp(params: {
  * whatsapp/embedded-signup/onboarding-business-app-users/ ("Confirm successful onboarding"):
  * `GET /<phone_number_id>?fields=is_on_biz_app,platform_type`, worked example - "if is_on_biz_app
  * is true and platform_type is CLOUD_API, the business phone number is able to use Cloud API and
- * the WhatsApp Business app" (i.e. Coexistence - both signals together). The phone-number node
- * reference (developers.facebook.com/docs/whatsapp/phone-numbers and the "About the Platform"
- * sample response) documents `CLOUD_API` as the value `platform_type` takes for a number that
- * Cloud API can use; no other value is documented there. Per the owner's decision (section 7a):
- * a value other than exactly this combination - either field missing, non-boolean, or
- * `platform_type` anything other than `CLOUD_API` - is treated as "not unambiguous" and stops
- * with an error rather than guessing.
+ * the WhatsApp Business app" (i.e. Coexistence - both signals together).
+ *
+ * Corrected per section 9 of the finding doc (2026-10-13, after `6788b1f` first shipped this
+ * requiring `platform_type === 'CLOUD_API'` unconditionally): a measured live call against the
+ * plain Cloud-API number from the first live test, BEFORE it was ever registered, returned
+ * `{"is_on_biz_app":false,"platform_type":"NOT_APPLICABLE","status":"PENDING",...}` - not
+ * `CLOUD_API`. That value is undocumented anywhere checked, but it is the one Meta actually sends
+ * for exactly the case this function exists to recognize (a verified, not-yet-registered,
+ * not-on-the-business-app number) - requiring `CLOUD_API` there meant detection always failed for
+ * a brand new Cloud-API number, which is the production incident this whole change was built to
+ * fix. `platform_type: CLOUD_API` is kept as *also* valid for `is_on_biz_app: false` because a
+ * retry after a successful register() (section 7.3) re-runs this same detection, and by then the
+ * number IS on Cloud API. `is_on_biz_app: true` still requires exactly `CLOUD_API` - unchanged,
+ * since nothing measured justifies widening the Coexistence branch, and the risk there (a
+ * wrong guess calling register() on an app-connected number) is the one that must never loosen.
  */
 export type MetaOnboardingPath = 'coexistence' | 'cloud_api';
 
@@ -194,15 +202,11 @@ export async function detectMetaOnboardingPath(params: {
   const body = await graphFetch(url, { headers: { Authorization: `Bearer ${params.accessToken}` } });
   const isOnBizApp = body?.is_on_biz_app;
   const platformType = body?.platform_type;
-  if (platformType !== 'CLOUD_API') {
-    throw new MetaEmbeddedSignupError(
-      `Meta החזירה platform_type לא ידוע עבור המספר הייעודי (${platformType === undefined ? 'חסר' : JSON.stringify(platformType)}). לא ניתן לקבוע את מסלול החיבור בבטחה - יש לפנות לבעל המערכת.`,
-    );
-  }
-  if (isOnBizApp === true) return 'coexistence';
-  if (isOnBizApp === false) return 'cloud_api';
+  if (isOnBizApp === true && platformType === 'CLOUD_API') return 'coexistence';
+  if (isOnBizApp === false && (platformType === 'NOT_APPLICABLE' || platformType === 'CLOUD_API')) return 'cloud_api';
+  const describe = (value: unknown) => (value === undefined ? 'חסר' : JSON.stringify(value));
   throw new MetaEmbeddedSignupError(
-    `Meta החזירה is_on_biz_app לא ידוע עבור המספר הייעודי (${isOnBizApp === undefined ? 'חסר' : JSON.stringify(isOnBizApp)}). לא ניתן לקבוע את מסלול החיבור בבטחה - יש לפנות לבעל המערכת.`,
+    `Meta החזירה ערכים לא חד-משמעיים עבור המספר הייעודי (is_on_biz_app: ${describe(isOnBizApp)}, platform_type: ${describe(platformType)}). לא ניתן לקבוע את מסלול החיבור בבטחה - יש לפנות לבעל המערכת.`,
   );
 }
 
