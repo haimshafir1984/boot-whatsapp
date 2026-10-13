@@ -209,6 +209,25 @@ function normalizeGatewayPhone(value: string): string {
   return value.replace(/^whatsapp:/i, '').replace(/[^\d+]/g, '').replace(/^\+/, '');
 }
 
+/**
+ * docs/gateway-dedicated-number-scope-plan-2026-10-13.md section 4.1: the one scope rule used by
+ * trigger-uniqueness checking (inspectMetaTriggerAvailability), inbound gateway routing
+ * (routeMetaGatewayInbound) and delivery-status fan-out (statusTargetClients) - one rule, not
+ * three that could silently drift apart. A client with its own metaPhoneNumberId that differs
+ * from the shared admin number (config.META_PHONE_NUMBER_ID) is scoped to that number; every
+ * other client - including one with no metaPhoneNumberId at all, or when the shared number is not
+ * configured - is 'shared'. That is exactly how every one of today's 11 shared-number clients is
+ * already stored, so this rule changes nothing about their group.
+ */
+export function metaPhoneScope(client: Pick<ManagedClient, 'metaPhoneNumberId'>): string {
+  const phoneNumberId = String(client.metaPhoneNumberId || '').trim();
+  const sharedMetaPhoneNumberId = String(config.META_PHONE_NUMBER_ID || '').trim();
+  if (phoneNumberId && (!sharedMetaPhoneNumberId || phoneNumberId !== sharedMetaPhoneNumberId)) {
+    return `phone:${phoneNumberId}`;
+  }
+  return 'shared';
+}
+
 function normalizeGatewayText(value: string): string {
   return normalizeMetaTrigger(value);
 }
@@ -1401,14 +1420,10 @@ export function startAdminServer(storage: Storage): import('http').Server {
   ) => {
     const normalizedTrigger = normalizeMetaTrigger(triggerPhrase);
     if (!normalizedTrigger) return { available: false, conflicts: [], sameClientConflicts: [], crossClientConflicts: [] };
-    const sharedMetaPhoneNumberId = String(config.META_PHONE_NUMBER_ID || '').trim();
-    const metaTriggerScope = (client: ManagedClient) => {
-      const phoneNumberId = String(client.metaPhoneNumberId || '').trim();
-      if (phoneNumberId && (!sharedMetaPhoneNumberId || phoneNumberId !== sharedMetaPhoneNumberId)) {
-        return `phone:${phoneNumberId}`;
-      }
-      return 'shared';
-    };
+    // docs/gateway-dedicated-number-scope-plan-2026-10-13.md section 4.1: this is the module-level
+    // metaPhoneScope() below - kept as a local alias here (not inlined at the two call sites) so
+    // this function's own history / diff stays readable; the rule itself lives in one place.
+    const metaTriggerScope = metaPhoneScope;
     const requesterScope = metaTriggerScope(requester);
     // Scoped BEFORE querying: a client on a dedicated number must not be blocked by an unrelated client - on the
     // shared number or on a different dedicated number - being unreachable. Only requester's own scope is ever
@@ -1881,10 +1896,39 @@ export function startAdminServer(storage: Storage): import('http').Server {
     const exactDisplayClients = displayPhoneNumber
       ? allMetaClients.filter((client) => normalizeGatewayPhone(client.metaDisplayPhoneNumber || '') === displayPhoneNumber)
       : [];
-    const sharedAdminNumber = (phoneNumberId && phoneNumberId === String(config.META_PHONE_NUMBER_ID || '').trim())
-      || (displayPhoneNumber && displayPhoneNumber === normalizeGatewayPhone(config.META_DISPLAY_PHONE_NUMBER || ''));
+
+    // 4.5: phone_number_id ALONE decides whether this envelope is for the shared admin number -
+    // display_phone_number only breaks the tie when the id is missing (its existing fallback role
+    // for exactDisplayClients above is unchanged). Before this, the two fields were OR'd together,
+    // so a phone_number_id/display_phone_number pair that disagreed about which number this is
+    // could route a dedicated-number message into the shared group once 4.2 below starts scoping
+    // that group - the id is the stable identifier, so it wins; the mismatch is only logged.
+    const sharedMetaPhoneNumberId = String(config.META_PHONE_NUMBER_ID || '').trim();
+    const sharedMetaDisplayPhoneNumber = normalizeGatewayPhone(config.META_DISPLAY_PHONE_NUMBER || '');
+    let sharedAdminNumber: boolean;
+    if (phoneNumberId) {
+      sharedAdminNumber = Boolean(sharedMetaPhoneNumberId) && phoneNumberId === sharedMetaPhoneNumberId;
+      const displaySaysShared = Boolean(displayPhoneNumber) && Boolean(sharedMetaDisplayPhoneNumber) && displayPhoneNumber === sharedMetaDisplayPhoneNumber;
+      if (displayPhoneNumber && sharedMetaDisplayPhoneNumber && displaySaysShared !== sharedAdminNumber) {
+        notifySystemAlert({
+          key: `meta-gateway-metadata-conflict-${phoneNumberId}`,
+          severity: 'warning',
+          title: 'מטא-דאטה סותרת בהודעה נכנסת מ-Meta',
+          message: `הודעה נכנסת הגיעה עם phone_number_id=${phoneNumberId} ו-display_phone_number שלא עקבי איתו (אחד מהם מצביע על המספר המשותף, השני לא). נותב לפי phone_number_id, שהוא המזהה היציב.`,
+          details: { phoneNumberId, displayPhoneNumber },
+        });
+      }
+    } else {
+      sharedAdminNumber = Boolean(displayPhoneNumber) && Boolean(sharedMetaDisplayPhoneNumber) && displayPhoneNumber === sharedMetaDisplayPhoneNumber;
+    }
+
+    // 4.2: a message to the shared number must never reach a client on a dedicated number - it
+    // cannot be that client's real target, and removing it here only narrows the fail-closed scan
+    // below to clients that could actually own this conversation; it never weakens fail-closed
+    // itself. The dedicated-number branches above are untouched - they already resolve to exactly
+    // that one client (or client-pair via the display fallback).
     const clients = sharedAdminNumber
-      ? allMetaClients
+      ? allMetaClients.filter((client) => metaPhoneScope(client) === 'shared')
       : exactPhoneIdClients.length
         ? exactPhoneIdClients
         : exactDisplayClients.length
@@ -2512,8 +2556,36 @@ export function startAdminServer(storage: Storage): import('http').Server {
   };
   const statusTargetClients = () => ownerStorage.getClients().filter((client) =>
     client.whatsappProvider === 'META_CLOUD_API' && client.managementUrl && client.ownerAccessToken && client.provisioningStatus !== 'disabled');
+  /**
+   * 4.3/4.4 of docs/gateway-dedicated-number-scope-plan-2026-10-13.md: narrow the broadcast set by
+   * the envelope's own phone_number_id, using the exact same metaPhoneScope() rule as inbound
+   * routing - 'shared' when the id matches the shared admin number, `phone:<id>` otherwise. Two
+   * cases fall back to broadcasting to every Meta client, exactly like before this change:
+   * no phone_number_id at all (never guess), or one that matches no managed client's scope (the
+   * queue silently accepts an empty id list - metaStatusQueue.ts:112 - which would ack the webhook
+   * and lose the status; a client always rejects a status that is not its own, so broadcasting
+   * wider than necessary costs load, never correctness). The unmatched case also raises a warning
+   * so it does not go unnoticed.
+   */
+  const statusTargetClientIdsFor = (phoneNumberId: string | undefined): string[] => {
+    const all = statusTargetClients();
+    if (!phoneNumberId) return all.map((client) => client.id);
+    const sharedMetaPhoneNumberId = String(config.META_PHONE_NUMBER_ID || '').trim();
+    const scope = sharedMetaPhoneNumberId && phoneNumberId === sharedMetaPhoneNumberId ? 'shared' : `phone:${phoneNumberId}`;
+    const matching = all.filter((client) => metaPhoneScope(client) === scope);
+    if (matching.length) return matching.map((client) => client.id);
+    notifySystemAlert({
+      key: `meta-status-unknown-phone-number-${phoneNumberId}`,
+      severity: 'warning',
+      title: 'סטטוס מסירה עם phone_number_id שלא תואם אף לקוחה',
+      message: `התקבל סטטוס מסירה מ-Meta עם phone_number_id=${phoneNumberId} שלא תואם אף לקוחה מנוהלת כיום. משודר לכל הלקוחות, כמו קודם, כדי לא לאבד את הסטטוס.`,
+      details: { phoneNumberId },
+    });
+    return all.map((client) => client.id);
+  };
   const enqueueMetaStatusForward = (payload: any): void => {
-    metaStatusQueue.enqueue(statusDedupeKey(payload), payload, statusTargetClients().map((client) => client.id));
+    const phoneNumberId = String(payload?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id || '').trim() || undefined;
+    metaStatusQueue.enqueue(statusDedupeKey(payload), payload, statusTargetClientIdsFor(phoneNumberId));
   };
   let statusDrainRunning = false;
   const drainMetaStatusQueue = async (): Promise<void> => {
