@@ -1,7 +1,12 @@
 /**
- * Embedded Signup for a customer-owned WhatsApp number, Coexistence mode.
- * See docs/embedded-signup-automation-plan-2026-09-28.md (sections 3.1-3.3) and
- * docs/embedded-signup-coexistence-event-contract-finding-2026-09-29.md.
+ * Embedded Signup for a customer-owned WhatsApp number. Two paths, decided server-side (never
+ * from the browser) by detectMetaOnboardingPath below: Coexistence (the number stays active in
+ * the WhatsApp Business app too - sync, never register) and the plain Cloud-API path (a new
+ * number verified by code - register, no sync). See docs/embedded-signup-automation-plan-
+ * 2026-09-28.md (sections 3.1-3.3), docs/embedded-signup-coexistence-event-contract-finding-
+ * 2026-09-29.md, and docs/embedded-signup-first-live-test-2026-10-13.md (section 7, where the
+ * Cloud-API path was added after a live test hit #133010 on a number Coexistence code had never
+ * handled).
  *
  * Pure Graph API + connect-link helpers only - no ownerStorage/adminServer
  * access here, so this stays testable with a `global.fetch` stub the same way
@@ -160,11 +165,91 @@ export async function subscribeMetaWabaApp(params: {
   await graphFetch(url, { method: 'POST', headers: { Authorization: `Bearer ${params.accessToken}` } });
 }
 
+/**
+ * Section 7.1 of docs/embedded-signup-first-live-test-2026-10-13.md: decide server-side, right
+ * after subscribeMetaWabaApp, which Embedded Signup path this number is actually on - never from
+ * the browser-reported FINISH event name (`FINISH` vs `FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING`),
+ * because a wrong guess toward register() on a number still active in the WhatsApp Business app
+ * risks disconnecting it from that app (see syncMetaSmbAppData's comment below).
+ *
+ * Checked against Meta's own guide - developers.facebook.com/documentation/business-messaging/
+ * whatsapp/embedded-signup/onboarding-business-app-users/ ("Confirm successful onboarding"):
+ * `GET /<phone_number_id>?fields=is_on_biz_app,platform_type`, worked example - "if is_on_biz_app
+ * is true and platform_type is CLOUD_API, the business phone number is able to use Cloud API and
+ * the WhatsApp Business app" (i.e. Coexistence - both signals together). The phone-number node
+ * reference (developers.facebook.com/docs/whatsapp/phone-numbers and the "About the Platform"
+ * sample response) documents `CLOUD_API` as the value `platform_type` takes for a number that
+ * Cloud API can use; no other value is documented there. Per the owner's decision (section 7a):
+ * a value other than exactly this combination - either field missing, non-boolean, or
+ * `platform_type` anything other than `CLOUD_API` - is treated as "not unambiguous" and stops
+ * with an error rather than guessing.
+ */
+export type MetaOnboardingPath = 'coexistence' | 'cloud_api';
+
+export async function detectMetaOnboardingPath(params: {
+  graphApiVersion: string; phoneNumberId: string; accessToken: string;
+}): Promise<MetaOnboardingPath> {
+  const url = `https://graph.facebook.com/${params.graphApiVersion}/${encodeURIComponent(params.phoneNumberId)}`
+    + '?fields=is_on_biz_app,platform_type';
+  const body = await graphFetch(url, { headers: { Authorization: `Bearer ${params.accessToken}` } });
+  const isOnBizApp = body?.is_on_biz_app;
+  const platformType = body?.platform_type;
+  if (platformType !== 'CLOUD_API') {
+    throw new MetaEmbeddedSignupError(
+      `Meta החזירה platform_type לא ידוע עבור המספר הייעודי (${platformType === undefined ? 'חסר' : JSON.stringify(platformType)}). לא ניתן לקבוע את מסלול החיבור בבטחה - יש לפנות לבעל המערכת.`,
+    );
+  }
+  if (isOnBizApp === true) return 'coexistence';
+  if (isOnBizApp === false) return 'cloud_api';
+  throw new MetaEmbeddedSignupError(
+    `Meta החזירה is_on_biz_app לא ידוע עבור המספר הייעודי (${isOnBizApp === undefined ? 'חסר' : JSON.stringify(isOnBizApp)}). לא ניתן לקבוע את מסלול החיבור בבטחה - יש לפנות לבעל המערכת.`,
+  );
+}
+
+/** Section 7.2: a 6-digit PIN for the Cloud-API-only path's two-step verification. Generated once
+ * per client, BEFORE the first register() call, and reused for every later register() (including
+ * a retry) - never regenerated, since sending a different PIN than the number's current one would
+ * itself be rejected. */
+export function generateMetaRegistrationPin(): string {
+  return String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+}
+
+/**
+ * Section 7.2: the Cloud-API-only path's equivalent of Coexistence's smb_app_data syncs below - a
+ * number that is not on the WhatsApp Business app cannot send or receive anything on Cloud API
+ * until this succeeds (production incident 2026-10-13, docs/embedded-signup-first-live-test-
+ * 2026-10-13.md section 2-3: `#133010 Account not registered`).
+ *
+ * On calling this again for an already-registered number (e.g. a stray extra "try again" click
+ * after a previous run already succeeded): Meta's registration guide
+ * (developers.facebook.com/documentation/business-messaging/whatsapp/business-phone-numbers/
+ * registration/) documents re-registering an already-registered number as a normal, supported
+ * operation - used deliberately e.g. after a display-name change - provided the PIN sent matches
+ * the number's current one, which is exactly what happens here since the same stored PIN is
+ * always reused (generateMetaRegistrationPin's contract above). The only documented hazard is a
+ * per-number rate limit (10 register attempts per rolling 72h, error 133016) - not a concern for
+ * a manual, human-triggered "connect" or "retry" click. Any failure (that or any other) surfaces
+ * as an ordinary thrown MetaEmbeddedSignupError, exactly like every other call in this file - the
+ * caller (adminServer.ts) is the one that decides this must not look like a crash.
+ */
+export async function registerMetaPhoneNumber(params: {
+  graphApiVersion: string; phoneNumberId: string; accessToken: string; pin: string;
+}): Promise<void> {
+  const url = `https://graph.facebook.com/${params.graphApiVersion}/${encodeURIComponent(params.phoneNumberId)}/register`;
+  await graphFetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${params.accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messaging_product: 'whatsapp', pin: params.pin }),
+  });
+}
+
 export type MetaSmbSyncType = 'smb_app_state_sync' | 'history';
 
-/** Step 3.3.7: Coexistence never calls .../register (Meta: the number is already
- * registered, and doing so risks disconnecting the business app). These two
- * syncs replace it and are idempotent - re-running a sync_type is not a failure. */
+/** Step 3.3.7: on the Coexistence path only, never call .../register (Meta: the number is
+ * already registered, and doing so risks disconnecting the business app). These two syncs
+ * replace it there and are idempotent - re-running a sync_type is not a failure. The plain
+ * Cloud-API path (detectMetaOnboardingPath above) has no business app to sync with and calls
+ * registerMetaPhoneNumber below instead - the two are mutually exclusive per connection. */
 export async function syncMetaSmbAppData(params: {
   graphApiVersion: string; phoneNumberId: string; accessToken: string; syncType: MetaSmbSyncType;
 }): Promise<void> {

@@ -103,6 +103,8 @@
             pendingWabaId = data.data && data.data.waba_id;
             setStatus('מתחבר...', 'pending');
             trySubmit();
+          } else if (data.event === 'FINISH_ONLY_WABA') {
+            setStatus('נוצר חשבון WhatsApp Business בלי מספר טלפון, ולכן החיבור לא הושלם. יש לפנות לבעל המערכת.', 'error');
           } else if (data.event === 'CANCEL') {
             setStatus('החיבור בוטל.', 'error');
           }

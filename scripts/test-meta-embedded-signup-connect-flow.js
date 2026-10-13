@@ -70,6 +70,8 @@ const graph = {
   phoneNumbersCalls: 0,
   subscribeCalls: 0,
   smbCalls: 0,
+  registerCalls: 0,
+  registerPins: [],
   issuedAccessToken: 'issued-access-token-1',
   wabaId: 'waba-happy-1',
   phoneNumberIds: ['phone-happy-1'],
@@ -77,12 +79,19 @@ const graph = {
   exchangeShouldFail: false,
   debugTokenTargetIds: null, // null = matches wabaId automatically
   smbShouldFail: false,
+  // Coexistence by default (is_on_biz_app: true, platform_type: CLOUD_API) - every scenario below
+  // that does not explicitly ask for the plain Cloud-API path keeps behaving exactly as before
+  // section 7 of docs/embedded-signup-first-live-test-2026-10-13.md was built.
+  isOnBizApp: true,
+  platformType: 'CLOUD_API',
+  registerShouldFail: false,
 };
 function resetGraph(overrides) {
   Object.assign(graph, {
-    exchangeCalls: 0, debugTokenCalls: 0, phoneNumbersCalls: 0, subscribeCalls: 0, smbCalls: 0,
+    exchangeCalls: 0, debugTokenCalls: 0, phoneNumbersCalls: 0, subscribeCalls: 0, smbCalls: 0, registerCalls: 0, registerPins: [],
     issuedAccessToken: 'issued-access-token-1', wabaId: 'waba-happy-1', phoneNumberIds: ['phone-happy-1'],
     displayPhoneNumber: '972500000001', exchangeShouldFail: false, debugTokenTargetIds: null, smbShouldFail: false,
+    isOnBizApp: true, platformType: 'CLOUD_API', registerShouldFail: false,
   }, overrides);
 }
 
@@ -117,12 +126,24 @@ global.fetch = async (url, init) => {
       if (graph.smbShouldFail) return jsonResponse({ error: { message: 'sync temporarily unavailable' } }, 503);
       return jsonResponse({ success: true });
     }
+    if (u.pathname.endsWith('/register')) {
+      graph.registerCalls += 1;
+      graph.registerPins.push(JSON.parse(init.body || '{}').pin);
+      if (graph.registerShouldFail) return jsonResponse({ error: { message: 'Graph API (400): (#133010) Account not registered' } }, 400);
+      return jsonResponse({ success: true });
+    }
     if (u.pathname.endsWith('/phone_numbers')) {
       graph.phoneNumbersCalls += 1;
       return jsonResponse({ data: graph.phoneNumberIds.map((id) => ({ id })) });
     }
-    // GET /<phoneNumberId>?fields=... (phone number details)
-    return jsonResponse({ display_phone_number: graph.displayPhoneNumber, verified_name: 'עסק לדוגמה', quality_rating: 'GREEN', code_verification_status: 'VERIFIED' });
+    // GET /<phoneNumberId>?fields=... - serves both getMetaPhoneNumberDetails (display_phone_number
+    // etc.) and detectMetaOnboardingPath (is_on_biz_app/platform_type): the real Graph API returns
+    // only the fields actually requested, but returning the superset here is harmless since each
+    // caller only reads the fields it asked for.
+    return jsonResponse({
+      display_phone_number: graph.displayPhoneNumber, verified_name: 'עסק לדוגמה', quality_rating: 'GREEN', code_verification_status: 'VERIFIED',
+      is_on_biz_app: graph.isOnBizApp, platform_type: graph.platformType,
+    });
   }
   if (urlStr.startsWith('https://dokploy.example.test/api/')) {
     const route = urlStr.split('/api/')[1];
@@ -398,6 +419,141 @@ async function main() {
     assert.equal(unrelated.status, 200, 'the rate limit must never apply to routes outside /connect/meta/*');
   });
   console.log('  10. per-IP rate limit on /connect/meta/* - passed');
+
+  // ── 11. is_on_biz_app: true (+ platform_type CLOUD_API) -> Coexistence, explicitly ──────
+  // Section 7.4 / docs/prompt-sonnet-embedded-signup-two-paths-2026-10-13.md requirement 1.
+  await withHarness([baseClient('c11')], async ({ adminUrl, ownerCookie }) => {
+    resetGraph({ wabaId: 'waba-11', phoneNumberIds: ['phone-11'] }); // isOnBizApp: true, platformType: CLOUD_API (defaults)
+    const linkRes = await httpRequest(adminUrl, 'POST', '/owner/api/clients/c11/meta-connect-link', { headers: { cookie: ownerCookie } });
+    const token = extractToken(linkRes.body.url);
+    const complete = await httpRequest(adminUrl, 'POST', `/connect/meta/${token}/complete`, { body: { code: 'code-1', wabaId: 'waba-11' } });
+    assert.equal(complete.status, 200, JSON.stringify(complete.body));
+    assert.equal(complete.body.client.metaOnboardingPath, 'coexistence');
+    assert.equal(complete.body.client.metaOnboarding.status, 'connected');
+    assert.equal(graph.registerCalls, 0, 'Coexistence must never call register()');
+    assert.equal(graph.smbCalls, 2, 'Coexistence must run both smb_app_data syncs');
+  });
+  console.log('  11. is_on_biz_app: true -> Coexistence, zero register calls, two syncs - passed');
+
+  // ── 12. is_on_biz_app: false (+ platform_type CLOUD_API) -> plain Cloud-API path ─────────
+  await withHarness([baseClient('c12')], async ({ adminUrl, ownerCookie }) => {
+    resetGraph({ isOnBizApp: false, wabaId: 'waba-12', phoneNumberIds: ['phone-12'] });
+    const linkRes = await httpRequest(adminUrl, 'POST', '/owner/api/clients/c12/meta-connect-link', { headers: { cookie: ownerCookie } });
+    const token = extractToken(linkRes.body.url);
+    const complete = await httpRequest(adminUrl, 'POST', `/connect/meta/${token}/complete`, { body: { code: 'code-1', wabaId: 'waba-12' } });
+    assert.equal(complete.status, 200, JSON.stringify(complete.body));
+    assert.equal(complete.body.client.metaOnboardingPath, 'cloud_api');
+    assert.equal(complete.body.client.metaOnboarding.status, 'connected');
+    assert.equal(complete.body.client.metaOnboarding.step, 'completed');
+    assert.equal(complete.body.client.metaSmbSyncFirstFailedAt, undefined);
+    assert.equal(complete.body.client.metaRegistrationPin, undefined, 'the pin must never reach the owner dashboard response');
+    assert.equal(graph.smbCalls, 0, 'the Cloud-API path must never call smb_app_data');
+    assert.equal(graph.registerCalls, 1);
+    assert.match(graph.registerPins[0], /^\d{6}$/, 'the pin sent to register() must be exactly 6 digits');
+  });
+  console.log('  12. is_on_biz_app: false -> plain Cloud-API path, one register() with a 6-digit pin, zero syncs - passed');
+
+  // ── 13. Missing / ambiguous is_on_biz_app or platform_type -> error, no register, no sync ──
+  for (const [label, overrides] of [
+    ['platform_type missing', { platformType: undefined }],
+    ['platform_type unexpected value', { platformType: 'ON_PREMISE' }],
+    ['is_on_biz_app missing', { isOnBizApp: undefined }],
+    ['is_on_biz_app non-boolean', { isOnBizApp: 'true' }],
+  ]) {
+    await withHarness([baseClient('c13')], async ({ adminUrl, ownerCookie }) => {
+      resetGraph({ wabaId: 'waba-13', phoneNumberIds: ['phone-13'], ...overrides });
+      const linkRes = await httpRequest(adminUrl, 'POST', '/owner/api/clients/c13/meta-connect-link', { headers: { cookie: ownerCookie } });
+      const token = extractToken(linkRes.body.url);
+      const complete = await httpRequest(adminUrl, 'POST', `/connect/meta/${token}/complete`, { body: { code: 'code-1', wabaId: 'waba-13' } });
+      assert.equal(complete.status, 502, `${label}: expected the connection to be refused`);
+      assert.equal(graph.registerCalls, 0, `${label}: must never call register() when the path is ambiguous`);
+      assert.equal(graph.smbCalls, 0, `${label}: must never sync when the path is ambiguous`);
+      const clientAfter = await httpRequest(adminUrl, 'GET', '/owner/api/clients/c13', { headers: { cookie: ownerCookie } });
+      assert.equal(clientAfter.body.metaOnboarding.status, 'failed', `${label}: client must be left in a failed state, not guessed into either path`);
+      assert.equal(clientAfter.body.metaOnboardingPath, undefined, `${label}: no path must be recorded`);
+    });
+    console.log(`  13. ambiguous path (${label}) rejected, no register/sync - passed`);
+  }
+
+  // ── 14. register() fails -> register_failed; retry succeeds with the SAME pin, no re-exchange ──
+  await withHarness([baseClient('c14')], async ({ adminUrl, ownerCookie }) => {
+    resetGraph({ isOnBizApp: false, registerShouldFail: true, wabaId: 'waba-14', phoneNumberIds: ['phone-14'] });
+    const linkRes = await httpRequest(adminUrl, 'POST', '/owner/api/clients/c14/meta-connect-link', { headers: { cookie: ownerCookie } });
+    const token = extractToken(linkRes.body.url);
+    const complete = await httpRequest(adminUrl, 'POST', `/connect/meta/${token}/complete`, { body: { code: 'code-1', wabaId: 'waba-14' } });
+    assert.equal(complete.status, 200, JSON.stringify(complete.body));
+    assert.equal(complete.body.client.metaOnboarding.status, 'in_progress');
+    assert.equal(complete.body.client.metaOnboarding.step, 'register_failed');
+    assert.equal(complete.body.client.metaPhoneNumberId, 'phone-14', 'the client must already be live on its number even though register() failed');
+    assert.equal(graph.registerCalls, 1);
+    const firstPin = graph.registerPins[0];
+    assert.match(firstPin, /^\d{6}$/);
+
+    graph.registerShouldFail = false;
+    const retry = await httpRequest(adminUrl, 'POST', '/owner/api/clients/c14/meta-connect-retry', { headers: { cookie: ownerCookie } });
+    assert.equal(retry.status, 200, JSON.stringify(retry.body));
+    assert.equal(retry.body.metaOnboarding.status, 'connected');
+    assert.equal(graph.exchangeCalls, 1, 'retry must never re-exchange the one-time code');
+    assert.equal(graph.registerCalls, 2, 'retry must call register() again');
+    assert.equal(graph.registerPins[1], firstPin, 'retry must resend the exact same pin, never a freshly generated one');
+  });
+  console.log('  14. register() failure -> register_failed; retry succeeds with the same pin, no re-exchange - passed');
+
+  // ── 15. A client stuck in smb_sync_failed that turns out to be the Cloud-API path ────────
+  // (the production scenario of docs/embedded-signup-first-live-test-2026-10-13.md: a dummy
+  // client connected before this code existed, stuck on #133010). Simulated by seeding a client
+  // already past code-exchange, with no metaOnboardingPath recorded yet, and pointing the stub at
+  // the plain Cloud-API path for the retry.
+  await withHarness([baseClient('c15', {
+    metaAccessToken: 'issued-access-token-1',
+    metaWabaId: 'waba-15',
+    metaPhoneNumberId: 'phone-15',
+    metaDisplayPhoneNumber: '972500000099',
+    metaSmbSyncFirstFailedAt: new Date(Date.now() - 60_000).toISOString(),
+    metaOnboarding: { status: 'in_progress', step: 'smb_sync_failed', error: 'smb_app_state_sync: Graph API (400): (#133010) Account not registered', updatedAt: new Date().toISOString() },
+  })], async ({ adminUrl, ownerCookie }) => {
+    resetGraph({ isOnBizApp: false, wabaId: 'waba-15', phoneNumberIds: ['phone-15'] });
+    const retry = await httpRequest(adminUrl, 'POST', '/owner/api/clients/c15/meta-connect-retry', { headers: { cookie: ownerCookie } });
+    assert.equal(retry.status, 200, JSON.stringify(retry.body));
+    assert.equal(retry.body.metaOnboardingPath, 'cloud_api', 'retry must re-detect the path - it was never recorded on this pre-existing client');
+    assert.equal(retry.body.metaOnboarding.status, 'connected');
+    assert.equal(retry.body.metaSmbSyncFirstFailedAt, undefined, 'the stale smb-sync-failed marker must be cleared once the client turns out to be on the Cloud-API path');
+    assert.equal(graph.smbCalls, 0, 'a client re-detected as Cloud-API must never be synced');
+    assert.equal(graph.registerCalls, 1);
+  });
+  console.log('  15. a pre-existing smb_sync_failed client re-detected as Cloud-API is fixed by retry - passed');
+
+  // ── 16. The pin never leaks: API responses, retry response, or console output ────────────
+  await withHarness([baseClient('c16')], async ({ adminUrl, ownerCookie }) => {
+    resetGraph({ isOnBizApp: false, registerShouldFail: true, wabaId: 'waba-16', phoneNumberIds: ['phone-16'] });
+    const originalLog = console.log, originalWarn = console.warn, originalError = console.error;
+    const captured = [];
+    console.log = (...args) => { captured.push(args.map(String).join(' ')); };
+    console.warn = (...args) => { captured.push(args.map(String).join(' ')); };
+    console.error = (...args) => { captured.push(args.map(String).join(' ')); };
+    let token;
+    try {
+      const linkRes = await httpRequest(adminUrl, 'POST', '/owner/api/clients/c16/meta-connect-link', { headers: { cookie: ownerCookie } });
+      token = extractToken(linkRes.body.url);
+      await httpRequest(adminUrl, 'POST', `/connect/meta/${token}/complete`, { body: { code: 'code-1', wabaId: 'waba-16' } });
+      graph.registerShouldFail = false;
+      await httpRequest(adminUrl, 'POST', '/owner/api/clients/c16/meta-connect-retry', { headers: { cookie: ownerCookie } });
+    } finally {
+      console.log = originalLog; console.warn = originalWarn; console.error = originalError;
+    }
+    assert.equal(graph.registerCalls, 2);
+    const pin = graph.registerPins[0];
+    assert.match(pin, /^\d{6}$/);
+    assert.equal(graph.registerPins[1], pin);
+    assert.ok(!captured.some((line) => line.includes(pin)), `the pin must never be written to console.log/warn/error, found it in: ${JSON.stringify(captured.filter((l) => l.includes(pin)))}`);
+
+    const list = await httpRequest(adminUrl, 'GET', '/owner/api/clients', { headers: { cookie: ownerCookie } });
+    assert.ok(!JSON.stringify(list.body).includes(pin), 'the pin must never appear in GET /owner/api/clients');
+    const direct = await httpRequest(adminUrl, 'GET', '/owner/api/clients/c16', { headers: { cookie: ownerCookie } });
+    assert.ok(!JSON.stringify(direct.body).includes(pin), 'the pin must never appear in GET /owner/api/clients/:id');
+    assert.equal(direct.body.metaOnboarding.status, 'connected', 'sanity check: the retry in this case did succeed');
+  });
+  console.log('  16. the registration pin never appears in API responses or console output - passed');
 
   console.log('Embedded Signup connect-flow tests passed.');
 }

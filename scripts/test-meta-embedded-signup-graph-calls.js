@@ -17,6 +17,9 @@ const {
   getMetaPhoneNumberDetails,
   subscribeMetaWabaApp,
   syncMetaSmbAppData,
+  detectMetaOnboardingPath,
+  generateMetaRegistrationPin,
+  registerMetaPhoneNumber,
   MetaEmbeddedSignupError,
 } = require('../dist/metaEmbeddedSignup');
 
@@ -146,6 +149,57 @@ async function main() {
     global.fetch = async () => json({ error: { message: 'temporarily unavailable' } }, 503);
     await assert.rejects(syncMetaSmbAppData({ graphApiVersion: 'v23.0', phoneNumberId: 'phone-1', accessToken: 'tok', syncType: 'smb_app_state_sync' }), /temporarily unavailable/);
     console.log('  subscribeMetaWabaApp / syncMetaSmbAppData - 3 cases passed');
+  }
+
+  // ── detectMetaOnboardingPath (section 7.1) ────────────────────────────────
+  {
+    global.fetch = async () => json({ is_on_biz_app: true, platform_type: 'CLOUD_API' });
+    assert.equal(await detectMetaOnboardingPath({ graphApiVersion: 'v23.0', phoneNumberId: 'phone-1', accessToken: 'tok' }), 'coexistence');
+
+    global.fetch = async () => json({ is_on_biz_app: false, platform_type: 'CLOUD_API' });
+    assert.equal(await detectMetaOnboardingPath({ graphApiVersion: 'v23.0', phoneNumberId: 'phone-1', accessToken: 'tok' }), 'cloud_api');
+
+    for (const body of [
+      { is_on_biz_app: true }, // platform_type missing
+      { platform_type: 'CLOUD_API' }, // is_on_biz_app missing
+      { is_on_biz_app: 'true', platform_type: 'CLOUD_API' }, // non-boolean
+      { is_on_biz_app: true, platform_type: 'ON_PREMISE' }, // undocumented value
+      {}, // both missing
+    ]) {
+      global.fetch = async () => json(body);
+      await assert.rejects(
+        detectMetaOnboardingPath({ graphApiVersion: 'v23.0', phoneNumberId: 'phone-1', accessToken: 'tok' }),
+        MetaEmbeddedSignupError,
+        `must refuse to guess for ${JSON.stringify(body)}`,
+      );
+    }
+
+    let lastUrl;
+    global.fetch = async (url) => { lastUrl = String(url); return json({ is_on_biz_app: true, platform_type: 'CLOUD_API' }); };
+    await detectMetaOnboardingPath({ graphApiVersion: 'v23.0', phoneNumberId: 'phone-1', accessToken: 'tok' });
+    assert.match(lastUrl, /\/v23\.0\/phone-1\?fields=is_on_biz_app,platform_type$/);
+    console.log('  detectMetaOnboardingPath - true/false/5 ambiguous cases passed');
+  }
+
+  // ── generateMetaRegistrationPin / registerMetaPhoneNumber (section 7.2) ──
+  {
+    const seen = new Set();
+    for (let i = 0; i < 50; i += 1) {
+      const pin = generateMetaRegistrationPin();
+      assert.match(pin, /^\d{6}$/, `pin must be exactly 6 digits, got "${pin}"`);
+      seen.add(pin);
+    }
+    assert.ok(seen.size > 1, '50 generated pins must not all collide');
+
+    let sentUrl, sentBody;
+    global.fetch = async (url, init) => { sentUrl = String(url); sentBody = JSON.parse(init.body); return json({ success: true }); };
+    await registerMetaPhoneNumber({ graphApiVersion: 'v23.0', phoneNumberId: 'phone-1', accessToken: 'tok', pin: '123456' });
+    assert.match(sentUrl, /\/v23\.0\/phone-1\/register$/);
+    assert.deepEqual(sentBody, { messaging_product: 'whatsapp', pin: '123456' });
+
+    global.fetch = async () => json({ error: { message: 'Graph API (400): (#133010) Account not registered' } }, 400);
+    await assert.rejects(registerMetaPhoneNumber({ graphApiVersion: 'v23.0', phoneNumberId: 'phone-1', accessToken: 'tok', pin: '123456' }), MetaEmbeddedSignupError);
+    console.log('  generateMetaRegistrationPin / registerMetaPhoneNumber - passed');
   }
 
   // ── secrets never leak into thrown error messages ─────────────────────────

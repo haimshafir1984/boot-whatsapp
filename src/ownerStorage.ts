@@ -14,6 +14,12 @@ export type ClientProvisioningStatus = 'pending_setup' | 'pending_railway_setup'
  */
 export type MetaOnboardingStatus = 'in_progress' | 'connected' | 'failed';
 
+/** Which Embedded Signup path a dedicated number was detected on (metaEmbeddedSignup.ts,
+ * detectMetaOnboardingPath) - decides sync-vs-register and drives the dashboard label. Not set
+ * for clients on the shared number or on a Coexistence/Cloud-API connection made before this
+ * field existed. */
+export type MetaOnboardingPath = 'coexistence' | 'cloud_api';
+
 export interface MetaOnboardingState {
   status: MetaOnboardingStatus;
   step: string;
@@ -38,6 +44,13 @@ export interface ManagedClient {
   metaVerifyToken?: string;
   /** WABA that owns metaPhoneNumberId - set once Embedded Signup completes; not used for routing. */
   metaWabaId?: string;
+  /** Set once detectMetaOnboardingPath runs during connect/retry (embedded-signup-first-live-test-
+   * 2026-10-13.md, section 7.1). Drives whether runMetaEmbeddedSignupSteps syncs or registers. */
+  metaOnboardingPath?: MetaOnboardingPath;
+  /** Section 7.2: the Cloud-API path's 2-step-verification PIN, generated once and reused for
+   * every register() call including retries. Never exposed via any API, dashboard, alert or log -
+   * stripped in exposeOwnerClient (adminServer.ts) exactly like metaAccessToken. */
+  metaRegistrationPin?: string;
   metaOnboarding?: MetaOnboardingState;
   /** Set the first time a post-connection smb_app_data sync fails, cleared once it succeeds.
    * Anchor for the 20h-stale critical alert (section 3.3.7) - Meta disconnects the WhatsApp

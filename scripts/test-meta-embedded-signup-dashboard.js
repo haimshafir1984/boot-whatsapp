@@ -48,6 +48,13 @@ assert.match(renderBody, /מחובר\./, 'must render a connected state with the
 assert.match(renderBody, /נכשל בשלב/, 'must render a failed state with the step and error');
 assert.match(renderBody, /retryButton\.style\.display = ''/, 'the retry button must be shown for at least one non-happy state');
 
+// 4b. docs/prompt-sonnet-embedded-signup-two-paths-2026-10-13.md: a register() failure (the
+// Cloud-API path's equivalent of smb_sync_failed) must also show the retry button, and the
+// detected onboarding path (Coexistence / plain number) must be shown, never a pin.
+assert.match(renderBody, /register_failed/, 'must render the register_failed state distinctly');
+assert.match(html, /META_ONBOARDING_PATH_LABEL/, 'the detected onboarding path must have a label map');
+assert.doesNotMatch(html, /metaRegistrationPin/, 'the dashboard must never reference the pin field at all');
+
 // 5. The old manual screen is now collapsed by default under "advanced", and its help text no
 //    longer implies a dedicated-WABA client can leave the token blank and fall back to the
 //    central one (embedded-signup-automation-plan-2026-09-28.md section 0: "תיקון לדברים

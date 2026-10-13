@@ -38,12 +38,15 @@ import { createMetaSignatureVerifier } from './metaWebhookSignature';
 import { ManagedClient, MetaOnboardingStatus, OwnerStorage } from './ownerStorage';
 import { DokployProvisioner } from './dokployProvisioner';
 import {
+  detectMetaOnboardingPath,
   discoverMetaDedicatedPhoneNumberId,
   exchangeMetaEmbeddedSignupCode,
+  generateMetaRegistrationPin,
   getMetaPhoneNumberDetails,
   hashConnectLinkToken,
   generateConnectLinkToken,
   META_CONNECT_LINK_TTL_MS,
+  registerMetaPhoneNumber,
   subscribeMetaWabaApp,
   syncMetaSmbAppData,
   validateConnectLinkToken,
@@ -3076,6 +3079,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
     ...client,
     metaAccessToken: undefined,
     metaVerifyToken: undefined,
+    metaRegistrationPin: undefined,
     metaConnectLinkTokenHash: undefined,
     dokployPostgresDatabasePassword: undefined,
     postgresStorageEnabled: Boolean(client.dokployPostgresId),
@@ -3143,22 +3147,14 @@ export function startAdminServer(storage: Storage): import('http').Server {
       await subscribeMetaWabaApp({ graphApiVersion, wabaId, accessToken });
       saveMetaOnboardingState(clientId, { status: 'in_progress', step: 'subscribed_apps' });
 
-      // Coexistence never calls .../register (Meta: the number is already registered and doing so
-      // risks disconnecting the WhatsApp Business app). These two syncs replace it, run immediately,
-      // and are tracked separately from the steps above because - unlike them - a failure here must
-      // not block the client from going live: the number is already usable, and Meta gives 24h
-      // before it disconnects the business app over an unsynced number (plan section 3.3.7).
-      // Each sync is attempted independently - contacts and history are unrelated operations, so a
-      // failure in one must not skip the other (plan: "מבצעים את שניהם מיד").
-      const smbSyncErrors: string[] = [];
-      for (const syncType of ['smb_app_state_sync', 'history'] as const) {
-        try {
-          await syncMetaSmbAppData({ graphApiVersion, phoneNumberId, accessToken, syncType });
-        } catch (err: any) {
-          smbSyncErrors.push(`${syncType}: ${err?.message ?? String(err)}`);
-        }
-      }
-      const smbSyncError = smbSyncErrors.length ? smbSyncErrors.join(' | ') : undefined;
+      // Section 7.1 of docs/embedded-signup-first-live-test-2026-10-13.md: decide server-side,
+      // never from the browser-reported FINISH event name, which of the two paths this number is
+      // actually on. A detection failure is treated exactly like any other step above - it throws
+      // into the catch below, leaving the client 'failed' rather than guessing and risking a
+      // register() call against a number still active in the WhatsApp Business app.
+      const onboardingPath = await detectMetaOnboardingPath({ graphApiVersion, phoneNumberId, accessToken });
+      ownerStorage.updateClient(clientId, { metaOnboardingPath: onboardingPath });
+      saveMetaOnboardingState(clientId, { status: 'in_progress', step: 'path_detected' });
 
       ownerStorage.updateClient(clientId, {
         metaPhoneNumberId: phoneNumberId,
@@ -3168,29 +3164,91 @@ export function startAdminServer(storage: Storage): import('http').Server {
 
       const provisioned = await provisionClient(clientId);
 
-      if (smbSyncError) {
-        saveMetaOnboardingState(clientId, { status: 'in_progress', step: 'smb_sync_failed', error: smbSyncError });
-        // First failure only - this is the anchor the 20h stale-sync sweep (below) measures against.
-        if (!ownerStorage.getClient(clientId)?.metaSmbSyncFirstFailedAt) {
-          ownerStorage.updateClient(clientId, { metaSmbSyncFirstFailedAt: new Date().toISOString() });
+      if (onboardingPath === 'coexistence') {
+        // Coexistence never calls .../register (Meta: the number is already registered and doing so
+        // risks disconnecting the WhatsApp Business app). These two syncs replace it, run immediately,
+        // and are tracked separately from the steps above because - unlike them - a failure here must
+        // not block the client from going live: the number is already usable, and Meta gives 24h
+        // before it disconnects the business app over an unsynced number (plan section 3.3.7).
+        // Each sync is attempted independently - contacts and history are unrelated operations, so a
+        // failure in one must not skip the other (plan: "מבצעים את שניהם מיד").
+        const smbSyncErrors: string[] = [];
+        for (const syncType of ['smb_app_state_sync', 'history'] as const) {
+          try {
+            await syncMetaSmbAppData({ graphApiVersion, phoneNumberId, accessToken, syncType });
+          } catch (err: any) {
+            smbSyncErrors.push(`${syncType}: ${err?.message ?? String(err)}`);
+          }
         }
+        const smbSyncError = smbSyncErrors.length ? smbSyncErrors.join(' | ') : undefined;
+
+        if (smbSyncError) {
+          saveMetaOnboardingState(clientId, { status: 'in_progress', step: 'smb_sync_failed', error: smbSyncError });
+          // First failure only - this is the anchor the 20h stale-sync sweep (below) measures against.
+          if (!ownerStorage.getClient(clientId)?.metaSmbSyncFirstFailedAt) {
+            ownerStorage.updateClient(clientId, { metaSmbSyncFirstFailedAt: new Date().toISOString() });
+          }
+          notifySystemAlert({
+            key: `meta-embedded-signup-smb-sync-failed-${clientId}`,
+            severity: 'warning',
+            title: 'סנכרון היסטוריה/אנשי קשר נכשל בחיבור מספר ייעודי',
+            message: 'המספר חובר ופרוס, אך סנכרון smb_app_data נכשל. יש ללחוץ "נסה שוב" בדשבורד הלקוחה - אם הסנכרון לא יצליח תוך 24 שעות מהחיבור, Meta תנתק את הלקוחה מהאפליקציה.',
+            details: { clientId, error: smbSyncError },
+          });
+        } else {
+          saveMetaOnboardingState(clientId, { status: 'connected', step: 'completed', completedAt: new Date().toISOString() });
+          ownerStorage.updateClient(clientId, { metaSmbSyncFirstFailedAt: undefined });
+        }
+
         notifySystemAlert({
-          key: `meta-embedded-signup-smb-sync-failed-${clientId}`,
+          key: `meta-embedded-signup-connected-${clientId}`,
           severity: 'warning',
-          title: 'סנכרון היסטוריה/אנשי קשר נכשל בחיבור מספר ייעודי',
-          message: 'המספר חובר ופרוס, אך סנכרון smb_app_data נכשל. יש ללחוץ "נסה שוב" בדשבורד הלקוחה - אם הסנכרון לא יצליח תוך 24 שעות מהחיבור, Meta תנתק את הלקוחה מהאפליקציה.',
-          details: { clientId, error: smbSyncError },
+          title: 'לקוחה חיברה מספר WhatsApp ייעודי',
+          message: `הלקוחה "${provisioned.name}" סיימה את תהליך ה-Embedded Signup (מסלול Coexistence)${smbSyncError ? ', עם כשל בסנכרון smb_app_data' : ''}.`,
+          details: { clientId, phoneNumberId, displayPhoneNumber: details.displayPhoneNumber },
         });
-      } else {
-        saveMetaOnboardingState(clientId, { status: 'connected', step: 'completed', completedAt: new Date().toISOString() });
-        ownerStorage.updateClient(clientId, { metaSmbSyncFirstFailedAt: undefined });
+
+        return ownerStorage.getClient(clientId)!;
       }
 
+      // onboardingPath === 'cloud_api': register() is this path's equivalent of the syncs above -
+      // there is no business app to sync with, and the number cannot send or receive anything on
+      // Cloud API until this succeeds (section 7.2; production incident 2026-10-13, #133010).
+      // There is no smb sync here, so metaSmbSyncFirstFailedAt must never be set on this path -
+      // clear it defensively in case a client's path was ever misdetected before this code existed.
+      let pin = ownerStorage.getClient(clientId)?.metaRegistrationPin;
+      if (!pin) {
+        // Generated and persisted BEFORE the register() call (section 7.2 requirement) so that a
+        // later retry - after a register failure - resends the SAME pin rather than a new one,
+        // which register() would otherwise reject as not matching the number's current pin.
+        pin = generateMetaRegistrationPin();
+        ownerStorage.updateClient(clientId, { metaRegistrationPin: pin });
+      }
+      try {
+        await registerMetaPhoneNumber({ graphApiVersion, phoneNumberId, accessToken, pin });
+      } catch (err: any) {
+        const message = err?.message ?? String(err);
+        // Mirrors the smb_sync_failed branch above: the client is already live on its number
+        // (provisioned just above), just not yet able to send/receive - 'in_progress', not
+        // 'failed', and no 'connected' status until register() actually succeeds.
+        saveMetaOnboardingState(clientId, { status: 'in_progress', step: 'register_failed', error: message });
+        notifySystemAlert({
+          key: `meta-embedded-signup-register-failed-${clientId}`,
+          severity: 'warning',
+          title: 'רישום מספר WhatsApp ייעודי ל-Cloud API נכשל',
+          message: 'המספר חובר ופרוס, אך הרישום שלו ל-Cloud API נכשל - הוא אינו שולח ואינו מקבל הודעות. יש ללחוץ "נסה שוב" בדשבורד הלקוחה.',
+          details: { clientId, phoneNumberId, error: message },
+        });
+        return ownerStorage.getClient(clientId)!;
+      }
+
+      ownerStorage.updateClient(clientId, { metaSmbSyncFirstFailedAt: undefined });
+      saveMetaOnboardingState(clientId, { status: 'connected', step: 'completed', completedAt: new Date().toISOString() });
       notifySystemAlert({
         key: `meta-embedded-signup-connected-${clientId}`,
         severity: 'warning',
         title: 'לקוחה חיברה מספר WhatsApp ייעודי',
-        message: `הלקוחה "${provisioned.name}" סיימה את תהליך ה-Embedded Signup${smbSyncError ? ' (עם כשל בסנכרון smb_app_data)' : ''}.`,
+        message: `הלקוחה "${provisioned.name}" סיימה את תהליך ה-Embedded Signup (מסלול מספר רגיל, נרשם ל-Cloud API).`,
         details: { clientId, phoneNumberId, displayPhoneNumber: details.displayPhoneNumber },
       });
 

@@ -106,8 +106,24 @@ try {
   assert.match(exposeBody, /metaAccessToken:\s*undefined/, 'metaAccessToken must stay hidden from the owner dashboard');
   assert.match(exposeBody, /metaVerifyToken:\s*undefined/, 'metaVerifyToken must stay hidden from the owner dashboard');
   assert.match(exposeBody, /metaConnectLinkTokenHash:\s*undefined/, 'the connect-link token hash must not reach the owner dashboard response');
+  assert.match(exposeBody, /metaRegistrationPin:\s*undefined/, 'docs/prompt-sonnet-embedded-signup-two-paths-2026-10-13.md section 3: the registration pin must be hidden exactly like metaAccessToken');
   assert.doesNotMatch(exposeBody, /metaWabaId:\s*undefined/, 'metaWabaId is not a secret and must stay visible for the connection-status UI');
   assert.doesNotMatch(exposeBody, /metaOnboarding:\s*undefined/, 'metaOnboarding is not a secret and must stay visible for the connection-status UI');
+  assert.doesNotMatch(exposeBody, /metaOnboardingPath:\s*undefined/, 'metaOnboardingPath is not a secret and must stay visible for the connection-status UI');
+
+  // 5. metaOnboardingPath / metaRegistrationPin round-trip through persist + reload exactly like
+  //    every other ManagedClient field (section 7.1/7.2 of the two-paths prompt).
+  withTempDir((dir) => {
+    const storagePath = path.join(dir, 'clients.json');
+    const storage = new OwnerStorage(storagePath);
+    const client = storage.addClient('לקוחה במסלול מספר רגיל', '12345678', { whatsappProvider: 'META_CLOUD_API' });
+    const updated = storage.updateClient(client.id, { metaOnboardingPath: 'cloud_api', metaRegistrationPin: '042817' });
+    assert.equal(updated.metaOnboardingPath, 'cloud_api');
+    assert.equal(updated.metaRegistrationPin, '042817');
+    const reloaded = new OwnerStorage(storagePath).getClient(client.id);
+    assert.equal(reloaded.metaOnboardingPath, 'cloud_api', 'metaOnboardingPath must survive a restart');
+    assert.equal(reloaded.metaRegistrationPin, '042817', 'metaRegistrationPin must survive a restart');
+  });
 
   console.log('Embedded Signup ManagedClient model tests passed.');
 } finally {

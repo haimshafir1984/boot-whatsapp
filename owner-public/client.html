@@ -936,24 +936,32 @@
       phone_verified: 'אימות מספר',
       uniqueness_checked: 'בדיקת ייחודיות',
       subscribed_apps: 'מינוי webhooks',
+      path_detected: 'בדיקת מסלול חיבור',
       smb_sync_failed: 'סנכרון אנשי קשר/היסטוריה',
+      register_failed: 'רישום המספר ל-Cloud API',
       completed: 'הושלם',
     };
+
+    // embedded-signup-first-live-test-2026-10-13.md section 7.1: detected server-side, never
+    // guessed from the browser - shown here purely as a label, no action depends on it client-side.
+    const META_ONBOARDING_PATH_LABEL = { coexistence: 'Coexistence (אפליקציית WhatsApp Business)', cloud_api: 'מספר רגיל (Cloud API)' };
 
     // Section 3.6: "לא מחובר / ממתין / מחובר, עם מספר תצוגה, או נכשל, עם השלב והשגיאה."
     function renderMetaOnboardingStatus() {
       const el = document.getElementById('metaOnboardingStatus');
       const retryButton = document.getElementById('metaConnectRetryButton');
       const onboarding = currentClient?.metaOnboarding;
+      const pathLabel = META_ONBOARDING_PATH_LABEL[currentClient?.metaOnboardingPath] || '';
+      const pathSuffix = pathLabel ? ` מסלול: ${pathLabel}.` : '';
       retryButton.style.display = 'none';
       if (!onboarding) {
-        el.textContent = currentClient?.metaPhoneNumberId ? `מחובר. מספר תצוגה: ${currentClient.metaDisplayPhoneNumber || '-'}` : 'לא מחובר.';
+        el.textContent = currentClient?.metaPhoneNumberId ? `מחובר. מספר תצוגה: ${currentClient.metaDisplayPhoneNumber || '-'}.${pathSuffix}` : 'לא מחובר.';
         el.style.color = '';
         return;
       }
       const stepLabel = META_ONBOARDING_STEP_LABEL[onboarding.step] || onboarding.step;
       if (onboarding.status === 'connected') {
-        el.textContent = `מחובר. מספר תצוגה: ${currentClient.metaDisplayPhoneNumber || '-'}`;
+        el.textContent = `מחובר. מספר תצוגה: ${currentClient.metaDisplayPhoneNumber || '-'}.${pathSuffix}`;
         el.style.color = '#166534';
       } else if (onboarding.status === 'failed') {
         el.textContent = `נכשל בשלב "${stepLabel}": ${onboarding.error || 'שגיאה לא ידועה'}`;
@@ -962,6 +970,10 @@
       } else if (onboarding.step === 'smb_sync_failed') {
         el.textContent = `מחובר, אך סנכרון אנשי קשר/היסטוריה נכשל: ${onboarding.error || ''}. יש ללחוץ "נסה שוב", אחרת Meta עלולה לנתק את האפליקציה בטלפון תוך כ-24 שעות מהחיבור.`;
         el.style.color = '#92400e';
+        retryButton.style.display = '';
+      } else if (onboarding.step === 'register_failed') {
+        el.textContent = `המספר חובר אך הרישום שלו ל-Cloud API נכשל: ${onboarding.error || ''}. הוא אינו שולח ואינו מקבל הודעות - יש ללחוץ "נסה שוב".`;
+        el.style.color = '#991b1b';
         retryButton.style.display = '';
       } else {
         el.textContent = `ממתין... (שלב: ${stepLabel})`;
