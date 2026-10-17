@@ -27,13 +27,16 @@
  *   --drain-wait SECONDS  after the flows end, wait this long for the gateway status queue to drain before collecting (default 180)
  *   --lost-resp P --base-5xx P   accepted-but-response-lost / 5xx probability per message ATTEMPT; the decision is a hash of (seed, message identity, attempt), so every run injects the same faults into the same messages
  *   --client-max-senders N   sets META_MAX_CONCURRENT_SENDERS on every CLIENT process (not the gateway); 0 = leave unset (product default 50)
+ *   --gateway-pool-max N     sets INBOX_DB_POOL_MAX on the GATEWAY process only (1..100); 0 = leave unset (product default 10)
  *   --status-batch off|http|http+journal   sets META_STATUS_BATCH on the GATEWAY (default off = today's behaviour); --status-batch-max N sets META_STATUS_BATCH_MAX
+ *   --pg-trace               measurement-only preload wrapper around pg pool/query/connect; emits bounded @@PG summaries (off by default)
+ *   --reply-after-delivered  participants wait for the simulator's delivered delay before replying (legacy mode replies after send is observed)
  *   --file-poll-ms N      sets FILE_DELIVERY_POLL_INTERVAL_MS on every CLIENT (0 = unset = product default 300)
  *   --reject-interactive P   share of question messages (buttons) answered 429 on every attempt (identity-keyed) -> the product falls back to a numbered TEXT question
  *   --quiz-n N --quiz-peak N   the 4th campaign: a quiz with an AUDIO clip (m,a,q,m) on its own client (default 60 / 15; 0 disables)
  *   --gateway-trace       GATEWAY_TRACE=1 on the gateway: every stage of a message's life inside the gateway, stamped with the time of the event IN the gateway process;
  *                         writes docs/results-data/peak-<label>-gt.jsonl (+ -msgs.json). Analyse with: node scripts/lib/analyze-gateway-trace.js <label>
- *   --text-ms 150 --media-ms 900 --delivered-ms 1500 --delivered-image-ms 2500 --read-frac 0.6 --status-tail 0.03 --status-dup 0.05
+ *   --text-ms 150 --media-ms 900 --delivered-ms 1500 --delivered-image-ms 2500 --read-frac 0.6 --status-tail 0.03 --status-dup 0.05 --failed-status 0.005
  *   --history H --seed-conversations M                                 gateway inbox history never pruned / expired conversations per client
  *   --fault LIST          comma separated kind@S[:a[:b[:c]]]  (S = seconds after start, after --scale)
  *        client-down@S:D:SEL   kill-client@S:SEL   term-client@S:SEL      SEL = A|B|C|idle0|idle1|...|all
@@ -50,12 +53,14 @@ const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const { monitorEventLoopDelay } = require('node:perf_hooks');
 const { Pool } = require('pg');
 const { inboxTestUrl, assertInboxTestDb, ensureInboxTestDb } = require('./inbox-test-db');
 const { preflight, resultsPath } = require('./measure-preflight');
 const { distinctStepCount, duplicateGroups, classifyAudioStepSends } = require('./lib/peak-send-grouping');
+const { analyseExpectedDelivery, classifySwitchMessages, summarizeResponseLatencies, summarizeGapLatencies, auditDeliveryByWamid, selfTestHarnessAnalysis } = require('./lib/peak-harness-analysis');
 const det = require('./lib/detrand');
 
 // ------------------------------------------------------------------------------------------------ options
@@ -85,10 +90,13 @@ const O = {
   crossover: num('crossover', 0), sameSwitch: num('same-switch', 0), impatient: num('impatient', 0), doubleClick: num('double-click', 0), dupWebhooks: num('dup-webhooks', 0),
   gatewayTrace: has('gateway-trace'), clientMaxSenders: num('client-max-senders', 0), filePollMs: num('file-poll-ms', 0), rejectInteractive: num('reject-interactive', 0), quizN: sc(num('quiz-n', 60)), quizPeak: sc(num('quiz-peak', 15)), statusBatch: opt('status-batch', 'off'), statusBatchMax: num('status-batch-max', 0),
   lostResp: num('lost-resp', 0.0005), base5xx: num('base-5xx', 0),
+  gatewayPoolMax: num('gateway-pool-max', 0), pgTrace: has('pg-trace'), replyAfterDelivered: has('reply-after-delivered'),
   textMs: num('text-ms', 150), mediaMs: num('media-ms', 900), deliveredMs: num('delivered-ms', 1500), deliveredImageMs: num('delivered-image-ms', 2500), readFrac: num('read-frac', 0.6),
-  statusTail: num('status-tail', 0.03), statusDup: num('status-dup', 0.05),
+  statusTail: num('status-tail', 0.03), statusDup: num('status-dup', 0.05), failedStatus: num('failed-status', 0.005),
   history: num('history', 0), seedConv: num('seed-conversations', 0), timeoutS: num('timeout', 1200), seed: num('seed', 4242),
   fault: opt('fault', ''),
+  campaignFile: raw('campaign-file') || '',
+  realN: sc(num('real-n', 60)), realPeak: sc(num('real-peak', 40)),
   slo: { first: num('slo-first-p99', 5000), reply: num('slo-reply-p99', 5000), gapText: num('slo-gap-text-p99', 3000), gapImage: num('slo-gap-image-p99', 15000), complete: num('slo-complete-p99', 120000) },
 };
 // faults are specified in "real" seconds of a full-size run; with --scale they shrink with the run
@@ -97,6 +105,7 @@ const dist = path.resolve(raw('dist') || 'dist');
 const label = raw('label') || `peak-${presetName}`;
 if (!fs.existsSync(path.join(dist, 'index.js'))) { console.error('--dist must contain index.js (run npm run build)'); process.exit(2); }
 if (O.clients < 5) { console.error('--clients must be >= 5 (4 campaign clients + at least one idle)'); process.exit(2); }
+if (O.gatewayPoolMax && (O.gatewayPoolMax < 1 || O.gatewayPoolMax > 100 || !Number.isInteger(O.gatewayPoolMax))) { console.error('--gateway-pool-max must be an integer from 1 to 100'); process.exit(2); }
 
 const RUN = `pk${Date.now().toString(36)}`;
 const PN = 'shared-phone-id';
@@ -105,6 +114,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const maxOf = (a) => { let m = -Infinity; for (const x of a) if (x > m) m = x; return m; };   // Math.max(...a) throws RangeError above ~120k elements
 const pct = (a, p) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return +s[Math.min(s.length - 1, Math.floor(p / 100 * s.length))].toFixed(0); };
 const stat = (a) => ({ n: a.length, p50: pct(a, 50), p95: pct(a, 95), p99: pct(a, 99), max: a.length ? Math.round(maxOf(a)) : null, mean: a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : null });
+const sha256 = (data) => crypto.createHash('sha256').update(data).digest('hex');
+const fileSha256 = (p) => { try { return sha256(fs.readFileSync(p)); } catch { return null; } };
 let seedState = O.seed >>> 0;
 const rnd = () => { seedState |= 0; seedState = (seedState + 0x6D2B79F5) | 0; let t = Math.imul(seedState ^ (seedState >>> 15), 1 | seedState); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 const gauss = () => Math.sqrt(-2 * Math.log(1 - rnd())) * Math.cos(2 * Math.PI * rnd());
@@ -118,18 +129,65 @@ const gwInboxUrl = (() => { const u = new URL(baseUrl); u.pathname = '/' + gwDbN
 const schemaUrl = (schema) => { const u = new URL(baseUrl); u.searchParams.set('options', `-c search_path=${schema}`); return u.toString(); };
 
 // ------------------------------------------------------------------------------------------------ campaigns
-const CAMPS = [
+/**
+ * REAL-CAMPAIGN MODE (--campaign-file): instead of the synthetic spec strings below, load the
+ * production campaign objects exactly as they are stored (kinds, nextStepId graph, per-step
+ * delayMs, score rules, contact card, files) and run THEM through the real engine. Every variant
+ * lives on ONE client, the way a real customer's links do. Only two things are changed: a
+ * [KEY#n] marker is appended to every text the flow can send (the harness identifies messages by
+ * it), and fileIds are rewritten to files created here with the SAME byte sizes as production.
+ */
+const REAL = O.campaignFile ? JSON.parse(fs.readFileSync(O.campaignFile, 'utf8')) : null;
+/**
+ * The order a participant actually WALKS a flow is the nextStepId graph, not the array order the
+ * steps happen to be stored in - this campaign's array order is 1..18 but its real path is
+ * 1..13, 18, 14, 15, 17, 16. Markers (and therefore every "is this message in order / did the
+ * participant stop early" check in this harness) must follow the walk, so they are numbered by
+ * traversal position here. Branches are followed through the first option / first result rule;
+ * if a flow's branches ever diverged to different steps this would need a per-participant path,
+ * which is why the walk is asserted to cover every step before a run is accepted.
+ */
+function flowWalkOrder(flow) {
+  const byId = new Map(flow.map((st) => [st.id, st]));
+  const order = []; const seen = new Set();
+  let cur = flow[0];
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id); order.push(flow.indexOf(cur));
+    const next = cur.nextStepId
+      || (Array.isArray(cur.options) && cur.options[0] && cur.options[0].nextStepId)
+      || (Array.isArray(cur.resultRules) && cur.resultRules[0] && cur.resultRules[0].nextStepId)
+      || cur.fallbackNextStepId;
+    cur = next ? byId.get(next) : null;
+  }
+  return order;
+}
+const CAMPS = REAL ? REAL.campaigns.map((rc, i) => {
+  const flow = (rc.data.conversation || {}).decisionFlow || [];
+  const walk = flowWalkOrder(flow);
+  if (walk.length !== flow.length) {
+    console.error(`campaign ${rc.id}: the nextStepId walk reaches ${walk.length} of ${flow.length} steps - unreachable or branching steps are not modelled`);
+    process.exit(2);
+  }
+  const toks = walk.map((ai) => flow[ai]).map((st) => (st.kind === 'question' || st.kind === 'score_question' ? 'q' : st.fileId ? 'i' : 'm'));
+  const per = Math.max(1, Math.round(O.realN / REAL.campaigns.length));
+  const perPeak = Math.max(1, Math.round(O.realPeak / REAL.campaigns.length));
+  return { key: String.fromCharCode(65 + i), idx: 0, digit: String(i + 1), n: per, peak: perPeak,
+    phrase: rc.trigger_phrase, spec: toks.join(','), real: rc.data, walk };
+}) : [
   { key: 'A', idx: 0, digit: '1', n: O.bigN, peak: O.bigPeak, phrase: 'alpha promo', spec: 'm,i,m,q,m,i,m,q,m,i' },     // 10 outbound, 3 images
   { key: 'B', idx: 1, digit: '2', n: O.bigN, peak: O.bigPeak, phrase: 'bravo promo', spec: 'm,m,i,q,i,m,m,q,m,m' },     // 10 outbound, 2 images
   { key: 'C', idx: 2, digit: '3', n: O.smallN, peak: O.smallPeak, phrase: 'charlie promo', spec: 'm,i,q,m,m,q,m,m' },   //  8 outbound, 1 image
   { key: 'Q', idx: 3, digit: '6', n: O.quizN, peak: O.quizPeak, phrase: 'quiz promo', spec: 'm,a,q,m' },                      //  4 outbound: intro, AUDIO clip, the guess (buttons), result
 ];
-const EXTRA = [
+const EXTRA = REAL ? [] : [
   { key: 'D', idx: 0, digit: '4', n: 0, peak: 0, phrase: 'delta promo', spec: 'm,i,m,q,m,m' },    // 2nd campaign on A's client
   { key: 'E', idx: 1, digit: '5', n: 0, peak: 0, phrase: 'echo promo', spec: 'm,m,i,q,m,m' },     // 2nd campaign on B's client
 ];
 for (const c of [...CAMPS, ...EXTRA]) { c.toks = c.spec.split(','); c.qpos = c.toks.map((t, i) => (t === 'q' ? i : -1)).filter((i) => i >= 0); c.total = c.toks.length; c.images = c.toks.filter((t) => t === 'i').length; c.audios = c.toks.filter((t) => t === 'a').length; }
 const prefixOwner = Object.fromEntries(CAMPS.map((c) => [`9725${c.digit}`, `c${c.idx}`]));
+// how many of the fleet's clients actually carry a campaign (REAL mode puts every variant on ONE client)
+const CAMP_CLIENT_COUNT = new Set(CAMPS.map((c) => c.idx)).size;
+const campsForClient = (i) => CAMPS.filter((c) => c.idx === i);
 function makeCampaign(c, fileId, audioFileId) {
   const steps = c.toks.map((tk, i) => {
     const id = `s${i + 1}`; const next = i < c.toks.length - 1 ? `s${i + 2}` : undefined; const text = `campaign ${c.key} step ${i + 1} [${c.key}#${i + 1}]`;
@@ -141,6 +199,27 @@ function makeCampaign(c, fileId, audioFileId) {
   return { id: `camp-${c.key}`, name: `campaign ${c.key}`, triggerType: 1, triggerPhrase: c.phrase, suffix: ' - Bot', active: true, runtimeStatus: 'active',
     conversation: { askNameEnabled: false, nameTimeoutMinutes: 5, askNameText: '', replyText: '', followupMessages: [], sendContactCard: false, decisionTimeoutMinutes: 30, decisionTimeoutMode: 'message', decisionTimeoutText: '',
       invalidReplyText: 'invalid reply', flowRecoveryText: 'flow interrupted', humanHandoffEnabled: false, decisionFlow: steps } };
+}
+/** The production campaign, with markers appended to every text it can send and fileIds remapped. */
+function makeRealCampaign(c, fileIdMap) {
+  const src = JSON.parse(JSON.stringify(c.real));
+  const conv = src.conversation || {};
+  const posOf = new Map(c.walk.map((arrayIndex, position) => [arrayIndex, position + 1]));
+  const flow = (conv.decisionFlow || []).map((st, i) => {
+    const n = posOf.get(i);                                  // traversal position, not array index
+    const tag = ` [${c.key}#${n}]`;
+    const mark = (v) => (typeof v === 'string' && v.trim() ? `${v}${tag}` : v);
+    const step = { ...st };
+    step.text = typeof step.text === 'string' && step.text.trim() ? `${step.text}${tag}` : `step ${n}${tag}`;
+    if (step.fileId) step.fileId = fileIdMap.get(step.fileId) || step.fileId;
+    if (typeof step.fallbackText === 'string') step.fallbackText = mark(step.fallbackText);
+    if (typeof step.timeoutText === 'string') step.timeoutText = mark(step.timeoutText);
+    if (Array.isArray(step.resultRules)) step.resultRules = step.resultRules.map((r) => ({ ...r, endText: mark(r.endText) }));
+    if (Array.isArray(step.options)) step.options = step.options.map((o) => ({ ...o, endText: mark(o.endText) }));
+    return step;
+  });
+  return { ...src, id: `camp-${c.key}`, name: `${src.name || c.key} [${c.key}]`, triggerType: 1, triggerPhrase: c.phrase,
+    suffix: ' - Bot', active: true, runtimeStatus: 'active', conversation: { ...conv, decisionFlow: flow } };
 }
 function makeIdleCampaign(i) {
   return { id: `camp-idle${i}`, name: `idle ${i}`, triggerType: 1, triggerPhrase: `idle promo ${i}`, suffix: ' - Bot', active: true, runtimeStatus: 'active',
@@ -163,15 +242,20 @@ const LOG_PATTERNS = [
   ['gatewayRoutingRetry', /META_GATEWAY_ROUTING_RETRY/], ['gatewayAmbiguous', /META_GATEWAY_AMBIGUOUS/], ['persistFailed', /PERSIST_FAILED/], ['unhandled', /UnhandledPromiseRejection|Uncaught/],
   ['metaApi429', /Meta message failed \(429\)/], ['deliveryFailedTracked', /\[META_DELIVERY_FAILED\]/], ['gatewayForwardRetry', /META_GATEWAY_RETRY\]/],
 ];
-const routeMs = []; const metaFaults = []; const gtEvents = []; const msgInfo = new Map();   // @@GT lines: {e, t = event time in the gateway, a = arrival time here}; msgInfo: message id -> {kind, camp}
+const routeMs = []; const metaFaults = []; const gtEvents = []; const pgTrace = []; const msgInfo = new Map();   // @@GT lines: {e, t = event time in the gateway, a = arrival time here}; msgInfo: message id -> {kind, camp}
+const deliveredWamids = new Set(); const failedWamids = new Set(); const pendingReplies = new Map();
 const ackAt = new Map(), routedAt = new Map(), pickupAt = new Map();   // message id -> ms: gateway answered 200 / gateway forwarded it to the client / the client's handler started it (log-line arrival time in the harness)
 const procs = [];
 const dumpFile = has('dump-lines') ? resultsPath(`peak-${raw('label') || 'run'}-lines.log`) : null; if (dumpFile) fs.writeFileSync(dumpFile, '');
+const pgTraceFile = has('pg-trace') ? resultsPath(`peak-${raw('label') || 'run'}-pgtrace.jsonl`) : null; if (pgTraceFile) fs.writeFileSync(pgTraceFile, '');
+const pgTraceLimit = 50000; let pgTraceDropped = 0;
 function onLine(name, line, kind) {
   if (dumpFile && !line.startsWith('@@LAG') && !line.startsWith('@@PX ') && !line.startsWith('@@META ')) fs.appendFileSync(dumpFile, `${Date.now()} [${name}] ${line}
 `);
   if (kind === 'meta') {
     if (line.startsWith('@@SEND ')) { try { onMetaSend(JSON.parse(line.slice(7))); } catch { /* ignore */ } return; }
+    if (line.startsWith('@@DELIVER ')) { try { onFakeDelivered(JSON.parse(line.slice(10))); } catch { /* ignore */ } return; }
+    if (line.startsWith('@@TERMINAL ')) { try { const j = JSON.parse(line.slice(11)); if (j.status === 'failed') failedWamids.add(j.id); } catch { /* ignore */ } return; }
     if (line.startsWith('@@FAULT ')) { try { metaFaults.push(JSON.parse(line.slice(8))); } catch { /* ignore */ } return; }
     if (line.startsWith('@@METADUMP ')) { metaDump = JSON.parse(line.slice(11)); return; }
     if (line.startsWith('@@META ')) { try { lastMeta = JSON.parse(line.slice(7)); } catch { /* */ } return; }
@@ -183,6 +267,7 @@ function onLine(name, line, kind) {
     return;
   }
   if (kind === 'gateway' && line.startsWith('@@GT ')) { const a = Date.now(); try { const ev = JSON.parse(line.slice(5)); ev.a = a; gtEvents.push(ev); } catch { /* ignore */ } return; }
+  if (line.startsWith('@@PG ')) { try { const ev = JSON.parse(line.slice(5)); if (pgTrace.length < pgTraceLimit) { pgTrace.push(ev); if (pgTraceFile) fs.appendFileSync(pgTraceFile, JSON.stringify(ev) + '\n'); } else pgTraceDropped += 1; } catch { /* ignore */ } return; }
   if (kind === 'gateway' && line.startsWith('@@JW ')) { try { lastJW = JSON.parse(line.slice(5)); } catch { /* ignore */ } return; }
   if (kind === 'client' && line.startsWith('@@FL ')) { try { lastFL[name.replace(/b$/, '')] = JSON.parse(line.slice(5)); } catch { /* ignore */ } return; }
   if (line.startsWith('@@LAG ')) { const j = JSON.parse(line.slice(6)); events.lag[kind === 'gateway' ? 'gateway' : 'client'].push({ ...j, name }); return; }
@@ -243,14 +328,25 @@ async function deliver(id, payload, p) {
     await sleep(wait); wait = Math.min(8000, wait * 2);
   }
 }
-async function postInbound(p, kind, body, btnId, causeKind, btnTitle) {
+async function postInbound(p, kind, body, btnId, causeKind, btnTitle, causeMeta = {}) {
   const id = `m-${RUN}-${++msgSeq}`; p.lastPostedId = id; msgInfo.set(id, { kind: causeKind || (kind === 'text' ? 'text' : 'other'), camp: p.cur.key, origin: p.camp.key, postStart: Date.now() });
-  if (causeKind) p.causes.push({ t: Date.now(), kind: causeKind, camp: p.cur.key });
+  const causeId = causeKind ? `cause-${id}` : null;
+  if (causeKind) p.causes.push({ id: causeId, t: Date.now(), kind: causeKind, camp: p.cur.key, expectedNextIdx: causeMeta.expectedNextIdx || 1 });
   const payload = inboundPayload(id, p.phone, kind, body, btnId, btnTitle);
   const ok = deliver(id, payload, p);
   p.msgN = (p.msgN || 0) + 1;
   if (det.unit(O.seed, 'dupwh', p.phone, p.msgN) < O.dupWebhooks) { postStats.dupPosted += 1; void sleep(50 + det.unit(O.seed, 'dupwhDelay', p.phone, p.msgN) * 450).then(() => post(gwPort, '/webhooks/meta/whatsapp', payload)); }   // Meta sent the very same message twice
   return ok;
+}
+function onFakeDelivered(j) {
+  deliveredWamids.add(j.id);
+  const pending = pendingReplies.get(j.id);
+  if (!pending || pending.fired) return;
+  pending.fired = true;
+  void sleep(pending.delayMs).then(() => {
+    if (failedWamids.has(j.id)) return;
+    return pending.fn();
+  });
 }
 function buildParticipants() {
   for (const c of CAMPS) {
@@ -281,7 +377,11 @@ function switchTarget(p) {
 function onMetaSend(j) {
   const p = byPhone.get(j.to); if (!p) return;
   // camp = what the MESSAGE says it belongs to (marker [X#n] in its text); wantCamp = what the harness expects at that moment
-  p.sends.push({ t: j.t, type: j.type, idx: j.idx, camp: j.camp, wantCamp: p.cur.key, key: j.key, attempt: j.attempt, prev: j.prev, lost: j.lost, id: j.id });
+  const expectedClient = `client${p.cur.idx}`;
+  const actualSendingClient = j.sourceClient ? String(j.sourceClient).replace(/^client-(\d+)$/, 'client$1') : null;
+  const causeCandidates = p.causes.filter((c) => c.t <= j.t && c.camp === j.camp && c.expectedNextIdx === j.idx);
+  const linkedCause = causeCandidates.length === 1 ? causeCandidates[0] : null;
+  p.sends.push({ t: j.t, type: j.type, idx: j.idx, camp: j.camp, wantCamp: p.cur.key, expectedClient, actualSendingClient, actualStoredClient: null, session: p.cur.key, causeId: linkedCause && linkedCause.id, causeLink: linkedCause ? 'stage-exact' : causeCandidates.length > 1 ? 'ambiguous' : 'unknown', key: j.key, attempt: j.attempt, prev: j.prev, lost: j.lost, id: j.id });
   if (p.sends.length === 1) {
     const target = switchTarget(p);
     if (target && !p.switched) {
@@ -296,7 +396,9 @@ function onMetaSend(j) {
     if (!p.switched) { if (p.abandon) return; if (p.drop2 && p.qSeen >= 2) return; }
     const byNumber = p.qSeen === 1 && det.hash32(p.phone) % 2 === 0;   // the number '1' only for a first question: the same text twice within 15s is dropped as a duplicate reply by design
     const reply = byNumber ? '1' : `כן ${j.idx}`; p.textAnswers = (p.textAnswers || 0) + 1;
-    void sleep(think(p)).then(() => postInbound(p, 'text', reply, null, 'answer'));
+    const answer = () => postInbound(p, 'text', reply, null, 'answer', null, { expectedNextIdx: j.idx + 1 });
+    if (O.replyAfterDelivered) pendingReplies.set(j.id, { delayMs: think(p), fn: answer, fired: false, question: { participant: p.phone, camp: j.camp, idx: j.idx } });
+    else void sleep(think(p)).then(answer);
     return;
   }
   if (j.type === 'interactive' && j.btn) {
@@ -304,15 +406,19 @@ function onMetaSend(j) {
     p.qSeen += 1;
     if (!p.switched) { if (p.abandon) return; if (p.drop2 && p.qSeen >= 2) return; }
     const btn = j.btn; const title = j.title;
-    void sleep(think(p)).then(async () => {
-      await postInbound(p, 'interactive', null, btn, 'answer', title);
+    const answer = async () => {
+      await postInbound(p, 'interactive', null, btn, 'answer', title, { expectedNextIdx: j.idx + 1 });
       if (p.noisy.doubleClick) { await sleep(800); await postInbound(p, 'interactive', null, btn, null, title); }
-    });
+    };
+    if (O.replyAfterDelivered) pendingReplies.set(j.id, { delayMs: think(p), fn: answer, fired: false, question: { participant: p.phone, camp: j.camp, idx: j.idx } });
+    else void sleep(think(p)).then(answer);
   }
 }
 
 // ------------------------------------------------------------------------------------------------ main
 (async () => {
+  const harnessSelfTest = selfTestHarnessAnalysis();
+  if (!harnessSelfTest.ok) throw new Error('peak harness analysis self-test failed: ' + JSON.stringify(harnessSelfTest.results));
   const hist = monitorEventLoopDelay({ resolution: 10 }); hist.enable();
   await ensureInboxTestDb();
   const admin = new Pool({ connectionString: inboxTestUrl(), max: 4 });
@@ -327,7 +433,7 @@ function onMetaSend(j) {
   const { Storage, emptyStorageData } = require(path.join(dist, 'storage'));
   buildParticipants();
   const totalTriggers = participants.length;
-  console.log(`[${label}] preset=${presetName} scale=${SCALE} clients=${O.clients} participants=${totalTriggers} (A ${CAMPS[0].n}, B ${CAMPS[1].n}, C ${CAMPS[2].n}, quiz ${CAMPS[3].n}) peak/camp=${O.bigPeak}/${O.bigPeak}/${O.smallPeak} in ${O.peakS}s tail=${O.tailS}s fault="${O.fault}" db=${ident.db} max_connections=${maxConn}`);
+  console.log(`[${label}] preset=${presetName} scale=${SCALE} clients=${O.clients} participants=${totalTriggers} (${CAMPS.map((c) => c.key + ' ' + c.n).join(', ')}) peak/camp=${CAMPS.map((c) => c.peak).join('/')} in ${O.peakS}s${REAL ? ` REAL-CAMPAIGN(${O.campaignFile}) campaignClients=${CAMP_CLIENT_COUNT}` : ''} tail=${O.tailS}s fault="${O.fault}" db=${ident.db} max_connections=${maxConn} pgTrace=${O.pgTrace ? 'on' : 'off'} gatewayPool=${O.gatewayPoolMax || 'default(10)'}`);
 
   // ---- clients
   const clients = [];
@@ -337,11 +443,27 @@ function onMetaSend(j) {
     const dir = path.join(tmp, `client${i}`); fs.mkdirSync(path.join(dir, 'uploads'), { recursive: true });
     const backend = await createPostgresBackend(url); const snap = await backend.loadSnapshot();
     const st = new Storage(path.join(tmp, `c${i}-setup.json`), { initialData: snap ?? emptyStorageData(), backend });
-    if (i < CAMPS.length) {
+    const mine = campsForClient(i);
+    if (mine.length && REAL) {
+      // every production file, recreated at its REAL byte size so the client does the same disk/upload work
+      const fileIdMap = new Map();
+      for (const rf of REAL.files) {
+        const meta = rf.data || {};
+        const size = Number(meta.size) || 1024;
+        const name = String(meta.originalName || meta.filename || `${rf.id}.bin`);
+        const ext = path.extname(name) || '.bin';
+        const filename = `${rf.id}${ext}`;
+        const head = /mp4|video/i.test(String(meta.mimeType || '')) ? Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypmp42')]) : PNG.subarray(0, Math.min(PNG.length, size));
+        fs.writeFileSync(path.join(dir, 'uploads', filename), Buffer.concat([head, Buffer.alloc(Math.max(0, size - head.length), 5)]));
+        fileIdMap.set(rf.id, st.addUploadedFile({ originalName: name, filename, mimeType: meta.mimeType || 'application/octet-stream', size }).id);
+      }
+      for (const c of mine) st.addCampaign(makeRealCampaign(c, fileIdMap));
+    } else if (mine.length) {
       fs.writeFileSync(path.join(dir, 'uploads', 'promo.png'), PNG);
       const f = st.addUploadedFile({ originalName: 'promo.png', filename: 'promo.png', mimeType: 'image/png', size: PNG.length });
-      let audioId; if (CAMPS[i].audios) { fs.writeFileSync(path.join(dir, 'uploads', 'quiz-Q2.mp3'), AUDIO); audioId = st.addUploadedFile({ originalName: 'quiz-Q2.mp3', filename: 'quiz-Q2.mp3', mimeType: 'audio/mpeg', size: AUDIO.length }).id; }
-      st.addCampaign(makeCampaign(CAMPS[i], f.id, audioId)); for (const x of EXTRA.filter((e) => e.idx === i)) st.addCampaign(makeCampaign(x, f.id));
+      let audioId; if (mine.some((c) => c.audios)) { fs.writeFileSync(path.join(dir, 'uploads', 'quiz-Q2.mp3'), AUDIO); audioId = st.addUploadedFile({ originalName: 'quiz-Q2.mp3', filename: 'quiz-Q2.mp3', mimeType: 'audio/mpeg', size: AUDIO.length }).id; }
+      for (const c of mine) st.addCampaign(makeCampaign(c, f.id, audioId));
+      for (const x of EXTRA.filter((e) => e.idx === i)) st.addCampaign(makeCampaign(x, f.id));
     } else st.addCampaign(makeIdleCampaign(i));
     await st.flush(); await st.close();
     if (O.seedConv > 0) await admin.query(`insert into ${schema}.conversation_state(jid, kind, sender_phone, campaign_id, campaign_result_id, scheduled_at, data, updated_at)
@@ -354,7 +476,7 @@ function onMetaSend(j) {
   // ---- fake Meta (one server), gateway port first because Meta posts statuses to it
   gwPort = await freePort();
   const metaPort = await freePort();
-  const fm = launch('fakemeta', { FM_CONFIG: JSON.stringify({ port: metaPort, gatewayPort: gwPort, pn: PN, mps: O.mps, textMs: O.textMs, mediaMs: O.mediaMs, deliveredMedianMs: O.deliveredMs, deliveredMedianImageMs: O.deliveredImageMs, readFrac: O.readFrac, slowTailFrac: O.statusTail, dupStatusFrac: O.statusDup, lostResp: O.lostResp, base5xx: O.base5xx, rejectInteractive: O.rejectInteractive, seed: O.seed }) },
+  const fm = launch('fakemeta', { FM_CONFIG: JSON.stringify({ port: metaPort, gatewayPort: gwPort, pn: PN, mps: O.mps, textMs: O.textMs, mediaMs: O.mediaMs, deliveredMedianMs: O.deliveredMs, deliveredMedianImageMs: O.deliveredImageMs, readFrac: O.readFrac, slowTailFrac: O.statusTail, dupStatusFrac: O.statusDup, failedFrac: O.failedStatus, lostResp: O.lostResp, base5xx: O.base5xx, rejectInteractive: O.rejectInteractive, seed: O.seed }) },
     'meta', tmp, [path.join(__dirname, 'lib', 'fake-meta-server.js')], false);
   const pxEntry = launch('proxy', { PX_CONFIG: JSON.stringify({ listeners: clients.map((c) => ({ id: `c${c.i}`, port: c.proxyPort, target: c.port })), prefixOwner }) }, 'proxy', tmp, [path.join(__dirname, 'lib', 'peak-proxy.js')], false);
   await Promise.all([fm.readyPromise, pxEntry.readyPromise]);
@@ -366,6 +488,7 @@ function onMetaSend(j) {
     META_ACCESS_TOKEN: 'load-token', META_PHONE_NUMBER_ID: PN, META_DISPLAY_PHONE_NUMBER: '15550001111', META_APP_SECRET: '', BOT_REPLY_DELAY_MS: String(O.botDelay), CLIENT_NAME: `client-${c.i}`,
     STORAGE_PATH: path.join(c.dir, 'data', 'contacts.json'), CONVERSATION_STATE_PATH: path.join(c.dir, 'data', 'conversation-state.json'), UPLOADS_PATH: path.join(c.dir, 'uploads'), SESSION_PATH: path.join(c.dir, 'session'),
     DATABASE_URL: c.url, INBOX_BACKEND: 'postgres', INBOX_NAMESPACE: `${RUN}-c${c.i}`, INBOX_DB_POOL_MAX: '4', FAKE_META_URL: `http://127.0.0.1:${metaPort}`,
+    ...(O.pgTrace ? { PEAK_TRACE_PG: '1' } : {}),
     ...(O.clientMaxSenders > 0 ? { META_MAX_CONCURRENT_SENDERS: String(O.clientMaxSenders) } : {}),
     ...(O.filePollMs > 0 ? { FILE_DELIVERY_POLL_INTERVAL_MS: String(O.filePollMs) } : {}),
   });
@@ -382,6 +505,7 @@ function onMetaSend(j) {
   const gwEnv = { NODE_ENV: 'production', WHATSAPP_PROVIDER: 'META_CLOUD_API', PORT: String(gwPort), OWNER_ACCESS_TOKEN: `${RUN}-gw`, CLIENT_ACCESS_TOKEN: `${RUN}-gw-client`, META_ACCESS_TOKEN: 'load-token', META_PHONE_NUMBER_ID: PN, META_DISPLAY_PHONE_NUMBER: '15550001111', META_APP_SECRET: '',
     STORAGE_PATH: path.join(gwDir, 'data', 'contacts.json'), OWNER_STORAGE_PATH: path.join(gwDir, 'owner', 'clients.json'), CONVERSATION_STATE_PATH: path.join(gwDir, 'data', 'conversation-state.json'), UPLOADS_PATH: path.join(gwDir, 'uploads'), SESSION_PATH: path.join(gwDir, 'session'), DATABASE_URL: '',
     INBOX_BACKEND: 'postgres', INBOX_DATABASE_URL: gwInboxUrl, INBOX_NAMESPACE: RUN, FAKE_META_URL: `http://127.0.0.1:${metaPort}`,
+    ...(O.gatewayPoolMax > 0 ? { INBOX_DB_POOL_MAX: String(O.gatewayPoolMax) } : {}), ...(O.pgTrace ? { PEAK_TRACE_PG: '1' } : {}),
     ...(O.gatewayTrace ? { GATEWAY_TRACE: '1' } : {}), ...(O.statusBatch !== 'off' ? { META_STATUS_BATCH: O.statusBatch } : {}), ...(O.statusBatchMax > 0 ? { META_STATUS_BATCH_MAX: String(O.statusBatchMax) } : {}) };
   {
     const { createInboxPool, migrateInboxSchema } = require(path.join(dist, 'inbox', 'schema'));
@@ -401,7 +525,7 @@ function onMetaSend(j) {
   const startedAt = Date.now(); const faultLog = []; const faultPromises = [];
   const selClients = (sel) => {
     if (!sel || sel === 'A') return [clients[0]]; if (sel === 'B') return [clients[1]]; if (sel === 'C') return [clients[2]]; if (sel === 'all') return clients;
-    const m = /^idle(\d+)$/.exec(sel); const c = m ? clients[CAMPS.length + Number(m[1])] : null; if (!c) throw new Error(`fault selector "${sel}" not found (clients=${clients.length})`); return [c];
+    const m = /^idle(\d+)$/.exec(sel); const c = m ? clients[CAMP_CLIENT_COUNT + Number(m[1])] : null; if (!c) throw new Error(`fault selector "${sel}" not found (clients=${clients.length})`); return [c];
   };
   const restart = async (c, how) => {
     if (how === 'term') await stopProc(c.entry, 'SIGTERM', 20000); else await stopProc(c.entry, 'SIGKILL');
@@ -491,9 +615,11 @@ function onMetaSend(j) {
   const order = [...participants].sort((a, b) => a.atS - b.atS);
   const driveStart = Date.now();
   for (const p of order) {
-    const wait = driveStart + p.atS * 1000 - Date.now(); if (wait > 3) await sleep(wait);
-    p.trigPosted = Date.now(); p.causes.push({ t: p.trigPosted, kind: 'trigger', camp: p.camp.key });
-    void postInbound(p, 'text', p.camp.phrase, null, null); p.trigId = p.lastPostedId; { const mi = msgInfo.get(p.trigId); if (mi) mi.kind = 'trigger'; }   // cause already recorded with the exact moment
+    const plannedAt = driveStart + p.atS * 1000;
+    const wait = plannedAt - Date.now(); if (wait > 3) await sleep(wait);
+    p.trigPlanned = plannedAt; p.trigScheduleDelayMs = Date.now() - plannedAt;
+    p.trigPosted = Date.now(); p.causes.push({ id: `cause-${p.trigId || p.phone}-trigger`, t: p.trigPosted, kind: 'trigger', camp: p.camp.key });
+    void postInbound(p, 'text', p.camp.phrase, null, 'trigger'); p.trigId = p.lastPostedId; { const mi = msgInfo.get(p.trigId); if (mi) mi.kind = 'trigger'; }   // cause recorded with the exact post moment
   }
   const driveEndedAt = Date.now();
   console.log(`[${label}] all ${totalTriggers} triggers posted in ${((driveEndedAt - driveStart) / 1000).toFixed(0)}s; waiting for the flows to finish (max ${O.timeoutS}s)`);
@@ -504,11 +630,18 @@ function onMetaSend(j) {
   while (Date.now() < deadline && !strictDone()) await sleep(1000);
   await Promise.all(faultPromises);
   await sleep(12000);   // late duplicates / retries surface here
-  const readJournal = () => { try { const lines = fs.readFileSync(path.join(gwDir, 'owner', 'meta-status-forward.jsonl'), 'utf8').split('\n').filter(Boolean); const add = new Set(), done = new Set(); for (const l of lines) { try { const j = JSON.parse(l); if (j.t === 'add') add.add(j.id); else done.add(j.id); } catch { /* torn */ } } return { lines: lines.length, addedPairs: add.size, stillPending: [...add].filter((i) => !done.has(i)).length }; } catch { return null; } };
+  const readJournal = () => { try { const lines = fs.readFileSync(path.join(gwDir, 'owner', 'meta-status-forward.jsonl'), 'utf8').split('\n').filter(Boolean); const add = new Set(), done = new Set(); for (const l of lines) { try { const j = JSON.parse(l); if (j.t === 'add') add.add(j.id); else done.add(j.id); } catch { /* torn */ } } return { readable: true, lines: lines.length, addedPairs: add.size, stillPending: [...add].filter((i) => !done.has(i)).length }; } catch (err) { return { readable: false, error: String(err && err.code || err && err.message || err), stillPending: null }; } };
   const drainStart = Date.now(); let drainLeft = null;
-  for (let waited = 0; waited < num('drain-wait', 180) * 1000; waited = Date.now() - drainStart) { const j = readJournal(); drainLeft = j ? j.stillPending : null; if (drainLeft === 0 || drainLeft === null) break; await sleep(5000); }
+  let drainReason = 'deadline';
+  for (let waited = 0; waited < num('drain-wait', 180) * 1000; waited = Date.now() - drainStart) {
+    const j = readJournal(); drainLeft = j.stillPending;
+    const fakeDone = lastMeta && (lastMeta.pendingStatusTimers || 0) === 0 && (lastMeta.postsInFlight || 0) === 0;
+    const journalDone = j.readable && j.stillPending === 0;
+    if (fakeDone && journalDone) { drainReason = 'fake-meta-and-status-journal-drained'; break; }
+    await sleep(1000);
+  }
   const drainWaitedS = +((Date.now() - drainStart) / 1000).toFixed(0);
-  const journal = { ...(readJournal() || {}), drainWaitedS };
+  const journal = { ...readJournal(), drainWaitedS, drainReason, fakeMetaPendingAtStop: lastMeta ? { pendingStatusTimers: lastMeta.pendingStatusTimers, postsInFlight: lastMeta.postsInFlight, terminalAttempted: lastMeta.delivery && lastMeta.delivery.terminalAttempted, terminalAcked: lastMeta.delivery && lastMeta.delivery.terminalAcked } : null };
   const endedAt = Date.now(); clearInterval(tlTimer); clearInterval(sampleTimer);
 
   // ---- collect
@@ -516,24 +649,25 @@ function onMetaSend(j) {
   for (let i = 0; i < 1200 && (!metaDump || !proxyDump); i++) await sleep(100);   // up to 2 min: the proxy sorts every latency sample before answering
   if (!proxyDump) console.warn('[warn] proxy dump not received: fanOut / statusLag summaries will be null');
   const analyze = (list) => {
-    const firstResp = [], replyFirst = [], gapText = [], gapImage = [], complete = [], byIdx = {}, missingFirst = { n: 0 };
+    const firstResp = [], replyFirst = [], complete = [], byIdx = {};
     for (const p of list) {
       const sends = [...p.sends].sort((a, b) => a.t - b.t); const causes = [...p.causes].sort((a, b) => a.t - b.t);
       const groups = causes.map(() => []);
       for (const s of sends) { let ci = -1; for (let i = 0; i < causes.length; i++) if (causes[i].t <= s.t) ci = i; if (ci >= 0) groups[ci].push(s); }
       causes.forEach((c, ci) => {
-        const g = groups[ci]; if (!g.length) { if (c.kind === 'trigger') missingFirst.n += 1; return; }
+        const g = groups[ci]; if (!g.length) return;
         const lat = g[0].t - c.t;
         if (c.kind === 'trigger') firstResp.push(lat); else if (c.kind === 'answer') replyFirst.push(lat);
         for (let k = 0; k < g.length; k++) {
           const ref = k === 0 ? c.t : g[k - 1].t; if (g[k].idx != null) (byIdx[g[k].idx] = byIdx[g[k].idx] || { fromCause: [], gap: [] }).fromCause.push(g[k].t - c.t);
-          if (k > 0) { const gap = g[k].t - ref; if (g[k].idx != null) byIdx[g[k].idx].gap.push(gap); (g[k - 1].type === 'image' ? gapImage : gapText).push(gap); }
+          if (k > 0) { const gap = g[k].t - ref; if (g[k].idx != null) byIdx[g[k].idx].gap.push(gap); }
         }
       });
       if (!p.isNoisy && sends.length >= p.camp.total && causes.length) complete.push(sends[sends.length - 1].t - causes[0].t);
     }
     const idxOut = {}; for (const k of Object.keys(byIdx).sort((a, b) => a - b)) idxOut[k] = { sinceCause: stat(byIdx[k].fromCause), gapFromPrevious: stat(byIdx[k].gap) };
-    return { firstResponseMs: stat(firstResp), firstResponseToAnswerMs: stat(replyFirst), gapAfterTextMs: stat(gapText), gapAfterImageMs: stat(gapImage), completionMs: stat(complete), byMessageIndex: idxOut, triggersWithNoResponse: missingFirst.n };
+    const gapByPrevious = summarizeGapLatencies(list);
+    return { firstResponseMs: stat(firstResp), firstResponseToAnswerMs: stat(replyFirst), gapAfterTextMs: gapByPrevious.textToTextMs, gapAfterImageMs: gapByPrevious.imageToNextMs, gapByPrevious, completionMs: stat(complete), byMessageIndex: idxOut, triggersWithNoResponse: list.filter((p) => !(p.sends || []).length).length };
   };
   const strict = participants.filter((p) => !p.isNoisy); const noisy = participants.filter((p) => p.isNoisy);
   const byCamp = {}; for (const c of CAMPS) byCamp[c.key] = analyze(strict.filter((p) => p.camp === c));
@@ -574,13 +708,18 @@ function onMetaSend(j) {
   const finalStatusCalls = statusCallSeries.length ? statusCallSeries[statusCallSeries.length - 1][1] : null;
   const statusForwardingDoneAtS = finalStatusCalls ? (statusCallSeries.find((r) => r[1] >= finalStatusCalls * 0.999) || [null])[0] : null;
   const triggersDoneAtS = +((driveEndedAt - startedAt) / 1000).toFixed(1);
+  const arrivalDelayMs = stat(participants.map((p) => p.trigScheduleDelayMs));
   const runShape = { triggersDoneAtS, flowsFinishedAtS, statusForwardingDoneAtS, finalStatusCalls, avgStatusCallsPerSecond: finalStatusCalls && statusForwardingDoneAtS ? Math.round(finalStatusCalls / statusForwardingDoneAtS) : null,
+    arrivalDelayMs,
     pgConnections: { max: pgConnSeries.length ? Math.max(...pgConnSeries.map((r) => r[1])) : null, serverLimit: maxConn, series: pgConnSeries.filter((_, i) => i % 5 === 0) } };
   // noisy: the handover latency (trigger of the other campaign -> its first message) is its own number
   const handover = []; for (const p of noisy.filter((x) => x.crossAt)) { const s = p.sends.filter((x) => x.t > p.crossAt).sort((a, b) => a.t - b.t)[0]; if (s) handover.push(s.t - p.crossAt); }
   // identity of every message: a message whose OWN marker names another campaign than the one the participant is in is a mix-up
   let crossStrict = 0, foreignNoisy = 0, staleAfterSwitch = 0, unmarkedStrict = 0; const staleByKind = { crossover: 0, sameClient: 0 }; const crossExamples = [];
-  for (const p of strict) for (const sd of p.sends) { if (!sd.camp) { unmarkedStrict += 1; continue; } if (sd.camp !== p.camp.key) { crossStrict += 1; if (crossExamples.length < 8) crossExamples.push({ phoneTail: p.phone.slice(-5), expected: p.camp.key, got: sd.camp, idx: sd.idx }); } }
+  // A contact card is a vCard: WhatsApp gives it no text field at all, so a step marker cannot ride on it.
+  // It is a legitimate product message, not the fallback/invalid-reply text this check exists to catch.
+  let markerlessContactCards = 0; const unmarkedByType = {};
+  for (const p of strict) for (const sd of p.sends) { if (!sd.camp) { if (sd.type === 'contacts') { markerlessContactCards += 1; continue; } unmarkedStrict += 1; unmarkedByType[sd.type || 'unknown'] = (unmarkedByType[sd.type || 'unknown'] || 0) + 1; continue; } if (sd.camp !== p.camp.key) { crossStrict += 1; if (crossExamples.length < 8) crossExamples.push({ phoneTail: p.phone.slice(-5), expected: p.camp.key, got: sd.camp, idx: sd.idx }); } }
   for (const p of noisy) for (const sd of p.sends) {
     if (!sd.camp) continue;
     const allowed = p.switched ? [p.switched.from, p.switched.to] : [p.camp.key];
@@ -589,6 +728,7 @@ function onMetaSend(j) {
   }
   const crossCampaignMessages = crossStrict + foreignNoisy;
   const switchedList = noisy.filter((p) => p.switched);
+  const switchedDetailed = switchedList.slice(0, 80).map((p) => ({ participant: p.phone.slice(-6), kind: p.switched.kind, from: p.switched.from, to: p.switched.to, ...classifySwitchMessages(p) }));
   const switchedSummary = ['crossover', 'sameClient'].map((kind) => {
     const L2 = switchedList.filter((p) => p.switched.kind === kind);
     const lat = []; let completedTarget = 0;
@@ -627,6 +767,17 @@ function onMetaSend(j) {
   };
   const messagesPerParticipant = { allParticipants: kpiOf(participants), strictParticipants: kpiOf(strict), byCampaign: Object.fromEntries(CAMPS.map((c) => [c.key, { plannedFullFlow: c.total, planned: { text: c.toks.filter((t) => t === 'm').length, media: c.toks.filter((t) => t === 'i' || t === 'a').length, question: c.qpos.length }, all: kpiOf(participants.filter((p) => p.camp === c)), completedFullFlowOnly: kpiOf(strict.filter((p) => p.camp === c && !p.abandon && !p.drop2)) }])),
     metaAcceptedPerParticipant: metaDump ? +(metaDump.accepted / participants.length).toFixed(2) : null, typingIndicatorsAndReadReceiptsPerParticipant_notMessages: metaDump ? +(metaDump.markRead / participants.length).toFixed(2) : null };
+  const expectedPartsFor = (p) => {
+    const out = []; const n = expectedSends(p);
+    for (let i = 0; i < n; i++) {
+      const tk = p.camp.toks[i]; const idx = i + 1; const common = { client: `client${p.camp.idx}`, expectedClient: `client${p.camp.idx}`, camp: p.camp.key, session: p.camp.key, idx };
+      if (tk === 'a') { out.push({ ...common, type: 'text' }); out.push({ ...common, type: 'audio' }); }
+      else if (tk === 'i') out.push({ ...common, type: 'image' });
+      else if (tk === 'q') out.push({ ...common, type: 'interactive' });
+      else out.push({ ...common, type: 'text' });
+    }
+    return out;
+  };
   // ================= order protection around media: the next message must not be sent before Meta posted the media's delivered/failed status, unless the 20s wait timed out
   const term = (metaDump && metaDump.terminalPostedAt) || {};
   const mediaOrder = {}; for (const ty of ['image', 'audio']) mediaOrder[ty] = { sends: 0, lastMessageOfFlow: 0, nextWasSentAfterTerminalStatus: 0, nextWasSentByTimeout: 0, VIOLATION_nextSentBeforeTerminalStatusAndNotByTimeout: 0, notFollowedByNextStep: 0, examples: [] };
@@ -715,20 +866,38 @@ function onMetaSend(j) {
   const lostSummary = { injected: lostTags.length, onStrictParticipants: faultOutcomes.filter((x) => x.participantClass === 'strict').length,
     becameDuplicate: faultOutcomes.filter((x) => x.becameDuplicate).length, notResent: faultOutcomes.filter((x) => x.copiesSentToThatMessage === 1).length };
   const results = [];
-  for (const c of clients.slice(0, CAMPS.length)) {
-    const k = CAMPS[c.i];
+  for (const k of CAMPS) {
+    const c = clients[k.idx];
     const r = await admin.query(`select count(distinct phone)::int d, count(*)::int n from ${c.schema}.campaign_results where campaign_id = $1`, [`camp-${k.key}`]);
     results.push({ campaign: k.key, triggers: participants.filter((p) => p.camp === k).length, distinctResults: r.rows[0].d, rows: r.rows[0].n });
   }
   // delivery accounting: what Meta accepted vs what every client ended up recording (outbox), and what became of the failed statuses
   const failedMap = new Map((metaDump && metaDump.failedIds) || []);
-  const outboxByDelivery = {}; const outboxByWamid = new Map(); let outboxRows = 0;
-  for (const c of clients) for (const r of (await admin.query(`select provider_message_id pm, status, data->>'deliveryStatus' ds from ${c.schema}.outbox_messages where provider_message_id is not null`)).rows) { outboxRows += 1; outboxByDelivery[r.ds || 'none'] = (outboxByDelivery[r.ds || 'none'] || 0) + 1; outboxByWamid.set(r.pm, { status: r.status, ds: r.ds || 'none' }); }
+  const outboxByDelivery = {}; const outboxByWamid = new Map(); const outboxRowsForAudit = []; let outboxRows = 0;
+  for (const c of clients) for (const r of (await admin.query(`select provider_message_id pm, status, data->>'deliveryStatus' ds from ${c.schema}.outbox_messages where provider_message_id is not null`)).rows) {
+    outboxRows += 1; outboxByDelivery[r.ds || 'none'] = (outboxByDelivery[r.ds || 'none'] || 0) + 1;
+    const row = { wamid: r.pm, client: `client${c.i}`, status: r.status, ds: r.ds || 'none' };
+    outboxRowsForAudit.push(row);
+    const list = outboxByWamid.get(r.pm) || []; list.push(row); outboxByWamid.set(r.pm, list);
+  }
+  for (const p of participants) for (const sd of p.sends) {
+    const rows = outboxByWamid.get(sd.id) || [];
+    const clientsForWamid = [...new Set(rows.map((r) => r.client))];
+    sd.actualStoredClient = clientsForWamid.length === 1 ? clientsForWamid[0] : null;
+    sd.actualStoredClientState = clientsForWamid.length === 1 ? 'known' : rows.length > 1 ? 'ambiguous' : 'unknown';
+  }
   const failedHandling = { statusesPosted: failedMap.size, foundInOutbox: 0, recordedAsDeliveryFailed: 0, outboxStatusOfThose: {}, recipientsThatStoppedUnexplained: 0, systemAlertsMetaDeliveryFailed: Object.entries(events.alerts).filter(([k]) => k.startsWith('meta-delivery-failed')).reduce((a, [, n]) => a + n, 0) };
-  for (const [wamid, recipient] of failedMap) { const row = outboxByWamid.get(wamid); if (row) { failedHandling.foundInOutbox += 1; if (row.ds === 'failed') failedHandling.recordedAsDeliveryFailed += 1; failedHandling.outboxStatusOfThose[row.status] = (failedHandling.outboxStatusOfThose[row.status] || 0) + 1; } if (unexplainedPhones.has(String(recipient))) failedHandling.recipientsThatStoppedUnexplained += 1; }
+  for (const [wamid, recipient] of failedMap) { const rows = outboxByWamid.get(wamid) || []; const row = rows[0]; if (row) { failedHandling.foundInOutbox += 1; if (row.ds === 'failed') failedHandling.recordedAsDeliveryFailed += 1; failedHandling.outboxStatusOfThose[row.status] = (failedHandling.outboxStatusOfThose[row.status] || 0) + 1; } if (unexplainedPhones.has(String(recipient))) failedHandling.recipientsThatStoppedUnexplained += 1; }
   const clientTerminal = (outboxByDelivery.delivered || 0) + (outboxByDelivery.read || 0) + (outboxByDelivery.failed || 0);
-  const deliveryAccounting = { metaAccepted: metaDump?.delivery?.accepted ?? null, metaSentAcked: metaDump?.delivery?.sentAcked ?? null, metaTerminalAcked: metaDump?.delivery?.terminalAcked ?? null, metaFailedPosted: failedMap.size, metaAcceptedWithoutTerminal: metaDump?.delivery?.acceptedWithoutTerminal ?? null,
-    outboxRowsWithProviderId: outboxRows, outboxByDeliveryStatus: outboxByDelivery, clientTerminalRecorded: clientTerminal, terminalPostedButNotRecordedByClient: metaDump ? metaDump.delivery.terminalAcked - clientTerminal : null, statusJournal: journal, failedHandling };
+  const deliveryByWamid = auditDeliveryByWamid({ metaAccepted: metaDump?.acceptedIds || [], terminalAcked: metaDump?.terminalAckedIds || [], webhookPosted: metaDump?.statusAckedIds || [], outboxRows: outboxRowsForAudit.map((row) => ({ wamid: row.wamid, client: row.client, status: row.status, deliveryStatus: row.ds })) });
+  const harnessExpectedAudit = analyseExpectedDelivery(strict, expectedPartsFor);
+  const mutatedMissing = strict[0] ? analyseExpectedDelivery([{ ...strict[0], sends: strict[0].sends.slice(1) }], expectedPartsFor) : { ok: false, failures: [{ kind: 'no_strict_participant_to_mutate' }], coverage: {} };
+  const mutatedWrongOwner = strict[0] ? analyseExpectedDelivery([{ ...strict[0], sends: strict[0].sends.map((s, i) => (i === 0 ? { ...s, actualSendingClient: 'client999', actualStoredClient: 'client999' } : s)) }], expectedPartsFor) : { ok: false, failures: [{ kind: 'no_strict_participant_to_mutate' }], coverage: {} };
+  const mutatedMissingOwner = strict[0] ? analyseExpectedDelivery([{ ...strict[0], sends: strict[0].sends.map((s, i) => (i === 0 ? { ...s, actualSendingClient: null, actualStoredClient: null } : s)) }], expectedPartsFor) : { ok: false, failures: [], coverage: { actualSendingCoverage: null, actualStoredCoverage: null } };
+  const ownershipCoverageComplete = harnessExpectedAudit.coverage.actualSendingCoverage === 1 && harnessExpectedAudit.coverage.actualStoredCoverage === 1;
+  const harnessExpectedAuditCheck = { ok: harnessExpectedAudit.ok && ownershipCoverageComplete && !mutatedMissing.ok && !mutatedWrongOwner.ok && ((mutatedMissingOwner.coverage.actualSendingCoverage !== 1) || (mutatedMissingOwner.coverage.actualStoredCoverage !== 1)), coverage: harnessExpectedAudit.coverage, failures: harnessExpectedAudit.failures.slice(0, 20), mutationFailedAsExpected: !mutatedMissing.ok, ownerMutationFailedAsExpected: !mutatedWrongOwner.ok, missingOwnerPreventsFullCoverage: (mutatedMissingOwner.coverage.actualSendingCoverage !== 1) || (mutatedMissingOwner.coverage.actualStoredCoverage !== 1), mutationFailureKinds: mutatedMissing.failures.map((f) => f.kind).concat(mutatedWrongOwner.failures.map((f) => f.kind)).slice(0, 10) };
+  const deliveryAccounting = { metaAccepted: metaDump?.delivery?.accepted ?? null, metaStatusAcked: metaDump?.delivery?.statusAcked ?? null, metaTerminalAttempted: metaDump?.delivery?.terminalAttempted ?? null, metaTerminalAcked: metaDump?.delivery?.terminalAcked ?? null, metaFailedPosted: failedMap.size, metaAcceptedWithoutTerminal: metaDump?.delivery?.acceptedWithoutTerminal ?? null,
+    outboxRowsWithProviderId: outboxRows, outboxByDeliveryStatus: outboxByDelivery, clientTerminalRecorded: clientTerminal, terminalPostedButNotRecordedByClient: metaDump ? metaDump.delivery.terminalAcked - clientTerminal : null, byWamid: deliveryByWamid.details, byWamidSummary: deliveryByWamid.summary, byWamidAnomalies: deliveryByWamid.anomalies, byWamidNote: deliveryByWamid.details.length ? 'all accepted wamids; state is recorded_terminal only when terminal webhook and final client outbox state agree' : 'fake Meta did not expose per-wamid accepted ids in this run', statusJournal: journal, failedHandling };
   const inboxCounts = { gateway: Object.fromEntries((await gp.query('select status, count(*)::int n from inbox_items where namespace = $1 and role = $2 group by status', [RUN, 'gateway']).catch(() => ({ rows: [] }))).rows.map((r) => [r.status, r.n])), clients: {} };
   for (const c of clients) for (const r of (await admin.query(`select status, count(*)::int n from ${c.schema}.inbox_items group by status`)).rows) inboxCounts.clients[r.status] = (inboxCounts.clients[r.status] || 0) + r.n;
   inboxCounts.clientFailedReasons = {};
@@ -745,22 +914,32 @@ function onMetaSend(j) {
   const fanOut = px ? { statusCallsToClients: px.totals.status, statusWebhooksFromMeta: metaStatusPosts, statusFanOutFactor: metaStatusPosts ? +(px.totals.status / metaStatusPosts).toFixed(1) : null,
     inboundMessagesPosted: postStats.ok, pendingRouteCalls: px.totals.pending, pendingPerInbound: postStats.ok ? +(px.totals.pending / postStats.ok).toFixed(1) : null, routesCalls: px.totals.routes, clearPendingCalls: px.totals.clear, forwardedInbound: px.totals.inbound,
     gatewayToClientCallsTotal: Object.values(px.totals).reduce((a, b) => a + b, 0), statusShareOfAllCallsPct: Math.round(100 * px.totals.status / Math.max(1, Object.values(px.totals).reduce((a, b) => a + b, 0))) } : null;
+  const pgTraceSummary = (() => {
+    const by = {};
+    for (const e of pgTrace) {
+      const k = `${e.proc || '?'}:${e.via || '?'}:${e.op || '?'}`;
+      const b = by[k] || (by[k] = []);
+      b.push(e.ms);
+    }
+    return { enabled: O.pgTrace, events: pgTrace.length, dropped: pgTraceDropped, rawFile: pgTraceFile, samplePolicy: `first ${pgTraceLimit} events are retained, later events counted as dropped`, byOperation: Object.fromEntries(Object.entries(by).sort((a, b) => b[1].length - a[1].length).slice(0, 40).map(([k, arr]) => [k, stat(arr)])) };
+  })();
+  const responseLatencySlo7s = summarizeResponseLatencies(strict, 7000);
 
   // ---- verdict
   const S = O.slo; const v = [];
-  const chk = (name, value, limit, unit = 'ms') => v.push({ name, value, limit, ok: value !== null && value !== undefined && value <= limit, unit });
-  chk('first response p99 (trigger -> first message)', overall.firstResponseMs.p99, S.first);
-  chk('first response p99 during the peak', byPhase.peak.firstResponseMs.p99, S.first);
-  chk('response to an answer p99', overall.firstResponseToAnswerMs.p99, S.reply);
-  chk('gap between messages after a text p99', overall.gapAfterTextMs.p99, S.gapText);
-  chk('gap after an image p99 (includes the wait for the delivered status)', overall.gapAfterImageMs.p99, S.gapImage);
-  chk('whole flow, trigger -> last message p99', overall.completionMs.p99, S.complete);
+  const chk = (name, value, limit, unit = 'ms', category = 'validity') => v.push({ name, value, limit, ok: value !== null && value !== undefined && value <= limit, unit, category });
+  chk('first response p99 (trigger -> first message)', overall.firstResponseMs.p99, S.first, 'ms', 'slo');
+  chk('first response p99 during the peak', byPhase.peak.firstResponseMs.p99, S.first, 'ms', 'slo');
+  chk('response to an answer p99', overall.firstResponseToAnswerMs.p99, S.reply, 'ms', 'slo');
+  chk('gap between text messages p99', overall.gapAfterTextMs.p99, S.gapText, 'ms', 'slo');
+  chk('gap after an image p99 (includes the wait for the delivered status)', overall.gapAfterImageMs.p99, S.gapImage, 'ms', 'slo');
+  chk('whole flow, trigger -> last message p99', overall.completionMs.p99, S.complete, 'ms', 'slo');
   chk('lost messages (strict participants)', lost, 0, ''); chk('duplicate messages (strict participants)', dup, 0, ''); chk('participants with reordered messages', reordered, 0, '');
   chk('triggers that never got any response', overall.triggersWithNoResponse, 0, '');
   chk('cross-campaign messages (a message that names another campaign than the participant is in)', crossCampaignMessages, 0, '');
   chk('messages of the OLD flow still sent >10s after the participant switched campaign', staleAfterSwitch, 0, '');
   chk('strict participants that stopped for no planned reason', completion.unexplainedStop, 0, '');
-  chk('strict messages without a campaign marker (fallback / invalid-reply texts)', unmarkedStrict, 0, '');
+  chk('strict messages without a campaign marker (fallback / invalid-reply texts; contact cards carry no text and are counted separately)', unmarkedStrict, 0, '');
   chk('accepted by Meta but no terminal status acknowledged by the gateway', deliveryAccounting.metaAcceptedWithoutTerminal, 0, '');
   chk('terminal statuses Meta posted that no client recorded in its outbox', deliveryAccounting.terminalPostedButNotRecordedByClient, 0, '');
   chk('failed statuses NOT recorded as failed in the outbox', failedHandling.statusesPosted - failedHandling.recordedAsDeliveryFailed, 0, '');
@@ -769,21 +948,42 @@ function onMetaSend(j) {
   chk('audio: next message sent before Meta posted the delivered status and not by the 20s timeout', mediaOrder.audio.VIOLATION_nextSentBeforeTerminalStatusAndNotByTimeout, 0, '');
   chk('audio clips sent as anything other than audio', audioChecks.sentAsDocumentOrOther, 0, '');
   chk('quiz question sent BEFORE the audio clip', audioChecks.questionSentBeforeAudio, 0, '');
+  v.push({ name: 'independent expected-delivery and ownership audit passes; mutations fail; ownership coverage complete', value: harnessExpectedAuditCheck.ok, limit: true, ok: harnessExpectedAuditCheck.ok, unit: '', category: 'validity' });
   const resultsOk = results.every((r) => r.distinctResults >= participants.filter((p) => p.camp.key === r.campaign && !p.isNoisy).length); v.push({ name: 'every strict participant has a campaign result', value: resultsOk, limit: true, ok: resultsOk, unit: '' });
-  const validity = { hostCpuBusyMedianPct: hostMedian, hostCpuBusyMaxPct: hostMax, harnessEventLoopLagMs: harnessLag, saturatedHost: hostMedian !== null && hostMedian > 85, cpuSampling: 'cpuPct = process CPU time / REAL elapsed wall time between samples; elapsedMs is reported per sample', arrival: { maxTriggersIn1s: maxIn1s, maxTriggersIn10s: maxIn10s }, notMeasured: ['CPU of the fake-Meta / proxy / client processes beyond the event-loop samples', 'real Meta behaviour (latency, status timing, biz_opaque_callback_data acceptance)', 'tail compressed: not an 18h run'], note: 'All processes share one machine; where hostCpuBusy is high the measured latencies are PESSIMISTIC relative to separate containers.' };
+  const validity = { hostCpuBusyMedianPct: hostMedian, hostCpuBusyMaxPct: hostMax, harnessEventLoopLagMs: harnessLag, saturatedHost: hostMedian !== null && hostMedian > 85, cpuSampling: 'cpuPct = process CPU time / REAL elapsed wall time between samples; elapsedMs is reported per sample', arrival: { maxTriggersIn1s: maxIn1s, maxTriggersIn10s: maxIn10s, plannedVsActualDelayMs: arrivalDelayMs }, instrumentation: { pgTrace: O.pgTrace ? 'enabled via preload wrappers' : 'off', gatewayPoolMax: O.gatewayPoolMax || 'product default', replyModel: O.replyAfterDelivered ? 'participant waits for simulated delivered delay before thinking/replying' : 'legacy: participant replies after send request is observed' }, notMeasured: ['CPU of the fake-Meta / proxy / client processes beyond the event-loop samples', 'real Meta behaviour (latency, status timing, biz_opaque_callback_data acceptance)', 'exact delivered-to-human display time; --reply-after-delivered is still a simulator policy', 'tail compressed: not an 18h run'], note: 'All processes share one machine; where hostCpuBusy is high the measured latencies are local-load-biased, not production proof.' };
 
-  const summary = { label, preset: presetName, options: O, scale: SCALE, preflight: pre, validity,
+  const manifest = {
+    createdAt: new Date().toISOString(),
+    repo: pre.code,
+    inputs: {
+      argv: process.argv.slice(2),
+      argvSha256: sha256(JSON.stringify(process.argv.slice(2))),
+      optionsSha256: sha256(JSON.stringify(O)),
+      campaignsSha256: sha256(JSON.stringify(CAMPS.map((c) => ({ key: c.key, idx: c.idx, n: c.n, peak: c.peak, spec: c.spec })))),
+    },
+    files: Object.fromEntries([
+      'scripts/measure-peak-3campaigns.js',
+      'scripts/lib/fake-meta-server.js',
+      'scripts/lib/load-preload.js',
+      'scripts/lib/peak-harness-analysis.js',
+      'scripts/lib/analyze-gateway-trace.js',
+      'scripts/inbox-test-db.js',
+      'scripts/measure-preflight.js',
+      path.relative(path.resolve(__dirname, '..'), path.join(dist, 'index.js')).replace(/\\/g, '/'),
+    ].map((rel) => [rel, fileSha256(path.resolve(__dirname, '..', rel))])),
+  };
+  const summary = { label, preset: presetName, options: O, scale: SCALE, manifest, preflight: pre, validity,
     compressedRun: { triggers: totalTriggers, driveSeconds: +((driveEndedAt - driveStart) / 1000).toFixed(0), note: 'the real 18h tail is compressed into tailSeconds: the tail here is much denser than production' },
     fleet: { clients: O.clients, campaigns: CAMPS.map((c) => ({ key: c.key, participants: c.n, peak: c.peak, outbound: c.total, images: c.images, spec: c.spec })) },
     participants: { total: totalTriggers, strict: strict.length, noisy: noisy.length, abandon: participants.filter((p) => p.abandon).length, drop2: participants.filter((p) => p.drop2).length, crossover: participants.filter((p) => p.noisy.crossover).length, impatient: participants.filter((p) => p.noisy.impatient).length, doubleClick: participants.filter((p) => p.noisy.doubleClick).length, sameClient: participants.filter((p) => p.noisy.sameClient).length, dupWebhooksPosted: postStats.dupPosted },
-    webhookDelivery: postStats, latency: { overall, byCampaign: byCamp, byPhase, noisyHandoverToOtherCampaignMs: stat(handover), noisyOnly: analyze(noisy) },
-    campaignIdentity: { crossCampaignMessages, crossStrict, foreignNoisy, staleOldFlowAfterSwitch: staleAfterSwitch, staleOldFlowAfterSwitchByKind: staleByKind, unmarkedStrictMessages: unmarkedStrict, examples: crossExamples, switched: switchedSummary },
+    webhookDelivery: postStats, latency: { overall, byCampaign: byCamp, byPhase, gapByPrevious: overall.gapByPrevious, slo7s: responseLatencySlo7s, noisyHandoverToOtherCampaignMs: stat(handover), noisyOnly: analyze(noisy) },
+    campaignIdentity: { crossCampaignMessages, crossStrict, foreignNoisy, staleOldFlowAfterSwitch: staleAfterSwitch, staleOldFlowAfterSwitchByKind: staleByKind, unmarkedStrictMessages: unmarkedStrict, unmarkedByType, markerlessContactCards, examples: crossExamples, switched: switchedSummary, switchedDetailed },
     completion, deliveryAccounting,
     messagesPerParticipant, mediaOrder, audioChecks, deliveryWaitTimeouts, downgradedQuestions: downgraded, filePollMs: O.filePollMs || 'default(300)',
-    runShape, clientMaxSenders: O.clientMaxSenders || 'default(50)', statusBatch: O.statusBatch, statusBatchMax: O.statusBatchMax || 'default(20)', journalWrites: lastJW, clientFlush: lastFL,
+    runShape, clientMaxSenders: O.clientMaxSenders || 'default(50)', gatewayPoolMax: O.gatewayPoolMax || 'default(10)', statusBatch: O.statusBatch, statusBatchMax: O.statusBatchMax || 'default(20)', journalWrites: lastJW, clientFlush: lastFL, pgTrace: pgTraceSummary,
     firstResponseBreakdown, slotHoldByCampaign, clientQueue, clientQueueSeriesColumns: ['tS', 'sqlProcessing', 'sqlQueued', 'sqlOldestWaitingMs', 'healthProcessing(<=5s stale)', 'healthInboxOldestDueMs'], healthSamples: healthSeries.length,
     duplicateDetail, reorderDetail, injectedFaults: { fromMeta: metaDump && metaDump.injected ? metaDump.injected.counts : null, retriedMessages: metaDump ? metaDump.retriedMessages : null, messagesWithAttempts: metaDump ? metaDump.messagesWithAttempts : null, lostResponseOutcomes: lostSummary, faultOutcomes, rejected5xxAnd429: metaFaults.length, fullLists: metaDump && metaDump.injected ? { lostResp: metaDump.injected.lostResp, err5xx: metaDump.injected.err5xx, failedStatus: metaDump.injected.failedStatus, slowTail: metaDump.injected.slowTail, dupStatus: metaDump.injected.dupStatus } : null },
-    integrity: { lostMessages: lost, duplicateMessages: dup, participantsWithReorderedMessages: reordered, participantsShort: shortParticipants, examples, campaignResults: results },
+    integrity: { lostMessages: lost, duplicateMessages: dup, participantsWithReorderedMessages: reordered, participantsShort: shortParticipants, examples, campaignResults: results, expectedDeliveryAudit: harnessExpectedAuditCheck },
     fanOut, proxy: px, fakeMeta: metaDump, statusJournal: journal, gatewayRouteMs: stat(routeMs),
     eventLoop: { gateway: lagSummary(events.lag.gateway), clients: clientLag }, logs: events.logs, systemAlerts: events.alerts, inbox: inboxCounts,
     faults: faultLog, timeline, verdict: v, host: { cpu: os.cpus()[0].model, threads: os.cpus().length, ramGB: Math.round(os.totalmem() / 1e9), node: process.version }, durationS: +((endedAt - startedAt) / 1000).toFixed(0) };
@@ -808,7 +1008,9 @@ function onMetaSend(j) {
   L.push(`   during the tail                         ${f(byPhase.tail.firstResponseMs)}`);
   for (const c of CAMPS) L.push(`   campaign ${c.key}                            ${f(byCamp[c.key].firstResponseMs)}`);
   L.push(`first message after an ANSWER             ${f(overall.firstResponseToAnswerMs)}`);
-  L.push(`gap after a text message                  ${f(overall.gapAfterTextMs)}`);
+  L.push(`gap between text messages                 ${f(overall.gapAfterTextMs)}`);
+  L.push(`gap text -> media                         ${f(overall.gapByPrevious.textToMediaMs)}`);
+  L.push(`gap after audio                           ${f(overall.gapByPrevious.audioToNextMs)} (informational)`);
   L.push(`gap after an image (waits for delivered)  ${f(overall.gapAfterImageMs)}`);
   L.push(`whole flow (trigger -> last message)      ${f(overall.completionMs)}`);
   L.push(`per message index, ms since its cause (p50/p99):  ` + Object.entries(overall.byMessageIndex).map(([k, x]) => `#${k}:${x.sinceCause.p50}/${x.sinceCause.p99}`).join('  '));
@@ -819,7 +1021,9 @@ function onMetaSend(j) {
   L.push(`gateway event loop p99 worst ${summary.eventLoop.gateway.worstP99}ms max ${summary.eventLoop.gateway.max}ms cpu median/max ${summary.eventLoop.gateway.cpuPctMedian}/${summary.eventLoop.gateway.cpuPctMax}%  | route_ms ${f(summary.gatewayRouteMs)}`);
   L.push(`integrity: lost ${lost}, duplicate ${dup}, reordered participants ${reordered}, short participants ${shortParticipants}; results ${results.map((r) => `${r.campaign} ${r.distinctResults}/${r.triggers}`).join(', ')}`);
   const fseg = (x) => (x ? `${x.p50}/${x.p95}/${x.p99} (n=${x.n})` : '-');
-  L.push(`run shape: triggers done ${runShape.triggersDoneAtS}s | flows finished ${runShape.flowsFinishedAtS}s | status forwarding finished ${runShape.statusForwardingDoneAtS}s (${runShape.finalStatusCalls} calls, avg ${runShape.avgStatusCallsPerSecond}/s) | PostgreSQL connections max ${runShape.pgConnections.max} of ${runShape.pgConnections.serverLimit} | client cap ${O.clientMaxSenders || 'default 50'}`);
+  L.push(`run shape: triggers done ${runShape.triggersDoneAtS}s | flows finished ${runShape.flowsFinishedAtS}s | status forwarding finished ${runShape.statusForwardingDoneAtS}s (${runShape.finalStatusCalls} calls, avg ${runShape.avgStatusCallsPerSecond}/s) | PostgreSQL connections max ${runShape.pgConnections.max} of ${runShape.pgConnections.serverLimit} | client cap ${O.clientMaxSenders || 'default 50'} | gateway pool ${O.gatewayPoolMax || 'default 10'}`);
+  L.push(`arrival generator delay planned->actual ms: ${f(runShape.arrivalDelayMs)} | reply model: ${O.replyAfterDelivered ? 'after simulated delivered' : 'legacy send-observed'}`);
+  L.push(`pg trace: ${pgTraceSummary.enabled ? `${pgTraceSummary.events} events, dropped ${pgTraceSummary.dropped}, raw ${pgTraceSummary.rawFile}` : 'off'}; top ops ${JSON.stringify(Object.fromEntries(Object.entries(pgTraceSummary.byOperation || {}).slice(0, 5).map(([k, v]) => [k, `${v.p50}/${v.p95}/${v.p99} n=${v.n}`])))}`);
   L.push(`status transport (META_STATUS_BATCH=${O.statusBatch}): ${px ? px.statusRequestsTotal : '-'} HTTP requests carrying ${px ? px.statusItemsTotal : '-'} statuses; statuses per request p50/p95/max ${px && px.statusBatchSize ? `${px.statusBatchSize.p50}/${px.statusBatchSize.p95}/${px.statusBatchSize.max}` : '-'}; requests with >1 status ${px ? px.statusBatchSizeOver1 : '-'}`);
   L.push(`gateway status-journal writes (exact, measured inside the process): ${lastJW ? `${lastJW.appends} appends / ${lastJW.appendedLines} lines / ${Math.round(lastJW.appendedBytes / 1024)}KB, ${lastJW.appendMs}ms blocked in appendFileSync; ${lastJW.rewrites} compaction rewrites, ${lastJW.rewriteMs}ms` : 'n/a'}`);
   { const k = Object.keys(lastFL).sort(); const tot = k.reduce((o, c) => { for (const x of ['calls', 'ms', 'epCalls', 'epMs', 'epRequests']) o[x] = (o[x] || 0) + lastFL[c][x]; return o; }, {});
@@ -832,14 +1036,15 @@ function onMetaSend(j) {
   L.push(`wait-for-delivered timeouts (${deliveryWaitTimeouts.total} of ${deliveryWaitTimeouts.ofMediaSendsWithANextStep} media sends): by reason ${JSON.stringify(deliveryWaitTimeouts.byReason)}; by type ${JSON.stringify(deliveryWaitTimeouts.byType)}; by campaign ${JSON.stringify(deliveryWaitTimeouts.byCampaign)}; by phase ${JSON.stringify(deliveryWaitTimeouts.byPhase)}`);
   L.push(`questions downgraded to text: ${JSON.stringify(downgraded)} (summary field downgradedQuestions)`);
   L.push(`client storage lookups by the file-delivery wait (getOutboxMessage): ${Object.values(lastFL).reduce((a, x) => a + (x.outboxLookups || 0), 0)} total, poll interval ${O.filePollMs || 'default 300'}ms`);
-  L.push('--- first response split (p50/p95/p99 ms): post->gateway ack | ack->forwarded (gateway) | forwarded->client picked it up (WAIT FOR A SLOT) | picked up->first message (work) | total ---');
+  L.push('--- first response split (p50/p95/p99 ms): post->gateway ack | ack->forwarded (gateway) | forwarded log->client inbound log (proxy for slot/start delay, not direct cap wait) | client inbound log->first message | total ---');
   for (const [k, v] of Object.entries(firstResponseBreakdown)) { if (k === 'peakWindowOnly') continue; L.push(`  ${k}: ${fseg(v.postToGatewayAck)} | ${fseg(v.gatewayAckToForwarded)} | ${fseg(v.forwardedToClientPickup_waitForSlot)} | ${fseg(v.pickupToFirstMessage_work)} | ${fseg(v.total)}`); }
-  for (const [k, v] of Object.entries(slotHoldByCampaign)) L.push(`  slot held by ONE round (pickup -> question out) ${k}: ${fseg(v.round0_holdMs)}; of which waiting after images: ${fseg(v.round0_timeSpentWaitingAfterImagesMs)}`);
+  for (const [k, v] of Object.entries(slotHoldByCampaign)) L.push(`  trigger-round proxy (client inbound log -> first question out) ${k}: ${fseg(v.round0_holdMs)}; includes observed gaps after images: ${fseg(v.round0_timeSpentWaitingAfterImagesMs)}`);
   for (const k of ['client0', 'client1', 'client2', 'client3']) { const q = clientQueue[k]; if (q) L.push(`  ${k} inbox (SQL exact): max processing ${q.sql.maxProcessing}, >=50 for ${q.sql.secondsAt50OrMore}s, >40 for ${q.sql.secondsAbove40}s, max queued ${q.sql.maxQueued}, oldest waiting ${q.sql.maxOldestWaitingMs}ms | /health: max processing ${q.health.maxProcessing}, oldestDue ${q.health.maxInboxOldestDueMs}ms, flow inboundQueued ${q.health.maxFlowInboundQueued}, activeSenderQueues ${q.health.maxActiveSenderQueues}, pending conversations ${q.health.maxPendingConversations}`); }
   for (const k of ['client0', 'client1', 'client2']) { const q = clientQueue[k]; if (q) L.push(`  ${k} processing/queued over time (SQL, every ~10s, t:proc/queued): ` + q.series.filter((_, i) => i % Math.max(1, Math.round(10 / q.sampleEveryS)) === 0).map((r) => `${Math.round(r[0])}:${r[1]}/${r[2]}`).join(' ')); }
   L.push(`injected faults (identity-keyed): ${JSON.stringify(metaDump && metaDump.injected ? metaDump.injected.counts : null)}; messages that needed a retry ${metaDump ? metaDump.retriedMessages : null} of ${metaDump ? metaDump.messagesWithAttempts : null}; response-lost -> duplicate ${lostSummary.becameDuplicate} of ${lostSummary.injected} (not resent: ${lostSummary.notResent})`);
   L.push(`duplicates explained: ${JSON.stringify(duplicateDetail.reduce((a, d) => { a[d.reason] = (a[d.reason] || 0) + 1; return a; }, {}))}; reorders: ${reorderDetail.length} (retry involved in ${reorderDetail.filter((r) => r.anyRetryInvolved).length})`);
-  L.push(`campaign identity: crossCampaignMessages=${crossCampaignMessages} (strict ${crossStrict}, noisy foreign ${foreignNoisy}); old-flow messages >10s after a switch=${staleAfterSwitch}; strict messages without a marker=${unmarkedStrict}`);
+  L.push(`expected delivery/ownership audit: ${harnessExpectedAuditCheck.ok ? 'PASS' : 'FAIL'}; coverage=${JSON.stringify(harnessExpectedAuditCheck.coverage)}; mutation failed=${harnessExpectedAuditCheck.mutationFailedAsExpected}; owner mutation failed=${harnessExpectedAuditCheck.ownerMutationFailedAsExpected}; failures=${JSON.stringify(harnessExpectedAuditCheck.failures.slice(0, 5))}`);
+  L.push(`campaign identity: crossCampaignMessages=${crossCampaignMessages} (strict ${crossStrict}, noisy foreign ${foreignNoisy}); old-flow messages >10s after a switch=${staleAfterSwitch}; strict messages without a marker=${unmarkedStrict} ${JSON.stringify(unmarkedByType)} (+${markerlessContactCards} contact cards, which can never carry one)`);
   for (const w of switchedSummary) L.push(`   switch ${w.kind}: ${w.participants} participants, ${w.gotTargetFirstMessage} got the target's first message, ${w.completedTargetFlow} completed the target flow; handover->first message ${f(w.handoverToFirstMessageMs)}`);
   L.push(`completion (strict ${strict.length}): full flow ${completion.fullFlow} | planned abandon after Q1 ${completion.plannedAbandonAfterQ1}, after Q2 ${completion.plannedAbandonAfterQ2} | STOPPED WITHOUT A PLANNED REASON ${completion.unexplainedStop}`);
   L.push(`delivery: Meta accepted ${deliveryAccounting.metaAccepted}, terminal status acked by gateway ${deliveryAccounting.metaTerminalAcked} (failed ${deliveryAccounting.metaFailedPosted}), without terminal ${deliveryAccounting.metaAcceptedWithoutTerminal}; clients recorded terminal ${deliveryAccounting.clientTerminalRecorded} of ${deliveryAccounting.outboxRowsWithProviderId} outbox rows ${JSON.stringify(outboxByDelivery)}; posted-but-unrecorded ${deliveryAccounting.terminalPostedButNotRecordedByClient}`);
@@ -852,7 +1057,7 @@ function onMetaSend(j) {
   L.push(`alerts: ${JSON.stringify(events.alerts)}`);
   L.push(`faults: ${faultLog.map((x) => `${x.spec}@${x.realAtS}s${x.error ? ' ERROR ' + x.error : ''}`).join(' ; ') || 'none'}`);
   L.push(`--- verdict ---`);
-  for (const x of v) L.push(`${x.ok ? 'PASS' : 'FAIL'}  ${x.name}: ${x.value}${x.unit} (limit ${x.limit}${x.unit})`);
+  for (const x of v) L.push(`${x.ok ? 'PASS' : 'FAIL'}  [${x.category || 'validity'}] ${x.name}: ${x.value}${x.unit} (limit ${x.limit}${x.unit})`);
   L.push(`full data: ${jsonFile}`);
   const text = L.join('\n'); console.log(text);
   fs.writeFileSync(resultsPath(`peak-${label}-${dateTag}.txt`), text);
@@ -862,5 +1067,5 @@ function onMetaSend(j) {
   await gp.query('delete from inbox_items where namespace = $1', [RUN]).catch(() => {}); await gp.query('delete from inbox_senders where namespace = $1', [RUN]).catch(() => {}); await gp.end().catch(() => {});
   for (const c of clients) await admin.query(`drop schema if exists ${c.schema} cascade`);
   await admin.end(); agent.destroy(); fs.rmSync(tmp, { recursive: true, force: true });
-  process.exit(v.every((x) => x.ok) ? 0 : 1);
+  process.exit(v.filter((x) => (x.category || 'validity') !== 'slo').every((x) => x.ok) ? 0 : 1);
 })().catch(async (e) => { console.error('HARNESS FAILED:', e); for (const p of procs) { try { p.child.kill('SIGKILL'); } catch { /* gone */ } } process.exit(2); });

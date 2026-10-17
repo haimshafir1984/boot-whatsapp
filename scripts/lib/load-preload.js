@@ -21,7 +21,13 @@ globalThis.fetch = async function fakeFetch(input, init) {
   if (!/graph\.facebook\.com/.test(url)) return realFetch(input, init);
   // Shared fake Meta (scripts/lib/fake-meta-server.js): one process for every client, so the number-wide throughput limit, faults and
   // delivery-status webhooks are modelled once. Without it each process fakes Meta on its own (legacy mode, unchanged).
-  if (process.env.FAKE_META_URL) return realFetch(url.replace(/^https:\/\/graph\.facebook\.com/, process.env.FAKE_META_URL), init);
+  if (process.env.FAKE_META_URL) {
+    const redirectedInit = { ...(init || {}) };
+    const headers = new Headers(redirectedInit.headers || {});
+    if (process.env.CLIENT_NAME) headers.set('x-peak-client', process.env.CLIENT_NAME);
+    redirectedInit.headers = headers;
+    return realFetch(url.replace(/^https:\/\/graph\.facebook\.com/, process.env.FAKE_META_URL), redirectedInit);
+  }
   let body = {};
   try { body = init?.body && typeof init.body === 'string' ? JSON.parse(init.body) : {}; } catch { /* multipart upload etc. */ }
   const isMedia = /\/media$/.test(url) || body?.type === 'image' || body?.type === 'video' || body?.type === 'document';
@@ -72,6 +78,134 @@ process.on('message', (m) => { if (m === 'SIGTERM') process.emit('SIGTERM', 'SIG
     const pg = require(require.resolve('pg', { paths: [process.cwd(), __dirname + '/../..'] }));
     const origEnd = pg.Pool.prototype.end;
     pg.Pool.prototype.end = function patchedEnd() { console.log('@@STAGE pg pool.end called ' + Date.now()); return origEnd.apply(this, arguments); };
+    if (process.env.PEAK_TRACE_PG === '1' && !pg.__peakTraceWrapped) {
+      pg.__peakTraceWrapped = true;
+      const active = { pool: 0, client: 0 };
+      let connSeq = 0;
+      let opSeq = 0;
+      let txSeq = 0;
+      const emitPg = (j) => {
+        try { console.log('@@PG ' + JSON.stringify({ t: Date.now(), proc: process.env.CLIENT_NAME || 'gateway', ...j })); } catch { /* measurement only */ }
+      };
+      const hashId = (v) => {
+        const s = String(v || '');
+        let h = 2166136261;
+        for (let i = 0; i < s.length; i += 1) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+        return (h >>> 0).toString(16).padStart(8, '0');
+      };
+      const argsMeta = (args) => {
+        const sql = args[0];
+        const values = Array.isArray(args[1]) ? args[1] : sql && Array.isArray(sql.values) ? sql.values : [];
+        const candidate = values.find((v) => typeof v === 'string' && /^(wamid\.|m-|msg-|[0-9]{8,})/.test(v));
+        return candidate ? { messageIdHash: hashId(candidate) } : {};
+      };
+      const opName = (sql) => {
+        const s = typeof sql === 'string' ? sql : sql && typeof sql.text === 'string' ? sql.text : '';
+        if (/insert\s+into\s+inbox_items/i.test(s)) return 'inbox.insert';
+        if (/update\s+inbox_items/i.test(s)) return 'inbox.update';
+        if (/from\s+inbox_items/i.test(s)) return 'inbox.select';
+        if (/begin/i.test(s)) return 'tx.begin';
+        if (/commit/i.test(s)) return 'tx.commit';
+        if (/rollback/i.test(s)) return 'tx.rollback';
+        return s.trim().split(/\s+/).slice(0, 2).join('.').toLowerCase() || 'query';
+      };
+      const wrapClient = (pool, client) => {
+        if (!client || client.__peakTraceWrapped) return client;
+        Object.defineProperty(client, '__peakTraceWrapped', { value: true });
+        if (!client.__peakTraceClientId) Object.defineProperty(client, '__peakTraceClientId', { value: ++connSeq, writable: true });
+        const origQuery = client.query;
+        client.query = function tracedClientQuery() {
+          const cb = typeof arguments[arguments.length - 1] === 'function' ? arguments[arguments.length - 1] : null;
+          const name = opName(arguments[0]);
+          const opId = ++opSeq;
+          const nextTx = name === 'tx.begin' ? ++txSeq : null;
+          const tx = nextTx || client.__peakTraceTxId || null;
+          const meta = argsMeta(arguments);
+          const start = process.hrtime.bigint();
+          active.client += 1;
+          const done = (err) => {
+            const ms = Number(process.hrtime.bigint() - start) / 1e6;
+            active.client -= 1;
+            emitPg({ via: 'client.query', op: name, opId, conn: client.__peakTraceClientId, tx, ...meta, ms: +ms.toFixed(3), ok: !err, pool: pool ? { total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount } : null, active: { ...active } });
+            if (!err && nextTx) client.__peakTraceTxId = nextTx;
+            if (!err && (name === 'tx.commit' || name === 'tx.rollback')) client.__peakTraceTxId = null;
+          };
+          if (cb) {
+            const args = Array.from(arguments);
+            args[args.length - 1] = function tracedClientQueryCallback(err) { done(err); return cb.apply(this, arguments); };
+            return origQuery.apply(this, args);
+          }
+          try {
+            const ret = origQuery.apply(this, arguments);
+            if (ret && typeof ret.then === 'function') return ret.then((v) => { done(null); return v; }, (err) => { done(err); throw err; });
+            done(null);
+            return ret;
+          } catch (err) { done(err); throw err; }
+        };
+        return client;
+      };
+      const wrapRelease = (client, release) => {
+        if (typeof release !== 'function' || release.__peakTraceWrapped) return release;
+        const wrappedRelease = function tracedRelease() {
+          emitPg({ via: 'client.release', op: 'release', conn: client && client.__peakTraceClientId, tx: client && client.__peakTraceTxId || null, ok: true, active: { ...active } });
+          return release.apply(this, arguments);
+        };
+        Object.defineProperty(wrappedRelease, '__peakTraceWrapped', { value: true });
+        return wrappedRelease;
+      };
+      const origConnect = pg.Pool.prototype.connect;
+      pg.Pool.prototype.connect = function tracedConnect() {
+        const pool = this;
+        const cb = typeof arguments[0] === 'function' ? arguments[0] : null;
+        const start = process.hrtime.bigint();
+        const before = { total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount };
+        const finish = (err, client, release) => {
+          const ms = Number(process.hrtime.bigint() - start) / 1e6;
+          const wrapped = err ? client : wrapClient(pool, client);
+          emitPg({ via: 'pool.connect', op: 'connect', opId: ++opSeq, conn: wrapped && wrapped.__peakTraceClientId || null, ms: +ms.toFixed(3), ok: !err, before, pool: { total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount }, active: { ...active } });
+          return wrapped;
+        };
+        if (cb) {
+          return origConnect.call(pool, function tracedConnectCallback(err, client, release) {
+            if (!err && client && release) {
+              const wrapped = finish(err, client, release);
+              return cb.call(this, err, wrapped, wrapRelease(wrapped, release));
+            }
+            finish(err, client, release);
+            return cb.apply(this, arguments);
+          });
+        }
+        const ret = origConnect.apply(pool, arguments);
+        return ret.then((client) => finish(null, client), (err) => { finish(err); throw err; });
+      };
+      const origPoolQuery = pg.Pool.prototype.query;
+      pg.Pool.prototype.query = function tracedPoolQuery() {
+        const pool = this;
+        const cb = typeof arguments[arguments.length - 1] === 'function' ? arguments[arguments.length - 1] : null;
+        const name = opName(arguments[0]);
+        const opId = ++opSeq;
+        const meta = argsMeta(arguments);
+        const start = process.hrtime.bigint();
+        active.pool += 1;
+        const before = { total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount };
+        const done = (err) => {
+          const ms = Number(process.hrtime.bigint() - start) / 1e6;
+          active.pool -= 1;
+          emitPg({ via: 'pool.query', op: name, opId, ...meta, ms: +ms.toFixed(3), ok: !err, before, pool: { total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount }, active: { ...active } });
+        };
+        if (cb) {
+          const args = Array.from(arguments);
+          args[args.length - 1] = function tracedPoolQueryCallback(err) { done(err); return cb.apply(this, arguments); };
+          return origPoolQuery.apply(pool, args);
+        }
+        try {
+          const ret = origPoolQuery.apply(pool, arguments);
+          if (ret && typeof ret.then === 'function') return ret.then((v) => { done(null); return v; }, (err) => { done(err); throw err; });
+          done(null);
+          return ret;
+        } catch (err) { done(err); throw err; }
+      };
+    }
   } catch { /* pg not resolvable from here */ }
 }
 

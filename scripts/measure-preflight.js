@@ -51,9 +51,25 @@ function nodeProcesses() {
   } catch { return []; }
 }
 
+/**
+ * A LEFTOVER of ours is always one of this repo's own entry points: a harness/test script under
+ * scripts/, or a product process the harness launched (dist/index.js). Matching "any node process
+ * whose command line mentions the repo" also caught editors, language servers and other agent
+ * tooling that merely happen to run in this directory - they are not stray measurement children,
+ * and blocking on them made the harness unrunnable while any of them was open. Those are still
+ * counted (and their memory reported) under otherNodeProcesses, so a reviewer can see what else
+ * was on the machine when a number was measured.
+ */
+function isOwnHarnessProcess(cmd) {
+  const c = cmd.toLowerCase();
+  const inRepo = c.includes(repoRoot.toLowerCase()) || /parpar sagol/i.test(cmd);
+  if (!inRepo) return false;
+  return /[\\/]scripts[\\/]/.test(c) || /[\\/]dist[\\/]index\.js/.test(c) || /measure-peak|run-regression/.test(c);
+}
+
 function preflight({ failOnStray = true } = {}) {
   const procs = nodeProcesses().filter((p) => p.pid !== process.pid);
-  const mine = procs.filter((p) => p.cmd.toLowerCase().includes(repoRoot.toLowerCase().replace(/\\/g, '\\')) || /parpar sagol/i.test(p.cmd));
+  const mine = procs.filter((p) => isOwnHarnessProcess(p.cmd));
   const others = procs.filter((p) => !mine.includes(p));
   const state = {
     at: new Date().toISOString(),

@@ -1,0 +1,94 @@
+
+================ PEAK RESULT  focus-calibrated100  preset=target  scale=1 ================
+participants 99 (strict 87, noisy 12) | fleet 14 clients on one number | run 459s | host cpu median/max 14%/39%
+columns: p50/p95/p99/max in ms
+first response (trigger -> 1st message)   4867/12324/15016/15016 (n=87)
+   during the peak                         4867/12324/15016/15016 (n=87)
+   during the tail                         null/null/null/null (n=0)
+   campaign A                            6356/11821/13082/13082 (n=30)
+   campaign B                            8739/11544/14114/14114 (n=28)
+   campaign C                            3960/13816/15016/15016 (n=29)
+first message after an ANSWER             1548/40029/57824/60478 (n=785)
+gap between text messages                 1080/1593/1755/1817 (n=174)
+gap text -> media                         4118/64582/65313/66036 (n=261)
+gap after audio                           null/null/null/null (n=0) (informational)
+gap after an image (waits for delivered)  3866/8740/21247/63825 (n=262)
+whole flow (trigger -> last message)      250671/323528/381034/381034 (n=87)
+per message index, ms since its cause (p50/p99):  #1:4867/15016  #2:12124/24046  #3:14408/27035  #4:7281/9536  #5:14974/79176  #6:1709/29929  #7:1182/36159  #8:1280/29483  #9:1299/58696  #10:1320/41786  #11:1640/58518  #12:12258/63960  #13:43399/95910  #14:35436/60478  #15:99058/125655  #16:102301/129665  #17:1791/42872  #18:2889/43692
+crossover handover (other trigger -> first msg)  1989/9849/9849/9849 (n=12)
+fan-out: 6082 status webhooks -> 67144 calls to clients (x11); 14014 pending-route calls for 1001 inbound (x14); status = 81% of all gateway->client calls
+status lag at the owning client (Meta posted -> client received): delivered 33/67/84/264 (n=2333)  read 33/63/83/114 (n=1414)
+fake Meta: accepted 2224 (text 804, image 309, buttons 902); 429s 0; 5xx 0; response-lost 3; gateway answered status webhooks p50/p99/max 7/31/77ms; gave up 0
+gateway event loop p99 worst 46.4ms max 78.6ms cpu median/max 21/109%  | route_ms 36/80/128/230 (n=1001)
+integrity: lost 0, duplicate 90, reordered participants 0, short participants 0; results A 42/33, B 36/33, C 33/33
+run shape: triggers done 8s | flows finished 385.4s | status forwarding finished 422s (67144 calls, avg 159/s) | PostgreSQL connections max 57 of 100 | client cap default 50 | gateway pool default 10
+arrival generator delay planned->actual ms: 4/15/31/31 (n=99) | reply model: legacy send-observed
+pg trace: off; top ops {}
+status transport (META_STATUS_BATCH=http+journal): 67144 HTTP requests carrying 85148 statuses; statuses per request p50/p95/max 1/3/8; requests with >1 status 11410
+gateway status-journal writes (exact, measured inside the process): 73226 appends / 170296 lines / 47761KB, 43001ms blocked in appendFileSync; 1 compaction rewrites, 2ms
+client Storage.flush() calls: 10540 total (waited 101s in aggregate); made while serving the gateway status endpoint: 8866 flushes for 5797 requests (waited 83s); client0: 10540 flushes, 8866 on 5797 endpoint requests
+KPI outbound messages per participant: 22.46 (all 99; Meta accepted 22.46), strict 22.08; text 9.24 / media 4.11 / question 9.11; extra copies 1.04 per participant (103)
+   A: planned 18 (text 6, media 3, question 9) | actual per participant 22.58 (text 9.27, media 4.12, question 9.18, extra copies 1.09) | completed-flow participants 22.17
+   B: planned 18 (text 6, media 3, question 9) | actual per participant 22.73 (text 9.36, media 4.15, question 9.21, extra copies 1.06) | completed-flow participants 22.07
+   C: planned 18 (text 6, media 3, question 9) | actual per participant 22.09 (text 9.09, media 4.06, question 8.94, extra copies 0.97) | completed-flow participants 22
+media order (next message vs Meta's delivered): image {"sends":262,"afterDelivered":86,"byTimeout":1,"VIOLATIONS":0} | audio {"sends":0,"afterDelivered":0,"byTimeout":0,"VIOLATIONS":0}
+audio quiz: {"audioStepParticipants":0,"sentAsAudio":0,"sentAsDocumentOrOther":0,"questionSentBeforeAudio":0,"questionAfterAudioInOrder":0,"audioCopies":0,"captionSentAsItsOwnMessage":0,"audioStepsWithoutACaption":0}
+wait-for-delivered timeouts (1 of 262 media sends): by reason {"designed slow-tail delivered status (20-90s late)":1}; by type {"image":1}; by campaign {"C":1}; by phase {"peak":1}
+questions downgraded to text: {"questionsSentAsText":0,"participantsWithADowngradedQuestion":0,"answeredByTextReply":0,"injectedInteractiveRejections":0} (summary field downgradedQuestions)
+client storage lookups by the file-delivery wait (getOutboxMessage): 5507 total, poll interval default 300ms
+--- first response split (p50/p95/p99 ms): post->gateway ack | ack->forwarded (gateway) | forwarded log->client inbound log (proxy for slot/start delay, not direct cap wait) | client inbound log->first message | total ---
+  A(client0): 16/51/68 (n=30) | 49/122/123 (n=30) | 14/7927/10407 (n=30) | 3238/4804/6255 (n=30) | 6356/11821/13082 (n=30)
+  B(client0): 12/53/71 (n=28) | 45/98/168 (n=28) | 5625/8144/10124 (n=28) | 3285/4157/4855 (n=28) | 8739/11544/14114 (n=28)
+  C(client0): 12/62/71 (n=29) | 47/97/116 (n=29) | 9/9235/9981 (n=29) | 3363/4320/5739 (n=29) | 3961/13816/15016 (n=29)
+  trigger-round proxy (client inbound log -> first question out) A(client0): 10230/14750/16080 (n=30); includes observed gaps after images: 4591/8740/10861 (n=30)
+  trigger-round proxy (client inbound log -> first question out) B(client0): 9364/14119/15392 (n=28); includes observed gaps after images: 3526/7814/10255 (n=28)
+  trigger-round proxy (client inbound log -> first question out) C(client0): 9868/20084/26984 (n=29); includes observed gaps after images: 4289/14318/21247 (n=29)
+  client0 inbox (SQL exact): max processing 50, >=50 for 186s, >40 for 226s, max queued 49, oldest waiting 57550ms | /health: max processing 50, oldestDue 56598.584ms, flow inboundQueued 1003, activeSenderQueues 51, pending conversations 99
+  client1 inbox (SQL exact): max processing 0, >=50 for 0s, >40 for 0s, max queued 0, oldest waiting 0ms | /health: max processing 0, oldestDue 0ms, flow inboundQueued 0, activeSenderQueues 0, pending conversations 0
+  client2 inbox (SQL exact): max processing 0, >=50 for 0s, >40 for 0s, max queued 0, oldest waiting 0ms | /health: max processing 0, oldestDue 0ms, flow inboundQueued 0, activeSenderQueues 0, pending conversations 0
+  client3 inbox (SQL exact): max processing 0, >=50 for 0s, >40 for 0s, max queued 0, oldest waiting 0ms | /health: max processing 0, oldestDue 0ms, flow inboundQueued 0, activeSenderQueues 0, pending conversations 0
+  client0 processing/queued over time (SQL, every ~10s, t:proc/queued): 2:19/0 12:50/34 22:50/33 32:50/23 42:44/0 52:19/0 62:19/0 72:46/0 82:50/37 92:50/48 102:48/43 112:50/20 122:50/41 132:50/48 142:50/46 152:50/36 162:50/44 172:50/49 182:47/37 192:50/46 203:50/49 213:50/49 223:50/46 233:50/25 243:50/15 253:48/0 263:31/0 273:27/0 283:28/0 293:22/0 303:14/0 313:15/0 323:10/0 333:9/0 343:6/0 353:4/0 363:3/0 373:3/0 383:1/0 393:0/0 403:0/0 414:0/0 424:0/0 435:0/0 446:0/0 456:0/0
+  client1 processing/queued over time (SQL, every ~10s, t:proc/queued): 2:0/0 12:0/0 22:0/0 32:0/0 42:0/0 52:0/0 62:0/0 72:0/0 82:0/0 92:0/0 102:0/0 112:0/0 122:0/0 132:0/0 142:0/0 152:0/0 162:0/0 172:0/0 182:0/0 192:0/0 203:0/0 213:0/0 223:0/0 233:0/0 243:0/0 253:0/0 263:0/0 273:0/0 283:0/0 293:0/0 303:0/0 313:0/0 323:0/0 333:0/0 343:0/0 353:0/0 363:0/0 373:0/0 383:0/0 393:0/0 403:0/0 414:0/0 424:0/0 435:0/0 446:0/0 456:0/0
+  client2 processing/queued over time (SQL, every ~10s, t:proc/queued): 2:0/0 12:0/0 22:0/0 32:0/0 42:0/0 52:0/0 62:0/0 72:0/0 82:0/0 92:0/0 102:0/0 112:0/0 122:0/0 132:0/0 142:0/0 152:0/0 162:0/0 172:0/0 182:0/0 192:0/0 203:0/0 213:0/0 223:0/0 233:0/0 243:0/0 253:0/0 263:0/0 273:0/0 283:0/0 293:0/0 303:0/0 313:0/0 323:0/0 333:0/0 343:0/0 353:0/0 363:0/0 373:0/0 383:0/0 393:0/0 403:0/0 414:0/0 424:0/0 435:0/0 446:0/0 456:0/0
+injected faults (identity-keyed): {"lostResp":3,"err5xx":0,"failedStatus":10,"slowTail":53,"dupStatus":281,"rejectInteractive":0}; messages that needed a retry 117 of 2107; response-lost -> duplicate 1 of 3 (not resent: 2)
+duplicates explained: {"RESEND AFTER A SUCCESSFULLY ANSWERED ATTEMPT - no injected fault explains it":90}; reorders: 0 (retry involved in 0)
+expected delivery/ownership audit: FAIL; coverage={"sends":1921,"actualSendingKnown":1921,"actualStoredKnown":1919,"actualSendingCoverage":1,"actualStoredCoverage":0.999}; mutation failed=true; owner mutation failed=true; failures=[{"kind":"unexpected_message_part","participant":"972511000000","actual":{"expectedClient":"client0","actualSendingClient":"client0","actualStoredClient":"client0","camp":null,"session":"A","idx":null,"type":"contacts","wamid":"wamid.FM22120.96"},"expectedOwner":{"campaign":"A"}},{"kind":"unexpected_message_part","participant":"972511000000","actual":{"expectedClient":"client0","actualSendingClient":"client0","actualStoredClient":"client0","camp":null,"session":"A","idx":null,"type":"image","wamid":"wamid.FM22120.448"},"expectedOwner":{"campaign":"A"}},{"kind":"unexpected_message_part","participant":"972511000000","actual":{"expectedClient":"client0","actualSendingClient":"client0","actualStoredClient":"client0","camp":null,"session":"A","idx":null,"type":"image","wamid":"wamid.FM22120.1186"},"expectedOwner":{"campaign":"A"}},{"kind":"unexpected_message_part","participant":"972511000000","actual":{"expectedClient":"client0","actualSendingClient":"client0","actualStoredClient":"client0","camp":"A","session":"A","idx":12,"type":"text","wamid":"wamid.FM22120.1367"},"expectedOwner":{"campaign":"A"}},{"kind":"unexpected_message_part","participant":"972511000000","actual":{"expectedClient":"client0","actualSendingClient":"client0","actualStoredClient":"client0","camp":"A","session":"A","idx":12,"type":"text","wamid":"wamid.FM22120.1370"},"expectedOwner":{"campaign":"A"}}]
+campaign identity: crossCampaignMessages=0 (strict 0, noisy foreign 0); old-flow messages >10s after a switch=1; strict messages without a marker=178 {"image":175,"text":3} (+87 contact cards, which can never carry one)
+   switch crossover: 12 participants, 12 got the target's first message, 11 completed the target flow; handover->first message 11237/17059/17059/17059 (n=12)
+   switch sameClient: 0 participants, 0 got the target's first message, 0 completed the target flow; handover->first message null/null/null/null (n=0)
+completion (strict 87): full flow 87 | planned abandon after Q1 0, after Q2 0 | STOPPED WITHOUT A PLANNED REASON 0
+delivery: Meta accepted 2224, terminal status acked by gateway 2224 (failed 10), without terminal 0; clients recorded terminal 2221 of 2221 outbox rows {"read":1352,"delivered":859,"failed":10}; posted-but-unrecorded 3
+failed statuses: posted 10, found in outbox 10, recorded as failed 10, outbox status {"sent":10}, recipients that stopped unexplained 0, system alerts 0
+status journal after drain wait (60s): {"readable":true,"lines":167636,"addedPairs":82488,"stillPending":0,"drainWaitedS":60,"drainReason":"deadline","fakeMetaPendingAtStop":{"pendingStatusTimers":1,"postsInFlight":0,"terminalAttempted":2224,"terminalAcked":2224}}
+gateway cpu samples: max elapsed between samples 3260ms, samples >4s 0, top stalls [{"tS":-3,"elapsedMs":3260,"cpuPct":109,"p99":0,"max":0},{"tS":0,"elapsedMs":2061,"cpuPct":16,"p99":46.4,"max":73.5},{"tS":16,"elapsedMs":2056,"cpuPct":74,"p99":27.7,"max":78.4},{"tS":176,"elapsedMs":2018,"cpuPct":10,"p99":17.4,"max":17.8},{"tS":46,"elapsedMs":2017,"cpuPct":104,"p99":22.7,"max":26.1}]
+arrival: max triggers in 1s 18, in 10s 99
+inbox: gateway {"completed":1001} clients {"held":2,"completed":999} client failed reasons {}
+logs: {"cl.fileDeliveryWaitTimeout":9,"cl.deliveryFailedTracked":10,"cl.sendFail":1,"cl.outboxUncertain":6,"cl.clientInboxRetry":2}
+alerts: {}
+faults: none
+--- verdict ---
+FAIL  [slo] first response p99 (trigger -> first message): 15016ms (limit 5000ms)
+FAIL  [slo] first response p99 during the peak: 15016ms (limit 5000ms)
+FAIL  [slo] response to an answer p99: 57824ms (limit 5000ms)
+PASS  [slo] gap between text messages p99: 1755ms (limit 3000ms)
+FAIL  [slo] gap after an image p99 (includes the wait for the delivered status): 21247ms (limit 15000ms)
+FAIL  [slo] whole flow, trigger -> last message p99: 381034ms (limit 120000ms)
+PASS  [validity] lost messages (strict participants): 0 (limit 0)
+FAIL  [validity] duplicate messages (strict participants): 90 (limit 0)
+PASS  [validity] participants with reordered messages: 0 (limit 0)
+PASS  [validity] triggers that never got any response: 0 (limit 0)
+PASS  [validity] cross-campaign messages (a message that names another campaign than the participant is in): 0 (limit 0)
+FAIL  [validity] messages of the OLD flow still sent >10s after the participant switched campaign: 1 (limit 0)
+PASS  [validity] strict participants that stopped for no planned reason: 0 (limit 0)
+FAIL  [validity] strict messages without a campaign marker (fallback / invalid-reply texts; contact cards carry no text and are counted separately): 178 (limit 0)
+PASS  [validity] accepted by Meta but no terminal status acknowledged by the gateway: 0 (limit 0)
+FAIL  [validity] terminal statuses Meta posted that no client recorded in its outbox: 3 (limit 0)
+PASS  [validity] failed statuses NOT recorded as failed in the outbox: 0 (limit 0)
+PASS  [validity] status journal entries still pending after the drain wait: 0 (limit 0)
+PASS  [validity] image: next message sent before Meta posted the delivered status and not by the 20s timeout: 0 (limit 0)
+PASS  [validity] audio: next message sent before Meta posted the delivered status and not by the 20s timeout: 0 (limit 0)
+PASS  [validity] audio clips sent as anything other than audio: 0 (limit 0)
+PASS  [validity] quiz question sent BEFORE the audio clip: 0 (limit 0)
+FAIL  [validity] independent expected-delivery and ownership audit passes; mutations fail; ownership coverage complete: false (limit true)
+PASS  [validity] every strict participant has a campaign result: true (limit true)
+full data: C:\Users\haim\Projects\parpar sagol\docs\results-data\peak-focus-calibrated100-2026-10-17.json

@@ -43,7 +43,8 @@ const attemptsOf = new Map();                 // messageKey -> [{ n, outcome }]
 const injected = { lostResp: [], err5xx: [], failedStatus: [], slowTail: [], dupStatus: [], rejectInteractive: [] };
 const mediaNames = new Map();        // media id -> uploaded file name (audio carries no caption, so its campaign/step marker comes from the file name: clip-Q2.mp3 = campaign Q, step 2)
 const terminalPostedAt = new Map();  // media message id -> when Meta posted its delivered/failed status (the moment the product's wait COULD end)   // "<key>#<attempt>"
-const sentAcked = new Set(), terminalAcked = new Set(), failedAcked = new Map(); const ackMs = []; let maxInFlightPosts = 0; let postsInFlight = 0; const recent = [];
+const terminalSchedule = new Map();  // wamid -> { status, scheduledAt, attemptedAt, ackedAt, recipient, key, attempt, injected }
+const acceptedIds = new Set(), statusAckedIds = new Set(), terminalAttemptedIds = new Set(), terminalAcked = new Set(), failedAcked = new Map(); const ackMs = []; let maxInFlightPosts = 0; let postsInFlight = 0; let pendingStatusTimers = 0; const recent = [];
 
 // ---- webhook poster (Meta -> gateway), with Meta-like redelivery
 const agent = new http.Agent({ keepAlive: true, maxSockets: 100 });
@@ -62,7 +63,15 @@ async function postStatus(status) {
   try {
     for (let attempt = 0; ; attempt++) {
       const r = await postOnce(body); ackMs.push(r.ms);
-      if (r.status === 200) { stats.statusPosted += 1; if (status.status === 'sent') sentAcked.add(status.id); if (status.status === 'delivered' || status.status === 'failed') terminalAcked.add(status.id); if (status.status === 'failed') failedAcked.set(status.id, status.recipient_id); return; }
+      if (r.status === 200) {
+        stats.statusPosted += 1; statusAckedIds.add(status.id);
+        if (status.status === 'delivered' || status.status === 'failed') {
+          terminalAcked.add(status.id);
+          const rec = terminalSchedule.get(status.id); if (rec) rec.ackedAt = Date.now();
+        }
+        if (status.status === 'failed') failedAcked.set(status.id, status.recipient_id);
+        return;
+      }
       if (Date.now() - first > 180000) { stats.statusGaveUp += 1; return; }
       stats.statusRetries += 1; await sleep(wait); wait = Math.min(8000, wait * 2);
     }
@@ -72,18 +81,32 @@ function scheduleStatuses(id, to, isImage, attemptData, ctx) {
   if (C.statusLoss) { stats.statusSkippedLoss += 1; return; }
   const m = C.statusMult; const tag = `${ctx.key}#${ctx.attempt}`;
   const base = (st, extra = {}) => ({ id, status: st, timestamp: String(Math.floor(Date.now() / 1000)), recipient_id: to, ...(attemptData ? { biz_opaque_callback_data: attemptData } : {}), x_posted_ms: Date.now(), ...extra });
-  const fire = (delayMs, st, extra, dup = true) => setTimeout(() => {
-    if (ctx.media && (st === 'delivered' || st === 'failed') && !terminalPostedAt.has(id)) terminalPostedAt.set(id, Date.now());
-    void postStatus(base(st, extra)); stats.statusQueued[st] += 1;
-    if (dup && U('dupStatus', ctx.key, ctx.attempt, st) < C.dupStatusFrac) { stats.statusDup += 1; injected.dupStatus.push(tag + ':' + st); setTimeout(() => void postStatus(base(st, extra)), 1000 + U('dupStatusDelay', ctx.key, ctx.attempt, st) * 2000); }
-  }, Math.max(0, delayMs));
+  const fire = (delayMs, st, extra, dup = true) => {
+    const scheduledAt = Date.now() + Math.max(0, delayMs);
+    if (st === 'delivered' || st === 'failed') terminalSchedule.set(id, { status: st, scheduledAt, recipient: to, key: ctx.key, attempt: ctx.attempt, injected: { slowTail: false, failed: st === 'failed' } });
+    pendingStatusTimers += 1;
+    setTimeout(() => {
+      pendingStatusTimers -= 1;
+      if (ctx.media && (st === 'delivered' || st === 'failed') && !terminalPostedAt.has(id)) terminalPostedAt.set(id, Date.now());
+      if (st === 'delivered') console.log('@@DELIVER ' + JSON.stringify({ t: Date.now(), id, to, key: ctx.key, attempt: ctx.attempt }));
+      if (st === 'failed') console.log('@@TERMINAL ' + JSON.stringify({ t: Date.now(), id, to, key: ctx.key, attempt: ctx.attempt, status: 'failed' }));
+      if (st === 'delivered' || st === 'failed') { terminalAttemptedIds.add(id); const rec = terminalSchedule.get(id); if (rec) rec.attemptedAt = Date.now(); }
+      void postStatus(base(st, extra)); stats.statusQueued[st] += 1;
+      if (dup && U('dupStatus', ctx.key, ctx.attempt, st) < C.dupStatusFrac) {
+        stats.statusDup += 1; injected.dupStatus.push(tag + ':' + st); pendingStatusTimers += 1;
+        setTimeout(() => { pendingStatusTimers -= 1; void postStatus(base(st, extra)); }, 1000 + U('dupStatusDelay', ctx.key, ctx.attempt, st) * 2000);
+      }
+    }, Math.max(0, delayMs));
+  };
   const sentAt = logn(C.sentMs, 0.4, 'sentLat', ctx.key, ctx.attempt) * m; fire(sentAt, 'sent');
   const failed = U('failedStatus', ctx.key, ctx.attempt) < C.failedFrac;
   let delivered = logn(isImage ? C.deliveredMedianImageMs : C.deliveredMedianMs, 0.6, 'delLat', ctx.key, ctx.attempt);
-  if (U('slowTail', ctx.key, ctx.attempt) < C.slowTailFrac) { delivered = 20000 + U('slowTailLen', ctx.key, ctx.attempt) * 70000; injected.slowTail.push(tag); }
+  const slowTail = U('slowTail', ctx.key, ctx.attempt) < C.slowTailFrac;
+  if (slowTail) { delivered = 20000 + U('slowTailLen', ctx.key, ctx.attempt) * 70000; injected.slowTail.push(tag); }
   delivered = (delivered * m) + sentAt;
   if (failed) { injected.failedStatus.push(tag); fire(delivered, 'failed', { errors: [{ code: 131026, title: 'Message undeliverable' }] }, false); return; }
   fire(delivered, 'delivered');
+  const rec = terminalSchedule.get(id); if (rec) rec.injected.slowTail = slowTail;
   if (U('read', ctx.key, ctx.attempt) < C.readFrac) fire(delivered + logn(C.readMedianMs, 0.8, 'readLat', ctx.key, ctx.attempt) * m, 'read');
 }
 
@@ -103,12 +126,16 @@ const server = http.createServer(async (req, res) => {
   }
   if (!/\/messages$/.test(url)) return json(res, 404, { error: { message: 'unknown ' + url } });
   let body = {}; try { body = JSON.parse(raw.toString('utf8')); } catch { return json(res, 400, { error: { message: 'bad json' } }); }
+  const sourceClient = String(req.headers['x-peak-client'] || '');
   if (body.status === 'read') { stats.markRead += 1; await sleep(40 * C.latFactor); return json(res, 200, { success: true }); }
 
   // identity of THIS message (recipient + the [X#n] marker in its text), and which attempt this is
   const type = String(body.type || 'unknown'); const isImage = ['image', 'video', 'document', 'audio', 'sticker'].includes(type);
   const to = String(body.to || '').replace(/\D/g, '');
-  const text = type === 'text' ? body.text?.body : type === 'image' ? body.image?.caption : type === 'interactive' ? body.interactive?.body?.text : '';
+  // Every media type WhatsApp lets carry a caption (image/video/document) carries the step marker in it;
+  // audio cannot, so it falls back to the file-name rule below. Reading only image.caption here silently
+  // lost the marker of every video/document step.
+  const text = type === 'text' ? body.text?.body : type === 'interactive' ? body.interactive?.body?.text : (body[type] && body[type].caption) || '';
   let mk = /\[([A-Z])#(\d+)\]/.exec(String(text || ''));
   if (!mk && isImage) { const nm = mediaNames.get(body[type] && body[type].id); const m2 = nm && /-([A-Z])(\d+)\.[A-Za-z0-9]+$/.exec(nm); if (m2) mk = [null, m2[1], m2[2]]; }
   const key = mk ? `${to}|${mk[1]}#${mk[2]}` : `${to}|${type}|${hash32(JSON.stringify({ ...body, biz_opaque_callback_data: undefined }))}`;
@@ -126,12 +153,13 @@ const server = http.createServer(async (req, res) => {
 
   await sleep(logn(isImage ? C.mediaMs : C.textMs, 0.3, 'sendLat', key, attempt) * C.latFactor);
   const id = `wamid.FM${process.pid}.${++stats.accepted}`;
+  acceptedIds.add(id);
   const btn = type === 'interactive' ? body.interactive?.action?.buttons?.[0]?.reply?.id : undefined;
   const btnTitle = type === 'interactive' ? body.interactive?.action?.buttons?.[0]?.reply?.title : undefined;
   if (type === 'text') stats.text += 1; else if (type === 'image') stats.image += 1; else if (type === 'interactive') stats.interactive += 1; else stats.other += 1;
   const lost = C.lostResp > 0 && U('lost', key, attempt) < C.lostResp;     // accepted by "Meta", the answer never arrives
   record(lost ? 'accepted-lost' : 'accepted');
-  console.log('@@SEND ' + JSON.stringify({ t: Date.now(), to, type, id, idx: mk ? Number(mk[2]) : null, camp: mk ? mk[1] : null, btn: btn || null, title: btnTitle || null, key, attempt, prev, lost }));
+  console.log('@@SEND ' + JSON.stringify({ t: Date.now(), to, type, id, idx: mk ? Number(mk[2]) : null, camp: mk ? mk[1] : null, btn: btn || null, title: btnTitle || null, key, attempt, prev, lost, sourceClient: sourceClient || null }));
   scheduleStatuses(id, to, isImage, body.biz_opaque_callback_data, { key, attempt, media: isImage });
   if (lost) { stats.lost += 1; injected.lostResp.push(`${key}#${attempt}`); req.socket.destroy(); return; }
   return json(res, 200, { messaging_product: 'whatsapp', contacts: [{ input: to, wa_id: to }], messages: [{ id }] });
@@ -141,7 +169,7 @@ server.listen(C.port, '127.0.0.1', () => console.log('@@READY ' + server.address
 
 const maxOf = (a) => { let m = -Infinity; for (const x of a) if (x > m) m = x; return m; };   // Math.max(...a) throws RangeError above ~120k elements
 const pct = (a, p) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(p / 100 * s.length))]; };
-const snapshot = (full) => ({ t: Date.now(), ...stats, delivery: { accepted: stats.accepted, sentAcked: sentAcked.size, terminalAcked: terminalAcked.size, failedAcked: failedAcked.size, acceptedWithoutTerminal: stats.accepted - terminalAcked.size }, ...(full ? { failedIds: [...failedAcked.entries()], terminalPostedAt: Object.fromEntries(terminalPostedAt), rejectedInteractive: injected.rejectInteractive.length, injected: { counts: Object.fromEntries(Object.entries(injected).map(([k, v]) => [k, v.length])), lostResp: injected.lostResp, err5xx: injected.err5xx, failedStatus: injected.failedStatus, slowTail: injected.slowTail, dupStatus: injected.dupStatus, rejectInteractive: injected.rejectInteractive }, retriedMessages: [...attemptsOf.entries()].filter(([, h]) => h.length > 1).length, messagesWithAttempts: attemptsOf.size } : {}), postsInFlight, maxInFlightPosts, gatewayAckMs: { n: ackMs.length, p50: pct(ackMs, 50), p95: pct(ackMs, 95), p99: pct(ackMs, 99), max: ackMs.length ? maxOf(ackMs) : null }, dyn: { latFactor: C.latFactor, err5xx: C.err5xx, base5xx: C.base5xx, blackout: C.blackout, statusMult: C.statusMult, statusLoss: C.statusLoss, mps: C.mps, lostResp: C.lostResp } });
+const snapshot = (full) => ({ t: Date.now(), ...stats, delivery: { accepted: stats.accepted, statusAcked: statusAckedIds.size, terminalAttempted: terminalAttemptedIds.size, terminalAcked: terminalAcked.size, failedAcked: failedAcked.size, acceptedWithoutTerminal: stats.accepted - terminalAcked.size }, pendingStatusTimers, postsInFlight, ...(full ? { acceptedIds: [...acceptedIds], statusAckedIds: [...statusAckedIds], terminalAttemptedIds: [...terminalAttemptedIds], terminalAckedIds: [...terminalAcked], failedIds: [...failedAcked.entries()], terminalSchedule: Object.fromEntries(terminalSchedule), terminalPostedAt: Object.fromEntries(terminalPostedAt), rejectedInteractive: injected.rejectInteractive.length, injected: { counts: Object.fromEntries(Object.entries(injected).map(([k, v]) => [k, v.length])), lostResp: injected.lostResp, err5xx: injected.err5xx, failedStatus: injected.failedStatus, slowTail: injected.slowTail, dupStatus: injected.dupStatus, rejectInteractive: injected.rejectInteractive }, retriedMessages: [...attemptsOf.entries()].filter(([, h]) => h.length > 1).length, messagesWithAttempts: attemptsOf.size } : {}), maxInFlightPosts, gatewayAckMs: { n: ackMs.length, p50: pct(ackMs, 50), p95: pct(ackMs, 95), p99: pct(ackMs, 99), max: ackMs.length ? maxOf(ackMs) : null }, dyn: { latFactor: C.latFactor, err5xx: C.err5xx, base5xx: C.base5xx, blackout: C.blackout, statusMult: C.statusMult, statusLoss: C.statusLoss, mps: C.mps, lostResp: C.lostResp } });
 const tick = setInterval(() => { console.log('@@META ' + JSON.stringify(snapshot())); ackMs.splice(0, Math.max(0, ackMs.length - 50000)); }, 5000); tick.unref();
 process.on('message', (m) => {
   if (m?.cmd === 'set') { C[m.key] = m.value; console.log('@@META_SET ' + JSON.stringify({ key: m.key, value: m.value, t: Date.now() })); }
