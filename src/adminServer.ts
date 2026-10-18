@@ -7,6 +7,7 @@
 import express from 'express';
 import { hasCampaignWork, stopCampaignWork } from './campaignWork';
 import ExcelJS from 'exceljs';
+import { addFriendlyReportSheets } from './campaignFriendlyReport';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -5363,15 +5364,6 @@ export function startAdminServer(storage: Storage): import('http').Server {
       if (event.type === 'completed' || event.type === 'human_handoff') return typeLabel;
       return event.label ? `${typeLabel}: ${event.label}` : typeLabel;
     };
-    const confirmsContactSave = (event: { type: string; label?: string }): boolean => {
-      if (event.type === 'contact_card_confirmed') return true;
-      if (event.type !== 'step_answered' && event.type !== 'score_answered') return false;
-      const label = String(event.label ?? '')
-        .normalize('NFKC')
-        .replace(/[^\p{L}\p{N}()+\-.\s]/gu, '')
-        .trim();
-      return /^\u05e9\u05de\u05e8\u05ea\u05d9(?:\s*\([^)]*\))?$/.test(label);
-    };
     const personDisplayName = (result: typeof results[number]): string =>
       contactNames.get(result.phone) || result.fallbackName || result.whatsappName || result.phone;
     const reportableEvents = events.filter((event) => reportableEventTypes.has(event.type));
@@ -5395,41 +5387,6 @@ export function startAdminServer(storage: Storage): import('http').Server {
       }
       return label;
     };
-    const checkpointCounts = new Map<string, { label: string; people: Set<string> }>();
-    reportableEvents.forEach((event) => {
-      const personKey = event.campaignResultId || event.phone;
-      if (!personKey) return;
-      const key = `${event.type}\\u0000${event.label ?? ''}`;
-      const checkpoint = checkpointCounts.get(key) ?? { label: eventDisplayLabel(event), people: new Set<string>() };
-      checkpoint.people.add(personKey);
-      checkpointCounts.set(key, checkpoint);
-    });
-
-    const title = `דוח תוצאות קמפיין – ${campaign.name}`;
-    const summaryRows: Array<[string, string | number]> = [
-      ['שם הקמפיין', campaign.name],
-      ['מזהה הקמפיין', campaign.id],
-      ['מועד הפקת הדוח', new Date().toLocaleString('he-IL')],
-      ['קובץ התוצאות', resultBatchId],
-      ['סך המשתתפים', summary.total],
-      ['אנשי קשר שנשמרו', summary.saved],
-      ['ממתינים לשמירה', summary.pending],
-      ['שמירת אנשי קשר שנכשלה', summary.failed],
-      ['השלימו את התהליך', summary.completed],
-      ['עברו למענה אנושי', summary.humanHandoff],
-      ['ענו או לחצו על שאלת בחירה', uniqueEventPeople((event) => event.type === 'step_answered' || event.type === 'score_answered')],
-      ['מסרו כתובת מייל', results.filter((result) => Boolean(result.email)).length],
-      ['בקשות צירוף שנשלחו למנהלת', uniqueEventPeople((event) => event.type === 'group_join_request')],
-      ['נכנסו להגרלה', uniqueEventPeople((event) => event.type === 'raffle_entry')],
-      ['המשיכו אוטומטית אחרי אי מענה', uniqueEventPeople((event) => event.type === 'timeout_flow_started')],
-      ['קיבלו הודעת אי מענה', uniqueEventPeople((event) => event.type === 'decision_timeout_sent')],
-      ['קיבלו קובץ במהלך התהליך', uniqueEventPeople((event) => event.type === 'file_sent')],
-      ['קיבלו קובץ סיום', uniqueEventPeople((event) => event.type === 'completion_file_sent')],
-      ['ממוצע ניקוד', summary.scoreAverage],
-      ['קישורי הפניה שנשלחו', storage.getCampaignEvents(campaign.id).filter((event) => event.type === 'referral_link_sent').length],
-      ['כניסות שיוחסו להפניה', results.filter((result) => result.referredByCode).length],
-    ];
-
     const maxEventsPerPerson = Math.max(0, ...results.map((result) => (eventsByResult.get(result.id) ?? []).length));
     const eventHeaders = Array.from({ length: maxEventsPerPerson }, (_, index) => [`אירוע ${index + 1} – סוג`, `אירוע ${index + 1} – פירוט`]).flat();
     const detailHeaders = ['קמפיין', 'שם', 'טלפון', 'מייל', 'מועד קליטת המייל', 'שם WhatsApp', 'שם שנשמר/שם חלופי', 'סטטוס', 'שלב אחרון', 'מועד כניסה', 'מועד עדכון', 'כל השלבים והפעולות', 'מספר אירועים', ...eventHeaders, 'ניקוד כולל', 'תשובות ניקוד'];
@@ -5442,26 +5399,6 @@ export function startAdminServer(storage: Storage): import('http').Server {
       return [campaign.name, personDisplayName(result), result.phone, result.email ?? '', result.emailCollectedAt ?? '', result.whatsappName ?? '', result.fallbackName ?? '', statusLabels[result.status] ?? result.status, eventTypeLabels[result.lastStage ?? ''] ?? result.lastStage ?? '', result.triggeredAt, result.updatedAt, stepLabels, personEvents.length, ...eventCells, result.scoreTotal ?? '', scoreAnswers];
     });
 
-    const peopleHeaders = ['שם', 'טלפון', 'מייל', 'מועד קליטת המייל', 'סטטוס', 'מועד כניסה', 'שלב או פעולה אחרונים', 'מועד עדכון', 'מספר שלבים ופעולות', 'אישר/ה שמירה', 'סיים/ה', 'ניקוד'];
-    const peopleRows: Array<Array<string | number>> = results.map((result) => {
-      const personEvents = eventsByResult.get(result.id) ?? [];
-      const personReportableEvents = personEvents.filter((event) => reportableEventTypes.has(event.type));
-      const lastEvent = personReportableEvents[personReportableEvents.length - 1];
-      return [
-        personDisplayName(result),
-        result.phone,
-        result.email ?? '',
-        result.emailCollectedAt ?? '',
-        statusLabels[result.status] ?? result.status,
-        result.triggeredAt,
-        lastEvent ? eventDisplayLabel(lastEvent) : 'התחיל/ה את הקמפיין',
-        result.updatedAt,
-        personReportableEvents.length,
-        personEvents.some(confirmsContactSave) ? 'כן' : 'לא',
-        personEvents.some((event) => event.type === 'completed') ? 'כן' : 'לא',
-        result.scoreTotal ?? '',
-      ];
-    });
     const metricsHeaders = ['מדד', 'משתתפים ייחודיים', 'מספר אירועים', 'אחוז מכל המשתתפים', 'פירוט'];
     const metricDefinitions: Array<{ label: string; types: string[]; note: string }> = [
       { label: 'התחילו קמפיין', types: [], note: 'כל מי שמופיע בתוצאות הקמפיין' },
@@ -5533,59 +5470,21 @@ export function startAdminServer(storage: Storage): import('http').Server {
     workbook.created = new Date();
     workbook.modified = new Date();
 
-    const summarySheet = workbook.addWorksheet('סיכום', { views: [{ rightToLeft: true }] });
-    summarySheet.addRow([title]);
-    summarySheet.mergeCells('A1:C1');
-    summarySheet.getCell('A1').font = { bold: true, size: 16, color: { argb: 'FFFFFFFF' } };
-    summarySheet.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF274E13' } };
-    summarySheet.getCell('A1').alignment = { horizontal: 'right', vertical: 'middle' };
-    summarySheet.addRow([]);
-    summarySheet.addRow(['נתוני הקמפיין', 'ערך']);
-    summaryRows.forEach(([label, value]) => summarySheet.addRow([label, typeof value === 'number' ? value : excelText(value)]));
-    summarySheet.getRow(3).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    summarySheet.getRow(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF274E13' } };
-    const stageHeaderRow = summarySheet.rowCount + 3;
-    summarySheet.getRow(stageHeaderRow).values = ['הגעה לשלבים ופעולות', 'מספר משתתפים', 'אחוז מהמשתתפים'];
-    summarySheet.getRow(stageHeaderRow).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    summarySheet.getRow(stageHeaderRow).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF274E13' } };
-    const stages = [
-      { label: 'התחילו את הקמפיין', count: summary.total },
-      ...Array.from(checkpointCounts.values()).map((checkpoint) => ({ label: checkpoint.label, count: checkpoint.people.size })),
-    ];
-    stages.forEach((stage) => {
-      const row = summarySheet.addRow([excelText(stage.label), stage.count]);
-      row.getCell(3).value = { formula: `IFERROR(B${row.number}/$B$8,0)`, result: summary.total ? stage.count / summary.total : 0 };
-      row.getCell(3).numFmt = '0%';
-      row.height = 30;
-    });
-    summarySheet.columns = [{ width: 62 }, { width: 22 }, { width: 20 }];
-    summarySheet.getColumn(1).alignment = { wrapText: true, vertical: 'middle' };
-    summarySheet.views = [{ rightToLeft: true, state: 'frozen', ySplit: 3 }];
+    addFriendlyReportSheets(workbook, { campaign, results, events, displayName: personDisplayName });
 
-    const metricsSheet = workbook.addWorksheet('מדדים');
+    const metricsSheet = workbook.addWorksheet('טכני - מדדים');
     addDataTable(metricsSheet, 'CampaignClearMetrics', metricsHeaders, metricsRows);
     styleDataSheet(metricsSheet, [36, 18, 16, 18, 46], [1, 5]);
 
-    const actionSheet = workbook.addWorksheet('לחיצות וכפתורים');
+    const actionSheet = workbook.addWorksheet('טכני - לחיצות');
     addDataTable(actionSheet, 'CampaignButtonClicks', ['כפתור או תשובה', 'סוג פעולה', 'משתתפים ייחודיים', 'מספר אירועים', 'אחוז מכל המשתתפים'], actionRows);
     styleDataSheet(actionSheet, [48, 28, 18, 16, 18], [1, 2]);
 
-    const eventTypeSheet = workbook.addWorksheet('מדדים לפי סוג אירוע');
+    const eventTypeSheet = workbook.addWorksheet('טכני - לפי סוג אירוע');
     addDataTable(eventTypeSheet, 'CampaignEventTypeMetrics', ['סוג אירוע', 'מזהה טכני', 'משתתפים ייחודיים', 'מספר אירועים', 'אחוז מכל המשתתפים'], eventTypeRows);
     styleDataSheet(eventTypeSheet, [34, 28, 18, 16, 18], [1]);
 
-    const peopleSheet = workbook.addWorksheet('משתתפים ושלבים');
-    addDataTable(peopleSheet, 'CampaignPeopleOverview', peopleHeaders, peopleRows);
-    styleDataSheet(peopleSheet, [24, 18, 32, 22, 18, 22, 42, 22, 20, 16, 12, 12], [7]);
-
-    const emailSheet = workbook.addWorksheet('כתובות מייל');
-    const emailRows: Array<Array<string | number>> = results
-      .filter((result) => Boolean(result.email))
-      .map((result) => [personDisplayName(result), result.phone, result.email ?? '', result.emailCollectedAt ?? '', result.scoreTotal ?? '', campaign.name]);
-    addDataTable(emailSheet, 'CampaignEmailAddresses', ['שם', 'טלפון', 'מייל', 'מועד קליטה', 'ניקוד', 'קמפיין'], emailRows);
-    styleDataSheet(emailSheet, [24, 18, 34, 22, 12, 28]);
-
-    const historySheet = workbook.addWorksheet('היסטוריית שלבים');
+    const historySheet = workbook.addWorksheet('טכני - היסטוריית שלבים');
     const historyHeaders = ['שם', 'טלפון', 'סוג הפעולה', 'שלב או פעולה', 'תאריך ושעה'];
     const resultsById = new Map(results.map((result) => [result.id, result]));
     const historyRows: Array<Array<string | number>> = reportableEvents.map((event) => {
@@ -5594,22 +5493,12 @@ export function startAdminServer(storage: Storage): import('http').Server {
     });
     addDataTable(historySheet, 'CampaignStageHistory', historyHeaders, historyRows);
     styleDataSheet(historySheet, [24, 18, 28, 58, 22], [4]);
-    const raffleEntries = events.filter((event) => event.type === 'raffle_entry');
-    const raffleSheet = workbook.addWorksheet('\u05d6\u05db\u05d0\u05d9\u05dd \u05dc\u05d4\u05d2\u05e8\u05dc\u05d4');
-    const raffleHeaders = ['\u05d6\u05db\u05d0\u05d5\u05ea \u05dc\u05d4\u05d2\u05e8\u05dc\u05d4', '\u05e9\u05dd', '\u05d8\u05dc\u05e4\u05d5\u05df', '\u05de\u05d5\u05e2\u05d3 \u05dc\u05d7\u05d9\u05e6\u05d4'];
-    const raffleRows: Array<Array<string | number>> = raffleEntries.map((event) => {
-      const result = event.campaignResultId ? resultsById.get(event.campaignResultId) : undefined;
-      return [event.label ?? '', result ? personDisplayName(result) : '', result?.phone ?? event.phone ?? '', event.createdAt];
-    });
-    addDataTable(raffleSheet, 'CampaignRaffleEntries', raffleHeaders, raffleRows);
-    styleDataSheet(raffleSheet, [58, 24, 18, 22], [1]);
 
-
-    const detailsSheet = workbook.addWorksheet('נתונים מלאים');
+    const detailsSheet = workbook.addWorksheet('טכני - נתונים מלאים');
     addDataTable(detailsSheet, 'CampaignFullDetails', detailHeaders, detailRows);
     styleDataSheet(detailsSheet, detailHeaders.map((header) => /פירוט|תשובות|פעולות/.test(header) ? 42 : Math.min(Math.max(header.length + 3, 14), 28)), [10]);
 
-    const eventsSheet = workbook.addWorksheet('אירועים מלאים');
+    const eventsSheet = workbook.addWorksheet('טכני - אירועים מלאים');
     const normalizedEventHeaders = ['קמפיין', 'מזהה קמפיין', 'מזהה תוצאה', 'טלפון', 'סוג אירוע', 'פירוט', 'תאריך ושעה', 'נתונים גולמיים'];
     const normalizedEventRows = events.map((event) => {
       const result = results.find((item) => item.id === event.campaignResultId);

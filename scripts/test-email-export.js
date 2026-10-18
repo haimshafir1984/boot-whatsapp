@@ -52,15 +52,14 @@ const { startAdminServer } = require('../dist/adminServer');
 
     const emailSheet = workbook.getWorksheet('כתובות מייל');
     assert.ok(emailSheet, 'email worksheet should exist');
-    assert.deepEqual(emailSheet.getRow(1).values.slice(1, 7), ['שם', 'טלפון', 'מייל', 'מועד קליטה', 'ניקוד', 'קמפיין']);
-    assert.equal(emailSheet.getRow(2).getCell(3).value, 'person@example.com');
+    assert.deepEqual(emailSheet.getRow(1).values.slice(1, 6), ['#', 'שם', 'טלפון', 'כתובת מייל', 'מועד קליטת המייל']);
+    assert.equal(emailSheet.getRow(2).getCell(4).value, 'person@example.com');
 
-    const peopleSheet = workbook.getWorksheet('משתתפים ושלבים');
-    assert.ok(peopleSheet, 'people worksheet should exist');
-    assert.equal(peopleSheet.getRow(1).getCell(3).value, 'מייל');
-    assert.equal(peopleSheet.getRow(2).getCell(3).value, 'person@example.com');
+    const peopleSheet = workbook.getWorksheet('משתתפות');
+    assert.ok(peopleSheet, 'participants worksheet should exist');
+    assert.equal(peopleSheet.getRow(2).getCell(3).value, '972500000004');
 
-    const detailsSheet = workbook.getWorksheet('נתונים מלאים');
+    const detailsSheet = workbook.getWorksheet('טכני - נתונים מלאים');
     assert.ok(detailsSheet, 'full details worksheet should exist');
     assert.equal(detailsSheet.getRow(1).getCell(4).value, 'מייל');
     assert.equal(detailsSheet.getRow(2).getCell(4).value, 'person@example.com');
