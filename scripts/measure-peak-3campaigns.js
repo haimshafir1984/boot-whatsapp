@@ -79,14 +79,24 @@ const PRESETS = {
 };
 const presetName = raw('preset') || 'target';
 if (!PRESETS[presetName]) { console.error('unknown preset ' + presetName); process.exit(2); }
-const opt = (n, d) => (has(n) ? raw(n) : PRESETS[presetName][n] !== undefined ? String(PRESETS[presetName][n]) : String(d));
+// CALIBRATION PROFILES: parameters measured from a real launch log (scripts/calibrate-from-launch-log.js), applied under any explicit flag.
+//   focus-real = the Focus launch of 2026-10-17/18 (406 participants, FULL client log): button answers took a median 13.9s (lognormal sigma 0.85),
+//   `delivered`/`read` arrived a median ~0.35s after `sent` (93% of messages were read), 22% never answered the first question and a further ~13% left
+//   before the 3rd. Send latencies: media 3000ms reproduces the real 3.1s first response; text 1600ms reproduces the real 2.2s answer->first message (p10 1.9s, p90 2.7s).
+const PROFILES = {
+  'focus-real': { 'think-ms': 13900, 'think-sigma': 0.85, 'think-max': 180000, 'text-ms': 1600, 'media-ms': 3000, 'delivered-ms': 350, 'delivered-image-ms': 600, 'read-frac': 0.93, abandon: 0.22, drop2: 0.13, 'status-tail': 0.005, 'status-dup': 0.05 },
+};
+const profileName = raw('profile') || '';
+if (profileName && !PROFILES[profileName]) { console.error('unknown profile ' + profileName); process.exit(2); }
+const profile = PROFILES[profileName] || {};
+const opt = (n, d) => (has(n) ? raw(n) : profile[n] !== undefined ? String(profile[n]) : PRESETS[presetName][n] !== undefined ? String(PRESETS[presetName][n]) : String(d));
 const num = (n, d) => Number(opt(n, d));
 const SCALE = num('scale', 1);
 const sc = (v) => Math.max(1, Math.round(v * SCALE));
 const O = {
   bigN: sc(num('big-n', 1000)), bigPeak: sc(num('big-peak', 100)), smallN: sc(num('small-n', 300)), smallPeak: sc(num('small-peak', 30)),
   peakS: Math.max(5, num('peak-seconds', 120) * Math.max(SCALE, 0.25)), peakShape: opt('peak-shape', 'front'), tailS: Math.max(10, num('tail-seconds', 1800) * SCALE),
-  clients: num('clients', 15), mps: num('mps', 80), thinkMs: num('think-ms', 4000), botDelay: num('bot-delay', 250), abandon: num('abandon', 0.25), drop2: num('drop2', 0.2),
+  clients: num('clients', 15), mps: num('mps', 80), thinkMs: num('think-ms', 4000), thinkSigma: num('think-sigma', 0.6), thinkMax: num('think-max', 60000), botDelay: num('bot-delay', 250), abandon: num('abandon', 0.25), drop2: num('drop2', 0.2),
   crossover: num('crossover', 0), sameSwitch: num('same-switch', 0), impatient: num('impatient', 0), doubleClick: num('double-click', 0), dupWebhooks: num('dup-webhooks', 0),
   gatewayTrace: has('gateway-trace'), clientMaxSenders: num('client-max-senders', 0), filePollMs: num('file-poll-ms', 0), rejectInteractive: num('reject-interactive', 0), quizN: sc(num('quiz-n', 60)), quizPeak: sc(num('quiz-peak', 15)), statusBatch: opt('status-batch', 'off'), statusBatchMax: num('status-batch-max', 0),
   lostResp: num('lost-resp', 0.0005), base5xx: num('base-5xx', 0),
@@ -119,7 +129,7 @@ const fileSha256 = (p) => { try { return sha256(fs.readFileSync(p)); } catch { r
 let seedState = O.seed >>> 0;
 const rnd = () => { seedState |= 0; seedState = (seedState + 0x6D2B79F5) | 0; let t = Math.imul(seedState ^ (seedState >>> 15), 1 | seedState); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 const gauss = () => Math.sqrt(-2 * Math.log(1 - rnd())) * Math.cos(2 * Math.PI * rnd());
-const think = (p) => Math.min(60000, Math.max(800, O.thinkMs * Math.exp(0.6 * det.gauss(O.seed, 'think', p.phone, p.qSeen))));   // a function of WHO and WHICH question, not of call order
+const think = (p) => Math.min(O.thinkMax, Math.max(800, O.thinkMs * Math.exp(O.thinkSigma * det.gauss(O.seed, 'think', p.phone, p.qSeen))));   // a function of WHO and WHICH question, not of call order
 const preload = path.join(__dirname, 'lib', 'load-preload.js');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `${RUN}-`));
 const baseUrl = new URL(inboxTestUrl());
