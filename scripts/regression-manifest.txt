@@ -100,3 +100,4 @@ test-meta-embedded-signup-connect-flow.js
 # embedded signup (2026-09-28), stage 7 step 4
 test-meta-embedded-signup-dashboard.js
 test-campaign-friendly-report.js
+test-meta-rate-limit-retry.js

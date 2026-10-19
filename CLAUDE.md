@@ -78,6 +78,10 @@ node scripts/test-load-multiprocess-focus.js
 
 כללי מדידה: להריץ **ברצף, לא במקביל**; לא למדוד latency בתהליך Node יחיד (תחרות CPU מדומה); תרחיש אחד לכל תהליך; outage = connection refused, לא hang. פירוט ב-`docs/load-testing-and-deploy-findings-2026-09-18.md`.
 
+### ניתוח לוגים של קמפיין (לקוחה מול שער)
+
+להוריד לוג מלא דרך SSH (`docker service logs --timestamps`), **לפני כל פריסה** (לוג נמחק כשהקונטיינר מוחלף), ולהריץ `scripts/compare-gateway-client.js` ו-`scripts/analyze-focus-failures.js`. פירוט, פרמטרים, שאילתות PostgreSQL לגיבוי כשהלוג נמחק, רשימת כתובות `/health` לניטור חיצוני: `docs/runbook-campaign-log-download-and-analysis.md`.
+
 ## פריסה (Production)
 
 - ריפו: `haimshafir1984/boot-whatsapp`, ענף **`master`** (לא לשנות ל-`main` בלי החלטה מפורשת).

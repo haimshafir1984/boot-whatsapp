@@ -1,6 +1,6 @@
 import { config } from './config';
 import { runCampaignWork, stopCampaignWork, hasCampaignWork, guardCampaignTransport, assertCampaignWorkActive, campaignWorkSleep, CampaignWorkCancelledError } from './campaignWork';
-import { ProviderSendError, classifySendError, isUncertainSendError } from './sendOutcome';
+import { ProviderSendError, RATE_LIMIT_SEND_ATTEMPTS, classifySendError, isRateLimitSendError, isUncertainSendError, sendRetryDelayMs } from './sendOutcome';
 import { runWithSendAttempt } from './sendAttempt';
 import { currentFlowUnit, nextFlowSendIndex, runFlowUnit } from './flowUnit';
 import type { OutboxContinuation, OutboxFlowRef } from './storage';
@@ -890,7 +890,20 @@ async function sendTrackedOutboxMessage(
   let result: void | WhatsAppSendResult;
   try {
     assertCampaignWorkActive();
-    result = await withOutboxAttempt(storage, outbox.id, send);
+    // Buttons / lists / contacts had no retry at all. A Meta rate limit is a refusal (nothing accepted), so these now wait and
+    // try again like text and files do, but ONLY for a rate limit; every other failure behaves exactly as before.
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        result = await withOutboxAttempt(storage, outbox.id, send);
+        break;
+      } catch (sendErr) {
+        if (!isRateLimitSendError(sendErr) || attempt >= RATE_LIMIT_SEND_ATTEMPTS) throw sendErr;
+        const waitMs = sendRetryDelayMs(sendErr, TEXT_SEND_RETRY_DELAY_MS);
+        console.warn(`[SEND_RETRY] ${input.kind} attempt=${attempt} to=${input.to} wait=${waitMs}ms:`, sendErr);
+        await sleep(waitMs);
+        assertCampaignWorkActive();
+      }
+    }
   } catch (err) {
     // Classification first (stage B, 6.3): an unknown outcome is parked, not failed, so it is
     // never mistaken for "safe to send again" by a later idempotent re-run.
@@ -932,7 +945,8 @@ async function sendBotMessage(transport: WhatsAppTransport, to: string, text: st
   }
 
   let lastError: unknown;
-  for (let attempt = 1; attempt <= TEXT_SEND_ATTEMPTS; attempt += 1) {
+  let maxAttempts = TEXT_SEND_ATTEMPTS;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       await waitBeforeBotReplyTo(to, delayMs);
     } catch (err) {
@@ -964,14 +978,18 @@ async function sendBotMessage(transport: WhatsAppTransport, to: string, text: st
         }
         throw err;
       }
+      // A Meta rate limit (HTTP 400 + code 130429/131056/...) is a refusal, not an unknown outcome: wait as Meta asks (bounded)
+      // and try again, with a larger attempt budget than for other transient failures.
+      if (isRateLimitSendError(err)) maxAttempts = Math.max(maxAttempts, RATE_LIMIT_SEND_ATTEMPTS);
+      const retryDelayMs = sendRetryDelayMs(err, TEXT_SEND_RETRY_DELAY_MS);
       if (storage && outbox) {
-        if (attempt < TEXT_SEND_ATTEMPTS) storage.markOutboxRetry(outbox.id, err, nextRetryIso(TEXT_SEND_RETRY_DELAY_MS));
+        if (attempt < maxAttempts) storage.markOutboxRetry(outbox.id, err, nextRetryIso(retryDelayMs));
         else storage.markOutboxFailed(outbox.id, err);
         await storage.flush();
       }
-      if (attempt < TEXT_SEND_ATTEMPTS) {
-        console.warn(`[SEND_RETRY] text attempt=${attempt} to=${to}:`, err);
-        await sleep(TEXT_SEND_RETRY_DELAY_MS);
+      if (attempt < maxAttempts) {
+        console.warn(`[SEND_RETRY] text attempt=${attempt} to=${to} wait=${retryDelayMs}ms:`, err);
+        await sleep(retryDelayMs);
         if (storage && outbox) {
           if (!storage.claimOutboxMessage(outbox.id)) throw new Error('Could not reclaim outbox message for retry.');
           await storage.flush();
@@ -3951,7 +3969,8 @@ async function sendFileWithRetry(
   }
 
   let lastError: unknown;
-  for (let attempt = 1; attempt <= FILE_SEND_ATTEMPTS; attempt += 1) {
+  let maxAttempts = FILE_SEND_ATTEMPTS;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       await waitBeforeBotReplyTo(to);
     } catch (err) {
@@ -3983,14 +4002,16 @@ async function sendFileWithRetry(
         console.error(`[SEND_FAIL] file "${label}" outcome=${outcome.outcome}`, err);
         throw err;
       }
+      if (isRateLimitSendError(err)) maxAttempts = Math.max(maxAttempts, RATE_LIMIT_SEND_ATTEMPTS);   // see sendBotMessage
+      const retryDelayMs = sendRetryDelayMs(err, FILE_SEND_RETRY_DELAY_MS);
       if (storage && outbox) {
-        if (attempt < FILE_SEND_ATTEMPTS) storage.markOutboxRetry(outbox.id, err, nextRetryIso(FILE_SEND_RETRY_DELAY_MS));
+        if (attempt < maxAttempts) storage.markOutboxRetry(outbox.id, err, nextRetryIso(retryDelayMs));
         else storage.markOutboxFailed(outbox.id, err);
         await storage.flush();
       }
-      if (attempt < FILE_SEND_ATTEMPTS) {
-        console.warn(`[SEND_RETRY] file "${label}" after failure:`, err);
-        await sleep(FILE_SEND_RETRY_DELAY_MS);
+      if (attempt < maxAttempts) {
+        console.warn(`[SEND_RETRY] file "${label}" wait=${retryDelayMs}ms after failure:`, err);
+        await sleep(retryDelayMs);
         if (storage && outbox) {
           if (!storage.claimOutboxMessage(outbox.id)) throw new Error('Could not reclaim file outbox message for retry.');
           await storage.flush();

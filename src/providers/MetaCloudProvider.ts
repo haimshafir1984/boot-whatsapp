@@ -4,7 +4,7 @@ import { config } from '../config';
 import { metaApiAlert, notifyClientSystemAlert } from '../systemAlerts';
 import { IncomingWhatsAppMessage, InteractiveListItem, WhatsAppProvider, WhatsAppSendResult } from '../types/whatsapp';
 import { attemptTaggingEnabled, currentSendAttempt } from '../sendAttempt';
-import { ProviderSendError, classifyHttpStatus, classifySendError, parseRetryAfterMs } from '../sendOutcome';
+import { ProviderSendError, classifyMetaApiResponse, classifySendError, parseRetryAfterMs } from '../sendOutcome';
 
 type MetaMessage = Record<string, unknown>;
 type CachedMetaMedia = { id: string; expiresAt: number };
@@ -222,11 +222,11 @@ export class MetaCloudProvider implements WhatsAppProvider {
     const body = await response.json().catch(() => ({})) as any;
     if (!response.ok || typeof body.id !== 'string') {
       notifyClientSystemAlert(metaApiAlert(response.status, body, 'media_upload'));
-      const outcome = classifyHttpStatus(response.status);
+      const classified = classifyMetaApiResponse(response.status, body, parseRetryAfterMs(response.headers.get('retry-after')));
       throw new ProviderSendError(
         'Meta media upload failed (' + response.status + '): ' + JSON.stringify(body).slice(0, 500),
-        outcome === 'uncertain' ? 'rejected_transient' : outcome,
-        { status: response.status, retryAfterMs: parseRetryAfterMs(response.headers.get('retry-after')) },
+        classified.outcome === 'uncertain' ? 'rejected_transient' : classified.outcome,
+        { status: response.status, retryAfterMs: classified.retryAfterMs, rateLimited: classified.rateLimited, metaCode: classified.metaCode },
       );
     }
     return body.id;
@@ -277,11 +277,13 @@ export class MetaCloudProvider implements WhatsAppProvider {
     }
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
+      const classified = classifyMetaApiResponse(response.status, body, parseRetryAfterMs(response.headers.get('retry-after')));
       notifyClientSystemAlert(metaApiAlert(response.status, body, String(payload.type || payload.status || 'messages')));
+      if (classified.rateLimited) console.warn('[META_RATE_LIMIT] code=' + classified.metaCode + ' status=' + response.status + ' type=' + String(payload.type || payload.status || 'messages'));
       throw new ProviderSendError(
         'Meta message failed (' + response.status + '): ' + JSON.stringify(body).slice(0, 500),
-        classifyHttpStatus(response.status),
-        { status: response.status, retryAfterMs: parseRetryAfterMs(response.headers.get('retry-after')) },
+        classified.outcome,
+        { status: response.status, retryAfterMs: classified.retryAfterMs, rateLimited: classified.rateLimited, metaCode: classified.metaCode },
       );
     }
     const messageId = Array.isArray((body as any).messages) ? (body as any).messages[0]?.id : undefined;
