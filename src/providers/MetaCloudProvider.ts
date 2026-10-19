@@ -4,7 +4,7 @@ import { config } from '../config';
 import { metaApiAlert, notifyClientSystemAlert } from '../systemAlerts';
 import { IncomingWhatsAppMessage, InteractiveListItem, WhatsAppProvider, WhatsAppSendResult } from '../types/whatsapp';
 import { attemptTaggingEnabled, currentSendAttempt } from '../sendAttempt';
-import { ProviderSendError, classifyMetaApiResponse, classifySendError, parseRetryAfterMs } from '../sendOutcome';
+import { ProviderSendError, classifyMetaApiResponse, classifySendError, isRateLimitSendError, parseRetryAfterMs } from '../sendOutcome';
 
 type MetaMessage = Record<string, unknown>;
 type CachedMetaMedia = { id: string; expiresAt: number };
@@ -120,6 +120,9 @@ export class MetaCloudProvider implements WhatsAppProvider {
       // (timeout / dropped connection) it may already have been delivered: re-uploading and
       // sending again would duplicate it.
       if (classifySendError(err).outcome === 'uncertain') throw err;
+      // A rate limit says nothing about the media id: re-uploading and POSTing again would only add load under a limit.
+      // The caller waits and retries (messageFlow) with the same cached id.
+      if (isRateLimitSendError(err)) throw err;
       metaMediaCache.delete(cacheKey);
       persistMetaMediaCache();
       mediaId = await this.uploadAndCacheMedia(cacheKey, filePath, mimeType, fileName);

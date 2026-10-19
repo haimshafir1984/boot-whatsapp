@@ -84,13 +84,18 @@ export function classifyHttpStatus(status: number): SendOutcome {
  * would classify them as permanent and the message would be lost (18.10.2026: 130429 right after a restart, 131056 for a
  * participant who pressed buttons 25 times in 40 seconds). All of these are refusals - nothing was accepted - so waiting and
  * sending the same payload again is safe. Deliberately NOT included: 131048 (spam rate limit: an account-quality problem a retry makes worse).
- *   4 / 17 / 613 : Graph API call-volume limits | 80007 : WABA rate limit | 130429 : Cloud API throughput | 131056 : business/consumer pair limit
+ *   130429 : Cloud API throughput | 131056 : business/consumer pair limit
+ * Only the two codes seen in production (18.10.2026) are listed. Others (4, 17, 613, 80007) are documented rate limits too but were not
+ * verified against Meta's current docs or seen in a real incident - add them with a source when one shows up.
  */
-const META_RATE_LIMIT_WAIT_MS = new Map<number, number>([[4, 10_000], [17, 10_000], [613, 10_000], [80007, 10_000], [130429, 5_000], [131056, 8_000]]);
+const META_RATE_LIMIT_WAIT_MS = new Map<number, number>([[130429, 5_000], [131056, 8_000]]);
 /** Total attempts (including the first) for a rate-limited send; ordinary transient failures keep their own, smaller budget. */
 export const RATE_LIMIT_SEND_ATTEMPTS = 4;
-/** No single wait for a rate-limited retry is longer than this: the flow holds the participant (and a client slot) while it waits. */
-export const RATE_LIMIT_MAX_WAIT_MS = 15_000;
+/**
+ * Longest wait a rate-limited retry may take. The flow holds the participant (and a client slot) while it waits, so a Retry-After
+ * above this is NOT honoured by retrying early: the inline retries stop instead (see rateLimitRetryAllowed).
+ */
+export const RATE_LIMIT_MAX_WAIT_MS = 30_000;
 
 export function metaErrorCode(body: unknown): number | undefined {
   const code = (body as { error?: { code?: unknown } } | null | undefined)?.error?.code;
@@ -110,6 +115,11 @@ export function classifyMetaApiResponse(status: number, body: unknown, retryAfte
 
 export function isRateLimitSendError(err: unknown): boolean {
   return err instanceof ProviderSendError && err.rateLimited;
+}
+
+/** A rate-limited send may be retried inline only when the wait Meta asked for fits the budget; a longer one is never undercut. */
+export function rateLimitRetryAllowed(err: unknown): boolean {
+  return isRateLimitSendError(err) && ((err as ProviderSendError).retryAfterMs ?? 0) <= RATE_LIMIT_MAX_WAIT_MS;
 }
 
 /** How long to wait before the next in-flow attempt: the fixed delay, or - for a rate limit - Retry-After / Meta's wait hint, bounded. */

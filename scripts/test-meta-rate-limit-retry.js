@@ -16,7 +16,7 @@ const path = require('node:path');
 const { Storage } = require('../dist/storage');
 const { conversationState } = require('../dist/conversationState');
 const { MetaCloudProvider } = require('../dist/providers/MetaCloudProvider');
-const { ProviderSendError, classifySendError, classifyMetaApiResponse, sendRetryDelayMs, RATE_LIMIT_SEND_ATTEMPTS, RATE_LIMIT_MAX_WAIT_MS } = require('../dist/sendOutcome');
+const { ProviderSendError, classifySendError, classifyMetaApiResponse, sendRetryDelayMs, rateLimitRetryAllowed, RATE_LIMIT_SEND_ATTEMPTS, RATE_LIMIT_MAX_WAIT_MS } = require('../dist/sendOutcome');
 const { handleIncomingWhatsAppMessage } = require('../dist/messageFlow');
 
 const dirs = [];
@@ -30,7 +30,7 @@ const rateLimited = (code = 130429) => new ProviderSendError(`Meta message faile
 
 (async () => {
   await scenario('classifier: rate-limit codes on HTTP 400 are transient with a wait hint; other 400s stay permanent', async () => {
-    for (const [code, hint] of [[130429, 5000], [131056, 8000], [80007, 10000], [4, 10000]]) {
+    for (const [code, hint] of [[130429, 5000], [131056, 8000]]) {
       const c = classifyMetaApiResponse(400, { error: { code } });
       assert.equal(c.outcome, 'rejected_transient', `code ${code}`);
       assert.equal(c.rateLimited, true);
@@ -38,6 +38,7 @@ const rateLimited = (code = 130429) => new ProviderSendError(`Meta message faile
     }
     assert.equal(classifyMetaApiResponse(400, { error: { code: 131026 } }).outcome, 'rejected_permanent', 'undeliverable is final');
     assert.equal(classifyMetaApiResponse(400, { error: { code: 131048 } }).outcome, 'rejected_permanent', 'spam rate limit is an account-quality problem: never retried');
+    for (const unverified of [4, 17, 613, 80007]) assert.equal(classifyMetaApiResponse(400, { error: { code: unverified } }).outcome, 'rejected_permanent', `code ${unverified} is not in the verified list`);
     assert.equal(classifyMetaApiResponse(400, { error: { code: 131053 } }).outcome, 'rejected_permanent', 'media errors stay final');
     assert.equal(classifyMetaApiResponse(400, { error: { code: 100 } }).outcome, 'rejected_permanent');
     assert.equal(classifyMetaApiResponse(400, {}).outcome, 'rejected_permanent');
@@ -135,6 +136,72 @@ const rateLimited = (code = 130429) => new ProviderSendError(`Meta message faile
     await inbound(storage, transport, phone, 'btn');
     assert.equal(buttons, 3);
     assert.equal(texts, 0);
+    conversationState.remove(`whatsapp:${phone}`);
+  });
+
+  await scenario('MetaCloudProvider.sendFile: cached media id + 130429 -> exactly ONE message POST, no re-upload (a rate limit is not a stale media id)', async () => {
+    const dir = mkdir('rl-file-');
+    const file = path.join(dir, 'a.png');
+    fs.writeFileSync(file, Buffer.from('png-bytes-rl-' + Date.now()));
+    let uploads = 0;
+    let posts = 0;
+    let mode = 'ok';
+    global.fetch = async (url) => {
+      if (String(url).endsWith('/media')) { uploads++; return jsonRes(200, { id: 'media-' + uploads }); }
+      posts++;
+      if (mode === 'limit') return jsonRes(400, { error: { message: '(#130429) Rate limit hit', code: 130429 } });
+      return jsonRes(200, { messages: [{ id: 'wamid.' + posts }] });
+    };
+    try {
+      await new MetaCloudProvider().sendFile('972500200002', file, 'c');   // populates the media cache
+      assert.equal(uploads, 1);
+      posts = 0;
+      mode = 'limit';
+      await assert.rejects(() => new MetaCloudProvider().sendFile('972500200003', file, 'c'), (e) => e.rateLimited === true);
+      assert.equal(posts, 1, 'a rate-limit refusal must not trigger a second POST inside the same attempt');
+      assert.equal(uploads, 1, 'and must not re-upload the media');
+    } finally { global.fetch = realFetch; }
+  });
+
+  await scenario('flow buttons: every retry is its OWN durable attempt (one attempt = one POST); the refused attempt is persisted as `retry` between sends', async () => {
+    const dir = mkdir('rl-attempt-');
+    const file = path.join(dir, 's.json');
+    const storage = new Storage(file);
+    const phone = '972500400006';
+    storage.addCampaign({ name: 'RLA', triggerType: 1, triggerPhrase: 'att', suffix: '', active: true, conversation: { askNameEnabled: false, nameTimeoutMinutes: 5, askNameText: '', replyText: '', followupMessages: [], decisionFlow: [{ id: 'q1', kind: 'question', presentation: 'buttons', text: 'Pick one', options: [{ id: 'a', text: 'A' }, { id: 'b', text: 'B' }] }] } });
+    const seen = [];
+    let persistedBetween = null;
+    const rowOf = () => storage.getOutboxMessages(50).find((m) => m.kind === 'interactive_buttons');
+    const transport = { ...base, async sendMessage() { return { messageId: 't' }; },
+      async sendInteractiveButtons() {
+        const row = rowOf();
+        seen.push({ attempts: row.attempts, attemptId: storage.getOutboxAttemptId(row.id), status: row.status });
+        if (seen.length === 1) {
+          // 1.5s into the 3s wait: a process that stopped now would find the row persisted as `retry` with ONE attempt, not `processing`.
+          setTimeout(() => { const r = new Storage(file).getOutboxMessages(50).find((m) => m.kind === 'interactive_buttons'); persistedBetween = r && { status: r.status, attempts: r.attempts }; }, 1500);
+          throw rateLimited();
+        }
+        return { messageId: 'b' };
+      } };
+    await inbound(storage, transport, phone, 'att');
+    assert.equal(seen.length, 2);
+    assert.deepEqual(seen.map((x) => x.attempts), [1, 2], 'a new attempt (claim) per POST');
+    assert.notEqual(seen[0].attemptId, seen[1].attemptId, 'a fresh attempt id per POST');
+    assert.ok(seen.every((x) => x.status === 'processing'));
+    assert.deepEqual(persistedBetween, { status: 'retry', attempts: 1 });
+    assert.equal(rowOf().status, 'sent');
+    conversationState.remove(`whatsapp:${phone}`);
+  });
+
+  await scenario('Retry-After longer than the budget is NOT undercut: no early inline retry (1 call)', async () => {
+    assert.equal(rateLimitRetryAllowed(new ProviderSendError('x', 'rejected_transient', { rateLimited: true, retryAfterMs: RATE_LIMIT_MAX_WAIT_MS + 1 })), false);
+    assert.equal(rateLimitRetryAllowed(new ProviderSendError('x', 'rejected_transient', { rateLimited: true, retryAfterMs: RATE_LIMIT_MAX_WAIT_MS })), true);
+    const storage = textStorage();
+    const phone = '972500400007';
+    let calls = 0;
+    const transport = { ...base, async sendMessage() { calls++; throw new ProviderSendError('429', 'rejected_transient', { status: 429, rateLimited: true, retryAfterMs: 5 * 60_000 }); } };
+    await inbound(storage, transport, phone, 'join').catch(() => {});
+    assert.equal(calls, 1, 'retrying 5 minutes early would just hit the limit again');
     conversationState.remove(`whatsapp:${phone}`);
   });
 

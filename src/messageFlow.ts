@@ -1,6 +1,6 @@
 import { config } from './config';
 import { runCampaignWork, stopCampaignWork, hasCampaignWork, guardCampaignTransport, assertCampaignWorkActive, campaignWorkSleep, CampaignWorkCancelledError } from './campaignWork';
-import { ProviderSendError, RATE_LIMIT_SEND_ATTEMPTS, classifySendError, isRateLimitSendError, isUncertainSendError, sendRetryDelayMs } from './sendOutcome';
+import { ProviderSendError, RATE_LIMIT_SEND_ATTEMPTS, classifySendError, isRateLimitSendError, isUncertainSendError, rateLimitRetryAllowed, sendRetryDelayMs } from './sendOutcome';
 import { runWithSendAttempt } from './sendAttempt';
 import { currentFlowUnit, nextFlowSendIndex, runFlowUnit } from './flowUnit';
 import type { OutboxContinuation, OutboxFlowRef } from './storage';
@@ -892,16 +892,25 @@ async function sendTrackedOutboxMessage(
     assertCampaignWorkActive();
     // Buttons / lists / contacts had no retry at all. A Meta rate limit is a refusal (nothing accepted), so these now wait and
     // try again like text and files do, but ONLY for a rate limit; every other failure behaves exactly as before.
+    // Each retry is its own durable attempt (one attempt = one claim = at most one POST, storage.markOutboxProcessing): the refused
+    // attempt is closed and persisted as `retry`, and the next one is re-claimed with a fresh attempt id - exactly like the text loop.
     for (let attempt = 1; ; attempt += 1) {
       try {
         result = await withOutboxAttempt(storage, outbox.id, send);
         break;
       } catch (sendErr) {
-        if (!isRateLimitSendError(sendErr) || attempt >= RATE_LIMIT_SEND_ATTEMPTS) throw sendErr;
+        if (!rateLimitRetryAllowed(sendErr) || attempt >= RATE_LIMIT_SEND_ATTEMPTS) throw sendErr;
         const waitMs = sendRetryDelayMs(sendErr, TEXT_SEND_RETRY_DELAY_MS);
+        storage.markOutboxRetry(outbox.id, sendErr, nextRetryIso(waitMs));
+        await storage.flush();
+        // markOutboxRetry is a no-op when delivery evidence already proves a copy was accepted: that is a success, not a retry.
+        const settled = storage.getOutboxMessage(outbox.id);
+        if (settled?.status === 'sent') { result = settled.providerMessageId ? { messageId: settled.providerMessageId } : undefined; break; }
         console.warn(`[SEND_RETRY] ${input.kind} attempt=${attempt} to=${input.to} wait=${waitMs}ms:`, sendErr);
         await sleep(waitMs);
         assertCampaignWorkActive();
+        if (!storage.claimOutboxMessage(outbox.id)) throw new Error(`Could not reclaim ${input.kind} outbox message for a rate-limit retry.`);
+        await storage.flush();
       }
     }
   } catch (err) {
@@ -980,7 +989,7 @@ async function sendBotMessage(transport: WhatsAppTransport, to: string, text: st
       }
       // A Meta rate limit (HTTP 400 + code 130429/131056/...) is a refusal, not an unknown outcome: wait as Meta asks (bounded)
       // and try again, with a larger attempt budget than for other transient failures.
-      if (isRateLimitSendError(err)) maxAttempts = Math.max(maxAttempts, RATE_LIMIT_SEND_ATTEMPTS);
+      if (isRateLimitSendError(err)) maxAttempts = rateLimitRetryAllowed(err) ? Math.max(maxAttempts, RATE_LIMIT_SEND_ATTEMPTS) : attempt;
       const retryDelayMs = sendRetryDelayMs(err, TEXT_SEND_RETRY_DELAY_MS);
       if (storage && outbox) {
         if (attempt < maxAttempts) storage.markOutboxRetry(outbox.id, err, nextRetryIso(retryDelayMs));
@@ -4002,7 +4011,7 @@ async function sendFileWithRetry(
         console.error(`[SEND_FAIL] file "${label}" outcome=${outcome.outcome}`, err);
         throw err;
       }
-      if (isRateLimitSendError(err)) maxAttempts = Math.max(maxAttempts, RATE_LIMIT_SEND_ATTEMPTS);   // see sendBotMessage
+      if (isRateLimitSendError(err)) maxAttempts = rateLimitRetryAllowed(err) ? Math.max(maxAttempts, RATE_LIMIT_SEND_ATTEMPTS) : attempt;   // see sendBotMessage
       const retryDelayMs = sendRetryDelayMs(err, FILE_SEND_RETRY_DELAY_MS);
       if (storage && outbox) {
         if (attempt < maxAttempts) storage.markOutboxRetry(outbox.id, err, nextRetryIso(retryDelayMs));

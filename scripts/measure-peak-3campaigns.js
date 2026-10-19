@@ -96,7 +96,7 @@ const sc = (v) => Math.max(1, Math.round(v * SCALE));
 const O = {
   bigN: sc(num('big-n', 1000)), bigPeak: sc(num('big-peak', 100)), smallN: sc(num('small-n', 300)), smallPeak: sc(num('small-peak', 30)),
   peakS: Math.max(5, num('peak-seconds', 120) * Math.max(SCALE, 0.25)), peakShape: opt('peak-shape', 'front'), tailS: Math.max(10, num('tail-seconds', 1800) * SCALE),
-  clients: num('clients', 15), mps: num('mps', 80), thinkMs: num('think-ms', 4000), thinkSigma: num('think-sigma', 0.6), thinkMax: num('think-max', 60000), botDelay: num('bot-delay', 250), abandon: num('abandon', 0.25), drop2: num('drop2', 0.2),
+  clients: num('clients', 15), mps: num('mps', 80), limitShape: opt('limit-shape', 'http429'), thinkMs: num('think-ms', 4000), thinkSigma: num('think-sigma', 0.6), thinkMax: num('think-max', 60000), botDelay: num('bot-delay', 250), abandon: num('abandon', 0.25), drop2: num('drop2', 0.2),
   crossover: num('crossover', 0), sameSwitch: num('same-switch', 0), impatient: num('impatient', 0), doubleClick: num('double-click', 0), dupWebhooks: num('dup-webhooks', 0),
   gatewayTrace: has('gateway-trace'), clientMaxSenders: num('client-max-senders', 0), filePollMs: num('file-poll-ms', 0), rejectInteractive: num('reject-interactive', 0), quizN: sc(num('quiz-n', 60)), quizPeak: sc(num('quiz-peak', 15)), statusBatch: opt('status-batch', 'off'), statusBatchMax: num('status-batch-max', 0),
   lostResp: num('lost-resp', 0.0005), base5xx: num('base-5xx', 0),
@@ -486,7 +486,7 @@ function onMetaSend(j) {
   // ---- fake Meta (one server), gateway port first because Meta posts statuses to it
   gwPort = await freePort();
   const metaPort = await freePort();
-  const fm = launch('fakemeta', { FM_CONFIG: JSON.stringify({ port: metaPort, gatewayPort: gwPort, pn: PN, mps: O.mps, textMs: O.textMs, mediaMs: O.mediaMs, deliveredMedianMs: O.deliveredMs, deliveredMedianImageMs: O.deliveredImageMs, readFrac: O.readFrac, slowTailFrac: O.statusTail, dupStatusFrac: O.statusDup, failedFrac: O.failedStatus, lostResp: O.lostResp, base5xx: O.base5xx, rejectInteractive: O.rejectInteractive, seed: O.seed }) },
+  const fm = launch('fakemeta', { FM_CONFIG: JSON.stringify({ port: metaPort, gatewayPort: gwPort, pn: PN, mps: O.mps, limitShape: O.limitShape, textMs: O.textMs, mediaMs: O.mediaMs, deliveredMedianMs: O.deliveredMs, deliveredMedianImageMs: O.deliveredImageMs, readFrac: O.readFrac, slowTailFrac: O.statusTail, dupStatusFrac: O.statusDup, failedFrac: O.failedStatus, lostResp: O.lostResp, base5xx: O.base5xx, rejectInteractive: O.rejectInteractive, seed: O.seed }) },
     'meta', tmp, [path.join(__dirname, 'lib', 'fake-meta-server.js')], false);
   const pxEntry = launch('proxy', { PX_CONFIG: JSON.stringify({ listeners: clients.map((c) => ({ id: `c${c.i}`, port: c.proxyPort, target: c.port })), prefixOwner }) }, 'proxy', tmp, [path.join(__dirname, 'lib', 'peak-proxy.js')], false);
   await Promise.all([fm.readyPromise, pxEntry.readyPromise]);
