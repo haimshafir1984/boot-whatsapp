@@ -1587,7 +1587,8 @@ export function startAdminServer(storage: Storage): import('http').Server {
     const campaigns = storage.getCampaigns();
     const activeCampaigns = campaigns.filter((campaign) => campaign.runtimeStatus === 'active');
     const queueStats = storage.getContactQueueStats();
-    const twilioEvents = getTwilioEvents(5);
+    // Only the timestamp of the latest Twilio event is public: the events themselves carry participants' phone numbers and message text.
+    const lastTwilioEventAt = getTwilioEvents(1)[0]?.at ?? null;
     const whatsappHealth = getWhatsAppHealth(storage.getClientProfile().whatsappPhone);
     res.json({
       ok: true,
@@ -1628,8 +1629,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
       },
       twilio: {
         configured: twilioConfigured(),
-        recentEvents: twilioEvents,
-        lastEventAt: twilioEvents[0]?.at ?? null,
+        lastEventAt: lastTwilioEventAt,
       },
     });
   });
