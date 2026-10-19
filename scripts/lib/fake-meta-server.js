@@ -23,7 +23,7 @@ const { unit, gauss: gaussD, hash32 } = require('./detrand');
 const cfg = JSON.parse(process.env.FM_CONFIG || '{}');
 const C = {
   port: 0, gatewayPort: 0, pn: 'shared-phone-id', display: '15550001111',
-  mps: 80, textMs: 150, mediaMs: 900, uploadMs: 700,
+  mps: 80, limitShape: 'http429', textMs: 150, mediaMs: 900, uploadMs: 700,
   sentMs: 250, deliveredMedianMs: 1500, deliveredMedianImageMs: 2500, readFrac: 0.6, readMedianMs: 20000,
   slowTailFrac: 0.03, dupStatusFrac: 0.05, failedFrac: 0.005,
   // dynamic (faults)
@@ -145,7 +145,7 @@ const server = http.createServer(async (req, res) => {
 
   const now = Date.now();
   while (sendTimes.length && sendTimes[0] <= now - 1000) sendTimes.shift();
-  if (sendTimes.length >= C.mps) { stats.r429 += 1; record('429'); console.log('@@FAULT ' + JSON.stringify({ t: Date.now(), key, attempt, kind: '429' })); return json(res, 429, { error: { message: '(#130429) Rate limit hit', type: 'OAuthException', code: 130429 } }, { 'retry-after': '1' }); }
+  if (sendTimes.length >= C.mps) { stats.r429 += 1; record('429'); console.log('@@FAULT ' + JSON.stringify({ t: Date.now(), key, attempt, kind: '429' })); return C.limitShape === 'code400' ? json(res, 400, { error: { message: '(#130429) Rate limit hit', type: 'OAuthException', code: 130429, error_data: { messaging_product: 'whatsapp', details: 'Rate limit hit' } } }) /* real Meta, 18.10.2026: HTTP 400 + code, no Retry-After */ : json(res, 429, { error: { message: '(#130429) Rate limit hit', type: 'OAuthException', code: 130429 } }, { 'retry-after': '1' }); }
   sendTimes.push(now);
   if (type === 'interactive' && C.rejectInteractive > 0 && U('rejectInteractive', key) < C.rejectInteractive) { stats.r429 += 1; record('429-injected'); injected.rejectInteractive.push(`${key}#${attempt}`); console.log('@@FAULT ' + JSON.stringify({ t: Date.now(), key, attempt, kind: '429-injected' })); return json(res, 429, { error: { message: '(#130429) Rate limit hit (injected)', type: 'OAuthException', code: 130429 } }, { 'retry-after': '1' }); }
   const p5xx = Math.min(1, (C.base5xx || 0) + (C.err5xx || 0));
