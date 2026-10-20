@@ -11,3 +11,10 @@ data/google-token.json
 !.env.twilio.local.example
 *.vcf
 .wwebjs_cache/
+
+# Simulator / measurement output (large, may hold participant-like data). Files already committed stay tracked;
+# a new summary can be added deliberately with: git add -f docs/results-data/<file>
+docs/results-data/
+
+# Local migration scripts
+/.migration/
