@@ -295,6 +295,10 @@
     }
     .result-export:hover { background: #dcfce7; }
     .result-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .combine-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; margin-bottom: 4px; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 10px; font-size: .8rem; color: #475569; }
+    .combine-bar .combine-text { flex: 1 1 220px; }
+    .combine-bar .result-export[disabled] { opacity: .45; cursor: not-allowed; }
+    .combine-pick { display: inline-flex; align-items: center; gap: 5px; font-size: .74rem; font-weight: 600; color: #475569; margin-inline-start: 8px; cursor: pointer; }
     .result-summary-line {
       margin-top: 7px;
       color: #374151;
@@ -2421,6 +2425,29 @@
     }
   }
 
+  // Several campaigns (links) of the same client can be exported as ONE Excel / contacts file: tick them, then use the bar above the list.
+  const combinedSelection = new Set();
+  function refreshCombinedBar() {
+    const count = combinedSelection.size;
+    const text = document.getElementById('combine-text');
+    if (text) text.textContent = count >= 2 ? `נבחרו ${count} קמפיינים. הקובץ יאחד אותם, ומי שנכנסה דרך כמה לינקים תיספר פעם אחת.` : 'לקובץ אחד לכמה לינקים: סמנו לפחות שני קמפיינים.';
+    document.querySelectorAll('.combine-download').forEach((btn) => { btn.disabled = count < 2; });
+  }
+  function toggleCombinedCampaign(box) {
+    if (box.checked) combinedSelection.add(box.value); else combinedSelection.delete(box.value);
+    refreshCombinedBar();
+  }
+  function downloadCombinedResults(kind) {
+    if (combinedSelection.size < 2) return;
+    const ids = [...combinedSelection].map(encodeURIComponent).join(',');
+    const link = document.createElement('a');
+    link.href = '/api/campaign-results/combined/export.' + kind + '?ids=' + ids;
+    link.download = '';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+
   function renderCampaignResults(summaries) {
     const el = document.getElementById('campaign-results');
     const withResults = summaries
@@ -2430,7 +2457,16 @@
       el.innerHTML = '<p style="color:#9ca3af;font-size:.85rem;text-align:center;padding:8px 0">אין תוצאות עדיין</p>';
       return;
     }
-    el.innerHTML = withResults.map(item => {
+    const knownIds = new Set(withResults.map(item => item.campaignId));
+    [...combinedSelection].forEach(id => { if (!knownIds.has(id)) combinedSelection.delete(id); });
+    const combinable = withResults.length >= 2;
+    const combineBar = combinable ? `
+      <div class="combine-bar">
+        <span class="combine-text" id="combine-text"></span>
+        <button class="result-export combine-download" type="button" onclick="downloadCombinedResults('xls')">הורדה מאוחדת: Excel</button>
+        <button class="result-export combine-download" type="button" onclick="downloadCombinedResults('vcf')">הורדה מאוחדת: אנשי קשר</button>
+      </div>` : '';
+    el.innerHTML = combineBar + withResults.map(item => {
       const started = Number(item.total || 0);
       const reached = Math.max(started, Number(item.filesSent || 0), Number(item.progressed || 0), Number(item.completed || 0), Number(item.humanHandoff || 0), Number(item.saved || 0));
       const answered = Number(item.progressed || 0);
@@ -2448,7 +2484,7 @@
       return `
         <div class="result-row">
           <div class="result-info">
-            <div class="result-title">${esc(item.campaignName)}${item.referrerName ? ` · ${esc(item.referrerName)}` : ''}</div>
+            <div class="result-title">${esc(item.campaignName)}${item.referrerName ? ` · ${esc(item.referrerName)}` : ''}${combinable ? `<label class="combine-pick"><input type="checkbox" value="${esc(item.campaignId)}" ${combinedSelection.has(item.campaignId) ? 'checked' : ''} onchange="toggleCombinedCampaign(this)"> לאיחוד</label>` : ''}</div>
             <div class="result-summary-line">
               מתוך ${started} אנשים שהתחילו, ${completed} הגיעו לסיום ו-${handoff} ביקשו שיחה אנושית.
             </div>
@@ -2480,6 +2516,7 @@
         </div>
       `;
     }).join('');
+    refreshCombinedBar();
   }
 
     async function showReferralLeaderboard(campaignId) {
@@ -3905,6 +3942,7 @@
             <select data-option-file data-selected-file="${esc(option.fileId || '')}" onchange="updateDecisionStepVisibility(); updateCampaignConversationPreview()">${fileOptions(option.fileId || '')}</select>
             <label class="decision-inline-check" data-option-sticker-wrap><input data-option-file-sticker type="checkbox" ${option.fileAsSticker ? 'checked' : ''} onchange="updateCampaignConversationPreview()" /> שלח כמדבקה</label>
             <label class="decision-inline-check"><input data-option-raffle-entry type="checkbox" ${option.raffleEntry ? 'checked' : ''} onchange="updateCampaignConversationPreview()" /> &#1499;&#1504;&#1497;&#1505;&#1492; &#1500;&#1492;&#1490;&#1512;&#1500;&#1492;</label>
+            <label class="decision-inline-check" title="אם תלחץ עליו שוב בהמשך הזרימה (פעם אחת), היא תחזור לכאן והזרימה תמשיך לפי הסדר"><input data-option-repeatable type="checkbox" ${option.repeatable ? 'checked' : ''} onchange="updateCampaignConversationPreview()" /> הכפתור נשאר פעיל (אפשר ללחוץ שוב פעם אחת בהמשך)</label>
             <div data-referral-leaderboard-display-wrap style="display:none">
               <div class="decision-option-label">מה להציג בדירוג?</div>
               <select data-option-referral-leaderboard-display onchange="updateCampaignConversationPreview()">
@@ -4496,6 +4534,7 @@
               if (item.presentation === 'buttons' && buttonLabel) clean.buttonLabel = buttonLabel;
               if (kind === 'score_question') clean.score = Number(option.querySelector('[data-option-score]')?.value) || index + 1;
               if (option.querySelector('[data-option-raffle-entry]')?.checked) clean.raffleEntry = true;
+              if (option.querySelector('[data-option-repeatable]')?.checked) clean.repeatable = true;
               const action = option.querySelector('[data-option-action]')?.value || 'end';
               if (action === 'request_group_join') {
                 clean.action = 'request_group_join';

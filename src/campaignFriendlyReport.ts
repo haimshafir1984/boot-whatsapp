@@ -13,6 +13,8 @@ export interface FriendlyReportInput {
   events: CampaignEvent[];
   displayName: (result: CampaignResult) => string;
   generatedAt?: Date;
+  /** Shown under the headline numbers, e.g. which campaigns were merged and whose flow the funnel follows. */
+  note?: string;
 }
 
 const TEAL = 'FF1F5C6B';
@@ -242,8 +244,8 @@ export function addFriendlyReportSheets(workbook: ExcelJS.Workbook, input: Frien
   }
   overview.mergeCells(row, 1, row, 3);
   const noteCell = overview.getCell(row, 1);
-  noteCell.value = 'המספרים כוללים כל מי שנכנסה לקמפיין, כולל מספרי בדיקה אם היו. פירוט נוסף בלשונית "הסברים".';
-  noteCell.font = font(10, false, GREY, true); noteCell.alignment = right; overview.getRow(row).height = 30;
+  noteCell.value = `המספרים כוללים כל מי שנכנסה לקמפיין, כולל מספרי בדיקה אם היו. פירוט נוסף בלשונית "הסברים".${input.note ? ` ${input.note}` : ''}`;
+  noteCell.font = font(10, false, GREY, true); noteCell.alignment = right; overview.getRow(row).height = input.note ? 58 : 30;
 
   // ================================================================ 2. הגרלות
   if (raffleList.length) {

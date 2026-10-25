@@ -101,3 +101,5 @@ test-meta-embedded-signup-connect-flow.js
 test-meta-embedded-signup-dashboard.js
 test-campaign-friendly-report.js
 test-health-no-pii.js
+test-combined-export.js
+test-repeatable-button.js

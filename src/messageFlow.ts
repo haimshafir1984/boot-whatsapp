@@ -1235,6 +1235,17 @@ function rememberRecentDecisionReply(phone: string | undefined, ...values: strin
   }
 }
 
+/** The question and option (not on the current step) whose button id matches `answerId` and that the campaign marked as repeatable. */
+function findRepeatableOption(flow: DecisionFlowStep[], currentStepId: string, answerId: string): { step: DecisionFlowStep; option: DecisionFlowOption } | undefined {
+  if (!answerId) return undefined;
+  for (const candidate of flow) {
+    if (candidate.id === currentStepId || (candidate.kind !== 'question' && candidate.kind !== 'score_question')) continue;
+    const option = candidate.options?.find((item) => item.repeatable === true && !item.action && String(item.id ?? '').trim().toLowerCase() === answerId);
+    if (option) return { step: candidate, option };
+  }
+  return undefined;
+}
+
 function isRecentDecisionReply(phone: string | undefined, value: string): boolean {
   if (!value.trim()) return false;
   const now = Date.now();
@@ -2653,6 +2664,31 @@ async function handleDecisionReplyInner(
       normalized === normalizeDecisionAnswer(item.text) ||
       normalized === normalizeDecisionAnswer(visibleButtonTitle);
   });
+
+  // A button she already passed but the campaign keeps live (option.repeatable): tapping it again - once - takes her back to
+  // that option's branch and the flow continues from there in its normal order. Anything else about an old button is unchanged.
+  if (!option && campaignId && campaignResultId) {
+    const repeat = findRepeatableOption(flow, step.id, answerId);
+    if (repeat && !currentFlowUnit()?.replayOf) {
+      // (a quick double tap on the button she has just used never gets here: handleIncoming drops recent duplicate button replies first)
+      const repeatKey = `share_repeated:${repeat.step.id}:${repeat.option.id}`;
+      const alreadyRepeated = storage.getCampaignEvents(campaignId).some((event) => event.campaignResultId === campaignResultId && event.dedupeKey === repeatKey);
+      if (!alreadyRepeated) {
+        storage.recordCampaignEvent({
+          campaignId,
+          campaignResultId,
+          phone: senderPhone,
+          type: 'share_repeated',
+          label: `${repeat.option.text} (${step.id})`.slice(0, 120),
+          dedupeKey: repeatKey,
+        });
+        console.log(`[REPEATABLE_BUTTON] campaign=${campaignId} result=${campaignResultId} phone=${senderPhone ?? ''} from=${step.id} back-to=${repeat.step.id} option=${repeat.option.id}`);
+        // Same handling as the first tap: events / raffle entry are de-duplicated by their own keys, so nothing is counted twice.
+        await handleDecisionReplyInner(repeat.option.id, flow, repeat.step.id, senderJid, storage, transport, campaignId, campaignResultId, senderPhone, humanHandoff);
+        return;
+      }
+    }
+  }
 
   if (!option) {
     const campaign = campaignId ? storage.getCampaigns().find((item) => item.id === campaignId) : undefined;

@@ -17,6 +17,8 @@ import {
   AdminSettings,
   Campaign,
   CampaignConversationSettings,
+  CampaignEvent,
+  CampaignResult,
   CompletionLink,
   DecisionFlowOption,
   DecisionFlowStep,
@@ -411,6 +413,11 @@ function downloadDateStamp(value?: string): string {
   }).formatToParts(date);
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? '';
   return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
+/** Content-Disposition with an ASCII fallback and the real (Hebrew) name in filename*. */
+function attachmentDisposition(asciiFallback: string, utf8Name: string): string {
+  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(utf8Name)}`;
 }
 
 function safeDownloadBaseName(name: string): string {
@@ -1133,6 +1140,9 @@ function sanitizeDecisionFlow(
             }
             if (rawOption.raffleEntry === true) {
               clean.raffleEntry = true;
+            }
+            if (rawOption.repeatable === true && !inferredReferralAction(rawOption, step.referralHub === true)) {
+              clean.repeatable = true;
             }
             const action = inferredReferralAction(rawOption, step.referralHub === true);
             if (action === 'request_group_join' || action === 'referral_link' || action === 'referral_leaderboard' || action === 'referral_my_rank') {
@@ -5292,22 +5302,17 @@ export function startAdminServer(storage: Storage): import('http').Server {
         csvValue(result.updatedAt),
       ].join(',')),
     ];
+    const csvBatch = storage.getCampaignResultBatches(campaign.id).find((batch) => batch.id === resultBatchId);
+    const csvStamp = downloadDateStamp(csvBatch?.startedAt || campaign.currentResultBatchStartedAt);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="campaign-${campaign.id}-results.csv"`);
+    res.setHeader('Content-Disposition', attachmentDisposition(`campaign-${campaign.id}-results.csv`, `${safeDownloadBaseName(campaign.name)} - תוצאות - ${csvStamp}.csv`));
     res.send('\uFEFF' + rows.join('\n'));
   });
 
-  app.get('/api/campaign-results/:id/export.xls', async (req, res) => {
-    const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
-    if (!campaign) {
-      res.status(404).json({ error: 'Campaign not found' });
-      return;
-    }
-
-    const resultBatchId = typeof req.query.batch === 'string' ? req.query.batch : storage.getCurrentCampaignResultBatchId(campaign.id);
-    const results = storage.getCampaignResults(campaign.id, resultBatchId);
-    const events = storage.getCampaignEvents(campaign.id, resultBatchId).slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    const eventsByResult = new Map<string, typeof events>();
+  type ResultsWorkbookInput = { campaign: Campaign; campaignsById: Map<string, Campaign>; results: CampaignResult[]; events: CampaignEvent[]; note?: string };
+  // One results workbook, for a single campaign or for several merged ones (the caller decides which results/events go in).
+  const buildResultsWorkbook = async ({ campaign, campaignsById, results, events, note }: ResultsWorkbookInput): Promise<Buffer> => {
+    const eventsByResult = new Map<string, CampaignEvent[]>();
     for (const event of events) {
       const key = event.campaignResultId || '';
       if (!key) continue;
@@ -5316,7 +5321,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
       eventsByResult.set(key, group);
     }
     const contactNames = new Map(storage.getAllContacts().map((contact) => [contact.phone, contact.name]));
-    const summary = storage.getCampaignResultSummary(campaign.id, resultBatchId);
+    const summary = { total: results.length };
 
     const excelText = (value: unknown): string => {
       const textValue = String(value ?? '');
@@ -5334,6 +5339,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
       score_answered: 'ענו על שאלת ניקוד',
       email_captured: 'כתובת מייל נקלטה',
       raffle_entry: '\u05d6\u05db\u05d0\u05d5\u05ea \u05dc\u05d4\u05d2\u05e8\u05dc\u05d4',
+      share_repeated: 'לחצו שוב על כפתור פעיל',
       contact_card_confirmed: 'אישרו שמירת איש קשר',
       completion_sent: 'הודעת סיום נשלחה',
       completion_link_sent: 'קישור סיום נשלח',
@@ -5396,7 +5402,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
       const scoreAnswers = (result.scoreAnswers ?? []).map((answer) => `${answer.question}: ${answer.answerText} (${answer.score})`).join(' | ');
       const eventCells = personEvents.flatMap((event) => [event.type, event.label ?? '']);
       while (eventCells.length < maxEventsPerPerson * 2) eventCells.push('');
-      return [campaign.name, personDisplayName(result), result.phone, result.email ?? '', result.emailCollectedAt ?? '', result.whatsappName ?? '', result.fallbackName ?? '', statusLabels[result.status] ?? result.status, eventTypeLabels[result.lastStage ?? ''] ?? result.lastStage ?? '', result.triggeredAt, result.updatedAt, stepLabels, personEvents.length, ...eventCells, result.scoreTotal ?? '', scoreAnswers];
+      return [campaignsById.get(result.campaignId)?.name ?? campaign.name, personDisplayName(result), result.phone, result.email ?? '', result.emailCollectedAt ?? '', result.whatsappName ?? '', result.fallbackName ?? '', statusLabels[result.status] ?? result.status, eventTypeLabels[result.lastStage ?? ''] ?? result.lastStage ?? '', result.triggeredAt, result.updatedAt, stepLabels, personEvents.length, ...eventCells, result.scoreTotal ?? '', scoreAnswers];
     });
 
     const metricsHeaders = ['מדד', 'משתתפים ייחודיים', 'מספר אירועים', 'אחוז מכל המשתתפים', 'פירוט'];
@@ -5470,7 +5476,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
     workbook.created = new Date();
     workbook.modified = new Date();
 
-    addFriendlyReportSheets(workbook, { campaign, results, events, displayName: personDisplayName });
+    addFriendlyReportSheets(workbook, { campaign, results, events, displayName: personDisplayName, note });
 
     const metricsSheet = workbook.addWorksheet('טכני - מדדים');
     addDataTable(metricsSheet, 'CampaignClearMetrics', metricsHeaders, metricsRows);
@@ -5502,21 +5508,92 @@ export function startAdminServer(storage: Storage): import('http').Server {
     const normalizedEventHeaders = ['קמפיין', 'מזהה קמפיין', 'מזהה תוצאה', 'טלפון', 'סוג אירוע', 'פירוט', 'תאריך ושעה', 'נתונים גולמיים'];
     const normalizedEventRows = events.map((event) => {
       const result = results.find((item) => item.id === event.campaignResultId);
-      return [campaign.name, campaign.id, event.campaignResultId ?? '', result?.phone ?? event.phone ?? '', event.type, event.label ?? '', event.createdAt, JSON.stringify(event)];
+      return [campaignsById.get(event.campaignId)?.name ?? campaign.name, event.campaignId ?? campaign.id, event.campaignResultId ?? '', result?.phone ?? event.phone ?? '', event.type, event.label ?? '', event.createdAt, JSON.stringify(event)];
     });
     addDataTable(eventsSheet, 'CampaignEvents', normalizedEventHeaders, normalizedEventRows);
     styleDataSheet(eventsSheet, [24, 24, 28, 18, 26, 42, 22, 65], [6, 8]);
 
-    const xlsx = await workbook.xlsx.writeBuffer();
+    return Buffer.from(await workbook.xlsx.writeBuffer());
+  };
+
+  // ---- Combined export: several campaigns (links) of the same client in one workbook / one contacts file.
+  // Registered BEFORE the per-campaign routes so that "combined" is never read as a campaign id.
+  const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const combinedLabel = (count: number): string => `קמפיינים מאוחדים (${count})`;
+  const campaignsFromIds = (raw: unknown): { campaigns: Campaign[] } | { error: string; status: number } => {
+    const ids = [...new Set(String(raw ?? '').split(',').map((id) => id.trim()).filter(Boolean))];
+    if (ids.length < 2) return { status: 400, error: 'יש לבחור לפחות שני קמפיינים לאיחוד.' };
+    if (ids.length > 30) return { status: 400, error: 'ניתן לאחד עד 30 קמפיינים.' };
+    const all = storage.getCampaigns();
+    const found = ids.map((id) => all.find((item) => item.id === id));
+    const missing = ids.filter((_id, index) => !found[index]);
+    if (missing.length) return { status: 404, error: `קמפיין לא נמצא: ${missing.join(', ')}` };
+    return { campaigns: found as Campaign[] };
+  };
+  const currentBatchResults = (campaign: Campaign): CampaignResult[] => storage.getCampaignResults(campaign.id, storage.getCurrentCampaignResultBatchId(campaign.id));
+  const flowSignature = (campaign: Campaign): string => JSON.stringify((campaign.conversation?.decisionFlow ?? []).map((step) => [step.kind, String(step.text ?? '').trim()]));
+
+  app.get('/api/campaign-results/combined/export.xls', async (req, res) => {
+    const picked = campaignsFromIds(req.query.ids);
+    if ('error' in picked) { res.status(picked.status).json({ error: picked.error }); return; }
+    const { campaigns } = picked;
+    const results = campaigns.flatMap(currentBatchResults);
+    const events = campaigns
+      .flatMap((item) => storage.getCampaignEvents(item.id, storage.getCurrentCampaignResultBatchId(item.id)))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const reference = campaigns[0];
+    const sameFlow = campaigns.every((item) => flowSignature(item) === flowSignature(reference));
+    const note = `אוחדו ${campaigns.length} קמפיינים (${campaigns.map((item) => item.name).join(', ')}). השלבים והמשפך לפי "${reference.name}"${sameFlow ? '' : ' (הזרימות אינן זהות, ולכן המשפך משקף רק קמפיין זה)'}.`;
+    const buffer = await buildResultsWorkbook({
+      campaign: { ...reference, id: 'combined', name: combinedLabel(campaigns.length) },
+      campaignsById: new Map(campaigns.map((item) => [item.id, item])),
+      results,
+      events,
+      note,
+    });
+    const stamp = downloadDateStamp();
+    res.setHeader('Content-Type', XLSX_TYPE);
+    res.setHeader('Content-Disposition', attachmentDisposition(`campaign-combined-${stamp}.xlsx`, `${combinedLabel(campaigns.length)} - ${stamp}.xlsx`));
+    res.send(buffer);
+  });
+
+  app.get('/api/campaign-results/combined/export.vcf', (req, res) => {
+    const picked = campaignsFromIds(req.query.ids);
+    if ('error' in picked) { res.status(picked.status).json({ error: picked.error }); return; }
+    const { campaigns } = picked;
+    const contactNames = new Map(storage.getAllContacts().map((contact) => [normalizeCampaignContactPhone(contact.phone), contact.name]));
+    const seen = new Set<string>();
+    const contacts: Array<{ phone: string; name: string }> = [];
+    for (const item of campaigns) {
+      for (const result of currentBatchResults(item)) {
+        const normalizedPhone = normalizeCampaignContactPhone(result.phone);
+        if (!normalizedPhone || seen.has(normalizedPhone)) continue;   // one contact per phone, even when she entered through several links
+        seen.add(normalizedPhone);
+        contacts.push({ phone: result.phone, name: resolveCampaignContactName(result, contactNames) });
+      }
+    }
+    const stamp = downloadDateStamp();
+    res.setHeader('Content-Type', 'text/vcard; charset=utf-8');
+    res.setHeader('Content-Disposition', attachmentDisposition(`campaign-combined-${stamp}-contacts.vcf`, `${combinedLabel(campaigns.length)} - אנשי קשר - ${stamp}.vcf`));
+    res.send(buildContactsVCard(contacts));
+  });
+
+  app.get('/api/campaign-results/:id/export.xls', async (req, res) => {
+    const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
+    if (!campaign) {
+      res.status(404).json({ error: 'Campaign not found' });
+      return;
+    }
+    const resultBatchId = typeof req.query.batch === 'string' ? req.query.batch : storage.getCurrentCampaignResultBatchId(campaign.id);
+    const results = storage.getCampaignResults(campaign.id, resultBatchId);
+    const events = storage.getCampaignEvents(campaign.id, resultBatchId).slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const buffer = await buildResultsWorkbook({ campaign, campaignsById: new Map([[campaign.id, campaign]]), results, events });
     const resultBatch = storage.getCampaignResultBatches(campaign.id).find((batch) => batch.id === resultBatchId);
     const dateStamp = downloadDateStamp(resultBatch?.startedAt || campaign.currentResultBatchStartedAt);
     const downloadName = `${safeDownloadBaseName(campaign.name)} - ${dateStamp}.xlsx`;
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="campaign-${dateStamp}.xlsx"; filename*=UTF-8''${encodeURIComponent(downloadName)}`,
-    );
-    res.send(Buffer.from(xlsx));
+    res.setHeader('Content-Type', XLSX_TYPE);
+    res.setHeader('Content-Disposition', attachmentDisposition(`campaign-${dateStamp}.xlsx`, downloadName));
+    res.send(buffer);
   });
   app.post('/api/campaign-results/:id/reset', requireWritableClient, (req, res) => {
     const campaign = storage.getCampaigns().find((item) => item.id === req.params.id);
@@ -5598,8 +5675,10 @@ export function startAdminServer(storage: Storage): import('http').Server {
         name: resolveCampaignContactName(result, contactNames),
       }));
     const vcard = buildContactsVCard(contacts);
+    const vcfBatch = storage.getCampaignResultBatches(campaign.id).find((batch) => batch.id === resultBatchId);
+    const vcfStamp = downloadDateStamp(vcfBatch?.startedAt || campaign.currentResultBatchStartedAt);
     res.setHeader('Content-Type', 'text/vcard; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="campaign-${campaign.id}-contacts.vcf"`);
+    res.setHeader('Content-Disposition', attachmentDisposition(`campaign-${campaign.id}-contacts.vcf`, `${safeDownloadBaseName(campaign.name)} - אנשי קשר - ${vcfStamp}.vcf`));
     res.send(vcard);
   });
 

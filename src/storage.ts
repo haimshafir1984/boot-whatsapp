@@ -164,6 +164,11 @@ export interface DecisionFlowOption {
   fileAsSticker?: boolean;
   /** Marks a verified button choice as one raffle entry in the campaign export. */
   raffleEntry?: boolean;
+  /**
+   * The button stays live for the rest of the flow: tapping it again later (once per participant) takes her back to this
+   * option's branch and the flow continues from there in its normal order. Without it an old button is an invalid answer.
+   */
+  repeatable?: boolean;
   /** Auxiliary action that keeps the participant on the current question. */
   action?: 'request_group_join' | 'referral_link' | 'referral_leaderboard' | 'referral_my_rank';
   /** Controls whether a referral leaderboard exposes each participant's share count. */
@@ -456,6 +461,7 @@ export type CampaignEventType =
   | 'score_answered'
   | 'email_captured'
   | 'raffle_entry'
+  | 'share_repeated'
   | 'group_join_request'
   | 'timeout_flow_started'
   | 'decision_timeout_sent'

@@ -1,0 +1,202 @@
+'use strict';
+/**
+ * option.repeatable: a button the campaign keeps live for the rest of the flow. Tapping it again later (once per participant)
+ * takes her back to that option's branch and the flow continues from there in its normal order. Counted once for the raffle.
+ * Without the flag an old button is an invalid answer exactly as before.
+ */
+process.env.NODE_ENV = 'test';
+process.env.BOT_REPLY_DELAY_MS = '0';
+process.env.PORT = String(35000 + Math.floor(Math.random() * 3000));
+process.env.CLIENT_ACCESS_TOKEN = 'repeatable-test-token';
+
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { Storage } = require('../dist/storage');
+const { conversationState } = require('../dist/conversationState');
+const { handleIncomingWhatsAppMessage } = require('../dist/messageFlow');
+const { startAdminServer } = require('../dist/adminServer');
+
+class FakeTransport {
+  constructor() { this.sent = []; }
+  async resolvePhone(jid) { return String(jid).replace(/\D/g, ''); }
+  async sendMessage(to, text) { this.sent.push({ type: 'text', to, text }); }
+  async sendInteractiveButtons(to, text, buttons) { this.sent.push({ type: 'buttons', to, text, buttons }); }
+  async sendInteractiveList(to, text, buttonText, items) { this.sent.push({ type: 'list', to, text, buttonText, items }); }
+}
+
+// the 15s "same button just tapped" guard reads Date.now(); tests move the clock instead of waiting
+const realNow = Date.now.bind(Date);
+let clockOffset = 0;
+Date.now = () => realNow() + clockOffset;
+const later = (seconds) => { clockOffset += seconds * 1000; };
+
+const flow = (repeatable) => [
+  { id: 'step-share', kind: 'question', presentation: 'buttons', text: 'Want 2 extra tickets? Share the video', timeoutMinutes: 30, options: [
+    { id: 'opt-share', text: 'Yes I want to share', raffleEntry: true, ...(repeatable ? { repeatable: true } : {}), nextStepId: 'step-link' },
+    { id: 'opt-later', text: 'Not now maybe later', nextStepId: 'step-go' },
+  ] },
+  { id: 'step-link', kind: 'message', text: 'LINK AND VIDEO', nextStepId: 'step-shared' },
+  { id: 'step-shared', kind: 'question', presentation: 'buttons', text: 'Did you share?', timeoutMinutes: 30, options: [{ id: 'opt-done', text: 'I shared', nextStepId: 'step-tickets' }] },
+  { id: 'step-go', kind: 'message', text: 'ON TO THE GAME', nextStepId: 'step-quiz1' },
+  { id: 'step-tickets', kind: 'message', text: 'TWO MORE TICKETS', nextStepId: 'step-quiz1' },
+  { id: 'step-quiz1', kind: 'question', presentation: 'buttons', text: 'Quiz one', timeoutMinutes: 30, options: [{ id: 'q1a', text: 'one a', nextStepId: 'step-quiz2' }, { id: 'q1b', text: 'one b', nextStepId: 'step-quiz2' }] },
+  { id: 'step-quiz2', kind: 'question', presentation: 'buttons', text: 'Quiz two', timeoutMinutes: 30, options: [{ id: 'q2a', text: 'two a', nextStepId: 'step-end' }] },
+  { id: 'step-end', kind: 'message', text: 'THE END' },
+];
+
+const conversation = (repeatable) => ({
+  askNameEnabled: false, nameTimeoutMinutes: 5, askNameText: '', replyText: '', followupMessages: [], decisionFlow: flow(repeatable),
+  decisionTimeoutMinutes: 30, decisionTimeoutText: '', decisionTimeoutMode: 'message', decisionTimeoutNextStepId: '',
+  invalidReplyText: '', flowRecoveryText: '', humanHandoffEnabled: false, humanHandoffText: '', humanHandoffPhone: '',
+});
+
+let seq = 0;
+const inbound = (storage, transport, phone, body, isButtonReply = false) => handleIncomingWhatsAppMessage({
+  id: `rep-${++seq}`, from: `whatsapp:${phone}`, body, hasUserSignal: true, isButtonReply, timestamp: Math.floor(Date.now() / 1000),   // the shifted clock, so a message is never 'stale' just because the test moved time
+  async getDisplayName() { return 'Tester'; },
+}, storage, transport, 'webhook');
+
+const texts = (transport) => transport.sent.map((m) => m.text);
+const count = (transport, text) => transport.sent.filter((m) => m.text === text).length;
+const results = [];
+async function scenario(name, fn) {
+  try { await fn(); results.push([name, 'PASS']); }
+  catch (e) { results.push([name, 'FAIL', (e.stack || String(e)).split('\n').slice(0, 5).join(' | ')]); }
+}
+
+(async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'repeatable-'));
+  process.env.STORAGE_PATH = path.join(dir, 'storage.json');
+  const storage = new Storage(process.env.STORAGE_PATH);
+  const mk = (name, phrase, repeatable) => storage.addCampaign({ name, triggerType: 1, triggerPhrase: phrase, suffix: ' - (Bot)', active: true, conversation: conversation(repeatable) });
+  const live = mk('Live button', 'join-live', true);
+  const plain = mk('Plain button', 'join-plain', false);
+  const events = (campaign, type) => storage.getCampaignEvents(campaign.id).filter((e) => e.type === type);
+  const last = (transport) => transport.sent[transport.sent.length - 1];
+
+  await scenario('regression: the normal path is unchanged (share -> link -> "did you share" -> tickets -> quiz)', async () => {
+    const t = new FakeTransport(); const phone = '972500700001';
+    await inbound(storage, t, phone, 'join-live');
+    assert.equal(last(t).text, 'Want 2 extra tickets? Share the video');
+    await inbound(storage, t, phone, 'opt-share', true);
+    assert.deepEqual(texts(t).slice(-2), ['LINK AND VIDEO', 'Did you share?']);
+    later(20);
+    await inbound(storage, t, phone, 'opt-done', true);
+    assert.deepEqual(texts(t).slice(-2), ['TWO MORE TICKETS', 'Quiz one']);
+    assert.equal(events(live, 'share_repeated').length, 0, 'the first tap is not a repeat');
+    conversationState.remove(`whatsapp:${phone}`);
+  });
+
+  await scenario('declined, then taps the old button later: back to the branch 4->5->7, then the flow continues in order (quiz one again); raffle counted once', async () => {
+    const t = new FakeTransport(); const phone = '972500700002';
+    await inbound(storage, t, phone, 'join-live');
+    await inbound(storage, t, phone, 'opt-later', true);
+    assert.deepEqual(texts(t).slice(-2), ['ON TO THE GAME', 'Quiz one']);
+    later(20);
+    await inbound(storage, t, phone, 'q1a', true);
+    assert.equal(last(t).text, 'Quiz two');
+    later(20);
+    const before = t.sent.length;
+    await inbound(storage, t, phone, 'opt-share', true);              // she scrolls up and taps the share button again
+    assert.deepEqual(texts(t).slice(before), ['LINK AND VIDEO', 'Did you share?'], 'link + video, then the confirmation question');
+    assert.equal(events(live, 'share_repeated').filter((e) => e.phone === phone).length, 1);
+    later(20);
+    await inbound(storage, t, phone, 'opt-done', true);
+    assert.deepEqual(texts(t).slice(-2), ['TWO MORE TICKETS', 'Quiz one'], 'the flow continues in its normal order (it goes back to quiz one)');
+    later(20);
+    await inbound(storage, t, phone, 'q1b', true);
+    assert.equal(last(t).text, 'Quiz two', 'and carries on normally from there');
+    const raffle = events(live, 'raffle_entry').filter((e) => e.phone === phone);
+    assert.equal(raffle.length, 1, 'one raffle entry, not two');
+    conversationState.remove(`whatsapp:${phone}`);
+  });
+
+  await scenario('only once: the second tap sends no link/video again (the old-button answer is the usual "not understood" + the current question)', async () => {
+    const t = new FakeTransport(); const phone = '972500700003';
+    await inbound(storage, t, phone, 'join-live');
+    await inbound(storage, t, phone, 'opt-later', true);
+    later(20); await inbound(storage, t, phone, 'opt-share', true);        // the one allowed repeat
+    assert.equal(count(t, 'LINK AND VIDEO'), 1);
+    later(20); await inbound(storage, t, phone, 'opt-done', true);
+    assert.equal(last(t).text, 'Quiz one');
+    later(20);
+    const before = t.sent.length;
+    await inbound(storage, t, phone, 'opt-share', true);                 // second repeat
+    assert.equal(count(t, 'LINK AND VIDEO'), 1, 'no second delivery of the link and video');
+    assert.ok(!texts(t).slice(before).includes('Did you share?'));
+    assert.equal(last(t).text, 'Quiz one', 'she stays on the question she was on');
+    assert.equal(events(live, 'share_repeated').filter((e) => e.phone === phone).length, 1);
+    assert.equal(events(live, 'raffle_entry').filter((e) => e.phone === phone).length, 1);
+    conversationState.remove(`whatsapp:${phone}`);
+  });
+
+  await scenario('tapping it again while waiting on "did you share?" (after the first tap) also works once, and returns to that branch', async () => {
+    const t = new FakeTransport(); const phone = '972500700004';
+    await inbound(storage, t, phone, 'join-live');
+    await inbound(storage, t, phone, 'opt-share', true);
+    assert.equal(last(t).text, 'Did you share?');
+    later(20);
+    const before = t.sent.length;
+    await inbound(storage, t, phone, 'opt-share', true);
+    assert.deepEqual(texts(t).slice(before), ['LINK AND VIDEO', 'Did you share?']);
+    conversationState.remove(`whatsapp:${phone}`);
+  });
+
+  await scenario('a quick double tap on the share button is one tap, not a repeat', async () => {
+    const t = new FakeTransport(); const phone = '972500700005';
+    await inbound(storage, t, phone, 'join-live');
+    await inbound(storage, t, phone, 'opt-share', true);
+    const before = t.sent.length;
+    await inbound(storage, t, phone, 'opt-share', true);              // same moment: duplicate of the first tap
+    assert.equal(t.sent.length, before, 'ignored');
+    assert.equal(events(live, 'share_repeated').filter((e) => e.phone === phone).length, 0, 'her one repeat is not consumed');
+    conversationState.remove(`whatsapp:${phone}`);
+  });
+
+  await scenario('without the flag an old button is an invalid answer exactly as before (no link, no jump back)', async () => {
+    const t = new FakeTransport(); const phone = '972500700006';
+    await inbound(storage, t, phone, 'join-plain');
+    await inbound(storage, t, phone, 'opt-later', true);
+    later(20);
+    const before = t.sent.length;
+    await inbound(storage, t, phone, 'opt-share', true);
+    assert.ok(!texts(t).slice(before).includes('LINK AND VIDEO'));
+    assert.equal(events(plain, 'share_repeated').length, 0);
+    assert.equal(last(t).text.includes('Quiz one'), true, 'the current question is shown again');
+    conversationState.remove(`whatsapp:${phone}`);
+  });
+
+  await scenario('saving a campaign keeps the flag on a normal option and drops it from the referral actions', async () => {
+    startAdminServer(storage);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const base = `http://127.0.0.1:${process.env.PORT}`;
+    const login = await fetch(`${base}/auth/client/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accessCode: process.env.CLIENT_ACCESS_TOKEN }) });
+    const cookie = String(login.headers.get('set-cookie') || '').split(';')[0];
+    const body = { name: 'Saved flag', triggerType: 1, triggerPhrase: 'join-saved', conversation: { ...conversation(false), decisionFlow: [
+      { id: 'sq', kind: 'question', presentation: 'buttons', text: 'Q', options: [
+        { id: 'o1', text: 'Share', repeatable: true, raffleEntry: true, nextStepId: 'sm' },
+        { id: 'o2', text: 'Plain', nextStepId: 'sm' },
+        { id: 'o3', text: 'Link', action: 'referral_link', repeatable: true },
+      ] },
+      { id: 'sm', kind: 'message', text: 'M' },
+    ] } };
+    const res = await fetch(`${base}/api/campaigns`, { method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify(body) });
+    assert.ok([200, 201].includes(res.status), `create status ${res.status}`);
+    const saved = (await (await fetch(`${base}/api/campaigns`, { headers: { cookie } })).json());
+    const campaign = (Array.isArray(saved) ? saved : saved.campaigns).find((c) => c.name === 'Saved flag');
+    const options = campaign.conversation.decisionFlow[0].options;
+    assert.equal(options.find((o) => o.id === 'o1').repeatable, true);
+    assert.equal(options.find((o) => o.id === 'o2').repeatable, undefined);
+    assert.equal(options.find((o) => o.action === 'referral_link')?.repeatable, undefined, 'an auxiliary action cannot be a repeatable branch');
+  });
+
+  Date.now = realNow;
+  fs.rmSync(dir, { recursive: true, force: true });
+  let failed = 0;
+  for (const [name, status, detail] of results) { console.log(`${status}  ${name}${detail ? '\n      ' + detail : ''}`); if (status !== 'PASS') failed += 1; }
+  console.log(failed ? `\n${failed} scenario(s) FAILED` : `\nRepeatable button tests passed (${results.length} scenarios).`);
+  process.exitCode = failed ? 1 : 0;
+  setTimeout(() => process.exit(failed ? 1 : 0), 300);
+})().catch((e) => { console.error(e); process.exit(1); });
