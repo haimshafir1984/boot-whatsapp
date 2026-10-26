@@ -2,7 +2,7 @@ import { config } from './config';
 import { runCampaignWork, stopCampaignWork, hasCampaignWork, guardCampaignTransport, assertCampaignWorkActive, campaignWorkSleep, CampaignWorkCancelledError } from './campaignWork';
 import { ProviderSendError, classifySendError, isUncertainSendError } from './sendOutcome';
 import { runWithSendAttempt } from './sendAttempt';
-import { currentFlowUnit, nextFlowSendIndex, runFlowUnit } from './flowUnit';
+import { currentFlowUnit, incomingReplyTo, nextFlowSendIndex, runFlowUnit, withIncomingReplyTo } from './flowUnit';
 import type { OutboxContinuation, OutboxFlowRef } from './storage';
 import { AsyncLocalStorage } from 'async_hooks';
 import fs from 'fs';
@@ -1551,7 +1551,7 @@ async function handleMessage(
     }
 
     if (pending.kind === 'decision') {
-      await handleDecisionReply(
+      await withIncomingReplyTo(message.replyToMessageId, () => handleDecisionReply(
         replyBody,
         pending.flow,
         pending.stepId,
@@ -1571,7 +1571,7 @@ async function handleMessage(
           decisionTimeoutNextStepId: pending.decisionTimeoutNextStepId,
           timeoutFlowStarted: pending.timeoutFlowStarted,
         },
-      );
+      ));
       return;
     }
 
@@ -2669,22 +2669,42 @@ async function handleDecisionReplyInner(
   // that option's branch and the flow continues from there in its normal order. Anything else about an old button is unchanged.
   if (!option && campaignId && campaignResultId) {
     const repeat = findRepeatableOption(flow, step.id, answerId);
-    if (repeat && !currentFlowUnit()?.replayOf) {
+    // Origin: campaigns cloned from each other share button ids, so the id alone proves nothing. The tap must be a reply to the
+    // buttons message WE sent her for that step in THIS campaign run (Meta context.id). A replay of a unit that was already
+    // accepted is exempt: the original run passed this check, and the replay carries no incoming message.
+    const replaying = Boolean(currentFlowUnit()?.replayOf);
+    const replyTo = incomingReplyTo();
+    const ownQuestion = Boolean(repeat) && (replaying || Boolean(replyTo && storage.outboxMessageBelongsToStep(replyTo, { campaignResultId, stepId: repeat!.step.id })));
+    if (repeat && !ownQuestion) {
+      console.warn(`[REPEATABLE_BUTTON_REJECTED] campaign=${campaignId} result=${campaignResultId} phone=${senderPhone ?? ''} step=${step.id} option=${repeat.option.id} replyTo=${replyTo ?? 'none'}`);
+    }
+    if (repeat && ownQuestion) {
       // (a quick double tap on the button she has just used never gets here: handleIncoming drops recent duplicate button replies first)
       const repeatKey = `share_repeated:${repeat.step.id}:${repeat.option.id}`;
       const alreadyRepeated = storage.getCampaignEvents(campaignId).some((event) => event.campaignResultId === campaignResultId && event.dedupeKey === repeatKey);
       if (!alreadyRepeated) {
-        storage.recordCampaignEvent({
-          campaignId,
-          campaignResultId,
-          phone: senderPhone,
-          type: 'share_repeated',
-          label: `${repeat.option.text} (${step.id})`.slice(0, 120),
-          dedupeKey: repeatKey,
-        });
-        console.log(`[REPEATABLE_BUTTON] campaign=${campaignId} result=${campaignResultId} phone=${senderPhone ?? ''} from=${step.id} back-to=${repeat.step.id} option=${repeat.option.id}`);
+        console.log(`[REPEATABLE_BUTTON] campaign=${campaignId} result=${campaignResultId} phone=${senderPhone ?? ''} from=${step.id} back-to=${repeat.step.id} option=${repeat.option.id}${replaying ? ' replay=1' : ''}`);
         // Same handling as the first tap: events / raffle entry are de-duplicated by their own keys, so nothing is counted twice.
-        await handleDecisionReplyInner(repeat.option.id, flow, repeat.step.id, senderJid, storage, transport, campaignId, campaignResultId, senderPhone, humanHandoff);
+        // Her one extra tap is used up when the branch has run to the end - or when it ended in an UNCERTAIN delivery, because
+        // delivery recovery then finishes that same branch (its sends are replayed as units of their own). Any other failure
+        // leaves it unused: she is held, and nothing was delivered that she could tap through.
+        const spendTap = (): void => {
+          storage.recordCampaignEvent({
+            campaignId,
+            campaignResultId,
+            phone: senderPhone,
+            type: 'share_repeated',
+            label: `${repeat.option.text} (${step.id})`.slice(0, 120),
+            dedupeKey: repeatKey,
+          });
+        };
+        try {
+          await handleDecisionReplyInner(repeat.option.id, flow, repeat.step.id, senderJid, storage, transport, campaignId, campaignResultId, senderPhone, humanHandoff);
+        } catch (err) {
+          if (isUncertainOutcome(err)) spendTap();
+          throw err;
+        }
+        spendTap();
         return;
       }
     }

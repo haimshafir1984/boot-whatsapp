@@ -1340,6 +1340,18 @@ export class Storage {
     return () => { this.outboxTransitionListeners.delete(listener); };
   }
 
+  /**
+   * True when `wamid` is the provider id of a message WE sent to this participant (campaign result) for this step. Proof that a
+   * tapped button belongs to her own question, not to another campaign's copy of it.
+   */
+  outboxMessageBelongsToStep(wamid: string, owner: { campaignResultId: string; stepId: string }): boolean {
+    const id = String(wamid || '').trim();
+    if (!id) return false;
+    return this.data.outboxMessages.some((item) =>
+      item.campaignResultId === owner.campaignResultId && item.stepId === owner.stepId &&
+      (item.providerMessageId === id || item.attemptLog?.some((entry) => entry.providerMessageId === id || entry.providerMessageIds?.includes(id))));
+  }
+
   /** The row that a flow unit's index-th send created, if any (used to skip already delivered sends when a unit is replayed). */
   findOutboxByFlowRef(unitId: string, index: number): OutboxMessage | null {
     const found = this.data.outboxMessages.find((item) => item.flowRef?.unitId === unitId && item.flowRef.index === index);

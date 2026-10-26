@@ -43,6 +43,17 @@ export interface FlowUnitScope {
 const scope = new AsyncLocalStorage<FlowUnitScope | undefined>();
 const pendingReplay = new AsyncLocalStorage<{ unitId: string } | undefined>();
 
+const incomingReply = new AsyncLocalStorage<{ replyToMessageId?: string }>();
+
+/** Runs `action` knowing which earlier message (provider id) the participant's current message replies to. */
+export function withIncomingReplyTo<T>(replyToMessageId: string | undefined, action: () => Promise<T>): Promise<T> {
+  return incomingReply.run({ replyToMessageId }, action);
+}
+
+export function incomingReplyTo(): string | undefined {
+  return incomingReply.getStore()?.replyToMessageId;
+}
+
 export function newFlowUnitId(): string {
   return 'fu_' + randomBytes(8).toString('hex');
 }

@@ -1793,6 +1793,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
       body,
       hasUserSignal: Boolean(body || isButtonReply || mediaPayload),
       isButtonReply,
+      replyToMessageId: String(message?.context?.id || '').trim() || undefined,
       media: mediaKind && mediaPayload ? {
         kind: mediaKind,
         mimeType: String(mediaPayload?.mime_type || '').trim() || undefined,
@@ -5321,7 +5322,9 @@ export function startAdminServer(storage: Storage): import('http').Server {
       eventsByResult.set(key, group);
     }
     const contactNames = new Map(storage.getAllContacts().map((contact) => [contact.phone, contact.name]));
-    const summary = { total: results.length };
+    // A person who came in through several links (campaigns) is ONE participant, like in the friendly report: key = phone.
+    const personOfResult = new Map(results.map((result) => [result.id, result.phone || result.id]));
+    const summary = { total: new Set(results.map((result) => result.phone || result.id)).size };
 
     const excelText = (value: unknown): string => {
       const textValue = String(value ?? '');
@@ -5374,7 +5377,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
       contactNames.get(result.phone) || result.fallbackName || result.whatsappName || result.phone;
     const reportableEvents = events.filter((event) => reportableEventTypes.has(event.type));
     const participantTotal = summary.total || results.length;
-    const eventPersonKey = (event: typeof events[number]): string => event.campaignResultId || event.phone || '';
+    const eventPersonKey = (event: typeof events[number]): string => (event.campaignResultId && personOfResult.get(event.campaignResultId)) || event.phone || '';
     const eventCount = (type: string): number => events.filter((event) => event.type === type).length;
     const uniqueEventPeople = (predicate: (event: typeof events[number]) => boolean): number => {
       const people = new Set<string>();
@@ -5476,7 +5479,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
     workbook.created = new Date();
     workbook.modified = new Date();
 
-    addFriendlyReportSheets(workbook, { campaign, results, events, displayName: personDisplayName, note });
+    addFriendlyReportSheets(workbook, { campaign, results, events, displayName: personDisplayName, note, campaignsById });
 
     const metricsSheet = workbook.addWorksheet('טכני - מדדים');
     addDataTable(metricsSheet, 'CampaignClearMetrics', metricsHeaders, metricsRows);
@@ -5543,7 +5546,17 @@ export function startAdminServer(storage: Storage): import('http').Server {
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     const reference = campaigns[0];
     const sameFlow = campaigns.every((item) => flowSignature(item) === flowSignature(reference));
-    const note = `אוחדו ${campaigns.length} קמפיינים (${campaigns.map((item) => item.name).join(', ')}). השלבים והמשפך לפי "${reference.name}"${sameFlow ? '' : ' (הזרימות אינן זהות, ולכן המשפך משקף רק קמפיין זה)'}.`;
+    // Steps of another campaign that have no counterpart (same kind + text) in the reference flow cannot be placed on the funnel.
+    const refSteps = (reference.conversation?.decisionFlow ?? []).map((step) => `${step.kind}|${String(step.text ?? '').trim()}`);
+    const unplaced = campaigns.slice(1).reduce((sum, item) => {
+      const pool = [...refSteps];
+      return sum + (item.conversation?.decisionFlow ?? []).filter((step) => {
+        const at = pool.indexOf(`${step.kind}|${String(step.text ?? '').trim()}`);
+        if (at >= 0) { pool.splice(at, 1); return false; }
+        return step.kind === 'question' || step.kind === 'score_question' || step.kind === 'message';
+      }).length;
+    }, 0);
+    const note = `אוחדו ${campaigns.length} קמפיינים (${campaigns.map((item) => item.name).join(', ')}). השלבים והמשפך לפי "${reference.name}"${sameFlow ? '' : ` (הזרימות אינן זהות: שלבים זהים במלל מחוברים זה לזה${unplaced ? `, ${unplaced} שלבים שאין להם מקביל בקמפיין זה לא מופיעים במשפך` : ''})`}.`;
     const buffer = await buildResultsWorkbook({
       campaign: { ...reference, id: 'combined', name: combinedLabel(campaigns.length) },
       campaignsById: new Map(campaigns.map((item) => [item.id, item])),

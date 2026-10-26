@@ -145,6 +145,50 @@ const mkCampaign = (storage, name, phrase, conversation) => storage.addCampaign(
     assert.equal((await get('/api/campaign-results/nope/export.vcf')).status, 404);
   });
 
+  const metricRow = (wb, label) => {
+    let found;
+    wb.getWorksheet('טכני - מדדים').eachRow((row) => { if (row.getCell(1).value === label) found = { people: row.getCell(2).value, events: row.getCell(3).value, percent: row.getCell(4).value }; });
+    return found;
+  };
+
+  await scenario('technical metrics tab counts PEOPLE (by phone) in a merge, like the friendly sheets: a woman who came through two links is one', async () => {
+    const res = await get(`/api/campaign-results/combined/export.xls?ids=${ids(A, B, C)}`);
+    const wb = await loadXlsx(res);
+    const started = metricRow(wb, 'התחילו קמפיין');
+    assert.equal(started.people, 5, '6 entries but 5 different phones');
+    const reached = metricRow(wb, 'קיבלו שלב או הודעה');
+    assert.equal(reached.people, 5, 'unique people, not 6');
+    assert.equal(reached.events, 6, 'events are still every event');
+    assert.equal(reached.percent, '100%', 'share of all participants stays within 100%');
+    const raffle = metricRow(wb, 'נכנסו להגרלה');
+    assert.equal(raffle.people, 3, 'p1, p2, p4 - p2 entered in two links');
+    assert.equal(wb.getWorksheet('טכני - נתונים מלאים').rowCount >= 1 + 6, true, 'the detail tab keeps one row per entry (with its campaign)');
+  });
+
+  await scenario('different step ids but the same questions: each event is placed through ITS OWN campaign (funnel counts both, not only the first campaign)', async () => {
+    const mk = (idA, idB) => [
+      { id: idA, kind: 'message', text: 'Same opening text', nextStepId: idB },
+      { id: idB, kind: 'question', presentation: 'buttons', text: 'Same question text', options: [{ id: 'yes', text: 'Yes', raffleEntry: true }] },
+    ];
+    const F1 = mkCampaign(storage, 'Flow one', 'flow-one', mk('x1', 'x2'));
+    const F2 = mkCampaign(storage, 'Flow two', 'flow-two', mk('y1', 'y2'));
+    const r1 = enter(F1, '972500500021', 'One'); const r2 = enter(F2, '972500500022', 'Two');
+    ev(F1, r1, 'step_sent', 'Same opening text'); ev(F2, r2, 'step_sent', 'Same opening text');
+    ev(F1, r1, 'step_answered', 'Yes', 'step_answered:x2:yes'); ev(F2, r2, 'step_answered', 'Yes', 'step_answered:y2:yes');
+    ev(F1, r1, 'raffle_entry', 'x', 'raffle_entry:x2:yes'); ev(F2, r2, 'raffle_entry', 'x', 'raffle_entry:y2:yes');
+    await storage.flush();
+    const wb = await loadXlsx(await get(`/api/campaign-results/combined/export.xls?ids=${ids(F1, F2)}`));
+    const rows = {};
+    wb.getWorksheet('משפך').eachRow((row, n) => { if (n >= 4) rows[String(row.getCell(1).value)] = row.getCell(2).value; });
+    assert.equal(rows['נכנסו לקמפיין'], 2);
+    assert.equal(rows['שלב 2 – ענו או לחצו'], 2, 'the answer of the SECOND campaign (step id y2) is placed too');
+    const raffleLabel = Object.keys(rows).find((k) => k.startsWith('נכנסו להגרלה'));
+    assert.equal(rows[raffleLabel], 2);
+    let note = '';
+    wb.getWorksheet('תמונת מצב').eachRow((row) => { if (/אוחדו 2 קמפיינים/.test(String(row.getCell(1).value ?? ''))) note = String(row.getCell(1).value); });
+    assert.ok(!/אין להם מקביל/.test(note), 'every step has a counterpart - no warning about unplaced steps');
+  });
+
   await scenario('campaigns with different flows: the merge still works and the sheet warns that the funnel follows the first campaign', async () => {
     const other = mkCampaign(storage, 'Other flow', 'other-flow', [{ id: 'o1', kind: 'message', text: 'A totally different opening' }]);
     const r = enter(other, '972500500009', 'Different');
@@ -156,6 +200,9 @@ const mkCampaign = (storage, name, phrase, conversation) => storage.addCampaign(
     let warned = false;
     wb.getWorksheet('תמונת מצב').eachRow((row) => { if (/הזרימות אינן זהות/.test(String(row.getCell(1).value ?? ''))) warned = true; });
     assert.ok(warned);
+    let note = '';
+    wb.getWorksheet('תמונת מצב').eachRow((row) => { if (/אוחדו 2 קמפיינים/.test(String(row.getCell(1).value ?? ''))) note = String(row.getCell(1).value); });
+    assert.match(note, /אין להם מקביל/, 'steps with no counterpart are called out');
     assert.equal(wb.getWorksheet('משתתפות').rowCount, 1 + 3);
   });
 

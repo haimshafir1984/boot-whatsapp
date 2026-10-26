@@ -20,6 +20,8 @@ export interface IncomingWhatsAppMessage {
   /** Meta reported a reply-button interaction, even if its reply id was omitted. */
   isButtonReply?: boolean;
   isReaction?: boolean;
+  /** Meta: provider id of the message this one replies to (a button tap carries the id of the buttons message it answers). */
+  replyToMessageId?: string;
   media?: {
     kind: 'image' | 'video' | 'audio' | 'document' | 'sticker' | 'media';
     mimeType?: string;

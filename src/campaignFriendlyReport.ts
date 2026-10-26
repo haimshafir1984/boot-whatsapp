@@ -15,6 +15,11 @@ export interface FriendlyReportInput {
   generatedAt?: Date;
   /** Shown under the headline numbers, e.g. which campaigns were merged and whose flow the funnel follows. */
   note?: string;
+  /**
+   * Merged export: every merged campaign by id. Step ids are only meaningful inside their own campaign (cloned campaigns share them,
+   * edited ones may not), so an event's step is resolved through ITS campaign's flow and matched to the funnel's flow by kind + text.
+   */
+  campaignsById?: Map<string, Campaign>;
 }
 
 const TEAL = 'FF1F5C6B';
@@ -113,9 +118,24 @@ export function addFriendlyReportSheets(workbook: ExcelJS.Workbook, input: Frien
     }
   });
   const stepIndexById = new Map(flow.map((step, index) => [step.id, index]));
+  const stepIndexByCampaign = new Map<string, Map<string, number>>();
+  if (input.campaignsById && input.campaignsById.size > 1) {
+    for (const [campaignId, other] of input.campaignsById) {
+      const mapping = new Map<string, number>();
+      const used = new Set<number>();
+      for (const step of other.conversation?.decisionFlow ?? []) {
+        const text = String(step.text ?? '').trim();
+        const target = flow.findIndex((ref, index) => !used.has(index) && ref.kind === step.kind && String(ref.text ?? '').trim() === text);
+        if (target >= 0) { used.add(target); mapping.set(step.id, target); }
+      }
+      stepIndexByCampaign.set(campaignId, mapping);
+    }
+  }
   const answeredStepOf = (event: CampaignEvent): number | undefined => {
     const stepId = String(event.dedupeKey ?? '').split(':')[1];
-    return stepId ? stepIndexById.get(stepId) : undefined;
+    if (!stepId) return undefined;
+    const own = event.campaignId ? stepIndexByCampaign.get(event.campaignId) : undefined;
+    return (own ?? stepIndexById).get(stepId);
   };
 
   const reached = flow.map(() => new Set<string>());
@@ -153,7 +173,8 @@ export function addFriendlyReportSheets(workbook: ExcelJS.Workbook, input: Frien
         }
       } else if (event.type === 'raffle_entry') {
         const [, raffleStepId, raffleOptionId] = String(event.dedupeKey ?? '').split(':');
-        const optionText = flow.find((step) => step.id === raffleStepId)?.options?.find((option) => option.id === raffleOptionId)?.text;
+        const ownerFlow = (event.campaignId ? input.campaignsById?.get(event.campaignId)?.conversation?.decisionFlow : undefined) ?? flow;
+        const optionText = ownerFlow.find((step) => step.id === raffleStepId)?.options?.find((option) => option.id === raffleOptionId)?.text;
         const label = (optionText ? shortTitle(optionText, 60) : '') || String(event.label ?? '').trim() || 'הגרלה';
         const map = raffles.get(label) ?? new Map<string, string>();
         const previous = map.get(key);
