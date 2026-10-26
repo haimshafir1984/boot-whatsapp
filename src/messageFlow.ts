@@ -1278,13 +1278,7 @@ function findFlowRecoveryContext(
   const phone = normalizedPhoneKey(senderPhone);
   if (!phone) return null;
   const activeById = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
-  const latest = storage.getCampaignResults()
-    .filter((result) => normalizedPhoneKey(result.phone) === phone && activeById.has(result.campaignId))
-    .sort((left, right) => {
-      const leftAt = Date.parse(left.lastEventAt || left.updatedAt || left.triggeredAt) || 0;
-      const rightAt = Date.parse(right.lastEventAt || right.updatedAt || right.triggeredAt) || 0;
-      return rightAt - leftAt;
-    })[0];
+  const latest = latestActiveResultForPhone(storage, activeById, phone);
   if (!latest) return null;
   const lastActivityAt = Date.parse(latest.lastEventAt || latest.updatedAt || latest.triggeredAt) || 0;
   if (!lastActivityAt || Date.now() - lastActivityAt > FLOW_RECOVERY_WINDOW_MS) return null;
@@ -1303,6 +1297,87 @@ function findFlowRecoveryContext(
     if (!optionIds.has(replyBody.trim().toLowerCase())) return null;
   }
   return { campaign, result: latest, settings };
+}
+
+/**
+ * Runs a repeated-button branch and spends her one extra tap: when the branch ran to the end - or ended in an UNCERTAIN delivery,
+ * because delivery recovery then finishes that same branch (its sends are replayed as units of their own). Any other failure leaves
+ * the tap unused: she is held, and nothing was delivered that she could tap through.
+ */
+async function spendRepeatTapAfter(
+  storage: Storage,
+  tap: { campaignId: string; campaignResultId: string; phone?: string; repeatKey: string; label: string },
+  branch: () => Promise<void>,
+): Promise<void> {
+  const spend = (): void => {
+    storage.recordCampaignEvent({
+      campaignId: tap.campaignId,
+      campaignResultId: tap.campaignResultId,
+      phone: tap.phone,
+      type: 'share_repeated',
+      label: tap.label.slice(0, 120),
+      dedupeKey: tap.repeatKey,
+    });
+  };
+  try {
+    await branch();
+  } catch (err) {
+    if (isUncertainOutcome(err)) spend();
+    throw err;
+  }
+  spend();
+}
+
+/** How long after her flow ended (last activity) a repeatable button still works. 0 turns it off. */
+const REPEATABLE_AFTER_END_WINDOW_MS = Math.max(0, Number(process.env.REPEATABLE_BUTTON_WINDOW_MINUTES ?? 10) || 0) * 60_000;
+
+/**
+ * Her flow has ended (no pending question) and she taps a button the campaign keeps live (option.repeatable) within a few minutes
+ * of her last message: take her back to that option's branch, once, exactly as a repeat tap in the middle of the flow does.
+ * Same proof of origin: the tap must answer the buttons message we sent her for that step in her latest run.
+ */
+async function tryRepeatAfterFlowEnd(
+  message: IncomingWhatsAppMessage,
+  storage: Storage,
+  transport: WhatsAppTransport,
+  activeCampaigns: Campaign[],
+  senderJid: string,
+  senderPhone: string,
+): Promise<boolean> {
+  if (!message.isButtonReply || REPEATABLE_AFTER_END_WINDOW_MS <= 0) return false;
+  const answerId = (message.body ?? '').trim().toLowerCase();
+  const phone = normalizedPhoneKey(senderPhone);
+  if (!answerId || !phone) return false;
+  const activeById = new Map(activeCampaigns.map((campaign) => [campaign.id, campaign]));
+  const latest = latestActiveResultForPhone(storage, activeById, phone);
+  if (!latest) return false;
+  const lastActivityAt = Date.parse(latest.lastEventAt || latest.updatedAt || latest.triggeredAt) || 0;
+  if (!lastActivityAt || Date.now() - lastActivityAt > REPEATABLE_AFTER_END_WINDOW_MS) return false;
+  const campaign = activeById.get(latest.campaignId);
+  if (!campaign) return false;
+  const settings = storage.getCampaignConversationSettings(campaign);
+  const repeat = findRepeatableOption(settings.decisionFlow, '', answerId);
+  if (!repeat) return false;
+  if (!message.replyToMessageId || !storage.outboxMessageBelongsToStep(message.replyToMessageId, { campaignResultId: latest.id, stepId: repeat.step.id })) {
+    console.warn(`[REPEATABLE_BUTTON_REJECTED] campaign=${campaign.id} result=${latest.id} phone=${senderPhone} after-end option=${repeat.option.id} replyTo=${message.replyToMessageId ?? 'none'}`);
+    return false;
+  }
+  const repeatKey = `share_repeated:${repeat.step.id}:${repeat.option.id}`;
+  if (storage.getCampaignEvents(campaign.id).some((event) => event.campaignResultId === latest.id && event.dedupeKey === repeatKey)) return false;
+  console.log(`[REPEATABLE_BUTTON] campaign=${campaign.id} result=${latest.id} phone=${senderPhone} after-end back-to=${repeat.step.id} option=${repeat.option.id}`);
+  await spendRepeatTapAfter(storage, { campaignId: campaign.id, campaignResultId: latest.id, phone: senderPhone, repeatKey, label: `${repeat.option.text} (אחרי סיום הזרימה)` }, () =>
+    handleDecisionReply(repeat.option.id, settings.decisionFlow, repeat.step.id, senderJid, storage, transport, campaign.id, latest.id, senderPhone, replyBehaviorFromSettings(settings)));
+  return true;
+}
+
+function latestActiveResultForPhone(storage: Storage, activeById: Map<string, Campaign>, phone: string): CampaignResult | undefined {
+  return storage.getCampaignResults()
+    .filter((result) => normalizedPhoneKey(result.phone) === phone && activeById.has(result.campaignId))
+    .sort((left, right) => {
+      const leftAt = Date.parse(left.lastEventAt || left.updatedAt || left.triggeredAt) || 0;
+      const rightAt = Date.parse(right.lastEventAt || right.updatedAt || right.triggeredAt) || 0;
+      return rightAt - leftAt;
+    })[0];
 }
 
 function staleFlowReplyText(campaign: Campaign): string {
@@ -1706,6 +1781,7 @@ async function handleMessage(
       return;
     }
     if (await tryResumeTimedOutDecision(message, storage, transport, source, senderPhone)) return;
+    if (await tryRepeatAfterFlowEnd(message, storage, transport, activeCampaigns, senderJid, senderPhone)) return;
     if (await tryRecoverMissingFlow(message, storage, transport, source, activeCampaigns, senderJid, senderPhone)) return;
     if (await tryHandleServiceBotMessage(replyBody, senderJid, senderPhone, storage, transport, {
       messageId: message.id,
@@ -2685,26 +2761,8 @@ async function handleDecisionReplyInner(
       if (!alreadyRepeated) {
         console.log(`[REPEATABLE_BUTTON] campaign=${campaignId} result=${campaignResultId} phone=${senderPhone ?? ''} from=${step.id} back-to=${repeat.step.id} option=${repeat.option.id}${replaying ? ' replay=1' : ''}`);
         // Same handling as the first tap: events / raffle entry are de-duplicated by their own keys, so nothing is counted twice.
-        // Her one extra tap is used up when the branch has run to the end - or when it ended in an UNCERTAIN delivery, because
-        // delivery recovery then finishes that same branch (its sends are replayed as units of their own). Any other failure
-        // leaves it unused: she is held, and nothing was delivered that she could tap through.
-        const spendTap = (): void => {
-          storage.recordCampaignEvent({
-            campaignId,
-            campaignResultId,
-            phone: senderPhone,
-            type: 'share_repeated',
-            label: `${repeat.option.text} (${step.id})`.slice(0, 120),
-            dedupeKey: repeatKey,
-          });
-        };
-        try {
-          await handleDecisionReplyInner(repeat.option.id, flow, repeat.step.id, senderJid, storage, transport, campaignId, campaignResultId, senderPhone, humanHandoff);
-        } catch (err) {
-          if (isUncertainOutcome(err)) spendTap();
-          throw err;
-        }
-        spendTap();
+        await spendRepeatTapAfter(storage, { campaignId, campaignResultId, phone: senderPhone, repeatKey, label: `${repeat.option.text} (${step.id})` }, () =>
+          handleDecisionReplyInner(repeat.option.id, flow, repeat.step.id, senderJid, storage, transport, campaignId, campaignResultId, senderPhone, humanHandoff));
         return;
       }
     }

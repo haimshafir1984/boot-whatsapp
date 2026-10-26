@@ -263,6 +263,54 @@ async function scenario(name, fn) {
     conversationState.remove(`whatsapp:${phone}`);
   });
 
+  const finishFlow = async (t, phone) => {
+    clockOffset = 0;                                                       // stored timestamps use the real clock; the window is measured from them
+    await inbound(storage, t, phone, 'join-live');
+    await inbound(storage, t, phone, 'opt-later', true);
+    later(20); await inbound(storage, t, phone, 'q1a', true);
+    later(20); await inbound(storage, t, phone, 'q2a', true);
+    assert.equal(last(t).text, 'THE END');
+    assert.equal(conversationState.get(`whatsapp:${phone}`), undefined, 'the flow has ended: no pending question');
+  };
+
+  await scenario('after the flow ENDED: within the window the repeatable button still works (once); the flow then ends again', async () => {
+    const t = new FakeTransport(); const phone = '972500700011';
+    await finishFlow(t, phone);
+    later(5 * 60);                                                         // five minutes after the last message
+    const before = t.sent.length;
+    await inbound(storage, t, phone, 'opt-share', true);
+    assert.deepEqual(texts(t).slice(before), ['LINK AND VIDEO', 'Did you share?']);
+    assert.equal(events(live, 'share_repeated').filter((e) => e.phone === phone).length, 1);
+    later(20);
+    await inbound(storage, t, phone, 'opt-done', true);
+    assert.deepEqual(texts(t).slice(-2), ['TWO MORE TICKETS', 'Quiz one'], 'and the flow continues in its normal order from there');
+    assert.equal(events(live, 'raffle_entry').filter((e) => e.phone === phone).length, 1, 'raffle still once');
+    conversationState.remove(`whatsapp:${phone}`);
+  });
+
+  await scenario('after the flow ended: a second tap does not repeat, a tap after the window is not served, and a foreign message is not accepted', async () => {
+    const t = new FakeTransport(); const phone = '972500700012';
+    await finishFlow(t, phone);
+    later(60);
+    await inbound(storage, t, phone, 'opt-share', true, 'wamid.NOPE');                // not her own message
+    assert.ok(!texts(t).includes('LINK AND VIDEO'), 'origin is checked after the end too');
+    later(60);
+    await inbound(storage, t, phone, 'opt-share', true);
+    assert.equal(count(t, 'LINK AND VIDEO'), 1);
+    conversationState.remove(`whatsapp:${phone}`);
+    later(60);
+    await inbound(storage, t, phone, 'opt-share', true);                               // the one repeat is used
+    assert.equal(count(t, 'LINK AND VIDEO'), 1, 'only once');
+
+    const t2 = new FakeTransport(); const late = '972500700013';
+    await finishFlow(t2, late);
+    later(11 * 60);                                                                    // past the 10 minute window
+    const before = t2.sent.length;
+    await inbound(storage, t2, late, 'opt-share', true);
+    assert.ok(!texts(t2).slice(before).includes('LINK AND VIDEO'), 'too late');
+    assert.equal(t2.sent.length, before, 'as for any old button after a finished flow: no new link, nothing sent');
+  });
+
   await scenario('saving a campaign keeps the flag on a normal option and drops it from the referral actions', async () => {
     startAdminServer(storage);
     await new Promise((resolve) => setTimeout(resolve, 250));
