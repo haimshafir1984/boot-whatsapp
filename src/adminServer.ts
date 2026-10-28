@@ -56,7 +56,7 @@ import {
   verifyMetaEmbeddedSignupToken,
 } from './metaEmbeddedSignup';
 import { conversationState } from './conversationState';
-import { getFlowHealthSnapshot, handleIncomingWhatsAppMessage, holdSenderForAmbiguousInbox, SenderHeldForReviewError } from './messageFlow';
+import { getFlowHealthSnapshot, handleIncomingWhatsAppMessage, holdSenderForAmbiguousInbox, repeatableWindowCampaignId, SenderHeldForReviewError } from './messageFlow';
 import { detectTrigger } from './triggerDetector';
 import { redactSecrets } from './secretRedaction';
 import { TwilioProvider } from './providers/TwilioProvider';
@@ -149,6 +149,8 @@ interface MetaPendingRouteResponse {
   campaignId?: string;
   kind?: string;
   timestamp?: number;
+  /** Not a pending conversation: this client has a repeatable button this sender may still tap shortly after her flow ended. */
+  repeatWindowCampaignId?: string;
 }
 
 interface MetaRoutingSnapshotResponse {
@@ -2162,6 +2164,19 @@ export function startAdminServer(storage: Storage): import('http').Server {
       } else if (fallbackDecision.action === 'ambiguous') {
         console.error('[META_GATEWAY_AMBIGUOUS] reason=ambiguous_pending_conversation', message.id, message.from, `matches=${pendingMatches.length}`);
         throw new Error('Ambiguous pending Meta conversation ownership; refusing cross-client routing');
+      }
+    }
+
+    // A button tap that matches no trigger and no open question can still be a participant using a repeatable button shortly after
+    // her flow ended. Only a client that says so (repeatWindowCampaignId) can take it, and only when exactly one does.
+    if (!targetClient && isMetaButtonReply(message)) {
+      const windowClients = clients.filter((client) => Boolean(pendingByClient.get(client.id)?.repeatWindowCampaignId));
+      if (windowClients.length === 1) {
+        targetClient = windowClients[0];
+        routedCampaignId = pendingByClient.get(targetClient.id)?.repeatWindowCampaignId ?? '';
+        console.warn('[META_GATEWAY_REPEAT_WINDOW_ROUTED]', message.id, message.from, targetClient.id, `campaign=${routedCampaignId}`);
+      } else if (windowClients.length > 1) {
+        console.error('[META_GATEWAY_AMBIGUOUS] reason=ambiguous_repeat_window', message.id, message.from, `matches=${windowClients.length}`);
       }
     }
 
@@ -4228,7 +4243,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
       res.status(400).json({ error: 'Phone is required' });
       return;
     }
-    res.json({ ...localMetaPendingRoute(storage, phone), activeWork: hasCampaignWork(phone) });
+    res.json({ ...localMetaPendingRoute(storage, phone), activeWork: hasCampaignWork(phone), repeatWindowCampaignId: repeatableWindowCampaignId(storage, phone) });
   });
 
   // Called by the gateway right before forwarding a freshly-matched trigger

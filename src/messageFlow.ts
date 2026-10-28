@@ -1370,6 +1370,30 @@ async function tryRepeatAfterFlowEnd(
   return true;
 }
 
+/**
+ * For the shared-number gateway: does this participant still have a repeatable button she may use after her flow ended (inside the
+ * window, tap not spent)? Returns that campaign's id. The gateway otherwise drops a button tap that matches no trigger and no
+ * pending question, so without this signal the post-end repeat could never reach the client.
+ */
+export function repeatableWindowCampaignId(storage: Storage, phone: string): string | undefined {
+  if (REPEATABLE_AFTER_END_WINDOW_MS <= 0) return undefined;
+  const key = normalizedPhoneKey(phone);
+  if (!key) return undefined;
+  const activeById = new Map(storage.getActiveCampaigns().map((campaign) => [campaign.id, campaign]));
+  const latest = latestActiveResultForPhone(storage, activeById, key);
+  if (!latest) return undefined;
+  const lastActivityAt = Date.parse(latest.lastEventAt || latest.updatedAt || latest.triggeredAt) || 0;
+  if (!lastActivityAt || Date.now() - lastActivityAt > REPEATABLE_AFTER_END_WINDOW_MS) return undefined;
+  const campaign = activeById.get(latest.campaignId);
+  if (!campaign) return undefined;
+  const spent = new Set(storage.getCampaignEvents(campaign.id).filter((event) => event.campaignResultId === latest.id).map((event) => event.dedupeKey));
+  for (const step of storage.getCampaignConversationSettings(campaign).decisionFlow) {
+    if (step.kind !== 'question' && step.kind !== 'score_question') continue;
+    if ((step.options ?? []).some((option) => option.repeatable === true && !option.action && !spent.has(`share_repeated:${step.id}:${option.id}`))) return campaign.id;
+  }
+  return undefined;
+}
+
 function latestActiveResultForPhone(storage: Storage, activeById: Map<string, Campaign>, phone: string): CampaignResult | undefined {
   return storage.getCampaignResults()
     .filter((result) => normalizedPhoneKey(result.phone) === phone && activeById.has(result.campaignId))

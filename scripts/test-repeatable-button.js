@@ -18,6 +18,7 @@ const { conversationState } = require('../dist/conversationState');
 const { handleIncomingWhatsAppMessage } = require('../dist/messageFlow');
 const { startAdminServer } = require('../dist/adminServer');
 const { startDeliveryRecovery } = require('../dist/deliveryRecovery');
+const { repeatableWindowCampaignId } = require('../dist/messageFlow');
 
 let wamidSeq = 0;
 class FakeTransport {
@@ -309,6 +310,21 @@ async function scenario(name, fn) {
     await inbound(storage, t2, late, 'opt-share', true);
     assert.ok(!texts(t2).slice(before).includes('LINK AND VIDEO'), 'too late');
     assert.equal(t2.sent.length, before, 'as for any old button after a finished flow: no new link, nothing sent');
+  });
+
+  await scenario('the gateway signal: the client reports an open repeat window only inside the window, only while the tap is unused', async () => {
+    const t = new FakeTransport(); const phone = '972500700014';
+    assert.equal(repeatableWindowCampaignId(storage, phone), undefined, 'never entered');
+    await finishFlow(t, phone);
+    later(5 * 60);
+    assert.equal(repeatableWindowCampaignId(storage, phone), live.id, 'inside the window');
+    await inbound(storage, t, phone, 'opt-share', true);
+    assert.equal(repeatableWindowCampaignId(storage, phone), undefined, 'the one tap is used');
+    const t2 = new FakeTransport(); const late = '972500700015';
+    await finishFlow(t2, late);
+    later(11 * 60);
+    assert.equal(repeatableWindowCampaignId(storage, late), undefined, 'past the window');
+    conversationState.remove(`whatsapp:${phone}`);
   });
 
   await scenario('saving a campaign keeps the flag on a normal option and drops it from the referral actions', async () => {
