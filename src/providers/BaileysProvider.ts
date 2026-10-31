@@ -115,6 +115,9 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** At most this many diagnostic lines per minute about messages that reached the socket but were not processed (keeps a noisy chat from flooding the log). */
+const SKIPPED_LOG_PER_MINUTE = 30;
+
 export class BaileysProvider implements WhatsAppProvider {
   private socket: BaileysSocket | null = null;
   private saveCreds: (() => Promise<void>) | null = null;
@@ -123,6 +126,8 @@ export class BaileysProvider implements WhatsAppProvider {
   private intentionalClose = false;
   private readonly storage: Storage;
   private readonly pairingPhone?: string;
+  private skippedLogWindowStart = 0;
+  private skippedLogCount = 0;
 
   constructor(storage: Storage, pairingPhone?: string) {
     this.storage = storage;
@@ -377,13 +382,32 @@ export class BaileysProvider implements WhatsAppProvider {
     }
   }
 
+  /**
+   * A message reached the socket but is not going to be processed (typically WhatsApp could not decrypt it for this linked device: the
+   * stub parameters then carry the reason, e.g. "Bad MAC" / "No matching sessions"). Without this line such a message simply vanishes.
+   * Own messages, status updates and groups are not logged (they are never campaign input and would only add noise).
+   */
+  private logSkippedMessage(raw: any, reason: 'no_content' | 'empty_body'): void {
+    const from = String(raw?.key?.remoteJid ?? '');
+    if (!from || from === 'status@broadcast' || from.endsWith('@g.us') || raw?.key?.fromMe) return;
+    const now = Date.now();
+    if (now - this.skippedLogWindowStart > 60_000) { this.skippedLogWindowStart = now; this.skippedLogCount = 0; }
+    if (this.skippedLogCount >= SKIPPED_LOG_PER_MINUTE) return;
+    this.skippedLogCount += 1;
+    const alt = String(raw?.key?.remoteJidAlt ?? raw?.key?.participantAlt ?? '');
+    const age = raw?.messageTimestamp ? Math.round(Date.now() / 1000 - Number(raw.messageTimestamp)) : null;
+    const params = Array.isArray(raw?.messageStubParameters) ? raw.messageStubParameters.map(String).join('|').slice(0, 200) : '';
+    const kinds = raw?.message && typeof raw.message === 'object' ? Object.keys(raw.message).join(',').slice(0, 120) : '';
+    console.warn(`[BAILEYS_SKIPPED] reason=${reason} from=${from}${alt ? ` alt=${alt}` : ''} id=${raw?.key?.id ?? ''} age=${age ?? '?'}s stub=${raw?.messageStubType ?? '-'}${params ? ` params=${params}` : ''}${kinds ? ` kinds=${kinds}` : ''}`);
+  }
+
   private async handleMessages(messages: BaileysMessage[]): Promise<void> {
     for (const raw of messages as any[]) {
-      if (!raw?.message) continue;
+      if (!raw?.message) { this.logSkippedMessage(raw, 'no_content'); continue; }
       const from = raw.key?.remoteJid;
       const content = getMessageContent(raw);
       const body = content.body.trim();
-      if (!from || (!body && !content.hasUserSignal)) continue;
+      if (!from || (!body && !content.hasUserSignal)) { this.logSkippedMessage(raw, 'empty_body'); continue; }
       const fromMe = Boolean(raw.key?.fromMe);
       if (fromMe && !this.isSelfTriggerMessage(from, body)) continue;
 
