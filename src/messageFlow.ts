@@ -1363,7 +1363,7 @@ async function tryRepeatAfterFlowEnd(
     return false;
   }
   const repeatKey = `share_repeated:${repeat.step.id}:${repeat.option.id}`;
-  if (storage.getCampaignEvents(campaign.id).some((event) => event.campaignResultId === latest.id && event.dedupeKey === repeatKey)) return false;
+  if (storage.hasCampaignEventKey(latest.id, repeatKey)) return false;
   console.log(`[REPEATABLE_BUTTON] campaign=${campaign.id} result=${latest.id} phone=${senderPhone} after-end back-to=${repeat.step.id} option=${repeat.option.id}`);
   await spendRepeatTapAfter(storage, { campaignId: campaign.id, campaignResultId: latest.id, phone: senderPhone, repeatKey, label: `${repeat.option.text} (אחרי סיום הזרימה)` }, () =>
     handleDecisionReply(repeat.option.id, settings.decisionFlow, repeat.step.id, senderJid, storage, transport, campaign.id, latest.id, senderPhone, replyBehaviorFromSettings(settings)));
@@ -1379,6 +1379,9 @@ export function repeatableWindowCampaignId(storage: Storage, phone: string): str
   if (REPEATABLE_AFTER_END_WINDOW_MS <= 0) return undefined;
   const key = normalizedPhoneKey(phone);
   if (!key) return undefined;
+  // Cheapest gates first - this runs for every inbound message of the shared number, for every client: a sender this client has never
+  // seen costs one map lookup, and the campaign's events are consulted (by index) only when its flow has a repeatable option at all.
+  if (!storage.getResultsForPhoneKey(key).length) return undefined;
   const activeById = new Map(storage.getActiveCampaigns().map((campaign) => [campaign.id, campaign]));
   const latest = latestActiveResultForPhone(storage, activeById, key);
   if (!latest) return undefined;
@@ -1386,22 +1389,29 @@ export function repeatableWindowCampaignId(storage: Storage, phone: string): str
   if (!lastActivityAt || Date.now() - lastActivityAt > REPEATABLE_AFTER_END_WINDOW_MS) return undefined;
   const campaign = activeById.get(latest.campaignId);
   if (!campaign) return undefined;
-  const spent = new Set(storage.getCampaignEvents(campaign.id).filter((event) => event.campaignResultId === latest.id).map((event) => event.dedupeKey));
   for (const step of storage.getCampaignConversationSettings(campaign).decisionFlow) {
     if (step.kind !== 'question' && step.kind !== 'score_question') continue;
-    if ((step.options ?? []).some((option) => option.repeatable === true && !option.action && !spent.has(`share_repeated:${step.id}:${option.id}`))) return campaign.id;
+    if ((step.options ?? []).some((option) => option.repeatable === true && !option.action && !storage.hasCampaignEventKey(latest.id, `share_repeated:${step.id}:${option.id}`))) return campaign.id;
   }
   return undefined;
 }
 
+/**
+ * The sender's most recently active result among the active campaigns. Reads that sender's few results through the per-phone index
+ * (one entry per entry into any campaign) instead of copying, filtering and sorting every result of the client: this runs for every
+ * inbound message of the shared number.
+ */
 function latestActiveResultForPhone(storage: Storage, activeById: Map<string, Campaign>, phone: string): CampaignResult | undefined {
-  return storage.getCampaignResults()
-    .filter((result) => normalizedPhoneKey(result.phone) === phone && activeById.has(result.campaignId))
-    .sort((left, right) => {
-      const leftAt = Date.parse(left.lastEventAt || left.updatedAt || left.triggeredAt) || 0;
-      const rightAt = Date.parse(right.lastEventAt || right.updatedAt || right.triggeredAt) || 0;
-      return rightAt - leftAt;
-    })[0];
+  let best: CampaignResult | undefined;
+  let bestAt = -1;
+  for (const result of storage.getResultsForPhoneKey(phone)) {
+    if (!activeById.has(result.campaignId)) continue;
+    const at = Date.parse(result.lastEventAt || result.updatedAt || result.triggeredAt) || 0;
+    // Same pick as the scan it replaces (results newest-triggered first, then a stable sort by last activity): highest last activity;
+    // on a tie the one triggered later; on a tie of that too, the one stored first.
+    if (at > bestAt || (best && at === bestAt && String(result.triggeredAt ?? '').localeCompare(String(best.triggeredAt ?? '')) > 0)) { best = result; bestAt = at; }
+  }
+  return best;
 }
 
 function staleFlowReplyText(campaign: Campaign): string {
@@ -2781,7 +2791,7 @@ async function handleDecisionReplyInner(
     if (repeat && ownQuestion) {
       // (a quick double tap on the button she has just used never gets here: handleIncoming drops recent duplicate button replies first)
       const repeatKey = `share_repeated:${repeat.step.id}:${repeat.option.id}`;
-      const alreadyRepeated = storage.getCampaignEvents(campaignId).some((event) => event.campaignResultId === campaignResultId && event.dedupeKey === repeatKey);
+      const alreadyRepeated = storage.hasCampaignEventKey(campaignResultId, repeatKey);
       if (!alreadyRepeated) {
         console.log(`[REPEATABLE_BUTTON] campaign=${campaignId} result=${campaignResultId} phone=${senderPhone ?? ''} from=${step.id} back-to=${repeat.step.id} option=${repeat.option.id}${replaying ? ' replay=1' : ''}`);
         // Same handling as the first tap: events / raffle entry are de-duplicated by their own keys, so nothing is counted twice.

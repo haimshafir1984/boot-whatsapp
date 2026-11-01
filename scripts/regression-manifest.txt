@@ -105,3 +105,6 @@ test-combined-export.js
 test-repeatable-button.js
 test-meta-gateway-repeat-window.js
 test-baileys-skipped-log.js
+test-returning-buttons-indexes.js
+test-button-token.js
+test-flow-rev.js

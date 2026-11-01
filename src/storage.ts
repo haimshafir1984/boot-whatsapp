@@ -1136,7 +1136,10 @@ export class Storage {
     message.lastError = undefined;
     message.updatedAt = new Date().toISOString();
     this.persist(['outboxMessages'], { outboxMessages: message.id });
-    if (providerMessageId) this.drainBufferedStatuses(providerMessageId);
+    if (providerMessageId) {
+      if (this.outboxWamidIndexState?.source === this.data.outboxMessages) this.outboxWamidIndexState.map.set(providerMessageId, message);
+      this.drainBufferedStatuses(providerMessageId);
+    }
     if (message.recovery) this.emitOutboxTransition({ type: 'sent_after_recovery', id: message.id });
   }
 
@@ -1347,9 +1350,78 @@ export class Storage {
   outboxMessageBelongsToStep(wamid: string, owner: { campaignResultId: string; stepId: string }): boolean {
     const id = String(wamid || '').trim();
     if (!id) return false;
-    return this.data.outboxMessages.some((item) =>
-      item.campaignResultId === owner.campaignResultId && item.stepId === owner.stepId &&
-      (item.providerMessageId === id || item.attemptLog?.some((entry) => entry.providerMessageId === id || entry.providerMessageIds?.includes(id))));
+    const carries = (item: OutboxMessage): boolean =>
+      item.providerMessageId === id || Boolean(item.attemptLog?.some((entry) => entry.providerMessageId === id || entry.providerMessageIds?.includes(id)));
+    const matches = (item: OutboxMessage): boolean => item.campaignResultId === owner.campaignResultId && item.stepId === owner.stepId && carries(item);
+    // The index only finds the row quickly. A hit is re-checked against the row itself; a miss falls back to the full scan (and heals the
+    // index), so a row whose id was assigned by a path that does not feed the index is still found - the answer never depends on the index.
+    const index = this.outboxWamidIndex();
+    const hit = index.get(id);
+    if (hit && matches(hit)) return true;
+    for (const item of this.data.outboxMessages) {
+      if (matches(item)) { index.set(id, item); return true; }
+    }
+    return false;
+  }
+
+  /** wamid -> outbox row. Built on first use, rebuilt if the array was replaced; fed by markOutboxSent. Accelerator only. */
+  private outboxWamidIndexState: { source: OutboxMessage[]; map: Map<string, OutboxMessage> } | null = null;
+  private outboxWamidIndex(): Map<string, OutboxMessage> {
+    const source = this.data.outboxMessages;
+    if (this.outboxWamidIndexState && this.outboxWamidIndexState.source === source) return this.outboxWamidIndexState.map;
+    const map = new Map<string, OutboxMessage>();
+    for (const item of source) {
+      if (item.providerMessageId) map.set(item.providerMessageId, item);
+      for (const entry of item.attemptLog ?? []) {
+        if (entry.providerMessageId) map.set(entry.providerMessageId, item);
+        for (const extra of entry.providerMessageIds ?? []) map.set(extra, item);
+      }
+    }
+    this.outboxWamidIndexState = { source, map };
+    return map;
+  }
+
+  // ---- Lookups for the per-message paths (pending-route, flow recovery). Pure accelerators over the live arrays: each one revalidates
+  // against the array it indexed (same array object, length only grew) and rebuilds when that does not hold, e.g. after a reset replaced it.
+  private resultsByPhoneState: { source: CampaignResult[]; length: number; byPhone: Map<string, CampaignResult[]> } | null = null;
+  private eventKeyState: { source: CampaignEvent[]; length: number; byResult: Map<string, Set<string>> } | null = null;
+
+  /**
+   * The campaign results of one phone (digits only), as the stored objects - callers must not mutate them. O(1) instead of scanning every
+   * result of the client on every inbound message.
+   */
+  getResultsForPhoneKey(phoneKey: string): readonly CampaignResult[] {
+    const source = this.data.campaignResults;
+    let state = this.resultsByPhoneState;
+    if (!state || state.source !== source || source.length < state.length) {
+      state = { source, length: 0, byPhone: new Map() };
+      this.resultsByPhoneState = state;
+    }
+    for (let i = state.length; i < source.length; i += 1) {
+      const key = String(source[i].phone ?? '').replace(/\D/g, '');
+      const list = state.byPhone.get(key);
+      if (list) list.push(source[i]); else state.byPhone.set(key, [source[i]]);
+    }
+    state.length = source.length;
+    return state.byPhone.get(phoneKey) ?? [];
+  }
+
+  /** True when this result already has an event with that dedupe key. O(1) instead of scanning the campaign's events. */
+  hasCampaignEventKey(campaignResultId: string, dedupeKey: string): boolean {
+    const source = this.data.campaignEvents;
+    let state = this.eventKeyState;
+    if (!state || state.source !== source || source.length < state.length) {
+      state = { source, length: 0, byResult: new Map() };
+      this.eventKeyState = state;
+    }
+    for (let i = state.length; i < source.length; i += 1) {
+      const event = source[i];
+      if (!event.campaignResultId || !event.dedupeKey) continue;
+      const keys = state.byResult.get(event.campaignResultId);
+      if (keys) keys.add(event.dedupeKey); else state.byResult.set(event.campaignResultId, new Set([event.dedupeKey]));
+    }
+    state.length = source.length;
+    return state.byResult.get(campaignResultId)?.has(dedupeKey) ?? false;
   }
 
   /** The row that a flow unit's index-th send created, if any (used to skip already delivered sends when a unit is replayed). */
