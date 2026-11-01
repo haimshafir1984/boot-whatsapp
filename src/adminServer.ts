@@ -4,6 +4,8 @@
  * Serves static files and exposes a REST API for settings and campaigns.
  */
 
+import { decideGatewayButton, interactiveReplyId, loadGatewayButtonKeys, loadClientButtonKeys, verifyClientButton } from './buttonVerify';
+import { isV1ButtonId } from './buttonToken';
 import express from 'express';
 import { hasCampaignWork, stopCampaignWork } from './campaignWork';
 import ExcelJS from 'exceljs';
@@ -1799,6 +1801,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
     return changed;
   };
 
+  const clientButtonKeys = loadClientButtonKeys();
   const handleMetaInboundForStorage = async (payload: any): Promise<void> => {
     const value = payload?.entry?.[0]?.changes?.[0]?.value;
     if (Array.isArray(value?.statuses)) {
@@ -1817,6 +1820,20 @@ export function startAdminServer(storage: Storage): import('http').Server {
     const mediaKind = ['image', 'video', 'audio', 'document', 'sticker'].includes(String(message?.type || ''))
       ? String(message.type) as NonNullable<IncomingWhatsAppMessage['media']>['kind']
       : undefined;
+    // Signed reply buttons (v1): verified and ownership-checked before anything else. A bad one is dropped (never treated as legacy). A
+    // valid one is only reported for now: nothing issues v1 ids yet, and answering/jumping on them arrives in later stages.
+    const tapId = isButtonReply ? interactiveReplyId(message) : '';
+    if (isV1ButtonId(tapId)) {
+      const senderPhone = String(message.from).replace(/\D/g, '');
+      const verdict = verifyClientButton(tapId, senderPhone, clientButtonKeys, {
+        findResult: (resultId, phone) => storage.getResultsForPhoneKey(phone).find((result) => result.id === resultId),
+        getCampaign: (campaignId) => storage.getCampaigns().find((campaign) => campaign.id === campaignId),
+        getCurrentRun: (phone) => storage.getCurrentRun(phone),
+      });
+      if (verdict.kind === 'reject') console.warn('[META_V1_BUTTON_REJECTED]', `reason=${verdict.reason}`, message.id, senderPhone);
+      else if (verdict.kind === 'verified') console.log('[META_V1_BUTTON_VERIFIED]', message.id, senderPhone, `step=${verdict.claims.stepId}`, 'no_action_yet');
+      if (verdict.kind !== 'legacy') return;
+    }
     const provider = new MetaCloudProvider();
     console.log('[META_INBOUND]', message.id, message.from, body.slice(0, 120), `type=${String(message?.type || 'unknown')}`);
     await handleIncomingWhatsAppMessage({
@@ -1925,6 +1942,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
     });
   };
 
+  const gatewayButtonKeys = loadGatewayButtonKeys();
   const routeMetaGatewayInbound = async (payload: any): Promise<{ handled: boolean; reason?: string }> => {
     const value = payload?.entry?.[0]?.changes?.[0]?.value;
     const message = value?.messages?.[0];
@@ -1997,6 +2015,32 @@ export function startAdminServer(storage: Storage): import('http').Server {
     const fromKey = normalizeGatewayPhone(String(message.from));
     const body = getMetaInboundBody(message);
     const normalizedBody = normalizeGatewayText(body);
+
+    // Signed reply buttons (v1): a tap is not a trigger. A valid one goes straight to the client that issued it - no pending-route fan-out,
+    // no handover. Anything that claims to be v1 and is not valid is dropped here and never falls back to the legacy path. Ids that are
+    // not v1 take the existing path below, untouched. (Nothing issues v1 ids yet.)
+    const tapId = isMetaButtonReply(message) ? interactiveReplyId(message) : '';
+    if (isV1ButtonId(tapId)) {
+      const decision = decideGatewayButton(tapId, gatewayButtonKeys, new Set(clients.map((client) => client.id)));
+      if (decision.action === 'reject') {
+        console.warn('[META_GATEWAY_V1_REJECTED]', `reason=${decision.reason}`, message.id, message.from);
+        return { handled: true };
+      }
+      if (decision.action === 'route') {
+        const v1Client = clients.find((client) => client.id === decision.clientId)!;
+        const sent = await retryTransientMetaOperation(
+          () => fetchClientAsOwner(v1Client, '/internal/meta/whatsapp', { method: 'POST', body: JSON.stringify(payload ?? {}) }),
+          { onRetry: ({ attempt, result, error }) => console.warn('[META_GATEWAY_RETRY]', v1Client.id, 'attempt=' + attempt, result ? 'status=' + result.status : 'network_error', error ?? '') },
+        );
+        if (!sent.ok) {
+          console.error('[META_GATEWAY_FAILED]', v1Client.id, sent.status, JSON.stringify(sent.body).slice(0, 300));
+          throw new Error(`Meta gateway forward failed with status ${sent.status}`);
+        }
+        console.log('[META_GATEWAY_V1_ROUTED]', message.id, v1Client.id, `result=${decision.claims.resultId}`);
+        return { handled: true };
+      }
+    }
+
     const campaignsByClient = new Map<string, MetaGatewayRoute[]>();
     const pendingByClient = new Map<string, MetaPendingRouteResponse>();
     // Clients whose LIVE pending-conversation check failed this message, even

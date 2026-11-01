@@ -112,3 +112,5 @@ test-sender-runs.js
 test-meta-resumable-client.js
 test-meta-resumable-handover.js
 test-restore-jitter.js
+test-v1-button-gateway.js
+test-v1-button-client.js
