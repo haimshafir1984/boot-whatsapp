@@ -56,7 +56,7 @@ import {
   verifyMetaEmbeddedSignupToken,
 } from './metaEmbeddedSignup';
 import { conversationState } from './conversationState';
-import { getFlowHealthSnapshot, handleIncomingWhatsAppMessage, holdSenderForAmbiguousInbox, repeatableWindowCampaignId, SenderHeldForReviewError } from './messageFlow';
+import { getFlowHealthSnapshot, handleIncomingWhatsAppMessage, hasResumableRun, holdSenderForAmbiguousInbox, repeatableWindowCampaignId, SenderHeldForReviewError } from './messageFlow';
 import { detectTrigger } from './triggerDetector';
 import { redactSecrets } from './secretRedaction';
 import { TwilioProvider } from './providers/TwilioProvider';
@@ -151,6 +151,38 @@ interface MetaPendingRouteResponse {
   timestamp?: number;
   /** Not a pending conversation: this client has a repeatable button this sender may still tap shortly after her flow ended. */
   repeatWindowCampaignId?: string;
+  /** This client holds a current, not replaced run of the sender inside the 24 hour recovery window (see hasResumableRun). */
+  resumable?: boolean;
+  /** What this client can do for the gateway (see CLIENT_FLEET_CAPABILITIES). Absent on clients that predate it. */
+  capabilities?: string[];
+}
+
+/**
+ * Capabilities a client reports in meta-pending-route. The gateway needs ALL clients of the shared number to have them before it relies on
+ * them: a client without them cannot say "she still has a run here" and would leave an old run eligible for resumption.
+ *   resumable-v1          reports `resumable` for a sender
+ *   durable-supersede-v1  meta-clear-pending marks her runs as replaced and saves that BEFORE it answers `cancelled`
+ */
+export const CLIENT_FLEET_CAPABILITIES = ['resumable-v1', 'durable-supersede-v1'] as const;
+
+const fleetCapabilityWarnedAt = new Map<string, number>();
+/**
+ * With META_RESUMABLE_HANDOVER=1 the gateway relies on every client of the shared number to report resumable runs and to cancel durably.
+ * Says so (once a minute at most for the same set of clients) when some client of this message's scan does not report both capabilities -
+ * a client that failed its live check counts as lacking them.
+ */
+function warnIfFleetLacksCapabilities(clients: ManagedClient[], pendingByClient: Map<string, MetaPendingRouteResponse>): void {
+  const lacking = clients.filter((client) => {
+    const reported = pendingByClient.get(client.id)?.capabilities;
+    return !Array.isArray(reported) || !CLIENT_FLEET_CAPABILITIES.every((capability) => reported.includes(capability));
+  });
+  if (!lacking.length) return;
+  const now = Date.now();
+  const ids = lacking.map((client) => client.id).sort().join(',');
+  if (now - (fleetCapabilityWarnedAt.get(ids) ?? 0) < 60_000) return;
+  fleetCapabilityWarnedAt.set(ids, now);
+  if (fleetCapabilityWarnedAt.size > 50) fleetCapabilityWarnedAt.delete(fleetCapabilityWarnedAt.keys().next().value as string);
+  console.warn('[META_RESUMABLE_HANDOVER_FLEET_INCOMPLETE]', `lacking=${lacking.length}/${clients.length}`, ids);
 }
 
 interface MetaRoutingSnapshotResponse {
@@ -2060,6 +2092,8 @@ export function startAdminServer(storage: Storage): import('http').Server {
     // timeout. Clear those before forwarding, so a stale pending
     // conversation on client A can never intercept a reply meant for the
     // brand-new conversation on client B.
+    const resumableHandoverOn = process.env.META_RESUMABLE_HANDOVER === '1';
+    if (resumableHandoverOn) warnIfFleetLacksCapabilities(clients, pendingByClient);
     if (targetClient) {
       const knownStaleClients = clients.filter(
         // Only clients that report sender-owned work need an active handover.
@@ -2067,8 +2101,11 @@ export function startAdminServer(storage: Storage): import('http').Server {
         // from meta-clear-pending without the new `cancelled` acknowledgement;
         // calling them here would block every fresh trigger even though their
         // own pending-route lookup already showed no sender state to clear.
+        // META_RESUMABLE_HANDOVER=1 (default off): also clients that report a run of the sender still eligible for resumption - a finished
+        // run or an expired question has no pending state, so before this it was never told that she moved on.
         (client) => client.id !== targetClient!.id
-          && Boolean(pendingByClient.get(client.id)?.pending || pendingByClient.get(client.id)?.activeWork),
+          && Boolean(pendingByClient.get(client.id)?.pending || pendingByClient.get(client.id)?.activeWork
+            || (resumableHandoverOn && pendingByClient.get(client.id)?.resumable)),
       );
       // A client whose live pending check failed is an unknown, not a "no" -
       // treating it as "nothing to clear" would let it keep running a real
@@ -2084,7 +2121,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
           try {
             const result = await fetchClientAsOwner<{ removed?: number; cancelled?: boolean }>(client, '/owner-api/meta-clear-pending', {
               method: 'POST',
-              body: JSON.stringify({ phone: fromKey }),
+              body: JSON.stringify({ phone: fromKey, toClientId: targetClient!.id }),
               signal: AbortSignal.timeout(3_000),
             });
             if (result.ok && result.body?.cancelled === true) {
@@ -4243,7 +4280,13 @@ export function startAdminServer(storage: Storage): import('http').Server {
       res.status(400).json({ error: 'Phone is required' });
       return;
     }
-    res.json({ ...localMetaPendingRoute(storage, phone), activeWork: hasCampaignWork(phone), repeatWindowCampaignId: repeatableWindowCampaignId(storage, phone) });
+    res.json({
+      ...localMetaPendingRoute(storage, phone),
+      activeWork: hasCampaignWork(phone),
+      repeatWindowCampaignId: repeatableWindowCampaignId(storage, phone),
+      resumable: hasResumableRun(storage, phone),
+      capabilities: [...CLIENT_FLEET_CAPABILITIES],
+    });
   });
 
   // Called by the gateway right before forwarding a freshly-matched trigger
@@ -4267,6 +4310,9 @@ export function startAdminServer(storage: Storage): import('http').Server {
     let removed = conversationState.removeByPhone(phone);
     await stopCampaignWork(phone, async () => {
       removed += conversationState.removeByPhone(phone);
+      // Her runs here are replaced by the one that is starting elsewhere. Marked inside the same lock and saved by the flush below,
+      // before `cancelled` is answered: a late tap on an old button of this client can then be refused.
+      storage.supersedeRunsFromOutsideNow(String(phone).replace(/\D/g, ''), `to-${String(req.body?.toClientId ?? 'other').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40) || 'other'}`);
       storage.cancelOutboxForRecipient(phone);
       await metaClientInbox.cancelForPhone(phone);
       storage.cancelServiceBotFollowUps(phone);

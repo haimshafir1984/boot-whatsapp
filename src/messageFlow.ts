@@ -452,6 +452,18 @@ type RestoredTimeoutTransportResolver = () => WhatsAppTransport | null | undefin
 
 const RESTORED_TIMEOUT_RETRY_MS = 60_000;
 
+/**
+ * After a restart every conversation whose timer expired while the process was down (or expires within moments) would fire at the same
+ * instant. Seen on 17.10: 465 restored conversations ran together and Meta answered a rate limit two minutes later. Such timers are spread
+ * over a random window instead (FLOW_RESTORE_JITTER_MS, default 30 s, 0 = off; off by default under NODE_ENV=test so existing timer tests stay
+ * immediate); a timer that is far from due is left alone.
+ */
+export function restoreJitterMs(remainingMs: number, windowMs = Number(process.env.FLOW_RESTORE_JITTER_MS ?? (process.env.NODE_ENV === 'test' ? 0 : 30_000)), random: () => number = Math.random): number {
+  const window = Number.isFinite(windowMs) && windowMs > 0 ? Math.floor(windowMs) : 0;
+  if (!window || remainingMs > window) return 0;
+  return Math.floor(random() * window);
+}
+
 function logTimerError(label: string, err: unknown): void {
   console.error(`[TIMER] ${label} failed:`, err);
 }
@@ -564,7 +576,7 @@ export function scheduleRestoredConversationTimeout(
     }).catch(err => { if (!(err instanceof CampaignWorkCancelledError)) logTimerError('restored conversation timeout', err); });
   }, delayMs);
 
-  return schedule(remainingMs);
+  return schedule(remainingMs + restoreJitterMs(remainingMs));
 }
 function sleep(ms: number): Promise<void> {
   return campaignWorkSleep(ms);
@@ -1401,6 +1413,21 @@ export function repeatableWindowCampaignId(storage: Storage, phone: string): str
  * (one entry per entry into any campaign) instead of copying, filtering and sorting every result of the client: this runs for every
  * inbound message of the shared number.
  */
+/**
+ * Does this client hold a run of the participant that could still be picked up (her current, not replaced run, active within the 24 hour
+ * recovery window, in a campaign that is still active)? Reported to the gateway so that a fresh trigger at another client also takes her
+ * out of this one. O(1): one phone lookup.
+ */
+export function hasResumableRun(storage: Storage, phone: string): boolean {
+  const key = normalizedPhoneKey(phone);
+  if (!key) return false;
+  const run = storage.getCurrentRun(key);
+  if (!run) return false;
+  const at = Date.parse(run.lastEventAt || run.updatedAt || run.triggeredAt) || 0;
+  if (!at || Date.now() - at > FLOW_RECOVERY_WINDOW_MS) return false;
+  return storage.getActiveCampaigns().some((campaign) => campaign.id === run.campaignId);
+}
+
 function latestActiveResultForPhone(storage: Storage, activeById: Map<string, Campaign>, phone: string): CampaignResult | undefined {
   let best: CampaignResult | undefined;
   let bestAt = -1;

@@ -439,6 +439,16 @@ export interface CampaignResult {
   scoreTotal?: number;
   /** Local preview record, excluded by the demo cleanup action. */
   isDemo?: boolean;
+  /**
+   * Run bookkeeping (a result IS the participant's run in that campaign). `openedSeq` is the order in which results were opened at this
+   * client (monotonic, independent of the clock); with `supersededAt` it defines the participant's CURRENT run: the latest one, unless
+   * it was replaced. Results saved before this existed have neither (they count as the oldest and as not superseded).
+   */
+  openedSeq?: number;
+  /** Set and saved when the participant started something newer here, or another client took her over. Never cleared. */
+  supersededAt?: string;
+  /** The result that replaced this run, or `handover:<reason>` when it was taken over from outside this client. */
+  supersededBy?: string;
 }
 
 export interface CampaignScoreAnswer {
@@ -2119,9 +2129,73 @@ export class Storage {
       updatedAt: now,
       isDemo,
     };
+    result.openedSeq = this.nextOpenedSeq();
+    // Whatever she was in before at this client is replaced by this new run. Nothing acts on the mark yet: it records which run is current.
+    const replaced = this.markRunsSuperseded(String(phone ?? '').replace(/\D/g, ''), result.id, now, result.id);
     this.data.campaignResults.push(result);
-    this.persist(['campaignResults'], { campaignResults: result.id });
+    this.persist(['campaignResults'], { campaignResults: [result.id, ...replaced] });
     return { ...result };
+  }
+
+  private runSeqCounter: number | null = null;
+  private nextOpenedSeq(): number {
+    if (this.runSeqCounter === null) {
+      let max = 0;
+      for (const item of this.data.campaignResults) if (typeof item.openedSeq === 'number' && item.openedSeq > max) max = item.openedSeq;
+      this.runSeqCounter = max;
+    }
+    this.runSeqCounter += 1;
+    return this.runSeqCounter;
+  }
+
+  /** Marks every not yet superseded result of this phone (except `exceptId`) as replaced. Returns the ids that changed (the caller persists). */
+  private markRunsSuperseded(phoneKey: string, by: string, at: string, exceptId?: string): string[] {
+    const changed: string[] = [];
+    for (const item of this.getResultsForPhoneKey(phoneKey)) {
+      if (item.id === exceptId || item.supersededAt) continue;
+      // getResultsForPhoneKey hands out the stored objects themselves, so no second lookup is needed.
+      item.supersededAt = at;
+      item.supersededBy = by;
+      changed.push(item.id);
+    }
+    return changed;
+  }
+
+  /**
+   * The participant's latest run at this client, replaced or not (undefined when she has none). Order: openedSeq, then the time it was
+   * triggered, then storage order; results from before openedSeq existed are the oldest.
+   */
+  getLatestRun(phoneKey: string): CampaignResult | undefined {
+    let best: CampaignResult | undefined;
+    for (const item of this.getResultsForPhoneKey(phoneKey)) {
+      if (!best) { best = item; continue; }
+      const a = item.openedSeq ?? 0; const b = best.openedSeq ?? 0;
+      if (a > b || (a === b && String(item.triggeredAt ?? '').localeCompare(String(best.triggeredAt ?? '')) > 0)) best = item;
+    }
+    return best;
+  }
+
+  /** The participant's CURRENT run: her latest, and only while it has not been replaced. */
+  getCurrentRun(phoneKey: string): CampaignResult | undefined {
+    const latest = this.getLatestRun(phoneKey);
+    return latest && !latest.supersededAt ? latest : undefined;
+  }
+
+  /**
+   * Durably marks her runs at this client as replaced from outside (another client took her over). Saved before returning, because the
+   * caller answers "cancelled" to the gateway only after this. Returns how many runs changed.
+   */
+  async supersedeRunsFromOutside(phoneKey: string, reason: string): Promise<number> {
+    const count = this.supersedeRunsFromOutsideNow(phoneKey, reason);
+    if (count) await this.flush();
+    return count;
+  }
+
+  /** Same marking without the flush, for callers that already flush right after (the handover does, inside its sender lock). */
+  supersedeRunsFromOutsideNow(phoneKey: string, reason: string): number {
+    const changed = this.markRunsSuperseded(phoneKey, `handover:${reason}`, new Date().toISOString());
+    if (changed.length) this.persist(['campaignResults'], { campaignResults: changed });
+    return changed.length;
   }
 
   seedCampaignReferralDemo(campaignId: string): { added: number; removed: number } {

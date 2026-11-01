@@ -108,3 +108,7 @@ test-baileys-skipped-log.js
 test-returning-buttons-indexes.js
 test-button-token.js
 test-flow-rev.js
+test-sender-runs.js
+test-meta-resumable-client.js
+test-meta-resumable-handover.js
+test-restore-jitter.js
