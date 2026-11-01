@@ -6,6 +6,7 @@
 
 import { decideGatewayButton, interactiveReplyId, loadGatewayButtonKeys, loadClientButtonKeys, verifyClientButton } from './buttonVerify';
 import { isV1ButtonId } from './buttonToken';
+import { buttonIssuanceEnabled, oversizedButtonOptions } from './buttonIssuer';
 import express from 'express';
 import { hasCampaignWork, stopCampaignWork } from './campaignWork';
 import ExcelJS from 'exceljs';
@@ -1814,7 +1815,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
       return;
     }
     const contact = value?.contacts?.[0];
-    const body = getMetaInboundBody(message);
+    let body = getMetaInboundBody(message);
     const isButtonReply = isMetaButtonReply(message);
     const mediaPayload = message?.image || message?.video || message?.audio || message?.document || message?.sticker;
     const mediaKind = ['image', 'video', 'audio', 'document', 'sticker'].includes(String(message?.type || ''))
@@ -1831,8 +1832,18 @@ export function startAdminServer(storage: Storage): import('http').Server {
         getCurrentRun: (phone) => storage.getCurrentRun(phone),
       });
       if (verdict.kind === 'reject') console.warn('[META_V1_BUTTON_REJECTED]', `reason=${verdict.reason}`, message.id, senderPhone);
-      else if (verdict.kind === 'verified') console.log('[META_V1_BUTTON_VERIFIED]', message.id, senderPhone, `step=${verdict.claims.stepId}`, 'no_action_yet');
-      if (verdict.kind !== 'legacy') return;
+      else if (verdict.kind === 'verified') {
+        // The question she is being asked right now: an ordinary answer, so the flow gets the option id exactly as with a legacy button.
+        // Any other (older) button is not acted on yet (resume / jump come in later stages).
+        const pending = conversationState.findByPhone(senderPhone);
+        if (pending?.kind === 'decision' && pending.stepId === verdict.claims.stepId && pending.campaignResultId === verdict.claims.resultId) {
+          console.log('[META_V1_BUTTON_ANSWER]', message.id, senderPhone, `step=${verdict.claims.stepId}`);
+          body = verdict.claims.optionId;
+        } else {
+          console.log('[META_V1_BUTTON_VERIFIED]', message.id, senderPhone, `step=${verdict.claims.stepId}`, 'no_action_yet');
+        }
+      }
+      if (verdict.kind === 'reject' || (verdict.kind === 'verified' && body === tapId)) return;
     }
     const provider = new MetaCloudProvider();
     console.log('[META_INBOUND]', message.id, message.from, body.slice(0, 120), `type=${String(message?.type || 'unknown')}`);
@@ -1943,6 +1954,15 @@ export function startAdminServer(storage: Storage): import('http').Server {
   };
 
   const gatewayButtonKeys = loadGatewayButtonKeys();
+  /** With signed buttons on, an option whose id cannot fit is a configuration error caught at save time, not a silent downgrade at send time. */
+  const rejectOversizedButtonIds = (conversation: unknown, res: express.Response): boolean => {
+    if (!buttonIssuanceEnabled()) return false;
+    let oversized: ReturnType<typeof oversizedButtonOptions> = [];
+    try { oversized = oversizedButtonOptions(conversation as any); } catch (err) { console.error('[BUTTON_V1_CONFIG_ERROR] save-time check', err); return false; }
+    if (!oversized.length) return false;
+    res.status(400).json({ error: `מזהי שלב/אפשרות ארוכים מדי לכפתור חתום: ${oversized.slice(0, 5).map((item) => `${item.stepId}/${item.optionId}`).join(', ')}. קצרו אותם.` });
+    return true;
+  };
   const routeMetaGatewayInbound = async (payload: any): Promise<{ handled: boolean; reason?: string }> => {
     const value = payload?.entry?.[0]?.changes?.[0]?.value;
     const message = value?.messages?.[0];
@@ -3908,6 +3928,35 @@ export function startAdminServer(storage: Storage): import('http').Server {
   // Section 3.1: creating a new link invalidates any previous one for this client - it simply
   // overwrites the stored hash/expiry, so the old token (which no longer matches any stored hash)
   // is rejected by validateConnectLinkToken() without any extra bookkeeping.
+  // Readiness for turning on META_BUTTON_V1_ISSUE anywhere (spec 3.4 / Codex rule 5): the gateway itself must be set up, and EVERY client of
+  // the shared number must answer with both capabilities. Read-only; asks each client the same question the routing asks (no sender data).
+  app.get('/owner/api/button-v1/readiness', async (_req, res) => {
+    const clients = ownerStorage.getClients().filter((client) => client.whatsappProvider === 'META_CLOUD_API'
+      && client.managementUrl && client.ownerAccessToken && client.provisioningStatus !== 'disabled' && metaPhoneScope(client) === 'shared');
+    const answered = new Map<string, MetaPendingRouteResponse>();
+    const failed = new Map<string, ManagedClient>();
+    await Promise.all(clients.map(async (client) => {
+      try {
+        const result = await fetchClientAsOwner<MetaPendingRouteResponse>(client, '/owner-api/meta-pending-route', {
+          method: 'POST', body: JSON.stringify({ phone: '0' }), signal: AbortSignal.timeout(3_000),
+        });
+        if (result.ok && result.body) answered.set(client.id, result.body); else failed.set(client.id, client);
+      } catch { failed.set(client.id, client); }
+    }));
+    const lacking = clientsLackingFleetCapabilities(clients, answered, new Map());
+    const gateway = {
+      resumableHandoverOn: process.env.META_RESUMABLE_HANDOVER === '1',
+      routingKeys: gatewayButtonKeys.master.size,
+    };
+    const clientRows = clients.map((client) => ({
+      id: client.id, name: client.name,
+      reachable: !failed.has(client.id),
+      capabilitiesOk: answered.has(client.id) && !lacking.some((candidate) => candidate.id === client.id),
+    }));
+    const ready = gateway.resumableHandoverOn && gateway.routingKeys > 0 && clientRows.length > 0 && clientRows.every((row) => row.reachable && row.capabilitiesOk);
+    res.json({ ready, gateway, clients: clientRows });
+  });
+
   app.post('/owner/api/clients/:id/meta-connect-link', (req, res) => {
     const client = ownerStorage.getClient(req.params.id);
     if (!client) {
@@ -4410,6 +4459,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
         : (config.WHATSAPP_PROVIDER === 'META_CLOUD_API' ? defaultMetaCampaignEndAt(typeof startAt === 'string' ? startAt : undefined) : undefined));
 
     if (!name?.trim()) { res.status(400).json({ error: 'שם הקמפיין חסר' }); return; }
+    if (rejectOversizedButtonIds(conversation, res)) return;
     if (storage.getCampaigns().length >= capabilities.maxCampaigns) {
       res.status(403).json({ error: `המסלול מאפשר עד ${capabilities.maxCampaigns} קמפיינים.` });
       return;
@@ -5844,6 +5894,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
         : (config.WHATSAPP_PROVIDER === 'META_CLOUD_API' ? defaultMetaCampaignEndAt(typeof startAt === 'string' ? startAt : undefined) : undefined));
 
     if (!name?.trim()) { res.status(400).json({ error: 'שם הקמפיין חסר' }); return; }
+    if (rejectOversizedButtonIds(conversation, res)) return;
     if (storage.getCampaigns().length >= capabilities.maxCampaigns) {
       res.status(403).json({ error: `המסלול מאפשר עד ${capabilities.maxCampaigns} קמפיינים.` });
       return;
@@ -5938,6 +5989,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
       return;
     }
 
+    if (rejectOversizedButtonIds(conversation, res)) return;
     const patch: Partial<Omit<Campaign, 'id'>> = {};
 
     if (name?.trim()) patch.name = name.trim();

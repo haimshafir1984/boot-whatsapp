@@ -9,6 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import { conversationState, HeldIncomingMessage, PendingConversation, PersistablePendingConversation } from './conversationState';
 import { notifySystemAlert } from './systemAlerts';
+import { ButtonConfigError, currentButtonIssuer } from './buttonIssuer';
 import { deliveryRecoveryBus } from './deliveryRecoveryBus';
 import { reportInboundOutcome } from './inboundOutcome';
 import { redactSecrets } from './secretRedaction';
@@ -3563,7 +3564,7 @@ async function sendDecisionStepInner(
       try {
         await waitBeforeBotReplyTo(senderJid, interactionDelayMs);
         const listButtonText = buildInteractiveListButtonText(step);
-        const items = step.options.slice(0, 10).map((option, optionIndex) => buildInteractiveListItem(step, option, optionIndex));
+        const items = step.options.slice(0, 10).map((option, optionIndex) => ({ ...buildInteractiveListItem(step, option, optionIndex), id: buttonIdForOption(storage, campaignId, campaignResultId, step, option) }));
         const listBodyText = hasLongOptions ? formatQuestion(step) : step.text.trim();
         await sendTrackedOutboxMessage(storage, {
           kind: 'interactive_list',
@@ -3595,7 +3596,7 @@ async function sendDecisionStepInner(
           Boolean(option.buttonLabel?.trim()) || Array.from(option.text.trim()).length > 20
         );
         const buttons = options.map((option, index) => ({
-          id: option.id,
+          id: buttonIdForOption(storage, campaignId, campaignResultId, step, option),
           text: buildInteractiveButtonLabel(option, index),
         }));
         const buttonBodyText = needsFullOptionText ? formatQuestion(step) : step.text.trim();
@@ -4205,6 +4206,35 @@ function buildInteractiveListButtonText(step: DecisionFlowStep): string {
   const configured = step.listButtonText?.trim();
   const value = configured || 'לשאלות 👇';
   return Array.from(value).slice(0, 20).join('');
+}
+
+/**
+ * The id carried by a reply button / list row. Legacy (the option id itself) unless this client issues signed v1 ids
+ * (META_BUTTON_V1_ISSUE=1), then a v1 id that survives later taps. Two cases keep the legacy id on purpose: no stored campaign result
+ * to bind to, and a score question whose options were generated here rather than stored (the client could not find them again to
+ * verify). A v1 id that cannot be built is a configuration error: alert and throw, never a silent legacy id.
+ */
+function buttonIdForOption(storage: Storage, campaignId: string | undefined, campaignResultId: string | undefined, step: DecisionFlowStep, option: DecisionFlowOption): string {
+  try {
+    const issuer = currentButtonIssuer();
+    if (!issuer || !campaignId || !campaignResultId) return option.id;
+    const campaign = storage.getCampaigns().find((candidate) => candidate.id === campaignId);
+    const storedStep = campaign?.conversation?.decisionFlow?.find((candidate) => candidate.id === step.id);
+    if (!campaign || !storedStep?.options?.some((candidate) => candidate.id === option.id)) return option.id;
+    return issuer.issue({ resultId: campaignResultId, stepId: step.id, optionId: option.id, conversation: campaign.conversation as unknown as Record<string, unknown> });
+  } catch (err) {
+    if (err instanceof ButtonConfigError) {
+      console.error('[BUTTON_V1_CONFIG_ERROR]', campaignId, step.id, option.id, err.message);
+      notifySystemAlert({
+        key: `button-v1-config-${campaignId}-${step.id}`,
+        severity: 'critical',
+        title: 'כפתור חתום לא ניתן להנפקה (שגיאת הגדרה)',
+        message: err.message,
+        details: { campaignId, stepId: step.id, optionId: option.id },
+      });
+    }
+    throw err;
+  }
 }
 
 function buildInteractiveListItem(step: DecisionFlowStep, option: DecisionFlowOption, index: number): { id: string; text: string; description?: string } {
