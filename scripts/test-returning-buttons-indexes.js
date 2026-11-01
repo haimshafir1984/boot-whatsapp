@@ -31,6 +31,28 @@ const campaignInput = (name, phrase, repeatable) => ({ name, triggerType: 1, tri
   conversation: { askNameEnabled: false, nameTimeoutMinutes: 5, askNameText: '', replyText: '', followupMessages: [], decisionFlow: flowWith(repeatable) } });
 
 (async () => {
+  if (process.argv.includes('--pg-child')) {
+    const { createStorage } = require('../dist/storageFactory');
+    const pgStorage = await createStorage();
+    const c = pgStorage.addCampaign(campaignInput('pg-live', `pg-trigger-${Date.now()}`, true));
+    const r = pgStorage.recordCampaignTrigger(c.id, '972506660001', 'PG');
+    pgStorage.recordCampaignEvent({ campaignId: c.id, campaignResultId: r.id, phone: r.phone, type: 'step_answered', dedupeKey: 'pg:1' });
+    const m = pgStorage.enqueueOutboxMessage({ kind: 'text', to: 'whatsapp:972506660001', text: 't', campaignId: c.id, campaignResultId: r.id, stepId: 'q1' });
+    pgStorage.claimOutboxMessage(m.id); pgStorage.markOutboxSent(m.id, 'wamid.pg1');
+    await pgStorage.flush();
+    const reloaded = await createStorage();
+    assert.equal(reloaded.getResultsForPhoneKey('972506660001').some((x) => x.id === r.id), true, 'results index after PostgreSQL reload');
+    assert.equal(reloaded.hasCampaignEventKey(r.id, 'pg:1'), true, 'event key index after PostgreSQL reload');
+    assert.equal(reloaded.outboxMessageBelongsToStep('wamid.pg1', { campaignResultId: r.id, stepId: 'q1' }), true, 'wamid index after PostgreSQL reload');
+    assert.equal(reloaded.outboxMessageBelongsToStep('wamid.pg1', { campaignResultId: r.id, stepId: 'q2' }), false);
+    const digitsOf = (x) => String(x).replace(/\D/g, '');
+    for (const phone of [...new Set(reloaded.data.campaignResults.map((x) => digitsOf(x.phone)))].slice(0, 200)) {
+      assert.deepEqual(reloaded.getResultsForPhoneKey(phone).map((x) => x.id).sort(), reloaded.data.campaignResults.filter((x) => digitsOf(x.phone) === phone).map((x) => x.id).sort());
+    }
+    console.log('PG_CHILD_OK');
+    setTimeout(() => process.exit(0), 300);
+    return;
+  }
   const storage = new Storage(process.env.STORAGE_PATH);
   const live = storage.addCampaign(campaignInput('live', 'live-trigger', true));
   const plain = storage.addCampaign(campaignInput('plain', 'plain-trigger', false));
@@ -135,6 +157,81 @@ const campaignInput = (name, phrase, repeatable) => ({ name, triggerType: 1, tri
     check('tie on last activity');
     storage.resetCampaignData(plain.id);
     check('after resetting a campaign');
+  });
+
+  const everyIndexMatchesItsScan = (st, label) => {
+    const digitsOf = (p) => String(p).replace(/\D/g, '');
+    const phones = [...new Set(st.data.campaignResults.map((r) => digitsOf(r.phone)))];
+    for (const phone of phones.slice(0, 200)) {
+      const scan = st.data.campaignResults.filter((r) => digitsOf(r.phone) === phone).map((r) => r.id).sort();
+      assert.deepEqual(st.getResultsForPhoneKey(phone).map((r) => r.id).sort(), scan, `${label}: results of ${phone}`);
+    }
+    for (const e of st.data.campaignEvents.filter((x) => x.campaignResultId && x.dedupeKey).slice(0, 300)) {
+      assert.equal(st.hasCampaignEventKey(e.campaignResultId, e.dedupeKey), true, `${label}: event key ${e.dedupeKey}`);
+      assert.equal(st.hasCampaignEventKey(e.campaignResultId, e.dedupeKey + '-x'), false, `${label}: absent key`);
+    }
+    for (const m of st.data.outboxMessages.filter((x) => x.providerMessageId).slice(0, 300)) {
+      assert.equal(st.outboxMessageBelongsToStep(m.providerMessageId, { campaignResultId: m.campaignResultId, stepId: m.stepId }), true, `${label}: wamid ${m.providerMessageId}`);
+      assert.equal(st.outboxMessageBelongsToStep(m.providerMessageId, { campaignResultId: m.campaignResultId + '-x', stepId: m.stepId }), false, `${label}: wrong owner`);
+    }
+  };
+
+  await scenario('mixed load: interleaved writes (triggers, events, sends, resets) and lookups stay equal to the scans', async () => {
+    let seed = 20261101;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+    const ph = (i) => `97250444${String(1000 + (i % 40))}`;
+    const owned = [];
+    for (let i = 0; i < 4000; i += 1) {
+      const roll = rnd();
+      if (roll < 0.25) { const r = storage.recordCampaignTrigger(rnd() < 0.5 ? live.id : plain.id, ph(i), `M${i}`); owned.push(r); }
+      else if (roll < 0.5 && owned.length) { const r = owned[Math.floor(rnd() * owned.length)]; storage.recordCampaignEvent({ campaignId: r.campaignId, campaignResultId: r.id, phone: r.phone, type: 'step_answered', dedupeKey: `mix:${i % 17}` }); }
+      else if (roll < 0.62 && owned.length) {
+        const r = owned[Math.floor(rnd() * owned.length)];
+        const m = storage.enqueueOutboxMessage({ kind: 'text', to: `whatsapp:${r.phone}`, text: 't', campaignId: r.campaignId, campaignResultId: r.id, stepId: `q${i % 3}` });
+        storage.claimOutboxMessage(m.id); storage.markOutboxSent(m.id, `wamid.mix${i}`);
+      } else if (roll < 0.625) { storage.resetCampaignData(rnd() < 0.5 ? live.id : plain.id); owned.length = 0; }
+      else if (owned.length) {
+        const r = owned[Math.floor(rnd() * owned.length)];
+        assert.deepEqual(storage.getResultsForPhoneKey(digits(r.phone)).map((x) => x.id).sort(), storage.getCampaignResults().filter((x) => digits(x.phone) === digits(r.phone)).map((x) => x.id).sort());
+        const naive = storage.data.campaignEvents.some((e) => e.campaignResultId === r.id && e.dedupeKey === `mix:${i % 17}`);
+        assert.equal(storage.hasCampaignEventKey(r.id, `mix:${i % 17}`), naive);
+      }
+    }
+    everyIndexMatchesItsScan(storage, 'after the mixed load');
+  });
+
+  await scenario('failing lookups (wamid never seen, wrong owner) never poison the index and keep answering correctly between hits', async () => {
+    const real = storage.data.outboxMessages.filter((m) => m.providerMessageId).slice(-20);
+    assert.ok(real.length > 5);
+    for (let i = 0; i < 500; i += 1) {
+      assert.equal(storage.outboxMessageBelongsToStep(`wamid.never${i}`, { campaignResultId: 'x', stepId: 'q0' }), false);
+      const m = real[i % real.length];
+      assert.equal(storage.outboxMessageBelongsToStep(m.providerMessageId, { campaignResultId: m.campaignResultId, stepId: m.stepId }), true);
+      assert.equal(storage.outboxMessageBelongsToStep(m.providerMessageId, { campaignResultId: m.campaignResultId, stepId: m.stepId + '-other' }), false);
+    }
+  });
+
+  await scenario('first build after a restart: a new Storage loaded from the saved file answers exactly like the scans', async () => {
+    await storage.flush();
+    const reopened = new Storage(process.env.STORAGE_PATH);
+    assert.equal(reopened.data.campaignResults.length, storage.data.campaignResults.length);
+    everyIndexMatchesItsScan(reopened, 'after reload');
+    const before = reopened.data.campaignResults.length;
+    reopened.recordCampaignTrigger(live.id, '972505550001', 'new after reload');
+    assert.equal(reopened.data.campaignResults.length, before + 1);
+    assert.equal(reopened.getResultsForPhoneKey('972505550001').length, 1);
+    reopened.resetCampaignData(live.id);
+    everyIndexMatchesItsScan(reopened, 'after reload then reset');
+  });
+
+  await scenario('PostgreSQL: a Storage loaded from the database rebuilds the same indexes (child process against the local test database only)', async () => {
+    const url = process.env.TEST_DATABASE_URL || '';
+    if (!url || !/flowsbiz_test/.test(url)) { console.log('      SKIPPED: TEST_DATABASE_URL (local flowsbiz_test database) is not set in this environment'); return; }
+    const { spawnSync } = require('node:child_process');
+    const child = spawnSync(process.execPath, [__filename, '--pg-child'], { env: { ...process.env, DATABASE_URL: url, STORAGE_PATH: path.join(dir, 'pg-unused.json') }, encoding: 'utf8', timeout: 120000 });
+    assert.equal(child.status, 0, `child failed: ${String(child.stdout).slice(-400)} ${String(child.stderr).slice(-400)}`);
+    assert.match(child.stdout, /PG_CHILD_OK/);
+    assert.match(child.stdout, /Storage mode: PostgreSQL/, 'the child really used PostgreSQL');
   });
 
   fs.rmSync(dir, { recursive: true, force: true });

@@ -13,7 +13,9 @@ import { createHash } from 'node:crypto';
 export const SCORE_RESULT_PLACEHOLDER = 'חישוב תוצאה';
 
 const STEP_DISPLAY_FIELDS = new Set(['text', 'listButtonText', 'timeoutText', 'fallbackText', 'emailInvalidText']);
-const OPTION_DISPLAY_FIELDS = new Set(['text', 'buttonLabel', 'endText', 'referralLeaderboardEmptyText', 'referralLeaderboardSeeds']);
+// referralLeaderboardSeeds is NOT here: it is data that changes the ranking people see (a seed going from 3 to 300 changes what is shown
+// and who is ahead), not wording, so it is part of the revision.
+const OPTION_DISPLAY_FIELDS = new Set(['text', 'buttonLabel', 'endText', 'referralLeaderboardEmptyText']);
 const RULE_DISPLAY_FIELDS = new Set(['label', 'endText']);
 const CONVERSATION_DISPLAY_FIELDS = new Set([
   'askNameText', 'replyText', 'followupMessages', 'invalidReplyText', 'flowRecoveryText', 'humanHandoffText', 'decisionTimeoutText',
@@ -37,16 +39,26 @@ function stable(value: unknown): Json {
   return null;
 }
 
+/**
+ * Everything except the display-only fields - but for each of those the PRESENCE is kept (`<field>Present`; for a list of messages, one
+ * flag per entry, so their number and order count). Whether a message exists decides whether the engine sends one more message, so adding
+ * or removing one changes the revision; rewording one does not.
+ */
 function without(source: Record<string, unknown>, display: Set<string>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const key of Object.keys(source)) if (!display.has(key)) out[key] = source[key];
+  for (const key of Object.keys(source)) {
+    if (!display.has(key)) { out[key] = source[key]; continue; }
+    const value = source[key];
+    if (typeof value === 'string') out[`${key}Present`] = value.trim().length > 0;
+    else if (Array.isArray(value)) out[`${key}Present`] = value.map((item) => (typeof item === 'string' ? item.trim().length > 0 : true));
+  }
   return out;
 }
 
 function stepStructure(step: Record<string, unknown>): Record<string, unknown> {
   const out = without(step, STEP_DISPLAY_FIELDS);
-  // Whether there is any text is behaviour (an empty contact-card intro or message is skipped), what it says is not.
-  out.textPresent = String(step.text ?? '').trim().length > 0;
+  // `text` presence is kept by without() (an empty contact-card intro or message is skipped); a missing text counts as absent.
+  if (!('textPresent' in out)) out.textPresent = false;
   if (step.kind === 'score_result') out.textIsPlaceholder = String(step.text ?? '').trim() === SCORE_RESULT_PLACEHOLDER;
   if (Array.isArray(step.options)) out.options = step.options.map((option) => without(option as Record<string, unknown>, OPTION_DISPLAY_FIELDS));
   if (Array.isArray(step.resultRules)) out.resultRules = step.resultRules.map((rule) => without(rule as Record<string, unknown>, RULE_DISPLAY_FIELDS));

@@ -13,16 +13,16 @@ function scenario(name, fn) {
 }
 
 const base = () => ({
-  askNameEnabled: true, nameTimeoutMinutes: 5, askNameText: 'name?', replyText: 'thanks', followupMessages: ['a', 'b'],
+  askNameEnabled: true, nameTimeoutMinutes: 5, preNamePromptText: 'welcome first', contactCardIntroText: 'save me', askNameText: 'name?', replyText: 'thanks', followupMessages: ['a', 'b'],
   invalidReplyText: 'invalid', flowRecoveryText: 'recover', humanHandoffText: 'human', decisionTimeoutText: 'timeout',
   humanHandoffEnabled: true, humanHandoffPhone: '972500000001', decisionTimeoutMinutes: 30, decisionTimeoutMode: 'message', decisionTimeoutNextStepId: '',
   groupJoinManagerPhone: '972500000002', groupJoinMetaTemplateName: 'tpl', groupJoinMetaTemplateLanguage: 'he', groupJoinParticipantConfirmationText: 'ok', groupJoinParticipantFailureText: 'fail',
   completionFileIds: ['f1'], completionLinks: [{ label: 'site', url: 'https://example.com' }],
   decisionFlow: [
-    { id: 's1', kind: 'question', presentation: 'buttons', text: 'Q1?', timeoutMinutes: 30, options: [
+    { id: 's1', kind: 'question', presentation: 'buttons', text: 'Q1?', listButtonText: 'choose', timeoutText: 'timed out', fallbackText: 'fallback', emailInvalidText: 'bad email', timeoutMinutes: 30, options: [
       { id: 'o1', text: 'yes', buttonLabel: 'Yes!', nextStepId: 's2', raffleEntry: true, repeatable: true, endText: 'bye' },
       { id: 'o2', text: 'no', nextStepId: 's3', score: 1 },
-      { id: 'o3', text: 'join', action: 'request_group_join' },
+      { id: 'o3', text: 'join', action: 'request_group_join', referralLeaderboardEmptyText: 'nobody yet' },
     ] },
     { id: 's2', kind: 'message', text: 'see https://wa.me/1', fileId: 'f2', delayMs: 3000, nextStepId: 's3' },
     { id: 's3', kind: 'score_result', text: SCORE_RESULT_PLACEHOLDER, resultRules: [{ id: 'r1', type: 'majority', value: 1, label: 'Winners', nextStepId: 's4', endText: 'win', fileId: 'f3' }] },
@@ -44,7 +44,7 @@ scenario('stable: same input, same revision; 8 base64url characters; key order d
 
 scenario('display text edits do NOT change the revision (every display-only field)', () => {
   const edits = [
-    (c) => { c.askNameText = 'a different name question'; }, (c) => { c.replyText = 'x'; }, (c) => { c.followupMessages = ['z']; },
+    (c) => { c.askNameText = 'a different name question'; }, (c) => { c.replyText = 'x'; }, 
     (c) => { c.invalidReplyText = 'x'; }, (c) => { c.flowRecoveryText = 'x'; }, (c) => { c.humanHandoffText = 'x'; }, (c) => { c.decisionTimeoutText = 'x'; },
     (c) => { c.groupJoinParticipantConfirmationText = 'x'; }, (c) => { c.groupJoinParticipantFailureText = 'x'; }, (c) => { c.preNamePromptText = 'x'; }, (c) => { c.contactCardIntroText = 'x'; },
     (c) => { c.decisionFlow[0].text = 'Q1 reworded?'; }, (c) => { c.decisionFlow[0].listButtonText = 'pick'; },
@@ -52,7 +52,9 @@ scenario('display text edits do NOT change the revision (every display-only fiel
     (c) => { c.decisionFlow[0].timeoutText = 'x'; }, (c) => { c.decisionFlow[0].fallbackText = 'x'; }, (c) => { c.decisionFlow[0].emailInvalidText = 'x'; },
     (c) => { c.decisionFlow[1].text = 'see https://wa.me/2 now'; },
     (c) => { c.decisionFlow[2].resultRules[0].label = 'Champions'; }, (c) => { c.decisionFlow[2].resultRules[0].endText = 'you won'; },
-    (c) => { c.decisionFlow[0].options[2].referralLeaderboardEmptyText = 'nobody yet'; }, (c) => { c.decisionFlow[0].options[2].referralLeaderboardSeeds = [{ name: 'A', invited: 3 }]; },
+    (c) => { c.decisionFlow[0].options[2].referralLeaderboardEmptyText = 'nobody yet again'; },
+    (c) => { c.followupMessages = ['a reworded', 'b reworded']; },
+    (c) => { c.decisionFlow[0].options[0].endText = 'a different goodbye'; },
   ];
   edits.forEach((mutate, i) => assert.equal(rev(mutate), R0, `display edit #${i} changed the revision`));
 });
@@ -67,6 +69,21 @@ scenario('anything that changes an action or a route DOES change the revision', 
     'option file': (c) => { c.decisionFlow[0].options[0].fileId = 'f9'; },
     'option removed': (c) => { c.decisionFlow[0].options.pop(); },
     'option id': (c) => { c.decisionFlow[0].options[0].id = 'o1b'; },
+    'leaderboard seed data (it changes the ranking shown)': (c) => { c.decisionFlow[0].options[2].referralLeaderboardSeeds = [{ name: 'A', invited: 3 }]; },
+    'leaderboard seed value 3 -> 300': (c) => { c.decisionFlow[0].options[2].referralLeaderboardSeeds = [{ name: 'A', invited: 300 }]; },
+    'option end message added where there was none': (c) => { delete c.decisionFlow[0].options[1].endText; c.decisionFlow[0].options[1].endText = 'new message'; },
+    'option end message removed': (c) => { c.decisionFlow[0].options[0].endText = ''; },
+    'score rule end message removed': (c) => { c.decisionFlow[2].resultRules[0].endText = ''; },
+    'score rule end message added where there was none': (c) => { c.decisionFlow[2].resultRules.push({ id: 'r2', type: 'majority', value: 2, endText: 'x' }); },
+    'pre-name prompt removed (it is no longer sent)': (c) => { c.preNamePromptText = ''; },
+    'contact card intro removed': (c) => { c.contactCardIntroText = ''; },
+    'follow-up message removed': (c) => { c.followupMessages = ['a']; },
+    'follow-up message added': (c) => { c.followupMessages = ['a', 'b', 'c']; },
+    'follow-up order of present / empty messages': (c) => { c.followupMessages = ['', 'a']; },
+    'completion reply removed': (c) => { c.replyText = ''; },
+    'step timeout message removed': (c) => { c.decisionFlow[0].timeoutText = ''; },
+    'step fallback message removed': (c) => { c.decisionFlow[0].fallbackText = ''; },
+    'step email-invalid message removed': (c) => { c.decisionFlow[0].emailInvalidText = ''; },
     'step next': (c) => { c.decisionFlow[1].nextStepId = 's4'; },
     'step file': (c) => { c.decisionFlow[1].fileId = 'f9'; },
     'step delay': (c) => { c.decisionFlow[1].delayMs = 60000; },
