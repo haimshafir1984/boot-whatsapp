@@ -52,9 +52,25 @@ export function loadClientButtonKeys(env: NodeJS.ProcessEnv = process.env): Clie
   };
 }
 
-/** The ids of an interactive reply (never the visible titles: a user can type those). */
+/**
+ * The id/payload of a reply, from EVERY shape the webhook parsing (getMetaInboundBody / isMetaButtonReply) understands, never the visible
+ * title (a user can type those). The gateway and the client both use this one function, so a "v1." token cannot slip into the legacy path
+ * through a shape only one of them reads.
+ */
 export function interactiveReplyId(message: any): string {
-  return String(message?.interactive?.button_reply?.id ?? message?.interactive?.list_reply?.id ?? '');
+  const candidates = [
+    message?.interactive?.button_reply?.id,
+    message?.interactive?.list_reply?.id,
+    message?.button?.payload,
+    message?.button_reply?.id,
+    message?.list_reply?.id,
+    message?.reply?.id,
+  ];
+  for (const candidate of candidates) {
+    const id = String(candidate ?? '').trim();
+    if (id) return id;
+  }
+  return '';
 }
 
 export type GatewayButtonDecision =

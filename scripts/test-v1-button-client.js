@@ -118,11 +118,15 @@ let seq = 0; const phoneFor = () => `97250777${String(1000 + (seq += 1))}`;
   if (!server.listening) await new Promise((resolve) => server.once('listening', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
   let wam = 0;
-  const tap = async (phone, buttonId) => {
+  const tap = async (phone, buttonId, shape = 'interactive') => {
     wam += 1; const id = `wamid.v1client${wam}`;
     const payload = { object: 'whatsapp_business_account', entry: [{ changes: [{ field: 'messages', value: {
       metadata: { phone_number_id: 'x', display_phone_number: '15550001111' }, contacts: [{ wa_id: phone, profile: { name: 'T' } }],
-      messages: [{ id, from: phone, timestamp: String(nowSec()), type: 'interactive', interactive: { type: 'button_reply', button_reply: { id: buttonId, title: 'Yes' } }, context: { id: 'wamid.Q' } }] } }] }] };
+      messages: [{ id, from: phone, timestamp: String(nowSec()), context: { id: 'wamid.Q' },
+        ...(shape === 'interactive' ? { type: 'interactive', interactive: { type: 'button_reply', button_reply: { id: buttonId, title: 'Yes' } } }
+          : shape === 'button_payload' ? { type: 'button', button: { payload: buttonId, text: 'Yes' } }
+          : shape === 'list_reply' ? { type: 'interactive', list_reply: { id: buttonId, title: 'Yes' } }
+          : { type: 'interactive', reply: { id: buttonId, title: 'Yes' } }) }] } }] }] };
     const res = await fetch(base + '/internal/meta/whatsapp', { method: 'POST', headers: { 'content-type': 'application/json', 'x-owner-token': 'synthetic-owner' }, body: JSON.stringify(payload) });
     assert.ok(res.status === 200 || res.status === 202, `status ${res.status}`);
     const deadline = Date.now() + 3000;
@@ -143,6 +147,15 @@ let seq = 0; const phoneFor = () => `97250777${String(1000 + (seq += 1))}`;
     assert.ok(!good.some((l) => l.includes('[META_INBOUND]')), 'a verified tap is not acted on yet');
     const legacy = await tap(phone, 'option-share');
     assert.ok(legacy.some((l) => l.includes('[META_INBOUND]')), 'a legacy id still reaches the flow: ' + legacy.join(' | '));
+  });
+
+  await scenario('webhook: a bad v1 id is dropped in every reply shape, never handed to the flow as a legacy answer', async () => {
+    const phone = phoneFor(); const r = storage.recordCampaignTrigger(A.id, phone, 'x');
+    for (const shape of ['button_payload', 'list_reply', 'reply']) {
+      const out = await tap(phone, token(r, { exp: nowSec() - 3600 }), shape);
+      assert.ok(out.some((l) => l.includes('[META_V1_BUTTON_REJECTED]') && l.includes('reason=expired')), `${shape}: ${out.join(' | ')}`);
+      assert.ok(!out.some((l) => l.includes('[META_INBOUND]')), `${shape}: the flow never saw it`);
+    }
   });
 
   server.closeAllConnections(); server.close();

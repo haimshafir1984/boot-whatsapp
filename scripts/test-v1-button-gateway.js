@@ -86,10 +86,21 @@ function metaButtonPayload(id, buttonId = 'option-share') {
   const message = payload.entry[0].changes[0].value.messages[0];
   message.type = 'interactive';
   delete message.text;
-  message.interactive = { type: 'button_reply', button_reply: { id: buttonId, title: 'Share' } };
+  const title = replyTitle;
+  if (replyShape === 'interactive_button') message.interactive = { type: 'button_reply', button_reply: { id: buttonId, title } };
+  else if (replyShape === 'interactive_list') message.interactive = { type: 'list_reply', list_reply: { id: buttonId, title } };
+  else if (replyShape === 'button_payload') { message.type = 'button'; message.button = { payload: buttonId, text: title }; }
+  else if (replyShape === 'button_reply') message.button_reply = { id: buttonId, title };
+  else if (replyShape === 'list_reply') message.list_reply = { id: buttonId, title };
+  else if (replyShape === 'reply') message.reply = { id: buttonId, title };
+  else throw new Error('unknown shape ' + replyShape);
   message.context = { id: 'wamid.QUESTION' };
   return payload;
 }
+// Every webhook shape getMetaInboundBody / isMetaButtonReply understand (Codex review of 33ce19b, finding 5).
+const REPLY_SHAPES = ['interactive_button', 'interactive_list', 'button_payload', 'button_reply', 'list_reply', 'reply'];
+let replyShape = 'interactive_button';
+let replyTitle = 'Share';
 
 function campaign(id, triggerPhrase) {
   return { id, name: id, triggerType: 1, triggerPhrase, suffix: '', active: true, runtimeStatus: 'active' };
@@ -252,6 +263,33 @@ const twoClients = () => [
     assert.ok(stats['client-a'].pendingCalls > 0, 'it took the normal path');
   });
   console.log('PASS 6: typed text that looks like a v1 id is not a button.');
+  for (const shape of REPLY_SHAPES) {
+    replyShape = shape;
+    await withHarness(twoClients(), async ({ adminUrl, stats }) => {
+      await sendAndWait(adminUrl, `shape-ok-${shape}`, '', () => stats['client-b'].forwardCalls > 0, true, v1('client-b'));
+      assert.equal(stats['client-b'].forwardCalls, 1, `${shape}: a valid v1 reaches its client`);
+      assert.equal(stats['client-a'].forwardCalls, 0, `${shape}: and only that client`);
+      noFanOut(stats);
+    });
+    await withHarness(twoClients(), async ({ adminUrl, stats }) => {
+      await sendAndWait(adminUrl, `shape-bad-${shape}`, '', () => false, true, v1('client-b', { exp: nowSec() - 3600 }));
+      await quiet();
+      assert.equal(stats['client-a'].forwardCalls + stats['client-b'].forwardCalls, 0, `${shape}: a bad v1 is dropped, not sent down the legacy path`);
+      noFanOut(stats);
+    });
+  }
+  replyShape = 'interactive_button';
+  console.log(`PASS 7: valid and bad v1 ids behave the same in all ${REPLY_SHAPES.length} webhook shapes.`);
+
+  // The visible title is never a token: a legacy id whose TITLE looks like a v1 id takes the legacy path untouched.
+  replyTitle = good;
+  await withHarness(twoClients(), async ({ adminUrl, stats }) => {
+    await sendAndWait(adminUrl, 'title1', '', () => stats['client-a'].forwardCalls > 0, true, 'option-share');
+    assert.equal(stats['client-b'].forwardCalls, 0, 'title text is not honoured as a token');
+    assert.equal(stats['client-a'].forwardCalls, 1, 'the legacy id decided the route');
+  });
+  replyTitle = 'Share';
+  console.log('PASS 8: a title that looks like a v1 id is not a token.');
   console.log('PASS: v1 buttons at the gateway behave as specified.');
 })().then(() => setTimeout(() => process.exit(0), 200), (error) => {
   console.error(error);

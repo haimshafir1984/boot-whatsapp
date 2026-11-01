@@ -9,7 +9,8 @@
  * A id that does not fit (BUTTON_ID_MAX_LENGTH) or a missing key is a CONFIGURATION ERROR: it is reported and thrown, never replaced by a
  * legacy id (a legacy id cannot come back later, which is the whole point of v1).
  */
-import { BUTTON_ID_MAX_LENGTH, ButtonTokenError, deriveRouteKey, issueButtonId } from './buttonToken';
+import { createHmac } from 'node:crypto';
+import { BUTTON_ID_MAX_LENGTH, ButtonTokenError, issueButtonId, parseButtonId, verifyAllSignatures } from './buttonToken';
 import { ClientButtonKeys, loadClientButtonKeys } from './buttonVerify';
 import { computeFlowRev } from './flowRev';
 
@@ -32,14 +33,53 @@ export interface ButtonIssuer {
   issue(args: { resultId: string; stepId: string; optionId: string; conversation: Record<string, unknown> | undefined; nowMs?: number }): string;
 }
 
+/** The kid that signs new buttons: META_BUTTON_ISSUE_KID, else the first one that has both a routing and a full key. */
+function resolveIssueKid(env: NodeJS.ProcessEnv, keys: ClientButtonKeys): string {
+  const wanted = String(env.META_BUTTON_ISSUE_KID ?? '').trim();
+  return wanted || [...keys.full.keys()].find((candidate) => keys.route.has(candidate)) || '';
+}
+
+/** Identifies a routing key without revealing it: the gateway derives the same key for this client and compares. */
+export function routeKeyFingerprint(routeKey: Buffer): string {
+  return createHmac('sha256', routeKey).update('readiness/v1').digest().subarray(0, 12).toString('base64url');
+}
+
+export interface ButtonReadinessReport {
+  clientId: string;
+  issueEnabled: boolean;
+  /** The kid new buttons would be signed with ('' when none can be chosen). */
+  issueKid: string;
+  /** Per usable kid (both keys present, not revoked): did a locally issued button verify, and which routing key it holds. */
+  kids: Array<{ kid: string; selfTest: boolean; routeFingerprint: string }>;
+}
+
+/**
+ * What this client tells the gateway about its button setup, independent of the issue flag (the readiness check runs BEFORE the flag is
+ * turned on). The self-test issues a button with the kid's keys and verifies it again, so a key pair that cannot work shows up here.
+ */
+export function buttonReadinessReport(env: NodeJS.ProcessEnv = process.env, keys: ClientButtonKeys = loadClientButtonKeys(env)): ButtonReadinessReport {
+  const kids: ButtonReadinessReport['kids'] = [];
+  for (const [kid, fullKey] of keys.full) {
+    const routeKey = keys.route.get(kid);
+    if (!routeKey || keys.revoked.has(kid)) continue;
+    let selfTest = false;
+    try {
+      const id = issueButtonId({ kid, clientId: keys.clientId || 'self-test', resultId: 'r', stepId: 's', optionId: 'o', rev: 'v', exp: Math.floor(Date.now() / 1000) + 60 }, { routeKey, fullKey });
+      const parsed = parseButtonId(id);
+      selfTest = parsed.ok && verifyAllSignatures(parsed.parsed, { routeKey, fullKey });
+    } catch { selfTest = false; }
+    kids.push({ kid, selfTest, routeFingerprint: routeKeyFingerprint(routeKey) });
+  }
+  return { clientId: keys.clientId, issueEnabled: buttonIssuanceEnabled(env), issueKid: resolveIssueKid(env, keys), kids };
+}
+
 /**
  * Returns undefined when issuance is off. When it is on but the setup is incomplete this THROWS ButtonConfigError: a half-configured
  * client must not silently go back to unsigned buttons.
  */
 export function createButtonIssuer(env: NodeJS.ProcessEnv = process.env, keys: ClientButtonKeys = loadClientButtonKeys(env)): ButtonIssuer | undefined {
   if (!buttonIssuanceEnabled(env)) return undefined;
-  const wanted = String(env.META_BUTTON_ISSUE_KID ?? '').trim();
-  const kid = wanted || [...keys.full.keys()].find((candidate) => keys.route.has(candidate)) || '';
+  const kid = resolveIssueKid(env, keys);
   const routeKey = keys.route.get(kid); const fullKey = keys.full.get(kid);
   if (!keys.clientId) throw new ButtonConfigError('META_BUTTON_V1_ISSUE=1 but META_BUTTON_CLIENT_ID is not set');
   if (!kid || !routeKey || !fullKey) throw new ButtonConfigError(`META_BUTTON_V1_ISSUE=1 but no usable key pair for kid "${kid}" (needs META_BUTTON_ROUTE_KEYS and META_BUTTON_FULL_KEYS)`);
@@ -59,6 +99,20 @@ export function createButtonIssuer(env: NodeJS.ProcessEnv = process.env, keys: C
       }
     },
   };
+}
+
+/**
+ * Startup check: with META_BUTTON_V1_ISSUE=1 the service must not even start half-configured (no client id, no usable key pair, revoked
+ * or failing issuing kid), instead of finding out on the first participant. No-op when issuance is off.
+ */
+export function assertButtonIssuanceReady(env: NodeJS.ProcessEnv = process.env): void {
+  if (!buttonIssuanceEnabled(env)) return;
+  const keys = loadClientButtonKeys(env);
+  createButtonIssuer(env, keys);
+  const report = buttonReadinessReport(env, keys);
+  if (!report.kids.some((entry) => entry.kid === report.issueKid && entry.selfTest)) {
+    throw new ButtonConfigError(`META_BUTTON_V1_ISSUE=1 but the self-test of issuing kid "${report.issueKid}" failed`);
+  }
 }
 
 let cached: { signature: string; issuer: ButtonIssuer | undefined } | undefined;

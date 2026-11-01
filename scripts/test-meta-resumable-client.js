@@ -109,6 +109,27 @@ let server;
     assert.ok(reopened.data.campaignResults.find((x) => x.id === r.id).supersededAt, 'saved once flush worked again');
   });
 
+  await scenario('the WRITE itself failing (not just flush): 500, the marks are taken back, the retry really writes, a fresh Storage sees it (Codex 33ce19b finding 4)', async () => {
+    const r = storage.recordCampaignTrigger(A.id, '972508880035', 'x');
+    const realWrite = fs.writeFileSync;
+    fs.writeFileSync = function patched(file, ...rest) {
+      if (String(file).endsWith('storage.json.tmp')) throw new Error('EIO: simulated write failure');
+      return realWrite.call(this, file, ...rest);
+    };
+    try {
+      const res = await post('/owner-api/meta-clear-pending', { phone: '972508880035', toClientId: 'b' });
+      assert.equal(res.status, 500); assert.notEqual((await res.json()).cancelled, true);
+      assert.equal(row(r.id).supersededAt, undefined, 'memory does not claim a replacement the disk does not have');
+      const second = await post('/owner-api/meta-clear-pending', { phone: '972508880035', toClientId: 'b' });
+      assert.equal(second.status, 500, 'still failing: still not cancelled (not a silent success on the second try)');
+    } finally { fs.writeFileSync = realWrite; }
+    const again = await post('/owner-api/meta-clear-pending', { phone: '972508880035', toClientId: 'b' });
+    assert.equal(again.status, 200); assert.equal((await again.json()).cancelled, true);
+    assert.ok(row(r.id).supersededAt);
+    const reopened = new Storage(process.env.STORAGE_PATH);
+    assert.ok(reopened.data.campaignResults.find((x) => x.id === r.id).supersededAt, 'on disk after the retry');
+  });
+
   await scenario('the same handover twice in a row and twice in parallel: both answer cancelled, the run is marked once and the mark never moves', async () => {
     const r = storage.recordCampaignTrigger(A.id, '972508880040', 'x');
     const first = await post('/owner-api/meta-clear-pending', { phone: '972508880040', toClientId: 'one' });

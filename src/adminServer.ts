@@ -5,8 +5,8 @@
  */
 
 import { decideGatewayButton, interactiveReplyId, loadGatewayButtonKeys, loadClientButtonKeys, verifyClientButton } from './buttonVerify';
-import { isV1ButtonId } from './buttonToken';
-import { buttonIssuanceEnabled, oversizedButtonOptions } from './buttonIssuer';
+import { deriveRouteKey, isV1ButtonId } from './buttonToken';
+import { ButtonReadinessReport, buttonIssuanceEnabled, buttonReadinessReport, oversizedButtonOptions, routeKeyFingerprint } from './buttonIssuer';
 import express from 'express';
 import { hasCampaignWork, stopCampaignWork } from './campaignWork';
 import ExcelJS from 'exceljs';
@@ -172,15 +172,18 @@ const fleetCapabilityWarnedAt = new Map<string, number>();
 /**
  * With META_RESUMABLE_HANDOVER=1 the gateway relies on EVERY client of the shared number to report resumable runs and to cancel durably.
  * Returns the clients that do not report both capabilities: one that answered without them, or one that predates the endpoint (404, no
- * answer recorded). A client whose live check FAILED is not listed here: the existing blind cancel (and its fail-closed retry) covers it.
+ * answer recorded). A non-target client whose live check FAILED is not listed here: the blind cancel (and its fail-closed retry) covers it.
  */
 function clientsLackingFleetCapabilities(
   clients: ManagedClient[],
   pendingByClient: Map<string, MetaPendingRouteResponse>,
   failedCheck: Map<string, ManagedClient>,
+  targetClientId: string,
 ): ManagedClient[] {
   return clients.filter((client) => {
-    if (failedCheck.has(client.id)) return false;
+    // A failed check of any OTHER client is covered by the blind cancel (which must return cancelled:true). The TARGET is never cancelled,
+    // so if its own check failed nothing confirms its capabilities: it counts as lacking and the trigger is held back.
+    if (failedCheck.has(client.id)) return client.id === targetClientId;
     const reported = pendingByClient.get(client.id)?.capabilities;
     return !Array.isArray(reported) || !CLIENT_FLEET_CAPABILITIES.every((capability) => reported.includes(capability));
   });
@@ -2171,7 +2174,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
       // the trigger is not delivered (it is retried, like any handover that cannot be confirmed). Messages that are not a trigger do not
       // need the capability and are not held up.
       if (resumableHandoverOn) {
-        const lacking = clientsLackingFleetCapabilities(clients, pendingByClient, pendingCheckFailedClients);
+        const lacking = clientsLackingFleetCapabilities(clients, pendingByClient, pendingCheckFailedClients, targetClient.id);
         if (lacking.length) {
           logFleetLackingCapabilities(lacking, clients.length);
           for (const client of lacking) {
@@ -3943,17 +3946,47 @@ export function startAdminServer(storage: Storage): import('http').Server {
         if (result.ok && result.body) answered.set(client.id, result.body); else failed.set(client.id, client);
       } catch { failed.set(client.id, client); }
     }));
-    const lacking = clientsLackingFleetCapabilities(clients, answered, new Map());
+    const lacking = clientsLackingFleetCapabilities(clients, answered, new Map(), '');
+    // The button setup of each reachable client: it must know its own id, be able to issue AND verify with the kid it signs with, and hold
+    // exactly the routing key this gateway derives for it (else its buttons would be rejected here).
+    const buttonStatus = new Map<string, ButtonReadinessReport>();
+    await Promise.all(clients.map(async (client) => {
+      if (failed.has(client.id)) return;
+      try {
+        const result = await fetchClientAsOwner<ButtonReadinessReport>(client, '/owner-api/button-v1/status', { method: 'GET', signal: AbortSignal.timeout(3_000) });
+        if (result.ok && result.body && typeof result.body === 'object' && Array.isArray(result.body.kids)) buttonStatus.set(client.id, result.body);
+      } catch { /* leaves the client without a status: not ready */ }
+    }));
     const gateway = {
       resumableHandoverOn: process.env.META_RESUMABLE_HANDOVER === '1',
       routingKeys: gatewayButtonKeys.master.size,
     };
-    const clientRows = clients.map((client) => ({
-      id: client.id, name: client.name,
-      reachable: !failed.has(client.id),
-      capabilitiesOk: answered.has(client.id) && !lacking.some((candidate) => candidate.id === client.id),
-    }));
-    const ready = gateway.resumableHandoverOn && gateway.routingKeys > 0 && clientRows.length > 0 && clientRows.every((row) => row.reachable && row.capabilitiesOk);
+    const buttonProblem = (client: ManagedClient): string => {
+      const status = buttonStatus.get(client.id);
+      if (!status) return 'no_button_status';
+      if (status.clientId !== client.id) return 'client_id_mismatch';
+      if (!status.issueKid) return 'no_issue_kid';
+      if (gatewayButtonKeys.revoked.has(status.issueKid)) return 'issue_kid_revoked_at_gateway';
+      const master = gatewayButtonKeys.master.get(status.issueKid);
+      if (!master) return 'issue_kid_unknown_at_gateway';
+      const mine = status.kids.find((entry) => entry.kid === status.issueKid);
+      if (!mine) return 'issue_kid_unusable_at_client';
+      if (!mine.selfTest) return 'self_test_failed';
+      if (mine.routeFingerprint !== routeKeyFingerprint(deriveRouteKey(master, client.id))) return 'route_key_mismatch';
+      return '';
+    };
+    const clientRows = clients.map((client) => {
+      const problem = failed.has(client.id) ? '' : buttonProblem(client);
+      return {
+        id: client.id, name: client.name,
+        reachable: !failed.has(client.id),
+        capabilitiesOk: answered.has(client.id) && !lacking.some((candidate) => candidate.id === client.id),
+        buttonsOk: !failed.has(client.id) && !problem,
+        ...(problem ? { buttonProblem: problem } : {}),
+      };
+    });
+    const ready = gateway.resumableHandoverOn && gateway.routingKeys > 0 && clientRows.length > 0
+      && clientRows.every((row) => row.reachable && row.capabilitiesOk && row.buttonsOk);
     res.json({ ready, gateway, clients: clientRows });
   });
 
@@ -4389,6 +4422,11 @@ export function startAdminServer(storage: Storage): import('http').Server {
       routes: buildMetaGatewayRoutes(storage),
       pendingRoute: localMetaPendingRoute(storage, phone),
     } satisfies MetaRoutingSnapshotResponse);
+  });
+
+  // What this client says about its signed-button setup (no secrets): the gateway's readiness check compares it with its own keys.
+  app.get('/owner-api/button-v1/status', (_req, res) => {
+    res.json(buttonReadinessReport());
   });
 
   app.post('/owner-api/meta-pending-route', (req, res) => {

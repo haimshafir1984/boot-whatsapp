@@ -19,6 +19,7 @@ import { createShutdownHandler } from './shutdown';
 import { conversationState } from './conversationState';
 import { scheduleRestoredConversationTimeout } from './messageFlow';
 import { botState } from './botState';
+import { assertButtonIssuanceReady } from './buttonIssuer';
 import { TwilioProvider } from './providers/TwilioProvider';
 import { MetaCloudProvider, prewarmMetaMedia } from './providers/MetaCloudProvider';
 import { WhatsAppTransport } from './types/whatsapp';
@@ -85,6 +86,7 @@ function restoreConversationState(storage: Storage): void {
 }
 async function main(): Promise<void> {
   installSecretLogFilter();
+  assertButtonIssuanceReady();
   console.log('─'.repeat(50));
   console.log('  WhatsApp Status Bot – starting up…');
   console.log('─'.repeat(50));

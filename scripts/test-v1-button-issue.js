@@ -184,6 +184,42 @@ for (const level of ['log', 'warn', 'error']) { const o = console[level].bind(co
     assert.ok(!older.some((l) => l.includes('[META_INBOUND]')), 'an older button is not run');
   });
 
+  await scenario('on: a score question without stored options keeps legacy ids (its 1/2/3 only exist in memory), before and after a restart', async () => {
+    setIssue(true);
+    const transport = new FakeTransport();
+    const c = campaignFor([{ id: 'sq', kind: 'score_question', presentation: 'buttons', text: 'Rate us', timeoutMinutes: 30, nextStepId: 'end' }, { id: 'end', kind: 'message', text: 'THE END' }]);
+    await startRun(c, transport);
+    const message = transport.sent.find((m) => m.type === 'buttons');
+    assert.ok(message, 'the score question was sent as buttons');
+    assert.deepEqual(message.buttons.map((b) => b.id), ['sq-1', 'sq-2', 'sq-3'], 'legacy ids, not v1');
+    // a second send of the same question (the in-memory options now exist on the shared step) is still legacy
+    const again = new FakeTransport(); await startRun(c, again);
+    assert.deepEqual(again.sent.find((m) => m.type === 'buttons').buttons.map((b) => b.id), ['sq-1', 'sq-2', 'sq-3']);
+    await storage.flush();
+    const reopened = new Storage(process.env.STORAGE_PATH);
+    const stored = reopened.getCampaigns().find((x) => x.id === c.id).conversation.decisionFlow[0];
+    const keys = loadClientButtonKeys(process.env);
+    for (const id of message.buttons.map((b) => b.id)) {
+      assert.ok(!id.startsWith('v1.'));
+      assert.ok(!stored.options?.some((o) => o.id.startsWith('v1.')), 'no v1 id ever refers to options that were not stored');
+    }
+    assert.equal(typeof keys.clientId, 'string');
+  });
+
+  await scenario('startup check: flag off is silent; flag on with a missing id, missing key, revoked kid or unknown kid refuses to start; a complete setup passes', async () => {
+    const { assertButtonIssuanceReady } = require('../dist/buttonIssuer');
+    const env = (over) => ({ ...KEYS, META_BUTTON_V1_ISSUE: '1', ...over });
+    assertButtonIssuanceReady({});
+    assertButtonIssuanceReady(env({}));
+    for (const [label, e] of Object.entries({
+      'no client id': env({ META_BUTTON_CLIENT_ID: '' }),
+      'no full key': env({ META_BUTTON_FULL_KEYS: '' }),
+      'no route key': env({ META_BUTTON_ROUTE_KEYS: '' }),
+      'revoked kid': env({ META_BUTTON_REVOKED_KIDS: 'k1' }),
+      'unknown issue kid': env({ META_BUTTON_ISSUE_KID: 'k9' }),
+    })) assert.throws(() => assertButtonIssuanceReady(e), ButtonConfigError, label);
+  });
+
   server.closeAllConnections(); server.close();
   fs.rmSync(root, { recursive: true, force: true });
   let failed = 0;

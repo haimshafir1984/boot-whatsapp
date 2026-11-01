@@ -24,6 +24,16 @@ Object.assign(process.env, {
   BOT_REPLY_DELAY_MS: '0',
 });
 
+// What a correctly configured client reports (real code from dist, keys as the gateway derives them from its master key k1).
+function goodStatus(id, { masterByte = 7, fullByte = 3, kid = 'k1', issueKid, clientId = id, revoked = [] } = {}) {
+  const { buttonReadinessReport } = require('../dist/buttonIssuer');
+  const { deriveRouteKey } = require('../dist/buttonToken');
+  const route = new Map([[kid, deriveRouteKey(Buffer.alloc(32, masterByte), id)]]);
+  const full = new Map([[kid, Buffer.alloc(32, fullByte)]]);
+  const env = issueKid ? { META_BUTTON_ISSUE_KID: issueKid } : {};
+  return buttonReadinessReport(env, { route, full, revoked: new Set(revoked), clientId });
+}
+
 function json(res, status, body) {
   res.writeHead(status, { 'content-type': 'application/json' });
   res.end(JSON.stringify(body));
@@ -121,6 +131,10 @@ async function withHarness(clientDefs, run) {
         await readBody(req);
         if (def.clearStatus && def.clearStatus !== 200) return json(res, def.clearStatus, {});
         return json(res, 200, def.clearBody ?? { removed: 0, cancelled: true });
+      }
+      if (req.url === '/owner-api/button-v1/status') {
+        if (def.statusCode && def.statusCode !== 200) return json(res, def.statusCode, {});
+        return json(res, 200, def.buttonStatus ?? goodStatus(def.id));
       }
       if (req.url === '/internal/meta/whatsapp') {
         stats[def.id].forwardCalls += 1;
@@ -233,6 +247,26 @@ const setGateway = ({ handover = true, keys = true } = {}) => {
     assert.ok(res.status === 401 || res.status === 302 || res.status === 403, `status ${res.status}`);
   });
   console.log('PASS 6: not available without the owner session.');
+
+  setGateway();
+  const problem = async (defs, id) => {
+    let row; await withHarness(defs, async ({ adminUrl }) => { const r = await readiness(adminUrl); assert.equal(r.ready, false, JSON.stringify(r)); row = r.clients.find((c) => c.id === id); });
+    return row;
+  };
+  const withStatus = (buttonStatus, extra = {}) => [{ id: 'a', pending: ok }, { id: 'x', pending: ok, buttonStatus, ...extra }];
+  assert.equal((await problem(withStatus(undefined, { statusCode: 404 }), 'x')).buttonProblem, 'no_button_status');
+  assert.equal((await problem(withStatus(goodStatus('x', { clientId: '' })), 'x')).buttonProblem, 'client_id_mismatch', 'client does not know its id');
+  assert.equal((await problem(withStatus(goodStatus('x', { clientId: 'other' })), 'x')).buttonProblem, 'client_id_mismatch', 'client thinks it is another client');
+  assert.equal((await problem(withStatus(goodStatus('x', { masterByte: 9 })), 'x')).buttonProblem, 'route_key_mismatch', 'routing key not the one the gateway derives');
+  assert.equal((await problem(withStatus(goodStatus('x', { kid: 'k2' })), 'x')).buttonProblem, 'issue_kid_unknown_at_gateway', 'kid the gateway does not hold');
+  assert.equal((await problem(withStatus(goodStatus('x', { revoked: ['k1'] })), 'x')).buttonProblem, 'issue_kid_unusable_at_client', 'the signing key is revoked at the client');
+  const broken = goodStatus('x'); broken.kids[0].selfTest = false;
+  assert.equal((await problem(withStatus(broken), 'x')).buttonProblem, 'self_test_failed');
+  const noKey = goodStatus('x'); noKey.kids = [];
+  assert.equal((await problem(withStatus(noKey), 'x')).buttonProblem, 'issue_kid_unusable_at_client');
+  const good = await problem(withStatus(goodStatus('x', { masterByte: 9 })), 'a');
+  assert.equal(good.buttonsOk, true, 'the healthy client is not blamed');
+  console.log('PASS 7: ready needs every client to know its id, hold a working key pair and the routing key the gateway derives for it.');
   console.log('PASS: v1 readiness check behaves as specified.');
 })().then(() => setTimeout(() => process.exit(0), 200), (error) => {
   console.error(error);

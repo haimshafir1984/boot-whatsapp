@@ -269,6 +269,27 @@ const capable = (extra = {}) => ({ pending: false, activeWork: false, resumable:
   });
   console.log('PASS 6d: flag on - a failed live check is handled by the existing blind cancel, not by the capability rule.');
 
+  // 6e. flag ON and the TARGET's own live check fails: nothing confirms its capabilities and the target is never cancelled, so the trigger
+  // must be held back (Codex review of 33ce19b, finding 1). Once the target answers with full capabilities it goes through.
+  warnings.length = 0;
+  const flakyTarget = { id: 'target-e', routes: [campaign('camp-b', 'handover trigger six e')], pendingStatus: 500 };
+  await withHarness([
+    flakyTarget,
+    { id: 'idle-a', routes: [campaign('camp-a', 'another trigger')], pending: capable(), clearBody: { removed: 0, cancelled: true } },
+  ], async ({ adminUrl, stats }) => {
+    await sendAndWait(adminUrl, 'h6e', 'handover trigger six e', () => stats['target-e'].pendingCalls >= 2);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.equal(stats['target-e'].forwardCalls, 0, 'target whose check failed: trigger not delivered');
+    assert.equal(stats['target-e'].clearCalls, 0, 'the target is never cancelled');
+    assert.equal(stats['idle-a'].clearCalls, 0, 'and no partial handover happens');
+    assert.ok(warnings.some((w) => w.includes('FLEET_INCOMPLETE') && w.includes('target-e')), 'the gateway says the target is the one missing');
+    flakyTarget.pendingStatus = 200; flakyTarget.pending = capable();
+    const deadline = Date.now() + 8_000;
+    while (Date.now() < deadline && stats['target-e'].forwardCalls === 0) await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(stats['target-e'].forwardCalls, 1, 'delivered by the retry once the target reports full capabilities');
+  });
+  console.log('PASS 6e: flag on - a target whose own check failed holds the trigger back until it reports its capabilities.');
+
   // 7. flag OFF again: no capability warning at all
   delete process.env.META_RESUMABLE_HANDOVER;
   warnings.length = 0;

@@ -3483,6 +3483,7 @@ async function sendDecisionStepInner(
 
   if (step.kind === 'score_question' && !step.options?.length) {
     step.options = buildDefaultScoreOptions(step.id);
+    runtimeGeneratedOptionLists.add(step.options);
   }
 
   const presentation = step.presentation ?? 'buttons';
@@ -4221,6 +4222,7 @@ function buttonIdForOption(storage: Storage, campaignId: string | undefined, cam
     const campaign = storage.getCampaigns().find((candidate) => candidate.id === campaignId);
     const storedStep = campaign?.conversation?.decisionFlow?.find((candidate) => candidate.id === step.id);
     if (!campaign || !storedStep?.options?.some((candidate) => candidate.id === option.id)) return option.id;
+    if (runtimeGeneratedOptionLists.has(storedStep.options) || (step.options && runtimeGeneratedOptionLists.has(step.options))) return option.id;
     return issuer.issue({ resultId: campaignResultId, stepId: step.id, optionId: option.id, conversation: campaign.conversation as unknown as Record<string, unknown> });
   } catch (err) {
     if (err instanceof ButtonConfigError) {
@@ -4277,6 +4279,12 @@ function normalizeDecisionAnswer(answer: string): string {
     .replace(/\s+/g, ' ')
     .trim();
 }
+
+/**
+ * Option lists created at send time (a score question saved without options). The step object they were put on can be the very one the
+ * stored campaign hands out, so they look stored but are not: after a restart they are gone. They never get a signed button id.
+ */
+const runtimeGeneratedOptionLists = new WeakSet<DecisionFlowOption[]>();
 
 function buildDefaultScoreOptions(stepId: string): DecisionFlowOption[] {
   return [1, 2, 3].map((score) => ({

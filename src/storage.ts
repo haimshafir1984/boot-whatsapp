@@ -2187,14 +2187,29 @@ export class Storage {
    */
   async supersedeRunsFromOutside(phoneKey: string, reason: string): Promise<number> {
     const count = this.supersedeRunsFromOutsideNow(phoneKey, reason);
-    if (count) await this.flush();
+    // Flush even when nothing changed this time: with PostgreSQL an earlier call may have marked the runs and failed to save, and the
+    // backend keeps that write queued. "cancelled" must not be answered while it is still unsaved (flush rethrows the failure).
+    if (count || this.backend) await this.flush();
     return count;
   }
 
-  /** Same marking without the flush, for callers that already flush right after (the handover does, inside its sender lock). */
+  /**
+   * Same marking without the flush, for callers that already flush right after (the handover does, inside its sender lock).
+   * If the write itself throws (JSON file), the marks are taken back: memory must never say "replaced" while the disk still says otherwise,
+   * or a retry would find nothing to save and answer "cancelled" for a run that comes back after a restart.
+   */
   supersedeRunsFromOutsideNow(phoneKey: string, reason: string): number {
     const changed = this.markRunsSuperseded(phoneKey, `handover:${reason}`, new Date().toISOString());
-    if (changed.length) this.persist(['campaignResults'], { campaignResults: changed });
+    if (!changed.length) return 0;
+    try {
+      this.persist(['campaignResults'], { campaignResults: changed });
+    } catch (err) {
+      const touched = new Set(changed);
+      for (const item of this.getResultsForPhoneKey(phoneKey)) {
+        if (touched.has(item.id)) { delete item.supersededAt; delete item.supersededBy; }
+      }
+      throw err;
+    }
     return changed.length;
   }
 
