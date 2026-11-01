@@ -167,22 +167,30 @@ export const CLIENT_FLEET_CAPABILITIES = ['resumable-v1', 'durable-supersede-v1'
 
 const fleetCapabilityWarnedAt = new Map<string, number>();
 /**
- * With META_RESUMABLE_HANDOVER=1 the gateway relies on every client of the shared number to report resumable runs and to cancel durably.
- * Says so (once a minute at most for the same set of clients) when some client of this message's scan does not report both capabilities -
- * a client that failed its live check counts as lacking them.
+ * With META_RESUMABLE_HANDOVER=1 the gateway relies on EVERY client of the shared number to report resumable runs and to cancel durably.
+ * Returns the clients that do not report both capabilities: one that answered without them, or one that predates the endpoint (404, no
+ * answer recorded). A client whose live check FAILED is not listed here: the existing blind cancel (and its fail-closed retry) covers it.
  */
-function warnIfFleetLacksCapabilities(clients: ManagedClient[], pendingByClient: Map<string, MetaPendingRouteResponse>): void {
-  const lacking = clients.filter((client) => {
+function clientsLackingFleetCapabilities(
+  clients: ManagedClient[],
+  pendingByClient: Map<string, MetaPendingRouteResponse>,
+  failedCheck: Map<string, ManagedClient>,
+): ManagedClient[] {
+  return clients.filter((client) => {
+    if (failedCheck.has(client.id)) return false;
     const reported = pendingByClient.get(client.id)?.capabilities;
     return !Array.isArray(reported) || !CLIENT_FLEET_CAPABILITIES.every((capability) => reported.includes(capability));
   });
-  if (!lacking.length) return;
+}
+
+/** Log line for the above, at most once a minute for the same set of clients. */
+function logFleetLackingCapabilities(lacking: ManagedClient[], total: number): void {
   const now = Date.now();
   const ids = lacking.map((client) => client.id).sort().join(',');
   if (now - (fleetCapabilityWarnedAt.get(ids) ?? 0) < 60_000) return;
   fleetCapabilityWarnedAt.set(ids, now);
   if (fleetCapabilityWarnedAt.size > 50) fleetCapabilityWarnedAt.delete(fleetCapabilityWarnedAt.keys().next().value as string);
-  console.warn('[META_RESUMABLE_HANDOVER_FLEET_INCOMPLETE]', `lacking=${lacking.length}/${clients.length}`, ids);
+  console.warn('[META_RESUMABLE_HANDOVER_FLEET_INCOMPLETE]', `lacking=${lacking.length}/${total}`, ids);
 }
 
 interface MetaRoutingSnapshotResponse {
@@ -2093,8 +2101,24 @@ export function startAdminServer(storage: Storage): import('http').Server {
     // conversation on client A can never intercept a reply meant for the
     // brand-new conversation on client B.
     const resumableHandoverOn = process.env.META_RESUMABLE_HANDOVER === '1';
-    if (resumableHandoverOn) warnIfFleetLacksCapabilities(clients, pendingByClient);
     if (targetClient) {
+      // A fresh trigger moves the sender to another client. With the flag on that is only safe when EVERY client of the number can say that
+      // it still holds a run of hers and can cancel it durably; otherwise an old run could stay eligible for resumption. Fail closed:
+      // the trigger is not delivered (it is retried, like any handover that cannot be confirmed). Messages that are not a trigger do not
+      // need the capability and are not held up.
+      if (resumableHandoverOn) {
+        const lacking = clientsLackingFleetCapabilities(clients, pendingByClient, pendingCheckFailedClients);
+        if (lacking.length) {
+          logFleetLackingCapabilities(lacking, clients.length);
+          for (const client of lacking) {
+            alertClientBlockingPeers(client, 'resumable handover capabilities (upgrade this client before turning META_RESUMABLE_HANDOVER on)', {
+              blockedTargetClientId: targetClient.id,
+              blockedTargetClientName: targetClient.name,
+            });
+          }
+          throw new Error(`Resumable handover needs every client of this number to report its capabilities; lacking: ${lacking.map((client) => client.id).join(',')}`);
+        }
+      }
       const knownStaleClients = clients.filter(
         // Only clients that report sender-owned work need an active handover.
         // During a mixed-version deploy, older idle clients still return 200
@@ -4308,6 +4332,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
     // already in flight. A second clear removes state created while those calls
     // settled. Do not let the new client start before this boundary is durable.
     let removed = conversationState.removeByPhone(phone);
+    try {
     await stopCampaignWork(phone, async () => {
       removed += conversationState.removeByPhone(phone);
       // Her runs here are replaced by the one that is starting elsewhere. Marked inside the same lock and saved by the flush below,
@@ -4319,6 +4344,12 @@ export function startAdminServer(storage: Storage): import('http').Server {
       storage.clearServiceBotSessionForPhone(phone);
       await storage.flush();
     });
+    } catch (err) {
+      // The boundary is not durable: never answer `cancelled`. The gateway keeps the trigger back and retries.
+      console.error('[META_CLEAR_PENDING_FAILED]', phone, err);
+      res.status(500).json({ error: 'Could not make the cancellation durable', cancelled: false });
+      return;
+    }
     res.json({ removed, cancelled: true });
   });
 

@@ -92,6 +92,71 @@ let server;
     assert.equal(res.status, 200); assert.equal((await res.json()).cancelled, true);
   });
 
+  await scenario('a save that fails is never answered as cancelled (500, cancelled:false); once saving works again the same call succeeds', async () => {
+    const r = storage.recordCampaignTrigger(A.id, '972508880030', 'x');
+    const realFlush = storage.flush.bind(storage);
+    storage.flush = async () => { throw new Error('disk full'); };
+    try {
+      const res = await post('/owner-api/meta-clear-pending', { phone: '972508880030', toClientId: 'b' });
+      assert.equal(res.status, 500);
+      const body = await res.json();
+      assert.notEqual(body.cancelled, true, 'the gateway must keep the trigger back');
+    } finally { storage.flush = realFlush; }
+    const again = await post('/owner-api/meta-clear-pending', { phone: '972508880030', toClientId: 'b' });
+    assert.equal(again.status, 200); assert.equal((await again.json()).cancelled, true);
+    assert.ok(row(r.id).supersededAt);
+    const reopened = new Storage(process.env.STORAGE_PATH);
+    assert.ok(reopened.data.campaignResults.find((x) => x.id === r.id).supersededAt, 'saved once flush worked again');
+  });
+
+  await scenario('the same handover twice in a row and twice in parallel: both answer cancelled, the run is marked once and the mark never moves', async () => {
+    const r = storage.recordCampaignTrigger(A.id, '972508880040', 'x');
+    const first = await post('/owner-api/meta-clear-pending', { phone: '972508880040', toClientId: 'one' });
+    assert.equal((await first.json()).cancelled, true);
+    const stamp = row(r.id).supersededAt; const by = row(r.id).supersededBy;
+    const second = await post('/owner-api/meta-clear-pending', { phone: '972508880040', toClientId: 'two' });
+    assert.equal(second.status, 200); assert.equal((await second.json()).cancelled, true);
+    assert.equal(row(r.id).supersededAt, stamp); assert.equal(row(r.id).supersededBy, by, 'the first mark stays');
+    const q = storage.recordCampaignTrigger(A.id, '972508880041', 'y');
+    const both = await Promise.all([post('/owner-api/meta-clear-pending', { phone: '972508880041', toClientId: 'p1' }), post('/owner-api/meta-clear-pending', { phone: '972508880041', toClientId: 'p2' })]);
+    for (const res of both) { assert.equal(res.status, 200); assert.equal((await res.json()).cancelled, true); }
+    assert.match(row(q.id).supersededBy, /^handover:to-p[12]$/);
+    assert.equal(storage.data.campaignResults.filter((x) => x.phone === '972508880041' && x.supersededAt).length, 1);
+  });
+
+  await scenario('a new trigger racing a handover of the same sender: whichever order, at most one run is left unreplaced and it is the newest', async () => {
+    for (let round = 0; round < 25; round += 1) {
+      const phone = `97250888${String(5000 + round)}`;
+      const old = storage.recordCampaignTrigger(A.id, phone, 'old');
+      const [, fresh] = await Promise.all([post('/owner-api/meta-clear-pending', { phone, toClientId: 'racer' }), Promise.resolve().then(() => storage.recordCampaignTrigger(B.id, phone, 'new'))]);
+      const mine = storage.data.campaignResults.filter((x) => x.phone === phone);
+      const live = mine.filter((x) => !x.supersededAt);
+      assert.ok(live.length <= 1, `round ${round}: ${live.length} runs left unreplaced`);
+      if (live.length === 1) assert.equal(live[0].id, fresh.id, `round ${round}: the one left is the newest`);
+      assert.ok(row(old.id).supersededAt, `round ${round}: the older run is replaced`);
+    }
+  });
+
+  await scenario('restart after a run was marked replaced and before any new message: still replaced, not resumable', async () => {
+    const { hasResumableRun } = require('../dist/messageFlow');
+    const r = storage.recordCampaignTrigger(A.id, '972508880060', 'x');
+    assert.equal(hasResumableRun(storage, '972508880060'), true);
+    await post('/owner-api/meta-clear-pending', { phone: '972508880060', toClientId: 'b' });
+    const restarted = new Storage(process.env.STORAGE_PATH);                     // a fresh process: nothing in memory but what was saved
+    assert.equal(restarted.getCurrentRun('972508880060'), undefined);
+    assert.equal(hasResumableRun(restarted, '972508880060'), false);
+    assert.equal(restarted.getLatestRun('972508880060').id, r.id);
+  });
+
+  await scenario('the 24 hour limit of "resumable" is exact: a few seconds inside is resumable, a few seconds outside is not', async () => {
+    const { hasResumableRun } = require('../dist/messageFlow');
+    const r = storage.recordCampaignTrigger(A.id, '972508880070', 'x');
+    const setAge = (ms) => { const iso = new Date(Date.now() - ms).toISOString(); row(r.id).lastEventAt = iso; row(r.id).updatedAt = iso; };
+    setAge(24 * 3600_000 - 5_000); assert.equal(hasResumableRun(storage, '972508880070'), true);
+    setAge(24 * 3600_000 + 5_000); assert.equal(hasResumableRun(storage, '972508880070'), false);
+    setAge(0); assert.equal(hasResumableRun(storage, '972508880070'), true);
+  });
+
   server.closeAllConnections(); server.close();
   fs.rmSync(root, { recursive: true, force: true });
   let failed = 0;

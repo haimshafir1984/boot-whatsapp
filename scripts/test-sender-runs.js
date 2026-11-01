@@ -24,6 +24,7 @@ const campaignInput = (name, phrase) => ({ name, triggerType: 1, triggerPhrase: 
   conversation: { askNameEnabled: false, nameTimeoutMinutes: 5, askNameText: '', replyText: '', followupMessages: [], decisionFlow: [{ id: 'm1', kind: 'message', text: 'M' }] } });
 const digits = (p) => String(p).replace(/\D/g, '');
 
+let pgSkipped = false;
 (async () => {
   if (process.argv.includes('--pg-child')) {
     const { createStorage } = require('../dist/storageFactory');
@@ -105,7 +106,10 @@ const digits = (p) => String(p).replace(/\D/g, '');
 
   await scenario('PostgreSQL: the marks are saved with the result rows and read back (child process, local test database only)', async () => {
     const url = process.env.TEST_DATABASE_URL || '';
-    if (!url || !/flowsbiz_test/.test(url)) { console.log('      SKIPPED: TEST_DATABASE_URL (local flowsbiz_test database) is not set in this environment'); return; }
+    if (!url || !/flowsbiz_test/.test(url)) {
+      if (process.env.REQUIRE_POSTGRES === '1') throw new Error('REQUIRE_POSTGRES=1 but TEST_DATABASE_URL (local flowsbiz_test database) is not set');
+      pgSkipped = true; return;
+    }
     const { spawnSync } = require('node:child_process');
     const child = spawnSync(process.execPath, [__filename, '--pg-child'], { env: { ...process.env, DATABASE_URL: url, STORAGE_PATH: path.join(dir, 'pg-unused.json') }, encoding: 'utf8', timeout: 120000 });
     assert.equal(child.status, 0, `child failed: ${String(child.stdout).slice(-500)} ${String(child.stderr).slice(-500)}`);
@@ -114,9 +118,13 @@ const digits = (p) => String(p).replace(/\D/g, '');
   });
 
   fs.rmSync(dir, { recursive: true, force: true });
+  if (pgSkipped) { const e = results.find((r) => /^PostgreSQL/.test(r[0])); if (e) { e[1] = 'SKIP'; e[2] = 'NOT RUN: TEST_DATABASE_URL (local flowsbiz_test database) is not set; PostgreSQL durability is NOT verified'; } }
   let failed = 0;
-  for (const [name, status, detail] of results) { console.log(`${status}  ${name}${detail ? '\n      ' + detail : ''}`); if (status !== 'PASS') failed += 1; }
-  console.log(failed ? `\n${failed} scenario(s) FAILED` : `\nSender run tests passed (${results.length} scenarios).`);
-  process.exitCode = failed ? 1 : 0;
-  setTimeout(() => process.exit(failed ? 1 : 0), 300);
+  for (const [name, status, detail] of results) { console.log(`${status}  ${name}${detail ? '\n      ' + detail : ''}`); if (status !== 'PASS' && status !== 'SKIP') failed += 1; }
+  if (failed) console.log(`\n${failed} scenario(s) FAILED`);
+  else if (pgSkipped) console.log('\nPostgreSQL part SKIPPED: durability is NOT verified (all other scenarios passed). Exit 3 = BLOCKED.');
+  else console.log(`\nSender run tests passed (${results.length} scenarios).`);
+  const code = failed ? 1 : (pgSkipped ? 3 : 0);
+  process.exitCode = code;
+  setTimeout(() => process.exit(code), 300);
 })().catch((e) => { console.error(e); process.exit(1); });

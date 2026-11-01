@@ -454,11 +454,12 @@ const RESTORED_TIMEOUT_RETRY_MS = 60_000;
 
 /**
  * After a restart every conversation whose timer expired while the process was down (or expires within moments) would fire at the same
- * instant. Seen on 17.10: 465 restored conversations ran together and Meta answered a rate limit two minutes later. Such timers are spread
- * over a random window instead (FLOW_RESTORE_JITTER_MS, default 30 s, 0 = off; off by default under NODE_ENV=test so existing timer tests stay
- * immediate); a timer that is far from due is left alone.
+ * instant. Seen on 17.10: 465 restored conversations ran together and Meta answered a rate limit two minutes later. With
+ * FLOW_RESTORE_JITTER_MS set (milliseconds), such timers are spread over a random window instead; a timer that is far from due is left alone.
+ * OFF unless set: it changes when restored name / pre-name / contact-card / decision / wait-reply timers fire, so it is enabled on purpose,
+ * after measuring, not as a side effect of another change.
  */
-export function restoreJitterMs(remainingMs: number, windowMs = Number(process.env.FLOW_RESTORE_JITTER_MS ?? (process.env.NODE_ENV === 'test' ? 0 : 30_000)), random: () => number = Math.random): number {
+export function restoreJitterMs(remainingMs: number, windowMs = Number(process.env.FLOW_RESTORE_JITTER_MS ?? 0), random: () => number = Math.random): number {
   const window = Number.isFinite(windowMs) && windowMs > 0 ? Math.floor(windowMs) : 0;
   if (!window || remainingMs > window) return 0;
   return Math.floor(random() * window);

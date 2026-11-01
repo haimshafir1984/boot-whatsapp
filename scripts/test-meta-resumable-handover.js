@@ -64,7 +64,7 @@ function clientRecord(id, managementUrl) {
   };
 }
 
-function metaPayload(id, body) {
+function metaPayload(id, body, from = '15551234567') {
   return {
     object: 'whatsapp_business_account',
     entry: [{
@@ -72,8 +72,8 @@ function metaPayload(id, body) {
         field: 'messages',
         value: {
           metadata: { phone_number_id: 'shared-phone-id', display_phone_number: '15550001111' },
-          contacts: [{ wa_id: '15551234567', profile: { name: 'Resumable handover' } }],
-          messages: [{ id, from: '15551234567', timestamp: String(Math.floor(Date.now() / 1000)), type: 'text', text: { body } }],
+          contacts: [{ wa_id: from, profile: { name: 'Resumable handover' } }],
+          messages: [{ id, from, timestamp: String(Math.floor(Date.now() / 1000)), type: 'text', text: { body } }],
         },
       }],
     }],
@@ -145,11 +145,12 @@ async function withHarness(clientDefs, run) {
   }
 }
 
+let senderSeq = 0;
 async function sendAndWait(adminUrl, messageId, body, until) {
   const response = await fetch(`${adminUrl}/webhooks/meta/whatsapp`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(metaPayload(messageId, body)),
+    body: JSON.stringify(metaPayload(messageId, body, `1555123${String(4000 + (senderSeq += 1))}`)),
   });
   assert.equal(response.status, 200);
   const deadline = Date.now() + 2_000;
@@ -160,7 +161,7 @@ async function sendAndWait(adminUrl, messageId, body, until) {
 
 const FULL = ['resumable-v1', 'durable-supersede-v1'];
 const resumableRun = (extra = {}) => ({ pending: false, activeWork: false, resumable: true, capabilities: FULL, ...extra });
-const capable = () => ({ pending: false, activeWork: false, resumable: false, capabilities: FULL });
+const capable = (extra = {}) => ({ pending: false, activeWork: false, resumable: false, capabilities: FULL, ...extra });
 
 (async () => {
   const savedWarn = console.warn; const warnings = [];
@@ -223,17 +224,50 @@ const capable = () => ({ pending: false, activeWork: false, resumable: false, ca
   });
   console.log('PASS 5: flag on - one cancel per client.');
 
-  // 6. flag ON and a client that does not report the capabilities (an old client): said so, delivery is not blocked in this step
+  // 6. flag ON and a client that does not report the capabilities (an old client): the trigger is NOT delivered (fail closed), and it says why
   warnings.length = 0;
   await withHarness([
     { id: 'target-b', routes: [campaign('camp-b', 'handover trigger six')], pending: capable() },
     { id: 'old-version', routes: [campaign('camp-a', 'another trigger')], pending: { pending: false, activeWork: false } },
   ], async ({ adminUrl, stats }) => {
-    await sendAndWait(adminUrl, 'h6', 'handover trigger six', () => stats['target-b'].forwardCalls > 0);
-    assert.equal(stats['target-b'].forwardCalls, 1);
+    await sendAndWait(adminUrl, 'h6', 'handover trigger six', () => stats['old-version'].pendingCalls > 0);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.equal(stats['target-b'].forwardCalls, 0, 'a client without the capabilities stops the trigger');
   });
-  assert.ok(warnings.some((w) => w.includes('[META_RESUMABLE_HANDOVER_FLEET_INCOMPLETE]') && w.includes('old-version')), 'the gateway says the fleet is incomplete');
-  console.log('PASS 6: flag on - a client without the capabilities is reported.');
+  assert.ok(warnings.some((w) => w.includes('[META_RESUMABLE_HANDOVER_FLEET_INCOMPLETE]') && w.includes('old-version')), 'and the gateway says which client lacks them');
+  console.log('PASS 6: flag on - a client without the capabilities stops the trigger (fail closed).');
+
+  // 6b. a client that predates the endpoint altogether (404) also stops it
+  await withHarness([
+    { id: 'target-b', routes: [campaign('camp-b', 'handover trigger six b')], pending: capable() },
+    { id: 'ancient', routes: [campaign('camp-a', 'another trigger')], pendingStatus: 404 },
+  ], async ({ adminUrl, stats }) => {
+    await sendAndWait(adminUrl, 'h6b', 'handover trigger six b', () => stats['ancient'].pendingCalls > 0);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.equal(stats['target-b'].forwardCalls, 0, 'a client with no pending-route endpoint stops the trigger');
+  });
+  console.log('PASS 6b: flag on - a client that predates the endpoint stops the trigger.');
+
+  // 6c. the same incomplete fleet does NOT hold up a message that is not a trigger (a follow-up reaching the client that owns the conversation)
+  await withHarness([
+    { id: 'owner-c', routes: [campaign('camp-c', 'follow trigger')], pending: capable({ pending: true, campaignId: 'camp-c' }) },
+    { id: 'old-version', routes: [campaign('camp-a', 'another trigger')], pending: { pending: false, activeWork: false } },
+  ], async ({ adminUrl, stats }) => {
+    await sendAndWait(adminUrl, 'h6c', 'a plain follow up, no trigger', () => stats['owner-c'].forwardCalls > 0);
+    assert.equal(stats['owner-c'].forwardCalls, 1, 'follow-ups are not blocked by an incomplete fleet');
+  });
+  console.log('PASS 6c: flag on - an incomplete fleet does not hold up messages that are not triggers.');
+
+  // 6d. flag ON, a client whose live check FAILED is not counted as lacking (the existing blind cancel and its retry handle it); the others are complete
+  await withHarness([
+    { id: 'target-b', routes: [campaign('camp-b', 'handover trigger six d')], pending: capable() },
+    { id: 'down-a', routes: [campaign('camp-a', 'another trigger')], pendingStatus: 500, clearBody: { removed: 0, cancelled: true } },
+  ], async ({ adminUrl, stats }) => {
+    await sendAndWait(adminUrl, 'h6d', 'handover trigger six d', () => stats['target-b'].forwardCalls > 0);
+    assert.equal(stats['target-b'].forwardCalls, 1, 'delivered after the blind cancel of the client whose check failed was confirmed');
+    assert.ok(stats['down-a'].clearCalls >= 1);
+  });
+  console.log('PASS 6d: flag on - a failed live check is handled by the existing blind cancel, not by the capability rule.');
 
   // 7. flag OFF again: no capability warning at all
   delete process.env.META_RESUMABLE_HANDOVER;
@@ -244,6 +278,7 @@ const capable = () => ({ pending: false, activeWork: false, resumable: false, ca
     { id: 'old-version', routes: [campaign('camp-a', 'another trigger')], pending: { pending: false, activeWork: false } },
   ], async ({ adminUrl, stats }) => {
     await sendAndWait(adminUrl, 'h7', 'handover trigger seven', () => stats['target-b'].forwardCalls > 0);
+    assert.equal(stats['target-b'].forwardCalls, 1, 'flag off: an old client blocks nothing');
   });
   assert.ok(!warnings.some((w) => w.includes('FLEET_INCOMPLETE')), 'flag off: silent');
   console.log('PASS 7: flag off - no capability noise.');
