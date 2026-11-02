@@ -5,9 +5,9 @@ import { runCampaignWork, guardCampaignTransport, CampaignWorkCancelledError } f
 import { Storage, OutboxMessage } from './storage';
 import { WhatsAppTransport } from './types/whatsapp';
 import { isUncertainSendError } from './sendOutcome';
-import { withReplayOf, FlowUnitDescriptor } from './flowUnit';
+import { withReplayOf, runAsJump, FlowUnitDescriptor } from './flowUnit';
 import { replayServiceBotUnit } from './serviceBot';
-import { completionFromSettings, handleDecisionReply, handleDecisionTimeout, handleWaitReply, queueAndReply, replyBehaviorFromSettings, runSerializedForSender, sendDecisionStep, withDurableMessaging, replayHeldMessages } from './messageFlow';
+import { completionFromSettings, reconcileStartedJump, handleDecisionReply, handleDecisionTimeout, handleWaitReply, queueAndReply, replyBehaviorFromSettings, runSerializedForSender, sendDecisionStep, withDurableMessaging, replayHeldMessages } from './messageFlow';
 
 /**
  * Delivery recovery controller (stage B2, step 3).
@@ -46,7 +46,8 @@ async function runContinuation(storage: Storage, transport: WhatsAppTransport, r
   if (!campaign) throw new Error(`campaign ${d.campaignId} no longer exists`);
   const settings = storage.getCampaignConversationSettings(campaign);
   const humanHandoff = replyBehaviorFromSettings(settings);
-  await withDurableMessaging(storage, () => runCampaignWork(d.senderJid, () => withReplayOf(unitId, () => {
+  const replay = (action: () => Promise<void>): Promise<void> => (d.jumpId ? runAsJump(d.jumpId, action) : action());
+  await withDurableMessaging(storage, () => runCampaignWork(d.senderJid, () => replay(() => withReplayOf(unitId, () => {
     const stepId = d.stepId as string;
     switch (d.kind) {
       case 'decision_step':
@@ -66,7 +67,7 @@ async function runContinuation(storage: Storage, transport: WhatsAppTransport, r
         return queueAndReply(guarded, storage, d.senderJid, d.senderPhone ?? '', '', d.campaignResultId,
           settings.replyText, settings.followupMessages, settings.decisionFlow, d.campaignId, humanHandoff, completionFromSettings(settings));
     }
-  })));
+  }))));
 }
 
 export function startDeliveryRecovery(storage: Storage, getTransport: () => WhatsAppTransport | null | undefined): { stop: () => Promise<void>; kick: () => void } {
@@ -160,8 +161,46 @@ export function startDeliveryRecovery(storage: Storage, getTransport: () => What
     inFlight.add(work);
   };
 
+  /**
+   * A jump (P4) that was journaled but never finished - the process died before, during or between its sends. Settled under the sender
+   * lock by reconcileStartedJump: abandoned if she moved on, uncertain if a send is unresolved, otherwise the same jump resumes.
+   */
+  const jumpsInFlight = new Set<string>();
+  const settleJump = async (jumpId: string): Promise<void> => {
+    const transport = getTransport();
+    const entry = storage.findJump(jumpId);
+    if (!transport || !entry || entry.jump.status !== 'started') return;
+    const phone = digits(entry.result.phone);
+    const jid = entry.jump.senderJid || `whatsapp:${phone}`;
+    await runSerializedForSender(phone, 'jump-reconcile', () => withDurableMessaging(storage, () => runCampaignWork(jid, async () => {
+      try {
+        await reconcileStartedJump(storage, guardCampaignTransport(transport), jumpId);
+        await storage.flush();
+      } catch (err) {
+        if (err instanceof CampaignWorkCancelledError) return;
+        // The resumed branch failed. Never guess: hold her (tied to the new unknown message if that is what failed).
+        const outboxId = (err as { outboxId?: string })?.outboxId;
+        conversationState.set(jid, {
+          kind: 'needs_review', senderJid: jid, senderPhone: phone, campaignId: entry.result.campaignId, campaignResultId: entry.result.id,
+          reason: `interrupted jump could not be resumed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 500),
+          timestamp: Date.now(), heldMessages: [],
+          ...(isUncertainSendError(err) && outboxId ? { recovery: { outboxId } } : {}),
+        } as PendingConversation);
+        await storage.flush();
+        console.warn('[JUMP_RECONCILE_FAILED]', jumpId, err);
+      }
+    })));
+  };
+  const scheduleJump = (jumpId: string): void => {
+    if (stopping || jumpsInFlight.has(jumpId)) return;
+    jumpsInFlight.add(jumpId);
+    const work: Promise<void> = settleJump(jumpId).catch((err) => console.warn('[JUMP_RECONCILE_FAILED]', jumpId, err)).finally(() => { jumpsInFlight.delete(jumpId); inFlight.delete(work); });
+    inFlight.add(work);
+  };
+
   /** Work that is already resolved but not yet acted on (startup, provider not ready earlier, missed event). */
   const scan = (): void => {
+    for (const { jumpId } of storage.getStartedJumps()) scheduleJump(jumpId);
     for (const { state } of conversationState.listNeedsReview()) if (state.recovery) schedule(state.recovery.outboxId);
     for (const row of storage.getOutboxMessagesWithPendingContinuation()) schedule(row.id);
   };

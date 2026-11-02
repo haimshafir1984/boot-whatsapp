@@ -425,7 +425,9 @@ export interface CampaignJump {
   toStepId: string;
   optionId: string;
   flowRev: string;
-  status: 'started' | 'done' | 'failed' | 'uncertain';
+  senderJid?: string;
+  /** started = written, branch not finished (a crash leaves it here and reconciliation resumes it); abandoned = the run moved on before it could finish. */
+  status: 'started' | 'done' | 'failed' | 'uncertain' | 'abandoned';
 }
 
 export interface CampaignResult {
@@ -2263,6 +2265,36 @@ export class Storage {
     try { this.persist(['campaignResults'], { campaignResults: [resultId] }); }
     catch (err) { result.jumps = previous; throw err; }
     return { ok: true };
+  }
+
+  /** The journal entry of a jump (with its run), by id; undefined when unknown. */
+  findJump(jumpId: string): { result: CampaignResult; jump: CampaignJump } | undefined {
+    for (const result of this.data.campaignResults) {
+      const jump = result.jumps?.find((item) => item.jumpId === jumpId);
+      if (jump) return { result: { ...result }, jump: { ...jump } };
+    }
+    return undefined;
+  }
+
+  /** The same inbound message's entry in a run's journal (a redelivery after an interruption). */
+  findJumpByInbound(resultId: string, inboundWamid: string): CampaignJump | undefined {
+    const jump = this.data.campaignResults.find((item) => item.id === resultId)?.jumps?.find((item) => item.inboundWamid === inboundWamid);
+    return jump ? { ...jump } : undefined;
+  }
+
+  /** Jumps that were written but never finished: what a crash leaves behind. */
+  getStartedJumps(): Array<{ resultId: string; jumpId: string }> {
+    const out: Array<{ resultId: string; jumpId: string }> = [];
+    for (const result of this.data.campaignResults) {
+      for (const jump of result.jumps ?? []) if (jump.status === 'started') out.push({ resultId: result.id, jumpId: jump.jumpId });
+    }
+    return out;
+  }
+
+  /** How many outbox rows this jump created so far (any state): none means it was interrupted before its first send. */
+  jumpOutboxRowCount(jumpId: string): number {
+    const prefix = `jump:${jumpId}:`;
+    return this.data.outboxMessages.filter((item) => (item.idempotencyKey ?? '').startsWith(prefix)).length;
   }
 
   /** True when a send of this jump is parked as uncertain (its outcome is unknown): the jump must then stay uncertain, never "failed". */

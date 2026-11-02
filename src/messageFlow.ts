@@ -2,7 +2,7 @@ import { config } from './config';
 import { runCampaignWork, stopCampaignWork, hasCampaignWork, guardCampaignTransport, assertCampaignWorkActive, campaignWorkSleep, CampaignWorkCancelledError } from './campaignWork';
 import { ProviderSendError, classifySendError, isUncertainSendError } from './sendOutcome';
 import { runWithSendAttempt } from './sendAttempt';
-import { currentFlowUnit, currentJumpId, incomingReplyTo, nextFlowSendIndex, runAsJump, runFlowUnit, withIncomingReplyTo } from './flowUnit';
+import { currentFlowUnit, currentJumpId, incomingReplyTo, nextFlowSendIndex, nextJumpSendNumber, runAsJump, runFlowUnit, withIncomingReplyTo } from './flowUnit';
 import type { OutboxContinuation, OutboxFlowRef } from './storage';
 import { AsyncLocalStorage } from 'async_hooks';
 import fs from 'fs';
@@ -687,12 +687,16 @@ function flowSendPrelude(storage: Storage): { meta: { flowRef?: OutboxFlowRef; c
   const { unit, index } = position;
   if (unit.replayOf) {
     const prior = storage.findOutboxByFlowRef(unit.replayOf, index);
-    if (prior?.status === 'sent') return { meta: {}, delivered: { providerMessageId: prior.providerMessageId } };
+    if (prior?.status === 'sent') { nextJumpSendNumber(); return { meta: {}, delivered: { providerMessageId: prior.providerMessageId } }; }
   }
   const meta: { flowRef: OutboxFlowRef; continuation?: OutboxContinuation } = { flowRef: { unitId: unit.unitId, index } };
   // The branch of a jump back to an older button: a stable key per jump, unit and position.
   const jumpId = currentJumpId();
-  if (jumpId) (meta as { idempotencyKey?: string }).idempotencyKey = `jump:${jumpId}:${unit.unitId}:${index}`;
+  if (jumpId) {
+    // Running the same jump again gives the same numbers (jump:<id>:<n>), so a send that already left is never created twice.
+    const number = nextJumpSendNumber();
+    (meta as { idempotencyKey?: string }).idempotencyKey = unit.replayOf ? `jump:${jumpId}:${unit.replayOf}:${index}` : `jump:${jumpId}:${number}`;
+  }
   if (!unit.continuationAttached) {
     // Stored once per unit (first row it creates). Rows are persisted for the whole history, so they stay small.
     unit.continuationAttached = true;
@@ -1335,8 +1339,8 @@ function findFlowRecoveryContext(
  * P4: a verified signed button of an OLDER question takes her back to that option's branch; the flow then continues from there in its
  * normal order. Runs inside the sender lock. Order: the run must still be her current one, the campaign must allow it, then the jump is
  * written to the journal (and flushed) BEFORE anything is sent, then the question she is on is cancelled and the branch runs as a flow
- * unit whose sends carry stable keys. A crash leaves the journal entry; nothing resends on its own, and an uncertain delivery stays
- * uncertain (the usual hold), never a resend.
+ * unit whose sends carry stable keys. A crash leaves the journal entry `started`; reconcileStartedJump resumes it (same jump, same keys,
+ * delivered sends are not created twice). An uncertain delivery stays uncertain (the usual hold), never a resend.
  */
 async function handleSignedJump(
   message: IncomingWhatsAppMessage,
@@ -1364,24 +1368,81 @@ async function handleSignedJump(
   const pending = conversationState.get(senderJid) || conversationState.findByPhone(senderPhone);
   const jumpId = 'j_' + createHash('sha1').update(message.id).digest('hex').slice(0, 12);
   const begun = storage.beginJump(run.id, {
-    jumpId, inboundWamid: message.id, fromStepId: pending && 'stepId' in pending ? String(pending.stepId) : undefined, toStepId: claims.stepId, optionId: claims.optionId, flowRev: claims.rev,
+    jumpId, inboundWamid: message.id, senderJid, fromStepId: pending && 'stepId' in pending ? String(pending.stepId) : undefined, toStepId: claims.stepId, optionId: claims.optionId, flowRev: claims.rev,
   });
-  if (!begun.ok) return reject(begun.reason);
+  if (!begun.ok) {
+    // The same inbound message again. If its jump was interrupted (still `started`) it is CONTINUED, in the same journal entry and without
+    // using another unit of the limits; anything else is a plain duplicate.
+    const earlier = begun.reason === 'duplicate' ? storage.findJumpByInbound(run.id, message.id) : undefined;
+    if (!earlier || earlier.status !== 'started') return reject(begun.reason);
+    console.warn(`[JUMP_RESUME] via=${source} phone=${senderPhone} result=${run.id} jump=${earlier.jumpId} rows=${storage.jumpOutboxRowCount(earlier.jumpId)}`);
+    await reconcileStartedJump(storage, transport, earlier.jumpId);
+    return;
+  }
   await storage.flush();   // the journal is durable before the first send
+  console.log(`[JUMP_BACK] via=${source} phone=${senderPhone} result=${run.id} to=${claims.stepId} option=${claims.optionId} jump=${jumpId}`);
+  await runJumpBranch(storage, transport, jumpId);
+}
 
+/** Cancels the question she is on (and its timer) before a jump's branch runs. */
+function cancelQuestionForJump(senderJid: string, senderPhone: string): void {
+  const pending = conversationState.get(senderJid) || conversationState.findByPhone(senderPhone);
   if (pending && (pending.kind === 'decision' || pending.kind === 'wait-reply' || pending.kind === 'expired-decision')) {
     clearTimeout(pending.timeoutHandle);
     conversationState.remove(pending.senderJid);
   }
   clearTimedOutDecision(senderPhone);
-  console.log(`[JUMP_BACK] via=${source} phone=${senderPhone} result=${run.id} to=${claims.stepId} option=${claims.optionId} jump=${jumpId}`);
+}
+
+/** Runs the branch of a journaled jump and records how it ended. Caller holds the sender lock. */
+async function runJumpBranch(storage: Storage, transport: WhatsAppTransport, jumpId: string): Promise<void> {
+  const entry = storage.findJump(jumpId);
+  if (!entry) return;
+  const { result, jump } = entry;
+  const campaign = storage.getCampaigns().find((item) => item.id === result.campaignId);
+  if (!campaign) { storage.finishJump(result.id, jumpId, 'abandoned'); return; }
+  const settings = storage.getCampaignConversationSettings(campaign);
+  const phone = String(result.phone ?? '').replace(/\D/g, '');
+  const senderJid = jump.senderJid || `whatsapp:${phone}`;
+  cancelQuestionForJump(senderJid, phone);
   try {
-    await runAsJump(jumpId, () => handleDecisionReply(claims.optionId, settings.decisionFlow, claims.stepId, senderJid, storage, transport, campaign.id, run.id, senderPhone, replyBehaviorFromSettings(settings)));
-    storage.finishJump(run.id, jumpId, 'done');
+    await runAsJump(jumpId, () => handleDecisionReply(jump.optionId, settings.decisionFlow, jump.toStepId, senderJid, storage, transport, campaign.id, result.id, phone, replyBehaviorFromSettings(settings)));
+    storage.finishJump(result.id, jumpId, 'done');
   } catch (err) {
-    storage.finishJump(run.id, jumpId, isUncertainOutcome(err) || storage.jumpHasUncertainSend(jumpId) ? 'uncertain' : 'failed');
+    storage.finishJump(result.id, jumpId, isUncertainOutcome(err) || storage.jumpHasUncertainSend(jumpId) ? 'uncertain' : 'failed');
     throw err;
   }
+}
+
+/**
+ * Settles a jump that was written but not finished (the process died, or the same message came again). Caller holds the sender lock.
+ *   run replaced / campaign gone or no longer allowing it -> abandoned (nothing is sent for an old run)
+ *   a send of this jump is uncertain                       -> uncertain (never resent here)
+ *   sender is held for review                              -> waiting (try again later)
+ *   otherwise                                              -> the same branch runs again under the same jump id: sends that already left
+ *                                                             are found by their keys and skipped, the rest are sent, the tail runs once.
+ * Nothing is added to the journal and no unit of the limits is used.
+ */
+export async function reconcileStartedJump(storage: Storage, transport: WhatsAppTransport, jumpId: string): Promise<'done' | 'abandoned' | 'uncertain' | 'waiting' | 'gone'> {
+  const entry = storage.findJump(jumpId);
+  if (!entry || entry.jump.status !== 'started') return 'gone';
+  const { result, jump } = entry;
+  const phone = String(result.phone ?? '').replace(/\D/g, '');
+  const senderJid = jump.senderJid || `whatsapp:${phone}`;
+  const campaign = storage.getActiveCampaigns().find((item) => item.id === result.campaignId);
+  if (storage.getCurrentRun(phone)?.id !== result.id || !campaign || !storage.getCampaignConversationSettings(campaign).allowJumpBack) {
+    storage.finishJump(result.id, jumpId, 'abandoned');
+    console.warn(`[JUMP_ABANDONED] jump=${jumpId} result=${result.id} phone=${phone}`);
+    return 'abandoned';
+  }
+  if (storage.jumpHasUncertainSend(jumpId)) {
+    storage.finishJump(result.id, jumpId, 'uncertain');
+    return 'uncertain';
+  }
+  if (conversationState.getNeedsReview(senderJid)) return 'waiting';
+  console.warn(`[JUMP_RECONCILE] jump=${jumpId} result=${result.id} phone=${phone} rows=${storage.jumpOutboxRowCount(jumpId)}`);
+  await runJumpBranch(storage, transport, jumpId);
+  return 'done';
 }
 
 /**

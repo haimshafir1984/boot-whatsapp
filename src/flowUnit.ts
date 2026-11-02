@@ -18,6 +18,8 @@ export interface FlowUnitDescriptor {
   campaignResultId?: string;
   senderJid: string;
   senderPhone?: string;
+  /** Set when the unit was started inside a jump back to an older button: recovery replays it inside the same jump (same outbox keys). */
+  jumpId?: string;
   /** decision_step */
   stepId?: string;
   /** decision_reply / wait_reply: what the participant answered (a button id or short text). */
@@ -65,7 +67,8 @@ export function currentFlowUnit(): FlowUnitScope | undefined {
 /** Enters a unit. If a replay was requested for the enclosing call it is consumed here (nested units are new, not replays). */
 export function runFlowUnit<T>(descriptor: FlowUnitDescriptor, action: () => Promise<T>): Promise<T> {
   const replay = pendingReplay.getStore();
-  const unit: FlowUnitScope = { unitId: newFlowUnitId(), descriptor, counter: 0, replayOf: replay?.unitId };
+  const jumpId = currentJumpId();
+  const unit: FlowUnitScope = { unitId: newFlowUnitId(), descriptor: jumpId && !descriptor.jumpId ? { ...descriptor, jumpId } : descriptor, counter: 0, replayOf: replay?.unitId };
   return pendingReplay.run(undefined, () => scope.run(unit, action));
 }
 
@@ -74,15 +77,26 @@ export function withReplayOf<T>(unitId: string, action: () => Promise<T>): Promi
   return pendingReplay.run({ unitId }, action);
 }
 
-const jumpScope = new AsyncLocalStorage<{ jumpId: string } | undefined>();
+const jumpScope = new AsyncLocalStorage<{ jumpId: string; counter: number } | undefined>();
 
-/** Runs `action` as the branch of a jump back to an older button: its outbox rows get a stable key per jump and position. */
+/**
+ * Runs `action` as the branch of a jump back to an older button. Every send inside it (across all the units the branch creates) is
+ * numbered 1, 2, 3 ... so running the same branch again for the same jump produces the same outbox keys `jump:<jumpId>:<n>`.
+ */
 export function runAsJump<T>(jumpId: string, action: () => Promise<T>): Promise<T> {
-  return jumpScope.run({ jumpId }, action);
+  return jumpScope.run({ jumpId, counter: 0 }, action);
 }
 
 export function currentJumpId(): string | undefined {
   return jumpScope.getStore()?.jumpId;
+}
+
+/** Next send number inside the current jump (1-based), or undefined outside a jump. */
+export function nextJumpSendNumber(): number | undefined {
+  const store = jumpScope.getStore();
+  if (!store) return undefined;
+  store.counter += 1;
+  return store.counter;
 }
 
 /** Position of the next send inside the current unit (1-based), or undefined outside any unit. */
