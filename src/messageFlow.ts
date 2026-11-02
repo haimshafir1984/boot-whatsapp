@@ -10,6 +10,7 @@ import path from 'path';
 import { conversationState, HeldIncomingMessage, PendingConversation, PersistablePendingConversation } from './conversationState';
 import { notifySystemAlert } from './systemAlerts';
 import { ButtonConfigError, currentButtonIssuer } from './buttonIssuer';
+import { buttonLeaseValid } from './buttonLease';
 import { deliveryRecoveryBus } from './deliveryRecoveryBus';
 import { reportInboundOutcome } from './inboundOutcome';
 import { redactSecrets } from './secretRedaction';
@@ -4222,6 +4223,17 @@ function buttonIdForOption(storage: Storage, campaignId: string | undefined, cam
     const campaign = storage.getCampaigns().find((candidate) => candidate.id === campaignId);
     const storedStep = campaign?.conversation?.decisionFlow?.find((candidate) => candidate.id === step.id);
     if (!campaign || !storedStep?.options?.some((candidate) => candidate.id === option.id)) return option.id;
+    if (!buttonLeaseValid()) {
+      // Issuing is switched on here but the gateway has not vouched for the whole fleet (no lease, or it ran out): ordinary buttons.
+      notifySystemAlert({
+        key: 'button-v1-no-fleet-lease',
+        severity: 'warning',
+        title: 'כפתורים חתומים כבויים זמנית: אין אישור צי מהשער',
+        message: 'META_BUTTON_V1_ISSUE=1 אבל השער לא אישר שכל הצי מוכן (או שהאישור פג). נשלחים כפתורים רגילים עד שהאישור יחזור. בדקו /owner/api/button-v1/readiness בשירות המנהל.',
+        details: { campaignId },
+      });
+      return option.id;
+    }
     if (runtimeGeneratedOptionLists.has(storedStep.options) || (step.options && runtimeGeneratedOptionLists.has(step.options))) return option.id;
     return issuer.issue({ resultId: campaignResultId, stepId: step.id, optionId: option.id, conversation: campaign.conversation as unknown as Record<string, unknown> });
   } catch (err) {

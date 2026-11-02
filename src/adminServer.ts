@@ -6,6 +6,7 @@
 
 import { decideGatewayButton, interactiveReplyId, loadGatewayButtonKeys, loadClientButtonKeys, verifyClientButton } from './buttonVerify';
 import { deriveRouteKey, isV1ButtonId } from './buttonToken';
+import { buttonLeaseValidUntil, grantButtonLease, leasePushIntervalMs, leaseTtlMs } from './buttonLease';
 import { ButtonReadinessReport, buttonIssuanceEnabled, buttonReadinessReport, oversizedButtonOptions, routeKeyFingerprint } from './buttonIssuer';
 import express from 'express';
 import { hasCampaignWork, stopCampaignWork } from './campaignWork';
@@ -3933,7 +3934,8 @@ export function startAdminServer(storage: Storage): import('http').Server {
   // is rejected by validateConnectLinkToken() without any extra bookkeeping.
   // Readiness for turning on META_BUTTON_V1_ISSUE anywhere (spec 3.4 / Codex rule 5): the gateway itself must be set up, and EVERY client of
   // the shared number must answer with both capabilities. Read-only; asks each client the same question the routing asks (no sender data).
-  app.get('/owner/api/button-v1/readiness', async (_req, res) => {
+  type ButtonFleetReadiness = { ready: boolean; gateway: { resumableHandoverOn: boolean; routingKeys: number }; clients: Array<Record<string, unknown> & { id: string }> };
+  const buttonFleetReadiness = async (): Promise<ButtonFleetReadiness & { clientObjects: ManagedClient[] }> => {
     const clients = ownerStorage.getClients().filter((client) => client.whatsappProvider === 'META_CLOUD_API'
       && client.managementUrl && client.ownerAccessToken && client.provisioningStatus !== 'disabled' && metaPhoneScope(client) === 'shared');
     const answered = new Map<string, MetaPendingRouteResponse>();
@@ -3987,8 +3989,48 @@ export function startAdminServer(storage: Storage): import('http').Server {
     });
     const ready = gateway.resumableHandoverOn && gateway.routingKeys > 0 && clientRows.length > 0
       && clientRows.every((row) => row.reachable && row.capabilitiesOk && row.buttonsOk);
-    res.json({ ready, gateway, clients: clientRows });
+    return { ready, gateway, clients: clientRows, clientObjects: clients };
+  };
+  app.get('/owner/api/button-v1/readiness', async (_req, res) => {
+    const { clientObjects: _clients, ...report } = await buttonFleetReadiness();
+    res.json(report);
   });
+
+  // Fleet lease (src/buttonLease.ts): while the whole fleet is ready, every client is told so for a short time; when it is not, nobody is
+  // (their leases run out by themselves). A client that cannot be reached simply has no lease.
+  let leaseWasReady = false;
+  const pushButtonLeases = async (): Promise<void> => {
+    if (process.env.META_RESUMABLE_HANDOVER !== '1' || gatewayButtonKeys.master.size === 0) return;
+    const report = await buttonFleetReadiness();
+    if (!report.ready) {
+      const bad = report.clients.filter((row) => row.reachable !== true || row.capabilitiesOk !== true || row.buttonsOk !== true);
+      console.warn('[BUTTON_V1_LEASE_WITHHELD]', bad.map((row) => `${row.id}:${String(row.buttonProblem ?? (row.reachable === true ? 'capabilities' : 'unreachable'))}`).join(',') || 'gateway');
+      if (leaseWasReady) {
+        notifySystemAlert({
+          key: 'button-v1-fleet-not-ready',
+          severity: 'warning',
+          title: 'אישור צי לכפתורים חתומים הופסק',
+          message: 'הצי כבר לא מוכן לכפתורים חתומים, ולכן השער לא מחדש את האישור. לקוחות ינפיקו כפתורים רגילים עד שיחזור.',
+          details: { clients: bad.map((row) => row.id) },
+        });
+      }
+      leaseWasReady = false;
+      return;
+    }
+    leaseWasReady = true;
+    const ttlMs = leaseTtlMs();
+    await Promise.all(report.clientObjects.map(async (client) => {
+      try {
+        const result = await fetchClientAsOwner(client, '/owner-api/button-v1/lease', { method: 'POST', body: JSON.stringify({ ttlMs }), signal: AbortSignal.timeout(3_000) });
+        if (!result.ok) console.warn('[BUTTON_V1_LEASE_PUSH_FAILED]', client.id, `status=${result.status}`);
+      } catch (err) { console.warn('[BUTTON_V1_LEASE_PUSH_FAILED]', client.id, err instanceof Error ? err.message : String(err)); }
+    }));
+  };
+  if (process.env.META_RESUMABLE_HANDOVER === '1' && gatewayButtonKeys.master.size > 0) {
+    const leaseTimer = setInterval(() => { void pushButtonLeases().catch((err) => console.warn('[BUTTON_V1_LEASE_LOOP_FAILED]', err)); }, leasePushIntervalMs());
+    trackTimer(leaseTimer, true);
+    void pushButtonLeases().catch((err) => console.warn('[BUTTON_V1_LEASE_LOOP_FAILED]', err));
+  }
 
   app.post('/owner/api/clients/:id/meta-connect-link', (req, res) => {
     const client = ownerStorage.getClient(req.params.id);
@@ -4426,7 +4468,12 @@ export function startAdminServer(storage: Storage): import('http').Server {
 
   // What this client says about its signed-button setup (no secrets): the gateway's readiness check compares it with its own keys.
   app.get('/owner-api/button-v1/status', (_req, res) => {
-    res.json(buttonReadinessReport());
+    res.json({ ...buttonReadinessReport(), leaseValidUntil: buttonLeaseValidUntil() });
+  });
+  // The gateway vouches for the whole fleet for ttlMs (see src/buttonLease.ts). Without it this client sends ordinary buttons.
+  app.post('/owner-api/button-v1/lease', (req, res) => {
+    const validUntil = grantButtonLease(Number(req.body?.ttlMs));
+    res.json({ granted: validUntil > 0, validUntil });
   });
 
   app.post('/owner-api/meta-pending-route', (req, res) => {

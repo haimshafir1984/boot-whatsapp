@@ -21,8 +21,10 @@ const setIssue = (on, extra = {}) => {
   for (const k of Object.keys(KEYS)) delete process.env[k];
   delete process.env.META_BUTTON_V1_ISSUE; delete process.env.META_BUTTON_ISSUE_KID; delete process.env.META_BUTTON_REVOKED_KIDS;
   if (on) Object.assign(process.env, KEYS, { META_BUTTON_V1_ISSUE: '1' }, extra);
+  if (on) grantButtonLease(120_000); else revokeButtonLease();   // the gateway's fleet lease (src/buttonLease.ts); its own scenario switches it off
 };
 
+const { grantButtonLease, revokeButtonLease, buttonLeaseValid } = require('../dist/buttonLease');
 const { Storage } = require('../dist/storage');
 const { conversationState } = require('../dist/conversationState');
 const { handleIncomingWhatsAppMessage } = require('../dist/messageFlow');
@@ -204,6 +206,27 @@ for (const level of ['log', 'warn', 'error']) { const o = console[level].bind(co
       assert.ok(!stored.options?.some((o) => o.id.startsWith('v1.')), 'no v1 id ever refers to options that were not stored');
     }
     assert.equal(typeof keys.clientId, 'string');
+  });
+
+  await scenario('fleet lease: flag on but no lease (or an expired one) means ordinary buttons and a warning; a valid lease means signed buttons; buttons already sent keep verifying', async () => {
+    setIssue(true);
+    const first = new FakeTransport(); const c = campaignFor(flow());
+    const phone = await startRun(c, first);
+    const signed = first.sent.find((m) => m.type === 'buttons').buttons.map((b) => b.id);
+    assert.ok(signed.every((id) => id.startsWith('v1.')), 'with a lease: signed');
+    revokeButtonLease();
+    assert.equal(buttonLeaseValid(), false);
+    const plain = new FakeTransport(); await startRun(c, plain);
+    assert.deepEqual(plain.sent.find((m) => m.type === 'buttons').buttons.map((b) => b.id), ['o1', 'o2'], 'no lease: the ordinary ids, exactly as with the flag off');
+    // a lease that ran out behaves like none
+    grantButtonLease(10_000, Date.now() - 60_000);
+    assert.equal(buttonLeaseValid(), false, 'expired');
+    // buttons sent while the lease was valid still verify after it ended
+    const keys = loadClientButtonKeys(process.env);
+    assert.equal(verifyClientButton(signed[0], phone, keys, lookups).kind, 'verified');
+    grantButtonLease(120_000);
+    const again = new FakeTransport(); await startRun(c, again);
+    assert.ok(again.sent.find((m) => m.type === 'buttons').buttons.every((b) => b.id.startsWith('v1.')), 'lease back: signed again');
   });
 
   await scenario('startup check: flag off is silent; flag on with a missing id, missing key, revoked kid or unknown kid refuses to start; a complete setup passes', async () => {

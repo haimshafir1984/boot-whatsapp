@@ -113,7 +113,7 @@ async function withHarness(clientDefs, run) {
   const stats = {};
   const ownerRecords = [];
   for (const def of clientDefs) {
-    stats[def.id] = { routeCalls: 0, pendingCalls: 0, clearCalls: 0, forwardCalls: 0 };
+    stats[def.id] = { routeCalls: 0, pendingCalls: 0, clearCalls: 0, forwardCalls: 0, leaseCalls: 0, leaseBodies: [] };
     const server = http.createServer(async (req, res) => {
       if (req.url === '/owner-api/meta-routes') {
         stats[def.id].routeCalls += 1;
@@ -131,6 +131,10 @@ async function withHarness(clientDefs, run) {
         await readBody(req);
         if (def.clearStatus && def.clearStatus !== 200) return json(res, def.clearStatus, {});
         return json(res, 200, def.clearBody ?? { removed: 0, cancelled: true });
+      }
+      if (req.url === '/owner-api/button-v1/lease') {
+        stats[def.id].leaseCalls += 1; stats[def.id].leaseBodies.push(await readBody(req));
+        return json(res, def.leaseStatus ?? 200, { granted: true });
       }
       if (req.url === '/owner-api/button-v1/status') {
         if (def.statusCode && def.statusCode !== 200) return json(res, def.statusCode, {});
@@ -267,6 +271,26 @@ const setGateway = ({ handover = true, keys = true } = {}) => {
   const good = await problem(withStatus(goodStatus('x', { masterByte: 9 })), 'a');
   assert.equal(good.buttonsOk, true, 'the healthy client is not blamed');
   console.log('PASS 7: ready needs every client to know its id, hold a working key pair and the routing key the gateway derives for it.');
+  // 8. the lease: while the whole fleet is ready every client is granted one (short, relative); nothing is granted when it is not.
+  process.env.META_BUTTON_LEASE_TTL_MS = '45000';
+  await withHarness([{ id: 'a', pending: ok }, { id: 'b', pending: ok }], async ({ stats }) => {
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline && (stats.a.leaseCalls === 0 || stats.b.leaseCalls === 0)) await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.ok(stats.a.leaseCalls >= 1 && stats.b.leaseCalls >= 1, 'every client of a ready fleet gets a lease');
+    assert.equal(stats.a.leaseBodies[0].ttlMs, 45000);
+  });
+  await withHarness([{ id: 'a', pending: ok }, { id: 'bad', pending: ok, buttonStatus: goodStatus('bad', { masterByte: 9 }) }], async ({ stats }) => {
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    assert.equal(stats.a.leaseCalls + stats.bad.leaseCalls, 0, 'one broken client: nobody gets a lease, not even the healthy ones');
+  });
+  setGateway({ handover: false });
+  await withHarness([{ id: 'a', pending: ok }], async ({ stats }) => {
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    assert.equal(stats.a.leaseCalls, 0, 'gateway without the resumable handover grants nothing');
+  });
+  setGateway();
+  delete process.env.META_BUTTON_LEASE_TTL_MS;
+  console.log('PASS 8: leases are granted to the whole fleet only while the whole fleet is ready.');
   console.log('PASS: v1 readiness check behaves as specified.');
 })().then(() => setTimeout(() => process.exit(0), 200), (error) => {
   console.error(error);
