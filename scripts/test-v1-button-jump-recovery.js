@@ -93,6 +93,11 @@ async function childRecover(dir, how) {
   const { Storage } = require('../dist/storage');
   const { handleIncomingWhatsAppMessage } = require('../dist/messageFlow');
   const { startDeliveryRecovery } = require('../dist/deliveryRecovery');
+  const problems = [];   // anything that says a step of the resumed branch failed (Codex: a sent row must not be re-claimed)
+  for (const level of ['log', 'warn', 'error']) {
+    const original = console[level].bind(console);
+    console[level] = (...args) => { const line = args.map(String).join(' '); if (/Could not (re)?claim|failed, continuing to next step|JUMP_RECONCILE_FAILED|NEEDS_REVIEW/i.test(line)) problems.push(line.slice(0, 160)); original(...args); };
+  }
   const storage = new Storage(process.env.STORAGE_PATH);
   storage.recoverOrphanedOutboxProcessing();          // what index.ts does at startup
   await storage.flush();
@@ -115,7 +120,10 @@ async function childRecover(dir, how) {
   const run = storage.data.campaignResults.find((r) => r.id === ctx.resultId);
   const jumps = run.jumps ?? [];
   const rows = storage.data.outboxMessages.filter((o) => (o.idempotencyKey || '').startsWith('jump:')).map((o) => ({ key: o.idempotencyKey, status: o.status, text: o.text }));
-  process.stdout.write('RESULT ' + JSON.stringify({ jumps: jumps.map((j) => ({ jumpId: j.jumpId, status: j.status })), sent: transport.sent.map((m) => ({ type: m.type, text: m.text })), rows }) + '\n');
+  const { conversationState } = require('../dist/conversationState');
+  const held = Boolean(conversationState.getNeedsReview(`whatsapp:${ctx.phone}`));
+  const stepFailures = storage.getCampaignEvents(run.campaignId).filter((e) => e.type === 'file_failed').length;
+  process.stdout.write('RESULT ' + JSON.stringify({ problems, held, stepFailures, jumps: jumps.map((j) => ({ jumpId: j.jumpId, status: j.status })), sent: transport.sent.map((m) => ({ type: m.type, text: m.text })), rows }) + '\n');
   process.exit(0);
 }
 
@@ -135,6 +143,11 @@ function crashThenRecover(crash, how) {
   fs.rmSync(dir, { recursive: true, force: true });
   return JSON.parse(line.slice(7));
 }
+const clean = (r) => {
+  assert.deepEqual(r.problems, [], 'no claim error / failed step during the resume: ' + JSON.stringify(r.problems));
+  assert.equal(r.held, false, 'she is not held for review');
+  assert.equal(r.stepFailures, 0, 'no step was recorded as failed');
+};
 const texts = (r) => r.sent.filter((m) => m.type === 'text').map((m) => m.text);
 const questions = (r) => r.sent.filter((m) => m.type === 'buttons').map((m) => m.text);
 
@@ -148,6 +161,7 @@ async function main() {
       assert.equal(r.jumps.length, 1, 'no second journal entry, no extra quota: ' + JSON.stringify(r.jumps));
       assert.equal(r.jumps[0].status, 'done');
       assert.deepEqual(texts(r), ['BRANCH B'], 'the branch ran once');
+      clean(r);
       assert.deepEqual(questions(r), ['Second?']);
       assert.ok(r.rows.length >= 2 && r.rows.every((row) => row.key.startsWith(`jump:${r.jumps[0].jumpId}:`)), 'all rows carry this jump id: ' + JSON.stringify(r.rows));
       assert.deepEqual(r.rows.map((row) => row.key).slice(0, 2), [`jump:${r.jumps[0].jumpId}:1`, `jump:${r.jumps[0].jumpId}:2`]);
@@ -158,6 +172,7 @@ async function main() {
       assert.equal(r.jumps.length, 1); assert.equal(r.jumps[0].status, 'done');
       assert.deepEqual(texts(r), [], 'BRANCH B was delivered before the crash and is not sent again');
       assert.deepEqual(questions(r), ['Second?'], 'the part that never started now goes out');
+      clean(r);   // the delivered first message was recognised as sent: no claim error, no "step failed", no hold
       const keys = r.rows.map((row) => row.key);
       assert.equal(new Set(keys).size, keys.length, 'no duplicate key');
       assert.equal(r.rows.find((row) => row.key.endsWith(':1')).status, 'sent');
@@ -272,6 +287,58 @@ async function main() {
       assert.equal(st.getOutboxMessage(row.id).attemptLog.length, 1, 'the only attempt is the original unknown one');
       assert.equal(st.getUnitContinuation(row.id).state, 'skipped');
     } finally { if (disp) await disp.stop(); conversationState.removeByPhone(phone); }
+  });
+
+  // ---- the two leftover states of a row, checked directly (Codex: queued can be claimed again, processing after a crash is uncertain)
+  const { reconcileStartedJump, withDurableMessaging } = require('../dist/messageFlow');
+  const manualJump = async (label) => {
+    const tr = transportOf(); const scene = await jumpScene(tr, label);
+    const { st, run, jid, phone } = scene;
+    const rev = computeFlowRev(st.getCampaigns().find((c) => c.id === run.campaignId).conversation);
+    const jumpId = `j_manual_${label}`;
+    assert.ok(st.beginJump(run.id, { jumpId, inboundWamid: `m-${label}`, senderJid: jid, fromStepId: 'q2', toStepId: 'q1', optionId: 'o2', flowRev: rev }).ok);
+    await st.flush();
+    const row = (input) => ({ kind: 'text', to: jid, text: 'BRANCH B', campaignId: run.campaignId, campaignResultId: run.id, stepId: 'mB', idempotencyKey: `jump:${jumpId}:1`, ...input });
+    return { ...scene, tr, jumpId, row };
+  };
+
+  await scenario('a row of the jump that is still queued (crash between creating and claiming it) is claimed again and sent once', async () => {
+    const { st, tr, jumpId, row, phone } = await manualJump('queued');
+    st.enqueueOutboxMessage(row({}));
+    await st.flush();
+    const before = tr.log.length;
+    assert.equal(await withDurableMessaging(st, () => reconcileStartedJump(st, tr, jumpId)), 'done');
+    assert.equal(tr.log.slice(before).filter((x) => x[0] === 'text' && x[1] === 'BRANCH B').length, 1, 'sent exactly once');
+    assert.equal(st.data.outboxMessages.filter((o) => o.idempotencyKey === `jump:${jumpId}:1`).length, 1, 'through the same row');
+    assert.equal(st.data.outboxMessages.find((o) => o.idempotencyKey === `jump:${jumpId}:1`).status, 'sent');
+    assert.ok(tr.log.slice(before).some((x) => x[0] === 'buttons' && x[1] === 'Second?'), 'and the branch went on to the next question');
+    assert.equal(st.getCurrentRun(phone).jumps.find((j) => j.jumpId === jumpId).status, 'done');
+  });
+
+  await scenario('a row of the jump left in processing by a dead process becomes uncertain on restart: the jump stops there, nothing is sent', async () => {
+    const { st, tr, jumpId, row, phone, run } = await manualJump('processing');
+    const queued = st.enqueueOutboxMessage(row({}));
+    assert.ok(st.claimOutboxMessage(queued.id), 'claimed (processing)');
+    await st.flush();
+    const restarted = new Storage(st.filePath);          // a new process on the same file
+    restarted.recoverOrphanedOutboxProcessing();
+    assert.equal(restarted.data.outboxMessages.find((o) => o.id === queued.id).status, 'uncertain');
+    const before = tr.log.length;
+    assert.equal(await withDurableMessaging(restarted, () => reconcileStartedJump(restarted, tr, jumpId)), 'uncertain');
+    assert.equal(tr.log.length, before, 'nothing is sent');
+    assert.equal(restarted.getCurrentRun(phone).jumps.find((j) => j.jumpId === jumpId).status, 'uncertain');
+  });
+
+  await scenario('a row of the jump that FAILED (definite non-delivery) is retried through the same row, once', async () => {
+    const { st, tr, jumpId, row } = await manualJump('failed');
+    const queued = st.enqueueOutboxMessage(row({}));
+    assert.ok(st.claimOutboxMessage(queued.id));
+    st.markOutboxFailed(queued.id, new Error('rejected by the provider'));
+    await st.flush();
+    const before = tr.log.length;
+    assert.equal(await withDurableMessaging(st, () => reconcileStartedJump(st, tr, jumpId)), 'done');
+    assert.equal(tr.log.slice(before).filter((x) => x[0] === 'text' && x[1] === 'BRANCH B').length, 1);
+    assert.equal(st.data.outboxMessages.filter((o) => o.idempotencyKey === `jump:${jumpId}:1`).length, 1);
   });
 
   fs.rmSync(root, { recursive: true, force: true });

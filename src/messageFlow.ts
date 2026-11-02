@@ -953,6 +953,23 @@ async function sendTrackedOutboxMessage(
   return result;
 }
 
+/**
+ * The outbox row of a send that already exists (enqueueOutboxMessage returns it for a repeated idempotency key - a jump run again after
+ * an interruption). Same rules sendTrackedOutboxMessage applies: `sent` -> nothing to do (it must not be claimed: a sent row cannot be);
+ * `uncertain` -> never sent again, the caller is stopped the usual way; `failed` -> a definite non-delivery, retried like any idempotent
+ * send. A fresh row (`queued`) and a `retry` row proceed to the claim.
+ */
+function existingOutboxVerdict(storage: Storage, outbox: OutboxMessage): 'already_sent' | 'proceed' {
+  if (outbox.status === 'sent') return 'already_sent';
+  if (outbox.status === 'uncertain') {
+    const pendingError = new ProviderSendError(`Outbox message ${outbox.id} (${outbox.kind}) has an unknown delivery outcome and is being resolved; not resending.`, 'uncertain');
+    tagUncertainError(pendingError, outbox.id);
+    throw pendingError;
+  }
+  if (outbox.status === 'failed') storage.markOutboxRetry(outbox.id, outbox.lastError || 'Retrying idempotent outbox message.');
+  return 'proceed';
+}
+
 async function sendBotMessage(transport: WhatsAppTransport, to: string, text: string, delayMs = BOT_REPLY_DELAY_MS): Promise<void> {
   assertCampaignWorkActive();
   const cleanText = text.trim();
@@ -963,6 +980,7 @@ async function sendBotMessage(transport: WhatsAppTransport, to: string, text: st
   if ((prelude as { delivered?: unknown }).delivered) return;
   const outbox = storage?.enqueueOutboxMessage({ kind: 'text', to, text: cleanText, ...prelude.meta });
   if (storage && outbox) {
+    if (existingOutboxVerdict(storage, outbox) === 'already_sent') return;
     if (!storage.claimOutboxMessage(outbox.id)) throw new Error('Could not claim newly queued outbox message.');
     await storage.flush();
   }
@@ -4266,6 +4284,7 @@ async function sendFileWithRetry(
   if ((prelude as { delivered?: unknown }).delivered) return;
   const outbox = storage?.enqueueOutboxMessage({ kind: 'file', to, filePath, caption, fileOptions: options, label, ...prelude.meta });
   if (storage && outbox) {
+    if (existingOutboxVerdict(storage, outbox) === 'already_sent') return;
     if (!storage.claimOutboxMessage(outbox.id)) throw new Error('Could not claim newly queued file outbox message.');
     await storage.flush();
   }
