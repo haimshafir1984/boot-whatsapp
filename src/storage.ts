@@ -2133,7 +2133,18 @@ export class Storage {
     // Whatever she was in before at this client is replaced by this new run. Nothing acts on the mark yet: it records which run is current.
     const replaced = this.markRunsSuperseded(String(phone ?? '').replace(/\D/g, ''), result.id, now, result.id);
     this.data.campaignResults.push(result);
-    this.persist(['campaignResults'], { campaignResults: [result.id, ...replaced] });
+    try {
+      this.persist(['campaignResults'], { campaignResults: [result.id, ...replaced] });
+    } catch (err) {
+      // The write failed: take the new run and the replacement marks back, so memory does not describe a state the disk never got.
+      const index = this.data.campaignResults.lastIndexOf(result);
+      if (index >= 0) this.data.campaignResults.splice(index, 1);
+      const marked = new Set(replaced);
+      for (const item of this.getResultsForPhoneKey(String(phone ?? '').replace(/\D/g, ''))) {
+        if (marked.has(item.id)) { delete item.supersededAt; delete item.supersededBy; }
+      }
+      throw err;
+    }
     return { ...result };
   }
 

@@ -186,6 +186,52 @@ for (const level of ['log', 'warn', 'error']) { const o = console[level].bind(co
     assert.ok(!older.some((l) => l.includes('[META_INBOUND]')), 'an older button is not run');
   });
 
+  await scenario('webhook: a signed tap on the question she STOPPED at (its time ran out) resumes it; a tap on a question she moved past still does nothing', async () => {
+    setIssue(true);
+    const { isStoppedQuestion } = require('../dist/messageFlow');
+    const transport = new FakeTransport();
+    const stopFlow = flow(); stopFlow[0].timeoutSeconds = 1; stopFlow[0].timeoutMinutes = undefined;
+    const c = campaignFor(stopFlow);
+    const phone = await startRun(c, transport);
+    const q1 = transport.sent.find((m) => m.type === 'buttons');
+    const run = storage.getCurrentRun(phone);
+    assert.equal(isStoppedQuestion(phone, run.id, 'q1'), false, 'still being asked: not "stopped"');
+    const deadline = Date.now() + 6000;
+    while (Date.now() < deadline && !isStoppedQuestion(phone, run.id, 'q1')) await new Promise((r) => setTimeout(r, 100));
+    assert.equal(isStoppedQuestion(phone, run.id, 'q1'), true, 'her question timed out and was kept open');
+    assert.equal(isStoppedQuestion(phone, run.id, 'q2'), false, 'only that question');
+    assert.equal(isStoppedQuestion('972500000000', run.id, 'q1'), false, 'only her');
+    const resumed = await tap(phone, q1.buttons[1].id);
+    assert.ok(resumed.some((l) => l.includes('[META_V1_BUTTON_RESUME]')), resumed.join(' | '));
+    assert.ok(resumed.some((l) => l.includes('[META_INBOUND]') && l.includes(' o2 ')), 'the flow got the plain option id: ' + resumed.join(' | '));
+  });
+
+  await scenario('saving a campaign stores the 1/2/3 of a score question that has no options; such a campaign then issues signed buttons that survive a restart', async () => {
+    setIssue(true);
+    for (const old of storage.getCampaigns().slice(0, -1)) storage.deleteCampaign(old.id);   // the plan allows 7 campaigns
+    const login = await fetch(`${base}/auth/client/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accessCode: 'synthetic-client' }) });
+    assert.equal(login.status, 200);
+    const cookie = String(login.headers.get('set-cookie') || '').split(';')[0];
+    const provider = config.WHATSAPP_PROVIDER; config.WHATSAPP_PROVIDER = 'BAILEYS';   // skips the central trigger-uniqueness call to the gateway, which this test has no use for
+    let res;
+    try { res = await fetch(base + '/api/campaigns', { method: 'POST', headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ name: 'ScoreSaved', triggerType: 1, triggerPhrase: 'score-saved-trigger', conversation: conversationOf([
+        { id: 'sq', kind: 'score_question', presentation: 'buttons', text: 'Rate us', timeoutMinutes: 30, nextStepId: 'end' }, { id: 'end', kind: 'message', text: 'THE END' }]) }) }); } finally { config.WHATSAPP_PROVIDER = provider; }
+    assert.ok(res.status === 200 || res.status === 201, `status ${res.status}`);
+    const created = await res.json();
+    const saved = storage.getCampaigns().find((x) => x.id === (created.id ?? created.campaign?.id));
+    assert.ok(saved, 'campaign saved');
+    assert.deepEqual(saved.conversation.decisionFlow[0].options.map((o) => o.id), ['sq-1', 'sq-2', 'sq-3'], 'the options are part of the stored campaign');
+    const transport = new FakeTransport();
+    const phone = await startRun(saved, transport);
+    const ids = transport.sent.find((m) => m.type === 'buttons').buttons.map((b) => b.id);
+    assert.ok(ids.every((id) => id.startsWith('v1.')), 'stored options: signed buttons');
+    await storage.flush();
+    const reopened = new Storage(process.env.STORAGE_PATH);
+    const lookupsAfter = { findResult: (id, p) => reopened.getResultsForPhoneKey(p).find((r) => r.id === id), getCampaign: (id) => reopened.getCampaigns().find((c) => c.id === id), getCurrentRun: (p) => reopened.getCurrentRun(p) };
+    assert.equal(verifyClientButton(ids[0], phone, loadClientButtonKeys(process.env), lookupsAfter).kind, 'verified', 'still valid after a restart');
+  });
+
   await scenario('on: a score question without stored options keeps legacy ids (its 1/2/3 only exist in memory), before and after a restart', async () => {
     setIssue(true);
     const transport = new FakeTransport();

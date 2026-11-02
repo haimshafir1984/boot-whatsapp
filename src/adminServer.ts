@@ -60,7 +60,7 @@ import {
   verifyMetaEmbeddedSignupToken,
 } from './metaEmbeddedSignup';
 import { conversationState } from './conversationState';
-import { getFlowHealthSnapshot, handleIncomingWhatsAppMessage, hasResumableRun, holdSenderForAmbiguousInbox, repeatableWindowCampaignId, SenderHeldForReviewError } from './messageFlow';
+import { getFlowHealthSnapshot, handleIncomingWhatsAppMessage, hasResumableRun, holdSenderForAmbiguousInbox, isStoppedQuestion, repeatableWindowCampaignId, SenderHeldForReviewError } from './messageFlow';
 import { detectTrigger } from './triggerDetector';
 import { redactSecrets } from './secretRedaction';
 import { TwilioProvider } from './providers/TwilioProvider';
@@ -1231,6 +1231,11 @@ function sanitizeDecisionFlow(
           })
           .filter((option): option is DecisionFlowOption => Boolean(option))
           .slice(0, step.presentation === 'buttons' || !step.presentation ? 3 : 10);
+        // A score question saved without options gets its 1/2/3 stored with the campaign (the same ones messageFlow would invent at send
+        // time), so they survive a restart, count in the structure revision and can carry signed buttons.
+        if (kind === 'score_question' && !step.options?.length) {
+          step.options = [1, 2, 3].map((score) => ({ id: `${id}-${score}`, text: String(score), score }));
+        }
       }
       return step;
     })
@@ -1840,8 +1845,11 @@ export function startAdminServer(storage: Storage): import('http').Server {
         // The question she is being asked right now: an ordinary answer, so the flow gets the option id exactly as with a legacy button.
         // Any other (older) button is not acted on yet (resume / jump come in later stages).
         const pending = conversationState.findByPhone(senderPhone);
-        if (pending?.kind === 'decision' && pending.stepId === verdict.claims.stepId && pending.campaignResultId === verdict.claims.resultId) {
-          console.log('[META_V1_BUTTON_ANSWER]', message.id, senderPhone, `step=${verdict.claims.stepId}`);
+        const onCurrentQuestion = pending?.kind === 'decision' && pending.stepId === verdict.claims.stepId && pending.campaignResultId === verdict.claims.resultId;
+        // The question she stopped at (its time ran out; kept open for 24h): resumes exactly as the typed answer / the old button id does.
+        const onStoppedQuestion = !onCurrentQuestion && isStoppedQuestion(senderPhone, verdict.claims.resultId, verdict.claims.stepId);
+        if (onCurrentQuestion || onStoppedQuestion) {
+          console.log(onStoppedQuestion ? '[META_V1_BUTTON_RESUME]' : '[META_V1_BUTTON_ANSWER]', message.id, senderPhone, `step=${verdict.claims.stepId}`);
           body = verdict.claims.optionId;
         } else {
           console.log('[META_V1_BUTTON_VERIFIED]', message.id, senderPhone, `step=${verdict.claims.stepId}`, 'no_action_yet');

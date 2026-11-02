@@ -130,6 +130,23 @@ let server;
     assert.ok(reopened.data.campaignResults.find((x) => x.id === r.id).supersededAt, 'on disk after the retry');
   });
 
+  await scenario('a new trigger whose write fails leaves no half state: the new run is gone, the old one is still current, and a retry works (Codex 33ce19b note on recordCampaignTrigger)', async () => {
+    const old = storage.recordCampaignTrigger(A.id, '972508880036', 'x');
+    const before = storage.data.campaignResults.length;
+    const realWrite = fs.writeFileSync;
+    fs.writeFileSync = function patched(file, ...rest) {
+      if (String(file).endsWith('storage.json.tmp')) throw new Error('EIO: simulated write failure');
+      return realWrite.call(this, file, ...rest);
+    };
+    try { assert.throws(() => storage.recordCampaignTrigger(B.id, '972508880036', 'y'), /simulated write failure/); }
+    finally { fs.writeFileSync = realWrite; }
+    assert.equal(storage.data.campaignResults.length, before, 'the new run was not kept');
+    assert.equal(row(old.id).supersededAt, undefined, 'the old run was not marked replaced');
+    assert.equal(storage.getCurrentRun('972508880036').id, old.id);
+    const fresh = storage.recordCampaignTrigger(B.id, '972508880036', 'y');
+    assert.ok(row(old.id).supersededAt); assert.equal(storage.getCurrentRun('972508880036').id, fresh.id);
+  });
+
   await scenario('the same handover twice in a row and twice in parallel: both answer cancelled, the run is marked once and the mark never moves', async () => {
     const r = storage.recordCampaignTrigger(A.id, '972508880040', 'x');
     const first = await post('/owner-api/meta-clear-pending', { phone: '972508880040', toClientId: 'one' });

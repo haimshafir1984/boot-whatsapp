@@ -276,6 +276,18 @@ function rememberTimedOutDecision(context: Omit<TimedOutDecisionContext, 'expire
   }
 }
 
+/**
+ * Is this the question she STOPPED at (its time ran out and the flow kept it open for her, FLOW_RECOVERY_WINDOW_MS)? Same two places the
+ * ordinary resume reads: the durable expired-decision state, and the in-memory timed-out map. Used for signed buttons: a verified tap
+ * of that question's option must resume exactly like the typed answer or the old button id already does.
+ */
+export function isStoppedQuestion(senderPhone: string, campaignResultId: string, stepId: string): boolean {
+  const pending = conversationState.findByPhone(senderPhone);
+  if (pending?.kind === 'expired-decision' && pending.stepId === stepId && pending.campaignResultId === campaignResultId) return true;
+  const context = timedOutDecisions.get(senderWorkKey(senderPhone));
+  return Boolean(context && context.expiresAt > Date.now() && context.stepId === stepId && context.campaignResultId === campaignResultId);
+}
+
 function clearTimedOutDecision(sender: string | undefined): void {
   timedOutDecisions.delete(senderWorkKey(sender));
 }
