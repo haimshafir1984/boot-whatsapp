@@ -962,6 +962,7 @@ function conversationSettings(
     humanHandoffPhone: typeof input?.humanHandoffPhone === 'string'
       ? input.humanHandoffPhone.replace(/[^\d+]/g, '').slice(0, 30)
       : (defaults.humanHandoffPhone ?? ''),
+    allowJumpBack: input?.allowJumpBack === true,
     groupJoinManagerPhone: typeof input?.groupJoinManagerPhone === 'string' ? input.groupJoinManagerPhone.replace(/[^\d+]/g, '').slice(0, 30) : (defaults.groupJoinManagerPhone ?? ''),
     groupJoinParticipantConfirmationText: typeof input?.groupJoinParticipantConfirmationText === 'string' ? input.groupJoinParticipantConfirmationText.trim().slice(0, 2000) : (defaults.groupJoinParticipantConfirmationText ?? ''),
     groupJoinParticipantFailureText: typeof input?.groupJoinParticipantFailureText === 'string' ? input.groupJoinParticipantFailureText.trim().slice(0, 2000) : (defaults.groupJoinParticipantFailureText ?? ''),
@@ -1832,6 +1833,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
       : undefined;
     // Signed reply buttons (v1): verified and ownership-checked before anything else. A bad one is dropped (never treated as legacy). A
     // valid one is only reported for now: nothing issues v1 ids yet, and answering/jumping on them arrives in later stages.
+    let signedJump: { resultId: string; stepId: string; optionId: string; rev: string } | undefined;
     const tapId = isButtonReply ? interactiveReplyId(message) : '';
     if (isV1ButtonId(tapId)) {
       const senderPhone = String(message.from).replace(/\D/g, '');
@@ -1851,6 +1853,11 @@ export function startAdminServer(storage: Storage): import('http').Server {
         if (onCurrentQuestion || onStoppedQuestion) {
           console.log(onStoppedQuestion ? '[META_V1_BUTTON_RESUME]' : '[META_V1_BUTTON_ANSWER]', message.id, senderPhone, `step=${verdict.claims.stepId}`);
           body = verdict.claims.optionId;
+        } else if (process.env.META_BUTTON_JUMP === '1') {
+          // An older question's button: the flow takes her back to that branch (only if the campaign allows it, checked again under the sender lock).
+          console.log('[META_V1_BUTTON_JUMP]', message.id, senderPhone, `step=${verdict.claims.stepId}`);
+          body = verdict.claims.optionId;
+          signedJump = { resultId: verdict.claims.resultId, stepId: verdict.claims.stepId, optionId: verdict.claims.optionId, rev: verdict.claims.rev };
         } else {
           console.log('[META_V1_BUTTON_VERIFIED]', message.id, senderPhone, `step=${verdict.claims.stepId}`, 'no_action_yet');
         }
@@ -1875,6 +1882,7 @@ export function startAdminServer(storage: Storage): import('http').Server {
       body,
       hasUserSignal: Boolean(body || isButtonReply || mediaPayload),
       isButtonReply,
+      signedJump,
       replyToMessageId: String(message?.context?.id || '').trim() || undefined,
       media: mediaKind && mediaPayload ? {
         kind: mediaKind,

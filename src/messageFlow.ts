@@ -2,7 +2,7 @@ import { config } from './config';
 import { runCampaignWork, stopCampaignWork, hasCampaignWork, guardCampaignTransport, assertCampaignWorkActive, campaignWorkSleep, CampaignWorkCancelledError } from './campaignWork';
 import { ProviderSendError, classifySendError, isUncertainSendError } from './sendOutcome';
 import { runWithSendAttempt } from './sendAttempt';
-import { currentFlowUnit, incomingReplyTo, nextFlowSendIndex, runFlowUnit, withIncomingReplyTo } from './flowUnit';
+import { currentFlowUnit, currentJumpId, incomingReplyTo, nextFlowSendIndex, runAsJump, runFlowUnit, withIncomingReplyTo } from './flowUnit';
 import type { OutboxContinuation, OutboxFlowRef } from './storage';
 import { AsyncLocalStorage } from 'async_hooks';
 import fs from 'fs';
@@ -11,6 +11,8 @@ import { conversationState, HeldIncomingMessage, PendingConversation, Persistabl
 import { notifySystemAlert } from './systemAlerts';
 import { ButtonConfigError, currentButtonIssuer } from './buttonIssuer';
 import { buttonLeaseValid } from './buttonLease';
+import { createHash } from 'node:crypto';
+import { computeFlowRev } from './flowRev';
 import { deliveryRecoveryBus } from './deliveryRecoveryBus';
 import { reportInboundOutcome } from './inboundOutcome';
 import { redactSecrets } from './secretRedaction';
@@ -80,7 +82,7 @@ const CONFIGURED_BOT_REPLY_DELAY_MS = Math.max(
 const BOT_REPLY_DELAY_MS = config.WHATSAPP_PROVIDER === 'META_CLOUD_API'
   ? Math.min(CONFIGURED_BOT_REPLY_DELAY_MS, 250)
   : CONFIGURED_BOT_REPLY_DELAY_MS;
-const FLOW_STEP_FAILURE_CONTINUE_DELAY_MS = 60_000;
+const FLOW_STEP_FAILURE_CONTINUE_DELAY_MS = Math.max(0, Number(process.env.FLOW_STEP_FAILURE_CONTINUE_DELAY_MS ?? 60_000) || 0);   // env only lets tests shorten it
 const RECENT_DECISION_REPLY_TTL_MS = 15_000;
 const FLOW_RECOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
 const FLOW_RECOVERY_SETTLE_MS = 0;
@@ -679,7 +681,7 @@ function isUncertainOutcome(err: unknown): boolean {
  * original was already delivered is skipped; every other send is created normally, tagged with its unit
  * position and the unit's continuation descriptor.
  */
-function flowSendPrelude(storage: Storage): { meta: { flowRef?: OutboxFlowRef; continuation?: OutboxContinuation }; delivered?: { providerMessageId?: string } } {
+function flowSendPrelude(storage: Storage): { meta: { flowRef?: OutboxFlowRef; continuation?: OutboxContinuation; idempotencyKey?: string }; delivered?: { providerMessageId?: string } } {
   const position = nextFlowSendIndex();
   if (!position) return { meta: {} };
   const { unit, index } = position;
@@ -688,6 +690,9 @@ function flowSendPrelude(storage: Storage): { meta: { flowRef?: OutboxFlowRef; c
     if (prior?.status === 'sent') return { meta: {}, delivered: { providerMessageId: prior.providerMessageId } };
   }
   const meta: { flowRef: OutboxFlowRef; continuation?: OutboxContinuation } = { flowRef: { unitId: unit.unitId, index } };
+  // The branch of a jump back to an older button: a stable key per jump, unit and position.
+  const jumpId = currentJumpId();
+  if (jumpId) (meta as { idempotencyKey?: string }).idempotencyKey = `jump:${jumpId}:${unit.unitId}:${index}`;
   if (!unit.continuationAttached) {
     // Stored once per unit (first row it creates). Rows are persisted for the whole history, so they stay small.
     unit.continuationAttached = true;
@@ -1327,6 +1332,59 @@ function findFlowRecoveryContext(
 }
 
 /**
+ * P4: a verified signed button of an OLDER question takes her back to that option's branch; the flow then continues from there in its
+ * normal order. Runs inside the sender lock. Order: the run must still be her current one, the campaign must allow it, then the jump is
+ * written to the journal (and flushed) BEFORE anything is sent, then the question she is on is cancelled and the branch runs as a flow
+ * unit whose sends carry stable keys. A crash leaves the journal entry; nothing resends on its own, and an uncertain delivery stays
+ * uncertain (the usual hold), never a resend.
+ */
+async function handleSignedJump(
+  message: IncomingWhatsAppMessage,
+  storage: Storage,
+  transport: WhatsAppTransport,
+  source: WhatsAppMessageSource,
+  senderJid: string,
+  senderPhone: string,
+  activeCampaigns: Campaign[],
+): Promise<void> {
+  const claims = message.signedJump!;
+  const reject = (reason: string): void => {
+    console.warn(`[JUMP_REJECTED] reason=${reason} via=${source} phone=${senderPhone} result=${claims.resultId} step=${claims.stepId}`);
+  };
+  const run = storage.getCurrentRun(senderPhone);
+  if (!run || run.id !== claims.resultId) return reject('not_current_run');
+  const campaign = activeCampaigns.find((item) => item.id === run.campaignId);
+  if (!campaign) return reject('campaign_inactive');
+  const settings = storage.getCampaignConversationSettings(campaign);
+  if (!settings.allowJumpBack) return reject('jump_not_allowed');
+  if (computeFlowRev(campaign.conversation as unknown as Record<string, unknown>) !== claims.rev) return reject('rev_mismatch');
+  const step = settings.decisionFlow.find((item) => item.id === claims.stepId);
+  if (!step || (step.kind !== 'question' && step.kind !== 'score_question') || !step.options?.some((option) => option.id === claims.optionId)) return reject('no_such_option');
+
+  const pending = conversationState.get(senderJid) || conversationState.findByPhone(senderPhone);
+  const jumpId = 'j_' + createHash('sha1').update(message.id).digest('hex').slice(0, 12);
+  const begun = storage.beginJump(run.id, {
+    jumpId, inboundWamid: message.id, fromStepId: pending && 'stepId' in pending ? String(pending.stepId) : undefined, toStepId: claims.stepId, optionId: claims.optionId, flowRev: claims.rev,
+  });
+  if (!begun.ok) return reject(begun.reason);
+  await storage.flush();   // the journal is durable before the first send
+
+  if (pending && (pending.kind === 'decision' || pending.kind === 'wait-reply' || pending.kind === 'expired-decision')) {
+    clearTimeout(pending.timeoutHandle);
+    conversationState.remove(pending.senderJid);
+  }
+  clearTimedOutDecision(senderPhone);
+  console.log(`[JUMP_BACK] via=${source} phone=${senderPhone} result=${run.id} to=${claims.stepId} option=${claims.optionId} jump=${jumpId}`);
+  try {
+    await runAsJump(jumpId, () => handleDecisionReply(claims.optionId, settings.decisionFlow, claims.stepId, senderJid, storage, transport, campaign.id, run.id, senderPhone, replyBehaviorFromSettings(settings)));
+    storage.finishJump(run.id, jumpId, 'done');
+  } catch (err) {
+    storage.finishJump(run.id, jumpId, isUncertainOutcome(err) || storage.jumpHasUncertainSend(jumpId) ? 'uncertain' : 'failed');
+    throw err;
+  }
+}
+
+/**
  * Runs a repeated-button branch and spends her one extra tap: when the branch ran to the end - or ended in an UNCERTAIN delivery,
  * because delivery recovery then finishes that same branch (its sends are replayed as units of their own). Any other failure leaves
  * the tap unused: she is held, and nothing was delivered that she could tap through.
@@ -1564,6 +1622,10 @@ async function handleMessage(
     throw new SenderHeldForReviewError(heldJid, pending.reason);
   }
   const activeCampaigns = storage.getActiveCampaigns();
+  if (message.signedJump) {
+    await handleSignedJump(message, storage, transport, source, senderJid, senderPhone, activeCampaigns);
+    return;
+  }
   const trigger = message.body?.trim() ? detectTrigger(message.body, activeCampaigns) : { matched: false, campaignId: '', suffix: '', campaignName: '' };
   const serviceBotTriggerMatched = message.body?.trim() ? matchesServiceBotTrigger(message.body, storage) : false;
   if (pending && (trigger.matched || serviceBotTriggerMatched) && messageAgeMs <= MAX_TRIGGER_AGE_MS) {
@@ -3052,8 +3114,14 @@ async function handleGroupJoinRequest(transport: WhatsAppTransport, storage: Sto
   const campaign = campaignId ? storage.getCampaigns().find((item) => item.id === campaignId) : undefined;
   const settings = campaign ? storage.getCampaignConversationSettings(campaign) : undefined;
   const managerPhone = normalizeHumanHandoffPhone(settings?.groupJoinManagerPhone);
-  const dedupeKey = `group_join_request:${step.id}:${option.id}`;
-  let delivered = Boolean(campaignId && campaignResultId && storage.getCampaignEvents(campaignId).some((event) => event.campaignResultId === campaignResultId && event.dedupeKey === dedupeKey));
+  // Through a jump back the request may be repeated (product decision), at most once a minute and 3 times in 24 hours per run.
+  const jumpId = currentJumpId();
+  if (jumpId && campaignResultId && !storage.allowGroupJoinRepeat(campaignResultId)) {
+    console.warn(`[GROUP_JOIN_REPEAT_LIMITED] campaign=${campaignId ?? ''} result=${campaignResultId} phone=${senderPhone ?? ''} step=${step.id}`);
+    return;
+  }
+  const dedupeKey = `group_join_request:${step.id}:${option.id}${jumpId ? ':' + jumpId : ''}`;
+  let delivered = jumpId ? false : Boolean(campaignId && campaignResultId && storage.getCampaignEvents(campaignId).some((event) => event.campaignResultId === campaignResultId && event.dedupeKey === dedupeKey));
   if (!delivered && !managerPhone) {
     // Without this the participant just receives the failure text and nothing is logged.
     console.error(`[GROUP_JOIN_NOT_CONFIGURED] campaign=${campaignId ?? ''} result=${campaignResultId ?? ''} phone=${senderPhone ?? ''} step=${step.id} - groupJoinManagerPhone is empty.`);
@@ -3088,7 +3156,7 @@ async function handleGroupJoinRequest(transport: WhatsAppTransport, storage: Sto
           campaignId,
           campaignResultId,
           stepId: step.id,
-          idempotencyKey: `group-join-template:${campaignResultId || senderPhone || senderJid}:${step.id}:${option.id}`,
+          idempotencyKey: `group-join-template:${campaignResultId || senderPhone || senderJid}:${step.id}:${option.id}${jumpId ? ':' + jumpId : ''}`,
         }, () => transport.sendTemplateMessage!(`whatsapp:${managerPhone}`, templateName, templateLanguageCode, templateParams));
         console.log(`[GROUP_JOIN_SENT] campaign=${campaignId} result=${campaignResultId ?? ''} to=${managerPhone} mode=template wamid=${result?.messageId ?? ''}`);
       } else {

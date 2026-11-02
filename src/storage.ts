@@ -86,6 +86,8 @@ export interface CampaignConversationSettings {
   humanHandoffText?: string;
   humanHandoffPhone?: string;
   groupJoinManagerPhone?: string;
+  /** Signed buttons: a tap on an OLDER question's button takes her back to that branch (flag META_BUTTON_JUMP on the client too). Off by default. */
+  allowJumpBack?: boolean;
   groupJoinParticipantConfirmationText?: string;
   groupJoinParticipantFailureText?: string;
   groupJoinMetaTemplateName?: string;
@@ -414,9 +416,25 @@ export interface ScheduledJobRecord {
 
 export type CampaignResultStatus = 'awaiting_name' | ContactSaveStatus;
 
+/** One step back to an older button (P4). Written BEFORE anything is sent, so a crash leaves a trace; the count of these is the jump limit. */
+export interface CampaignJump {
+  jumpId: string;
+  at: string;
+  inboundWamid: string;
+  fromStepId?: string;
+  toStepId: string;
+  optionId: string;
+  flowRev: string;
+  status: 'started' | 'done' | 'failed' | 'uncertain';
+}
+
 export interface CampaignResult {
   id: string;
   campaignId: string;
+  /** P4: jumps back to older buttons (journal + limits). */
+  jumps?: CampaignJump[];
+  /** P4: when a group-join request was repeated through a jump (limits 1/minute, 3/24h). */
+  groupJoinRepeatsAt?: string[];
   resultBatchId?: string;
   phone: string;
   whatsappName?: string;
@@ -2224,6 +2242,57 @@ export class Storage {
     return changed.length;
   }
 
+  /**
+   * Journal entry for a jump back to an older button, saved by the caller (flush) before it sends anything. Refused when the same inbound
+   * message was already journaled (a redelivery) or the limits are used up: JUMP_MAX_PER_HOUR (10) / JUMP_MAX_PER_DAY (30) per run, counted
+   * from the journal, so they survive a restart. Recovery of an unfinished jump is not a new jump and never comes through here.
+   */
+  beginJump(resultId: string, entry: Omit<CampaignJump, 'at' | 'status'>, nowMs = Date.now(), env: NodeJS.ProcessEnv = process.env):
+    { ok: true } | { ok: false; reason: 'no_result' | 'duplicate' | 'rate_hour' | 'rate_day' } {
+    const result = this.data.campaignResults.find((item) => item.id === resultId);
+    if (!result) return { ok: false, reason: 'no_result' };
+    const jumps = result.jumps ?? [];
+    if (jumps.some((item) => item.inboundWamid === entry.inboundWamid)) return { ok: false, reason: 'duplicate' };
+    const perHour = Math.max(1, Number(env.JUMP_MAX_PER_HOUR) || 10);
+    const perDay = Math.max(1, Number(env.JUMP_MAX_PER_DAY) || 30);
+    const within = (windowMs: number): number => jumps.filter((item) => nowMs - Date.parse(item.at) < windowMs).length;
+    if (within(3600_000) >= perHour) return { ok: false, reason: 'rate_hour' };
+    if (within(24 * 3600_000) >= perDay) return { ok: false, reason: 'rate_day' };
+    const previous = result.jumps;
+    result.jumps = [...jumps, { ...entry, at: new Date(nowMs).toISOString(), status: 'started' as const }].slice(-200);
+    try { this.persist(['campaignResults'], { campaignResults: [resultId] }); }
+    catch (err) { result.jumps = previous; throw err; }
+    return { ok: true };
+  }
+
+  /** True when a send of this jump is parked as uncertain (its outcome is unknown): the jump must then stay uncertain, never "failed". */
+  jumpHasUncertainSend(jumpId: string): boolean {
+    const prefix = `jump:${jumpId}:`;
+    return this.data.outboxMessages.some((item) => item.status === 'uncertain' && (item.idempotencyKey ?? '').startsWith(prefix));
+  }
+
+  finishJump(resultId: string, jumpId: string, status: CampaignJump['status']): void {
+    const result = this.data.campaignResults.find((item) => item.id === resultId);
+    const entry = result?.jumps?.find((item) => item.jumpId === jumpId);
+    if (!result || !entry || entry.status === status) return;
+    entry.status = status;
+    this.persist(['campaignResults'], { campaignResults: [resultId] });
+  }
+
+  /** A repeated group-join request (through a jump): at most 1 per minute and 3 per 24 hours per run. Records the attempt when allowed. */
+  allowGroupJoinRepeat(resultId: string, nowMs = Date.now()): boolean {
+    const result = this.data.campaignResults.find((item) => item.id === resultId);
+    if (!result) return false;
+    const times = (result.groupJoinRepeatsAt ?? []).filter((at) => nowMs - Date.parse(at) < 24 * 3600_000);
+    if (times.length >= 3) return false;
+    if (times.some((at) => nowMs - Date.parse(at) < 60_000)) return false;
+    const previous = result.groupJoinRepeatsAt;
+    result.groupJoinRepeatsAt = [...times, new Date(nowMs).toISOString()];
+    try { this.persist(['campaignResults'], { campaignResults: [resultId] }); }
+    catch (err) { result.groupJoinRepeatsAt = previous; throw err; }
+    return true;
+  }
+
   seedCampaignReferralDemo(campaignId: string): { added: number; removed: number } {
     const removed = this.clearCampaignReferralDemo(campaignId, false);
     const leaders = [
@@ -2972,6 +3041,7 @@ export class Storage {
       humanHandoffPhone: campaign.conversation?.humanHandoffPhone ?? defaults.humanHandoffPhone,
       // Group-join settings are campaign-level only; AdminSettings has no defaults for them.
       groupJoinManagerPhone: campaign.conversation?.groupJoinManagerPhone ?? '',
+      allowJumpBack: campaign.conversation?.allowJumpBack === true,
       groupJoinParticipantConfirmationText: campaign.conversation?.groupJoinParticipantConfirmationText ?? '',
       groupJoinParticipantFailureText: campaign.conversation?.groupJoinParticipantFailureText ?? '',
       groupJoinMetaTemplateName: campaign.conversation?.groupJoinMetaTemplateName ?? '',

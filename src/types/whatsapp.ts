@@ -22,6 +22,8 @@ export interface IncomingWhatsAppMessage {
   isReaction?: boolean;
   /** Meta: provider id of the message this one replies to (a button tap carries the id of the buttons message it answers). */
   replyToMessageId?: string;
+  /** A verified signed button of an OLDER question (P4): the flow takes her back to that branch instead of treating this as a normal reply. */
+  signedJump?: { resultId: string; stepId: string; optionId: string; rev: string };
   media?: {
     kind: 'image' | 'video' | 'audio' | 'document' | 'sticker' | 'media';
     mimeType?: string;

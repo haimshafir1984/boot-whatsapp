@@ -74,6 +74,17 @@ export function withReplayOf<T>(unitId: string, action: () => Promise<T>): Promi
   return pendingReplay.run({ unitId }, action);
 }
 
+const jumpScope = new AsyncLocalStorage<{ jumpId: string } | undefined>();
+
+/** Runs `action` as the branch of a jump back to an older button: its outbox rows get a stable key per jump and position. */
+export function runAsJump<T>(jumpId: string, action: () => Promise<T>): Promise<T> {
+  return jumpScope.run({ jumpId }, action);
+}
+
+export function currentJumpId(): string | undefined {
+  return jumpScope.getStore()?.jumpId;
+}
+
 /** Position of the next send inside the current unit (1-based), or undefined outside any unit. */
 export function nextFlowSendIndex(): { unit: FlowUnitScope; index: number } | undefined {
   const unit = scope.getStore();
