@@ -1378,7 +1378,7 @@ async function handleSignedJump(
   const campaign = activeCampaigns.find((item) => item.id === run.campaignId);
   if (!campaign) return reject('campaign_inactive');
   const settings = storage.getCampaignConversationSettings(campaign);
-  if (!settings.allowJumpBack) return reject('jump_not_allowed');
+  if (!jumpAllowed(settings)) return reject('jump_not_allowed');
   if (computeFlowRev(campaign.conversation as unknown as Record<string, unknown>) !== claims.rev) return reject('rev_mismatch');
   const step = settings.decisionFlow.find((item) => item.id === claims.stepId);
   if (!step || (step.kind !== 'question' && step.kind !== 'score_question') || !step.options?.some((option) => option.id === claims.optionId)) return reject('no_such_option');
@@ -1400,6 +1400,15 @@ async function handleSignedJump(
   await storage.flush();   // the journal is durable before the first send
   console.log(`[JUMP_BACK] via=${source} phone=${senderPhone} result=${run.id} to=${claims.stepId} option=${claims.optionId} jump=${jumpId}`);
   await runJumpBranch(storage, transport, jumpId);
+}
+
+/**
+ * May a signed button of an older question take her back? Per campaign (`allowJumpBack`), or for EVERY campaign of this client when the
+ * client itself runs with META_BUTTON_JUMP_ALL=1 (the switch for turning the feature on fleet-wide without editing each campaign). The
+ * client-level META_BUTTON_JUMP=1 is still required before any jump is attempted (src/adminServer.ts).
+ */
+function jumpAllowed(settings: { allowJumpBack?: boolean }): boolean {
+  return settings.allowJumpBack === true || process.env.META_BUTTON_JUMP_ALL === '1';
 }
 
 /** Cancels the question she is on (and its timer) before a jump's branch runs. */
@@ -1448,7 +1457,7 @@ export async function reconcileStartedJump(storage: Storage, transport: WhatsApp
   const phone = String(result.phone ?? '').replace(/\D/g, '');
   const senderJid = jump.senderJid || `whatsapp:${phone}`;
   const campaign = storage.getActiveCampaigns().find((item) => item.id === result.campaignId);
-  if (storage.getCurrentRun(phone)?.id !== result.id || !campaign || !storage.getCampaignConversationSettings(campaign).allowJumpBack) {
+  if (storage.getCurrentRun(phone)?.id !== result.id || !campaign || !jumpAllowed(storage.getCampaignConversationSettings(campaign))) {
     storage.finishJump(result.id, jumpId, 'abandoned');
     console.warn(`[JUMP_ABANDONED] jump=${jumpId} result=${result.id} phone=${phone}`);
     return 'abandoned';

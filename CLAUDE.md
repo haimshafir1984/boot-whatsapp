@@ -70,7 +70,7 @@
 | --- | --- | --- |
 | `META_RESUMABLE_HANDOVER=1` | שער | handover שמבטל גם הרצות שניתן לחדש; השער נכשל סגור אם לקוח כלשהו על המספר (כולל לקוח היעד) לא מדווח `resumable-v1` + `durable-supersede-v1`. מפעיל גם את דחיפת אישור הצי. |
 | `META_BUTTON_V1_ISSUE=1` | לקוח | הנפקת כפתורים חתומים. דורש `META_BUTTON_CLIENT_ID` + מפתחות, ו**אישור צי בתוקף** מהשער; בלי אישור נשלחים כפתורים רגילים והלקוח מתריע. אתחול נכשל אם ההגדרה חלקית. |
-| `META_BUTTON_JUMP=1` + `allowJumpBack` בקמפיין | לקוח + קמפיין | קפיצה לכפתור ישן (עד 10 לשעה ו-30 ל-24 שעות להרצה; הצטרפות לקבוצה דרך קפיצה: פעם בדקה, 3 ל-24 שעות). הדלקת `allowJumpBack` משנה את ה-`rev` ומבטלת כפתורים שכבר נשלחו. |
+| `META_BUTTON_JUMP=1` + `allowJumpBack` בקמפיין | לקוח + קמפיין | קפיצה לכפתור ישן (עד 10 לשעה ו-30 ל-24 שעות להרצה; הצטרפות לקבוצה דרך קפיצה: פעם בדקה, 3 ל-24 שעות). הדלקת `allowJumpBack` משנה את ה-`rev` ומבטלת כפתורים שכבר נשלחו. **לכל הקמפיינים של לקוח בבת אחת (בלי לערוך כל קמפיין): `META_BUTTON_JUMP_ALL=1` בלקוח** (עדיין דורש `META_BUTTON_JUMP=1`; אין מתג בממשק, ו-`allowJumpBack` בקמפיין נקבע רק דרך ה-API). |
 
 **משתני סביבה:** שער/מנהל — `META_BUTTON_ROUTE_MASTER_KEYS`, `META_BUTTON_FULL_MASTER_KEYS` (`kid:מפתח,...`; הראשון לנתב והאימות בשער, השני רק להקצאה), `META_BUTTON_REVOKED_KIDS`, `META_BUTTON_LEASE_TTL_MS` (ברירת מחדל 180000), `META_BUTTON_LEASE_PUSH_MS` (60000). לקוח — `META_BUTTON_CLIENT_ID`, `META_BUTTON_ROUTE_KEYS`, `META_BUTTON_FULL_KEYS`, `META_BUTTON_ISSUE_KID`, `META_BUTTON_REVOKED_KIDS`, `JUMP_MAX_PER_HOUR/DAY`. מנהל ל-provisioner — `DOKPLOY_BUTTON_V1_ISSUE=1` (אחרת ה-provisioner מקצה מפתחות אבל לא מדליק הנפקה).
 

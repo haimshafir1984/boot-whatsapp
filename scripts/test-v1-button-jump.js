@@ -203,6 +203,23 @@ for (const level of ['log', 'warn', 'error']) { const o = console[level].bind(co
     assert.equal(toManager().length, 1, '3 within 24 hours: none more');
   });
 
+  await scenario('META_BUTTON_JUMP_ALL=1 allows the jump for a campaign that never set allowJumpBack; without it, that campaign still refuses', async () => {
+    const t = new FakeTransport(); const c = campaignFor(flow());   // no allowJumpBack on this campaign
+    const phone = await startRun(c, t);
+    const q1 = t.sent.find((m) => m.type === 'buttons');
+    await answer(phone, t, 'o1', q1.wamid);
+    const before = t.sent.length;
+    delete process.env.META_BUTTON_JUMP_ALL;
+    await jump(phone, t, c, 'q1', 'o2');
+    assert.equal(t.sent.length, before, 'client switch off: refused');
+    process.env.META_BUTTON_JUMP_ALL = '1';
+    try {
+      await jump(phone, t, c, 'q1', 'o2');
+      assert.ok(t.sent.slice(before).some((m) => m.type === 'text' && m.text === 'BRANCH B'), 'client switch on: the branch ran');
+      assert.equal(jumps(phone).length, 1);
+    } finally { delete process.env.META_BUTTON_JUMP_ALL; }
+  });
+
   // The real webhook: with META_BUTTON_JUMP=1 an older signed button becomes a jump; without it, nothing happens.
   config.ADMIN_PORT = 0;
   const server = require('../dist/adminServer').startAdminServer(storage);
