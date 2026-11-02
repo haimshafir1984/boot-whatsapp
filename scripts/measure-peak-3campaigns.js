@@ -30,6 +30,7 @@
  *   --gateway-pool-max N     sets INBOX_DB_POOL_MAX on the GATEWAY process only (1..100); 0 = leave unset (product default 10)
  *   --status-batch off|http|http+journal   sets META_STATUS_BATCH on the GATEWAY (default off = today's behaviour); --status-batch-max N sets META_STATUS_BATCH_MAX
  *   --pg-trace               measurement-only preload wrapper around pg pool/query/connect; emits bounded @@PG summaries (off by default)
+ *   --signed-buttons      returning buttons ON everywhere: gateway META_RESUMABLE_HANDOVER=1 + routing master key + 2 s lease pushes, every client META_BUTTON_V1_ISSUE=1 with its own keys; the participants answer with the ids the product sent, so taps take the signed (direct-routed, verified) path
  *   --reply-after-delivered  participants wait for the simulator's delivered delay before replying (legacy mode replies after send is observed)
  *   --file-poll-ms N      sets FILE_DELIVERY_POLL_INTERVAL_MS on every CLIENT (0 = unset = product default 300)
  *   --reject-interactive P   share of question messages (buttons) answered 429 on every attempt (identity-keyed) -> the product falls back to a numbered TEXT question
@@ -100,7 +101,7 @@ const O = {
   crossover: num('crossover', 0), sameSwitch: num('same-switch', 0), impatient: num('impatient', 0), doubleClick: num('double-click', 0), dupWebhooks: num('dup-webhooks', 0),
   gatewayTrace: has('gateway-trace'), clientMaxSenders: num('client-max-senders', 0), filePollMs: num('file-poll-ms', 0), rejectInteractive: num('reject-interactive', 0), quizN: sc(num('quiz-n', 60)), quizPeak: sc(num('quiz-peak', 15)), statusBatch: opt('status-batch', 'off'), statusBatchMax: num('status-batch-max', 0),
   lostResp: num('lost-resp', 0.0005), base5xx: num('base-5xx', 0),
-  gatewayPoolMax: num('gateway-pool-max', 0), pgTrace: has('pg-trace'), replyAfterDelivered: has('reply-after-delivered'),
+  gatewayPoolMax: num('gateway-pool-max', 0), pgTrace: has('pg-trace'), replyAfterDelivered: has('reply-after-delivered'), signedButtons: has('signed-buttons'),
   textMs: num('text-ms', 150), mediaMs: num('media-ms', 900), deliveredMs: num('delivered-ms', 1500), deliveredImageMs: num('delivered-image-ms', 2500), readFrac: num('read-frac', 0.6),
   statusTail: num('status-tail', 0.03), statusDup: num('status-dup', 0.05), failedStatus: num('failed-status', 0.005),
   history: num('history', 0), seedConv: num('seed-conversations', 0), timeoutS: num('timeout', 1200), seed: num('seed', 4242),
@@ -493,11 +494,21 @@ function onMetaSend(j) {
   const metaCmd = (key, value) => fm.child.send({ cmd: 'set', key, value });
   const proxyMode = (id, mode, ms, rate) => pxEntry.child.send({ cmd: 'mode', id, mode, ms, rate });
 
+  // --signed-buttons: keys the way the provisioner will allocate them (master routing key at the gateway only; per client: derived routing key + its own full key)
+  const signedMaster = crypto.createHash('sha256').update(`${RUN}-master`).digest();
+  const signedClientEnv = (c) => {
+    if (!O.signedButtons) return {};
+    const routeKey = crypto.createHmac('sha256', signedMaster).update(`route-key/v1\nclient-${c.i}`).digest();
+    const fullKey = crypto.createHash('sha256').update(`${RUN}-full-${c.i}`).digest();
+    return { META_BUTTON_V1_ISSUE: '1', META_BUTTON_CLIENT_ID: `client-${c.i}`, META_BUTTON_ROUTE_KEYS: `k1:${routeKey.toString('base64url')}`, META_BUTTON_FULL_KEYS: `k1:${fullKey.toString('base64url')}` };
+  };
+  const signedGatewayEnv = O.signedButtons ? { META_RESUMABLE_HANDOVER: '1', META_BUTTON_ROUTE_MASTER_KEYS: `k1:${signedMaster.toString('base64url')}`, META_BUTTON_LEASE_PUSH_MS: '2000' } : {};
   const clientEnv = (c) => ({
     NODE_ENV: 'production', WHATSAPP_PROVIDER: 'META_CLOUD_API', PORT: String(c.port), OWNER_ACCESS_TOKEN: c.token, CLIENT_ACCESS_TOKEN: `${c.token}-client`,
     META_ACCESS_TOKEN: 'load-token', META_PHONE_NUMBER_ID: PN, META_DISPLAY_PHONE_NUMBER: '15550001111', META_APP_SECRET: '', BOT_REPLY_DELAY_MS: String(O.botDelay), CLIENT_NAME: `client-${c.i}`,
     STORAGE_PATH: path.join(c.dir, 'data', 'contacts.json'), CONVERSATION_STATE_PATH: path.join(c.dir, 'data', 'conversation-state.json'), UPLOADS_PATH: path.join(c.dir, 'uploads'), SESSION_PATH: path.join(c.dir, 'session'),
     DATABASE_URL: c.url, INBOX_BACKEND: 'postgres', INBOX_NAMESPACE: `${RUN}-c${c.i}`, INBOX_DB_POOL_MAX: '4', FAKE_META_URL: `http://127.0.0.1:${metaPort}`,
+    ...signedClientEnv(c),
     ...(O.pgTrace ? { PEAK_TRACE_PG: '1' } : {}),
     ...(O.clientMaxSenders > 0 ? { META_MAX_CONCURRENT_SENDERS: String(O.clientMaxSenders) } : {}),
     ...(O.filePollMs > 0 ? { FILE_DELIVERY_POLL_INTERVAL_MS: String(O.filePollMs) } : {}),
@@ -516,6 +527,7 @@ function onMetaSend(j) {
     STORAGE_PATH: path.join(gwDir, 'data', 'contacts.json'), OWNER_STORAGE_PATH: path.join(gwDir, 'owner', 'clients.json'), CONVERSATION_STATE_PATH: path.join(gwDir, 'data', 'conversation-state.json'), UPLOADS_PATH: path.join(gwDir, 'uploads'), SESSION_PATH: path.join(gwDir, 'session'), DATABASE_URL: '',
     INBOX_BACKEND: 'postgres', INBOX_DATABASE_URL: gwInboxUrl, INBOX_NAMESPACE: RUN, FAKE_META_URL: `http://127.0.0.1:${metaPort}`,
     ...(O.gatewayPoolMax > 0 ? { INBOX_DB_POOL_MAX: String(O.gatewayPoolMax) } : {}), ...(O.pgTrace ? { PEAK_TRACE_PG: '1' } : {}),
+    ...signedGatewayEnv,
     ...(O.gatewayTrace ? { GATEWAY_TRACE: '1' } : {}), ...(O.statusBatch !== 'off' ? { META_STATUS_BATCH: O.statusBatch } : {}), ...(O.statusBatchMax > 0 ? { META_STATUS_BATCH_MAX: String(O.statusBatchMax) } : {}) };
   {
     const { createInboxPool, migrateInboxSchema } = require(path.join(dist, 'inbox', 'schema'));

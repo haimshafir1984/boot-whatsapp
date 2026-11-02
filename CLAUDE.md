@@ -58,6 +58,32 @@
 
 קבצים: `src/metaEmbeddedSignup.ts` (קריאות Graph API + טוקן קישור), `owner-public/connect-meta.html` (דף הלקוחה), `docs/embedded-signup-automation-plan-2026-09-28.md` (תכנון מלא), `docs/customer-owned-whatsapp-number-meta-plan.md` (רקע ארוך-טווח).
 
+## כפתורים חוזרים (Returning buttons) — ענף `feature/returning-buttons-p3`, **לא פרוס, לא ממוזג, כל הדגלים כבויים**
+
+מטרה: (1) כפתור ישן שהמשתתפת כבר עברה — לחיצה עליו מחזירה אותה לענף שלו והזרימה ממשיכה בסדר הרגיל; (2) לחיצה שעות אחרי שנעצרה באמצע עדיין עובדת (24 שעות מרגע שליחת הכפתור). רק Meta (לא Baileys). מפרט: `docs/returning-buttons-implementation-spec-2026-11-01.md`; הגשות וביקורות קודקס: `docs/returning-buttons-for-codex-*.md`, `docs/returning-buttons-*-codex-review-*.md`.
+
+**איך זה עובד.** כפתור חתום (`v1.<kid>.<client>.<result>.<step>.<option>.<rev>.<exp>.<routeSig>.<sig>`, עד 200 תווים, שתי חתימות HMAC). **השער** בודק רק את חתימת הניתוב ומעביר לחיצה תקפה ישירות ללקוח המנפיק — בלי `meta-pending-route` ובלי handover (לכן גם מהיר יותר). **הלקוח** מאמת הכול: חתימה מלאה, תוקף, שהתוצאה שייכת לשולחת ושהיא ההרצה הנוכחית (`getCurrentRun`, לא `supersededAt`), קמפיין פעיל, שלב ואפשרות, ו-`rev` (חותמת מבנה הקמפיין, `src/flowRev.ts`; שינוי טקסט תצוגה לא מבטל כפתורים, שינוי מבני כן). מזהה שמתחיל ב-`v1.` שאינו תקף **נזרק** — לעולם לא יורד למסלול הישן. מזהה ישן (לא v1) עובד בדיוק כמו קודם.
+
+**שלבים והדגלים (הכול כבוי כברירת מחדל):**
+
+| דגל | איפה | מה עושה |
+| --- | --- | --- |
+| `META_RESUMABLE_HANDOVER=1` | שער | handover שמבטל גם הרצות שניתן לחדש; השער נכשל סגור אם לקוח כלשהו על המספר (כולל לקוח היעד) לא מדווח `resumable-v1` + `durable-supersede-v1`. מפעיל גם את דחיפת אישור הצי. |
+| `META_BUTTON_V1_ISSUE=1` | לקוח | הנפקת כפתורים חתומים. דורש `META_BUTTON_CLIENT_ID` + מפתחות, ו**אישור צי בתוקף** מהשער; בלי אישור נשלחים כפתורים רגילים והלקוח מתריע. אתחול נכשל אם ההגדרה חלקית. |
+| `META_BUTTON_JUMP=1` + `allowJumpBack` בקמפיין | לקוח + קמפיין | קפיצה לכפתור ישן (עד 10 לשעה ו-30 ל-24 שעות להרצה; הצטרפות לקבוצה דרך קפיצה: פעם בדקה, 3 ל-24 שעות). הדלקת `allowJumpBack` משנה את ה-`rev` ומבטלת כפתורים שכבר נשלחו. |
+
+**משתני סביבה:** שער/מנהל — `META_BUTTON_ROUTE_MASTER_KEYS`, `META_BUTTON_FULL_MASTER_KEYS` (`kid:מפתח,...`; הראשון לנתב והאימות בשער, השני רק להקצאה), `META_BUTTON_REVOKED_KIDS`, `META_BUTTON_LEASE_TTL_MS` (ברירת מחדל 180000), `META_BUTTON_LEASE_PUSH_MS` (60000). לקוח — `META_BUTTON_CLIENT_ID`, `META_BUTTON_ROUTE_KEYS`, `META_BUTTON_FULL_KEYS`, `META_BUTTON_ISSUE_KID`, `META_BUTTON_REVOKED_KIDS`, `JUMP_MAX_PER_HOUR/DAY`. מנהל ל-provisioner — `DOKPLOY_BUTTON_V1_ISSUE=1` (אחרת ה-provisioner מקצה מפתחות אבל לא מדליק הנפקה).
+
+**הקצאת מפתחות:** לקוח חדש מקבל את שלושת המשתנים מה-provisioner (`src/buttonKeys.ts`, נגזרים דטרמיניסטית משני טבעות המאסטר — אותם ערכים בכל redeploy). ללקוחות קיימים: `node scripts/button-keys-export.js` (כותב קובץ עם סודות לתיקיית temp, לא מדפיס מפתחות; הדבקה ידנית ב-Dokploy). **שינוי env של לקוח קיים = פריסה (Deploy) שלו.**
+
+**נקודות קצה:** `GET /owner/api/button-v1/readiness` (מנהל; `ready=true` רק כשהשער מריץ את ה-handover, יש מפתחות, וכל לקוח על המספר המשותף נגיש, מדווח יכולות, יודע את ה-ID שלו, עובר self-test ומחזיק בדיוק את מפתח הניתוב שהשער גוזר לו), `GET /owner-api/button-v1/status`, `POST /owner-api/button-v1/lease` (לקוח).
+
+**סדר הפעלה מומלץ (הדרגתי, אחרי Deploy ידני של הקוד והקצאת מפתחות):** (1) בדיקת `/health` — אין קמפיין פעיל; (2) `META_RESUMABLE_HANDOVER=1` בשער + לבדוק readiness; (3) `META_BUTTON_V1_ISSUE=1` בלקוח ניסוי **אחד** (בלי אישור צי הוא ממילא לא ינפיק); (4) `META_BUTTON_JUMP=1` + `allowJumpBack` על קמפיין אחד בלבד. כל שלב — מעקב בלוג: `[META_GATEWAY_V1_ROUTED]`, `[META_V1_BUTTON_ANSWER]/_RESUME/_JUMP`, `[META_GATEWAY_V1_REJECTED]`, `[META_V1_BUTTON_REJECTED]`, `[JUMP_REJECTED]`, `[JUMP_RECONCILE]`, `[BUTTON_V1_LEASE_WITHHELD]`. כיבוי: להוריד את הדגל; כפתורים שכבר נשלחו ממשיכים לעבוד עד שיפוגו (24 שעות).
+
+**אחרי קריסה באמצע קפיצה:** היומן (`CampaignResult.jumps`) נכתב לפני השליחה הראשונה. סריקת `deliveryRecovery` או אותו webhook שחוזר משלימים את אותה קפיצה בלי רשומה חדשה ובלי לצרוך מכסה; הודעה שכבר נשלחה לא נשלחת שוב (מפתחות `jump:<id>:<n>`); תוצאה לא ודאית נשארת `uncertain` ולא נשלחת שוב; הרצה שהוחלפה → `abandoned`.
+
+**מדידות (סימולטור `scripts/measure-peak-3campaigns.js`, אפשרות `--signed-buttons`):** דגלים כבויים — אין האטה לעומת `master` (3 ריצות מול 3). דגלים דולקים — תגובה ללחיצה וסיום זרימה זהים (בתוך הרעש) גם בהיסטוריה גדולה וגם עם לקוח איטי; ניתוב בשער p99 גבוה ב-14–37ms (כנראה בדיקת הצי כל 2 שניות בסימולטור, בייצור כל דקה — לא הוכח). לא נמדד: קפיצה בעומס, תדירות ייצור של בדיקת הצי.
+
 ## פקודות
 
 ```bash
@@ -117,12 +143,13 @@ node scripts/test-load-multiprocess-focus.js
 | `src/index.ts` | נקודת כניסה: storage, שרת, outbox, תורים, ספק WhatsApp, graceful shutdown |
 | `src/adminServer.ts` | Express: דשבורד מנהל/לקוח, API, webhooks, שער Meta, `owner-api`, `internal` |
 | `src/messageFlow.ts` | מנוע זרימת הקמפיין (טריגרים, שלבים, עיכובים, גיל טריגר מקסימלי) |
-| `src/triggerDetector.ts` | התאמת טריגר מדויקת אחרי ניקוי תווים בלתי נראים (ללא fuzzy) |
+| `src/triggerDetector.ts` | זיהוי טריגר: אחרי ניקוי תווים בלתי נראים והתעלמות מאותיות גדולות/קטנות, ההודעה **מכילה** את משפט הטריגר (`includes`; אם כמה מתאימים — הארוך מנצח). ללא fuzzy |
 | `src/serviceBot.ts`, `src/serviceBotFollowUpDispatcher.ts` | בוט שירות |
 | `src/systemAlerts.ts` | התראות מערכת במייל (`notifySystemAlert`, throttle 30 דק' לכל key) |
 | `src/ownerStorage.ts` | נתוני דשבורד המנהל (לקוחות, ניתוב) |
 | `src/whatsappLifecycle.ts` | watchdog וחיבור מחדש |
 | `src/metaEmbeddedSignup.ts` | Embedded Signup למספר ייעודי (Graph API, טוקן קישור חד-פעמי) |
+| `src/buttonToken.ts`, `src/buttonVerify.ts`, `src/buttonIssuer.ts`, `src/buttonLease.ts`, `src/buttonKeys.ts`, `src/flowRev.ts` | כפתורים חוזרים (חתימה, אימות בשער/לקוח, הנפקה, אישור צי, הקצאת מפתחות, חותמת מבנה) — ראו הסעיף למעלה |
 | `public/index.html`, `public/login.html` | ה-frontend — HTML יחיד בלי build |
 
 ## מודל קמפיינים
@@ -130,7 +157,7 @@ node scripts/test-load-multiprocess-focus.js
 - **בוט** — הלקוחה כותבת טריגר; סיומת קבועה לשם איש הקשר (למשל ` - (Bot)`).
 - **המלצה** — משפט בסיס + שם ממליץ יוצרים טריגר מלא; סיומת עם שם הממליץ.
 
-זיהוי הטריגר הוא exact match. שינוי מילה/סימן = לא מזוהה.
+זיהוי הטריגר הוא התאמת תת-מחרוזת (`includes`) אחרי נרמול, לא fuzzy: שינוי מילה בתוך המשפט = לא מזוהה; הודעה שמכילה את המשפט בתוספת טקסט — מזוהה.
 
 ## משתני סביבה עיקריים
 

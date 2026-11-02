@@ -1,3 +1,4 @@
+import { clientButtonEnv } from './buttonKeys';
 import crypto from 'crypto';
 import { ManagedClient } from './ownerStorage';
 
@@ -48,6 +49,10 @@ interface DokployProvisioningConfig {
   metaVerifyToken?: string;
   metaAppSecret?: string;
   metaWebhookUrl?: string;
+  /** Signed reply buttons: the two master key rings (kid:key,...) and whether new clients are told to issue them. Absent = nothing is provisioned. */
+  buttonRouteMasterKeys?: string;
+  buttonFullMasterKeys?: string;
+  buttonIssue?: boolean;
   botReplyDelayMs?: number;
 }
 
@@ -288,6 +293,9 @@ export class DokployProvisioner {
       metaDisplayPhoneNumber,
       metaVerifyToken,
       metaAppSecret,
+      buttonRouteMasterKeys: env.META_BUTTON_ROUTE_MASTER_KEYS?.trim() || undefined,
+      buttonFullMasterKeys: env.META_BUTTON_FULL_MASTER_KEYS?.trim() || undefined,
+      buttonIssue: env.DOKPLOY_BUTTON_V1_ISSUE?.trim() === '1',
       metaWebhookUrl,
       botReplyDelayMs: Number.isFinite(botReplyDelayMs) && botReplyDelayMs >= 0 ? Math.round(botReplyDelayMs) : undefined,
     };
@@ -647,6 +655,15 @@ export class DokployProvisioner {
       envLines.push('META_GRAPH_API_VERSION="v23.0"');
       envLines.push('META_GATEWAY_BASE_URL=' + escapeEnvValue(new URL('/', meta.webhookUrl!).toString().replace(/\/$/, '')));
       envLines.push('META_DEDICATED_NUMBER=' + (meta.usesDedicatedNumber ? 'true' : 'false'));
+      // Signed reply buttons: this client's id and keys, derived from the admin's master rings (same values on every redeploy). The issue flag
+      // itself is NOT set unless DOKPLOY_BUTTON_V1_ISSUE=1 - turning it on is a separate, deliberate step (see the readiness endpoint).
+      const buttonEnv = clientButtonEnv(current.id, this.config.buttonRouteMasterKeys, this.config.buttonFullMasterKeys);
+      if (buttonEnv) {
+        envLines.push('META_BUTTON_CLIENT_ID=' + escapeEnvValue(buttonEnv.META_BUTTON_CLIENT_ID));
+        envLines.push('META_BUTTON_ROUTE_KEYS=' + escapeEnvValue(buttonEnv.META_BUTTON_ROUTE_KEYS));
+        envLines.push('META_BUTTON_FULL_KEYS=' + escapeEnvValue(buttonEnv.META_BUTTON_FULL_KEYS));
+        if (this.config.buttonIssue) envLines.push('META_BUTTON_V1_ISSUE=1');
+      }
     }
 
       await this.post('application.saveEnvironment', {

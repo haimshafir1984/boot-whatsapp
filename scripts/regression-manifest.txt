@@ -118,3 +118,4 @@ test-v1-button-issue.js
 test-v1-button-readiness.js
 test-v1-button-jump.js
 test-v1-button-jump-recovery.js
+test-button-keys.js
