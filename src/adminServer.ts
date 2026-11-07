@@ -7,6 +7,7 @@
 import { decideGatewayButton, interactiveReplyId, loadGatewayButtonKeys, loadClientButtonKeys, verifyClientButton } from './buttonVerify';
 import { deriveRouteKey, isV1ButtonId } from './buttonToken';
 import { buttonLeaseValidUntil, grantButtonLease, leasePushIntervalMs, leaseTtlMs } from './buttonLease';
+import { buildCostReport, computeMessageUsage, readUsagePrices, type ClientUsageInput, type MessageUsage } from './messageUsage';
 import { ButtonReadinessReport, buttonIssuanceEnabled, buttonReadinessReport, oversizedButtonOptions, routeKeyFingerprint } from './buttonIssuer';
 import express from 'express';
 import { hasCampaignWork, stopCampaignWork } from './campaignWork';
@@ -851,6 +852,20 @@ async function fetchClientSummary(client: ManagedClient): Promise<OwnerClientSum
     serviceExpiresAt: capabilities?.serviceExpiresAt,
     campaigns: campaignRows,
   };
+}
+
+/** `from` (inclusive) and `to` (exclusive) as ISO timestamps; either may be absent. A range longer than ~2 years is refused. */
+function parseUsageRange(fromRaw: unknown, toRaw: unknown): { fromMs: number | null; toMs: number | null } | { error: string } {
+  const parse = (raw: unknown): number | null | 'bad' => {
+    if (raw === undefined || raw === null || String(raw).trim() === '') return null;
+    const ms = Date.parse(String(raw));
+    return Number.isFinite(ms) ? ms : 'bad';
+  };
+  const fromMs = parse(fromRaw);
+  const toMs = parse(toRaw);
+  if (fromMs === 'bad' || toMs === 'bad') return { error: 'from/to חייבים להיות תאריך ISO תקין' };
+  if (fromMs !== null && toMs !== null && (toMs <= fromMs || toMs - fromMs > 800 * 24 * 3600 * 1000)) return { error: 'טווח תאריכים לא תקין' };
+  return { fromMs, toMs };
 }
 
 async function fetchClientAsOwner<T>(
@@ -3184,6 +3199,44 @@ export function startAdminServer(storage: Storage): import('http').Server {
     res.json({ summaries });
   });
 
+  // What each client (and each of its campaigns / links) cost in Meta message charges. Read-only: asks every client for its counts.
+  app.get('/owner/api/usage', async (req, res) => {
+    const range = parseUsageRange(req.query.from, req.query.to);
+    if ('error' in range) {
+      res.status(400).json({ error: range.error });
+      return;
+    }
+    const query = new URLSearchParams();
+    if (range.fromMs !== null) query.set('from', new Date(range.fromMs).toISOString());
+    if (range.toMs !== null) query.set('to', new Date(range.toMs).toISOString());
+    const prices = readUsagePrices();
+    const clients = ownerStorage.getClients().filter((client) => client.managementUrl && client.ownerAccessToken);
+    const inputs: ClientUsageInput[] = await Promise.all(clients.map(async (client): Promise<ClientUsageInput> => {
+      const base = {
+        clientId: client.id,
+        clientName: client.name,
+        disabled: client.provisioningStatus === 'disabled',
+        scope: metaPhoneScope(client),
+        billed: client.whatsappProvider === 'META_CLOUD_API',
+      };
+      try {
+        const result = await fetchClientAsOwner<{ usage?: MessageUsage }>(client, `/owner-api/message-usage?${query.toString()}`, { signal: AbortSignal.timeout(20_000) });
+        if (!result.ok || !result.body?.usage) {
+          return { ...base, usage: null, error: result.status === 404 ? 'הלקוחה עדיין לא תומכת בדוח (גרסה ישנה)' : `HTTP ${result.status}` };
+        }
+        return { ...base, usage: result.body.usage };
+      } catch (err: any) {
+        return { ...base, usage: null, error: err?.message ?? String(err) };
+      }
+    }));
+    res.json({
+      generatedAt: new Date().toISOString(),
+      from: range.fromMs === null ? null : new Date(range.fromMs).toISOString(),
+      to: range.toMs === null ? null : new Date(range.toMs).toISOString(),
+      ...buildCostReport(inputs, prices),
+    });
+  });
+
   app.get('/owner/api/provisioning-status', (_req, res) => {
     res.json({
       configured: !dokployProvisioner.configurationError,
@@ -4464,6 +4517,19 @@ export function startAdminServer(storage: Storage): import('http').Server {
       ...campaign,
       conversation: storage.getCampaignConversationSettings(campaign),
     })));
+  });
+
+  // Message counts per campaign for the cost report (src/messageUsage.ts). Counts only - prices live on the admin.
+  app.get('/owner-api/message-usage', (req, res) => {
+    const range = parseUsageRange(req.query.from, req.query.to);
+    if ('error' in range) {
+      res.status(400).json({ error: range.error });
+      return;
+    }
+    res.json({
+      provider: config.WHATSAPP_PROVIDER,
+      usage: computeMessageUsage(storage.getOutboxRowsForUsage(), storage.getCampaigns(), { fromMs: range.fromMs ?? undefined, toMs: range.toMs ?? undefined }),
+    });
   });
 
   app.get('/owner-api/meta-routes', (_req, res) => {

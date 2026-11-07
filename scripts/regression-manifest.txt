@@ -119,3 +119,5 @@ test-v1-button-readiness.js
 test-v1-button-jump.js
 test-v1-button-jump-recovery.js
 test-button-keys.js
+test-message-usage.js
+test-message-usage-endpoint.js

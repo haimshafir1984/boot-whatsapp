@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>עלויות הודעות</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #f5f6f8; color: #111827; font-family: 'Segoe UI', Arial, sans-serif; }
+    header {
+      height: 62px; background: #fff; border-bottom: 1px solid #e5e7eb;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 max(20px, calc((100vw - 1080px) / 2));
+    }
+    header h1 { font-size: 1.05rem; margin: 0; }
+    header a { color: #1d4ed8; text-decoration: none; font-size: .9rem; }
+    main { max-width: 1080px; margin: 0 auto; padding: 24px 20px 60px; }
+    h2 { font-size: 1.3rem; margin: 0 0 4px; }
+    .sub { color: #6b7280; font-size: .85rem; line-height: 1.5; }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 18px 0; }
+    .controls button, .controls input {
+      border: 1px solid #d1d5db; background: #fff; border-radius: 7px; padding: 8px 12px; font-size: .86rem; cursor: pointer;
+    }
+    .controls button.on { background: #111827; color: #fff; border-color: #111827; }
+    .controls .sep { width: 1px; height: 24px; background: #d1d5db; margin: 0 4px; }
+    .controls .go { background: #16a34a; color: #fff; border-color: #16a34a; font-weight: 700; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 14px; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 13px 14px; }
+    .card .label { color: #6b7280; font-size: .76rem; margin-bottom: 5px; }
+    .card .value { font-size: 1.35rem; font-weight: 700; direction: ltr; text-align: right; }
+    .card .hint { color: #6b7280; font-size: .74rem; margin-top: 3px; }
+    .note { border: 1px solid #dbeafe; background: #eff6ff; color: #1e3a8a; padding: 10px 12px; border-radius: 8px; font-size: .8rem; line-height: 1.55; margin-bottom: 14px; }
+    .warn { border-color: #fde68a; background: #fffbeb; color: #92400e; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e5e7eb; }
+    th, td { text-align: right; padding: 10px 12px; border-bottom: 1px solid #e5e7eb; font-size: .84rem; vertical-align: top; }
+    th { background: #f9fafb; color: #6b7280; font-size: .75rem; white-space: nowrap; }
+    td.num, th.num { text-align: left; direction: ltr; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    tr.client { cursor: pointer; }
+    tr.client:hover { background: #f9fafb; }
+    tr.client td:first-child { font-weight: 700; }
+    tr.camp td { background: #fafafa; color: #374151; font-size: .81rem; }
+    tr.camp td:first-child { padding-right: 34px; }
+    .trig { color: #6b7280; font-size: .76rem; display: block; margin-top: 2px; }
+    .badge { border-radius: 99px; padding: 2px 8px; font-size: .72rem; font-weight: 600; margin-right: 6px; background: #e5e7eb; color: #374151; }
+    .badge.bad { background: #fee2e2; color: #991b1b; }
+    .badge.free { background: #dcfce7; color: #166534; }
+    .muted { color: #9ca3af; }
+    .actions { display: flex; gap: 8px; margin: 14px 0; }
+    .actions button { border: 1px solid #d1d5db; background: #fff; border-radius: 7px; padding: 8px 12px; cursor: pointer; font-size: .84rem; }
+    #status { color: #6b7280; font-size: .82rem; min-height: 20px; margin-bottom: 8px; }
+    #error { color: #b91c1c; font-size: .85rem; margin: 8px 0; }
+    @media (max-width: 720px) { th, td { padding: 8px 8px; font-size: .78rem; } tr.camp td:first-child { padding-right: 18px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>עלויות הודעות WhatsApp</h1>
+    <a href="/owner/">חזרה לדשבורד</a>
+  </header>
+  <main>
+    <h2>כמה עלה כל לקוח וכל לינק</h2>
+    <div class="sub">ספירת ההודעות שנמסרו (delivered / read) לכל קמפיין, כפול מחיר ההודעה של Meta. לחיצה על לקוחה מציגה את הלינקים (הקמפיינים) שלה.</div>
+
+    <div class="controls" id="presets">
+      <button data-p="today">היום</button>
+      <button data-p="yesterday">אתמול</button>
+      <button data-p="7d">7 ימים</button>
+      <button data-p="month" class="on">החודש</button>
+      <button data-p="lastmonth">חודש שעבר</button>
+      <button data-p="all">הכול</button>
+      <span class="sep"></span>
+      <input type="date" id="fromDate" aria-label="מתאריך" />
+      <input type="date" id="toDate" aria-label="עד תאריך (כולל)" />
+      <button class="go" id="goCustom">הצג טווח</button>
+    </div>
+
+    <div id="status"></div>
+    <div id="error"></div>
+    <div class="cards" id="cards"></div>
+    <div id="notes"></div>
+    <div class="actions"><button id="csv" disabled>הורדה כ-CSV</button></div>
+    <div id="tableWrap"></div>
+  </main>
+
+  <script>
+    const TZ = 'Asia/Jerusalem';
+    let report = null;
+    let lastRange = '';
+    const expanded = new Set();
+
+    function el(tag, props, children) {
+      const node = document.createElement(tag);
+      if (props) for (const [k, v] of Object.entries(props)) {
+        if (k === 'text') node.textContent = v;
+        else if (k === 'class') node.className = v;
+        else node.setAttribute(k, v);
+      }
+      for (const child of [].concat(children || [])) if (child) node.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+      return node;
+    }
+
+    // ── dates in Israel time ───────────────────────────────────────────────────────
+    function tzOffsetMs(utcMs) {
+      const parts = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(new Date(utcMs));
+      const get = (t) => Number(parts.find((p) => p.type === t).value);
+      return Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second')) - Math.floor(utcMs / 1000) * 1000;
+    }
+    function israelMidnight(y, m, d) {            // m is 1-12; the UTC instant of 00:00 on that day in Israel
+      const guess = Date.UTC(y, m - 1, d);
+      return guess - tzOffsetMs(guess - tzOffsetMs(guess));
+    }
+    function israelToday() {
+      const parts = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()).split('-').map(Number);
+      return { y: parts[0], m: parts[1], d: parts[2] };
+    }
+    function rangeFor(preset) {
+      const t = israelToday();
+      const todayStart = israelMidnight(t.y, t.m, t.d);
+      const day = 24 * 3600 * 1000;
+      if (preset === 'today') return { from: todayStart, to: null };
+      if (preset === 'yesterday') return { from: todayStart - day, to: todayStart };
+      if (preset === '7d') return { from: Date.now() - 7 * day, to: null };
+      if (preset === 'month') return { from: israelMidnight(t.y, t.m, 1), to: null };
+      if (preset === 'lastmonth') {
+        const y = t.m === 1 ? t.y - 1 : t.y, m = t.m === 1 ? 12 : t.m - 1;
+        return { from: israelMidnight(y, m, 1), to: israelMidnight(t.y, t.m, 1) };
+      }
+      return { from: null, to: null };
+    }
+
+    // ── formatting ─────────────────────────────────────────────────────────────────
+    const nf = new Intl.NumberFormat('en-US');
+    const usd = (v) => '$' + (v >= 100 ? v.toFixed(0) : v >= 1 ? v.toFixed(2) : v.toFixed(3));
+    const usdSmall = (v) => (v === null || v === undefined ? '—' : '$' + v.toFixed(4));
+    const ils = (v, rate) => (rate ? ' (≈ ₪' + (v * rate >= 100 ? (v * rate).toFixed(0) : (v * rate).toFixed(2)) + ')' : '');
+
+    function card(label, value, hint) {
+      return el('div', { class: 'card' }, [el('div', { class: 'label', text: label }), el('div', { class: 'value', text: value }), hint ? el('div', { class: 'hint', text: hint }) : null]);
+    }
+
+    function render() {
+      const cards = document.getElementById('cards');
+      const notes = document.getElementById('notes');
+      const wrap = document.getElementById('tableWrap');
+      cards.replaceChildren(); notes.replaceChildren(); wrap.replaceChildren();
+      if (!report) return;
+      const rate = report.prices.usdIlsRate;
+      const t = report.totals;
+      cards.append(...[
+        card('עלות נטו (אחרי הקרדיט החינמי)', usd(t.costNetUsd), 'ברוטו ' + usd(t.costGrossUsd) + ' פחות קרדיט ' + usd(t.freeTierCreditUsd)),
+        rate ? card('בשקלים (בקירוב)', '₪' + (t.costNetUsd * rate).toFixed(t.costNetUsd * rate >= 100 ? 0 : 2), 'לפי שער ' + rate) : null,
+        card('הודעות שנמסרו', nf.format(t.delivered), 'שירות ' + nf.format(t.deliveredService) + ' · תבניות ' + nf.format(t.deliveredTemplate)),
+        card('משתתפות', nf.format(t.participants), 'ייחודיות לכל לקוחה'),
+        card('עלות למשתתפת', t.costPerParticipantUsd === null ? '—' : usdSmall(t.costPerParticipantUsd), 'נטו, ממוצע'),
+        card('נשלחו, בלי אישור מסירה', nf.format(t.sentOnly), 'לא מחויבות עד שתיבדק מסירה'),
+      ].filter(Boolean));
+      const ltr = (text) => el('bdi', { dir: 'ltr', text });
+      notes.append(el('div', { class: 'note' }, [
+        'מחיר הודעה: ', ltr('$' + report.prices.serviceUsd), ' (שירות), ', ltr('$' + report.prices.templateUsd),
+        ' (תבנית). Meta נותנת ', ltr(nf.format(report.prices.freeServicePerMonth)),
+        ' הודעות שירות חינם בחודש לכל מספר, והקרדיט מופחת מהסכום הכולל בלבד. עלות כל לינק היא ברוטו ומדויקת. אם נבחר חלק מחודש, הקרדיט עלול להיות גבוה ממה ש-Meta תחשב בפועל.',
+      ]));
+      if (report.unreachable.length) notes.append(el('div', { class: 'note warn', text: 'לא ניתן היה לקרוא נתונים מ: ' + report.unreachable.join(', ') + '. הסכומים לא כוללים אותן.' }));
+      document.getElementById('csv').disabled = false;
+
+      const head = el('tr', null, [
+        el('th', { text: 'לקוחה / לינק' }), el('th', { class: 'num', text: 'הודעות שנמסרו' }), el('th', { class: 'num', text: 'משתתפות' }),
+        el('th', { class: 'num', text: 'עלות' }), el('th', { class: 'num', text: 'עלות למשתתפת' }),
+      ]);
+      const body = el('tbody');
+      for (const client of report.clients) {
+        const open = expanded.has(client.clientId);
+        const nameCell = el('td', null, [
+          (open ? '▾ ' : '▸ ') + client.clientName,
+          client.disabled ? el('span', { class: 'badge', text: 'מושבתת' }) : null,
+          !client.billed ? el('span', { class: 'badge free', text: 'לא Meta - ללא חיוב' }) : null,
+          !client.reachable ? el('span', { class: 'badge bad', text: 'לא זמינה' + (client.error ? ': ' + client.error : '') }) : null,
+        ]);
+        const row = el('tr', { class: 'client' }, [
+          nameCell,
+          el('td', { class: 'num', text: client.reachable ? nf.format(client.totals.delivered) : '—' }),
+          el('td', { class: 'num', text: client.reachable ? nf.format(client.totals.participants) : '—' }),
+          el('td', { class: 'num', text: client.reachable ? usd(client.costUsd) : '—' }),
+          el('td', { class: 'num', text: usdSmall(client.costPerParticipantUsd) }),
+        ]);
+        row.addEventListener('click', () => { if (open) expanded.delete(client.clientId); else expanded.add(client.clientId); render(); });
+        body.append(row);
+        if (open) {
+          if (!client.campaigns.length) body.append(el('tr', { class: 'camp' }, [el('td', { class: 'muted', text: 'אין הודעות בטווח' }), el('td'), el('td'), el('td'), el('td')]));
+          for (const camp of client.campaigns) {
+            body.append(el('tr', { class: 'camp' }, [
+              el('td', null, [camp.name, camp.deleted ? el('span', { class: 'badge', text: 'נמחק' }) : null, camp.triggerPhrase ? el('span', { class: 'trig', text: camp.triggerPhrase }) : null,
+                camp.sentOnly || camp.failed ? el('span', { class: 'trig', text: (camp.sentOnly ? nf.format(camp.sentOnly) + ' בלי אישור מסירה' : '') + (camp.sentOnly && camp.failed ? ' · ' : '') + (camp.failed ? nf.format(camp.failed) + ' נכשלו' : '') }) : null]),
+              el('td', { class: 'num', text: nf.format(camp.delivered) }),
+              el('td', { class: 'num', text: nf.format(camp.participants) }),
+              el('td', { class: 'num', text: usd(camp.costUsd) }),
+              el('td', { class: 'num', text: usdSmall(camp.costPerParticipantUsd) }),
+            ]));
+          }
+        }
+      }
+      wrap.append(el('table', null, [el('thead', null, [head]), body]));
+    }
+
+    // ── loading ────────────────────────────────────────────────────────────────────
+    async function load(range, label) {
+      document.getElementById('error').textContent = '';
+      document.getElementById('status').textContent = 'טוען נתונים מכל הלקוחות...';
+      document.getElementById('csv').disabled = true;
+      const query = new URLSearchParams();
+      if (range.from) query.set('from', new Date(range.from).toISOString());
+      if (range.to) query.set('to', new Date(range.to).toISOString());
+      lastRange = label;
+      try {
+        const response = await fetch('/owner/api/usage?' + query.toString());
+        if (response.status === 401) { location.href = '/owner/login'; return; }
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error || ('HTTP ' + response.status));
+        report = body;
+        document.getElementById('status').textContent = 'עודכן ' + new Date(body.generatedAt).toLocaleString('he-IL', { timeZone: TZ }) + ' · ' + label;
+        render();
+      } catch (err) {
+        report = null; render();
+        document.getElementById('status').textContent = '';
+        document.getElementById('error').textContent = 'שגיאה: ' + (err && err.message || err);
+      }
+    }
+
+    document.getElementById('presets').addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-p]');
+      if (!button) return;
+      for (const b of document.querySelectorAll('#presets button[data-p]')) b.classList.toggle('on', b === button);
+      load(rangeFor(button.dataset.p), button.textContent.trim());
+    });
+    document.getElementById('goCustom').addEventListener('click', () => {
+      const f = document.getElementById('fromDate').value, t = document.getElementById('toDate').value;
+      if (!f) { document.getElementById('error').textContent = 'בחרי תאריך התחלה'; return; }
+      const [fy, fm, fd] = f.split('-').map(Number);
+      const range = { from: israelMidnight(fy, fm, fd), to: null };
+      if (t) { const [ty, tm, td] = t.split('-').map(Number); range.to = israelMidnight(ty, tm, td) + 24 * 3600 * 1000; }   // the end day is included
+      for (const b of document.querySelectorAll('#presets button[data-p]')) b.classList.remove('on');
+      load(range, f + (t ? ' עד ' + t : ' ואילך'));
+    });
+
+    document.getElementById('csv').addEventListener('click', () => {
+      if (!report) return;
+      const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+      const lines = [['לקוחה', 'לינק (קמפיין)', 'משפט טריגר', 'הודעות שנמסרו', 'הודעות שירות', 'הודעות תבנית', 'משתתפות', 'עלות ברוטו USD', 'עלות למשתתפת USD', 'ללא אישור מסירה', 'נכשלו'].map(q).join(',')];
+      for (const client of report.clients) {
+        if (!client.campaigns.length) lines.push([client.clientName, '', '', 0, 0, 0, 0, 0, '', 0, 0].map(q).join(','));
+        for (const c of client.campaigns) {
+          lines.push([client.clientName, c.name, c.triggerPhrase || '', c.delivered, c.deliveredService, c.deliveredTemplate, c.participants, client.billed ? c.costUsd : 0, c.costPerParticipantUsd ?? '', c.sentOnly, c.failed].map(q).join(','));
+        }
+      }
+      const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+      const link = el('a', { href: URL.createObjectURL(blob), download: 'message-costs-' + new Date().toISOString().slice(0, 10) + '.csv' });
+      document.body.append(link); link.click(); link.remove();
+    });
+
+    load(rangeFor('month'), 'החודש');
+  </script>
+</body>
+</html>

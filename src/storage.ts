@@ -1740,6 +1740,14 @@ export class Storage {
       .map((message) => this.copyOutboxMessage(message));
   }
 
+  /**
+   * The live outbox rows for READ-ONLY use by the usage report (src/messageUsage.ts). Not copied: the whole history can be tens
+   * of thousands of rows and the report only reads a few fields of each. Callers must not modify the rows or keep them.
+   */
+  getOutboxRowsForUsage(): ReadonlyArray<OutboxMessage> {
+    return this.data.outboxMessages;
+  }
+
   /** Oldest outstanding message per recipient, oldest first. Later messages of a recipient never overtake it. */
   private getOutboxHeads(): OutboxMessage[] {
     const firstOutstandingByRecipient = new Map<string, OutboxMessage>();
