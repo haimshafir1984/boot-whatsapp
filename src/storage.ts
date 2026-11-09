@@ -3,9 +3,11 @@
  * JSON-file persistence for saved contacts, admin settings, and campaigns.
  */
 
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { config } from './config';
+import { notifySystemAlert } from './systemAlerts';
 import type { ConversationStateSnapshot, PersistablePendingConversation } from './conversationState';
 import { attemptTaggingEnabled, isAttemptId, newAttemptId } from './sendAttempt';
 import type { FlowUnitDescriptor } from './flowUnit';
@@ -921,6 +923,11 @@ export class Storage {
   private readonly claimedInThisProcess = new Set<string>();
   private outboxAttemptIndex: Map<string, string> | null = null;
   private outboxAttemptIndexSource: unknown = null;
+  // Ids already present in the outbox, so a new message can never take an id that exists (an outbox row is written with
+  // `on conflict (id) do update`: a shared id silently overwrites the earlier row). Rebuilt when the array object or its length changes.
+  private outboxIdSet: Set<string> | null = null;
+  private outboxIdSetSource: unknown = null;
+  private outboxIdSetLength = 0;
   private earlyStatusJournalPath: string | null = null;
   private readonly unmatchedStatuses = new Map<string, Array<{ input: MetaStatusInput; at: number }>>();
   private readonly outboxWakeListeners = new Set<() => void>();
@@ -1095,7 +1102,7 @@ export class Storage {
 
     const now = new Date().toISOString();
     const message: OutboxMessage = {
-      id: generateId(),
+      id: this.newOutboxId(),
       status: 'queued',
       attempts: 0,
       createdAt: now,
@@ -1103,9 +1110,39 @@ export class Storage {
       ...input,
     };
     this.data.outboxMessages.push(message);
+    if (this.outboxIdSet && this.outboxIdSetSource === this.data.outboxMessages) {
+      this.outboxIdSet.add(message.id);
+      this.outboxIdSetLength = this.data.outboxMessages.length;
+    }
     this.persist(['outboxMessages'], { outboxMessages: message.id });
     this.notifyOutboxWake();
     return this.copyOutboxMessage(message);
+  }
+
+  /**
+   * A fresh outbox id. Existing rows keep their old short ids (nothing parses an id); new ones are random UUIDs, which cannot collide with them.
+   * The old generateId() (millisecond + 4 random characters) produced the same id for two messages created in one millisecond about once in
+   * 1.7 million pairs, and the second message then overwrote the first in PostgreSQL (reproduced: scripts/repro-outbox-id-collision.js).
+   * The Set check is a second line of defence: a clash is retried and reported, never written over an existing row.
+   */
+  private newOutboxId(): string {
+    const rows = this.data.outboxMessages;
+    if (!this.outboxIdSet || this.outboxIdSetSource !== rows || this.outboxIdSetLength !== rows.length) {
+      this.outboxIdSet = new Set(rows.map((row) => row.id));
+      this.outboxIdSetSource = rows;
+      this.outboxIdSetLength = rows.length;
+    }
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const id = crypto.randomUUID();
+      if (!this.outboxIdSet.has(id)) return id;
+      notifySystemAlert({
+        key: 'outbox-id-collision',
+        severity: 'critical',
+        title: 'Outbox id collision prevented',
+        message: 'A newly generated outbox id already exists; a different id was generated instead (no message was overwritten).',
+      });
+    }
+    throw new Error('Could not generate a unique outbox id');
   }
 
   markOutboxProcessing(id: string): void {

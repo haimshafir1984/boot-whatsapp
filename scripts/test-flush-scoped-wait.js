@@ -97,10 +97,11 @@ async function main() {
       const FLOOD_DURATION_MS = 1200;
       let floodCount = 0;
       let floodEndedAt = 0;
+      const floodIds = [];   // ids returned by enqueue: lets a failing run say WHICH row is missing and whether two writes shared an id (9.11.2026)
       const floodStartedAt = Date.now();
       const flood = (async () => {
         while (Date.now() - floodStartedAt < FLOOD_DURATION_MS) {
-          storage.enqueueOutboxMessage({ kind: 'text', to: `whatsapp:97250flood${floodCount}`, text: `flood-${floodCount}` });
+          floodIds.push(storage.enqueueOutboxMessage({ kind: 'text', to: `whatsapp:97250flood${floodCount}`, text: `flood-${floodCount}` }).id);
           floodCount += 1;
           await tick();
         }
@@ -134,6 +135,14 @@ async function main() {
       const ids = new Set(reloaded.outboxMessages.map((m) => m.id));
       assert.ok(ids.has(mine.id), 'the awaited write must be durable in Postgres');
       const floodLanded = reloaded.outboxMessages.filter((m) => m.to.startsWith('whatsapp:97250flood')).length;
+      if (floodLanded !== totalFlood) {
+        // Diagnose before failing: a duplicated id (two writes, one row) and a genuinely missing row look the same in the count.
+        const uniqueIds = new Set(floodIds);
+        const duplicateIds = floodIds.length - uniqueIds.size;
+        const missingIds = floodIds.filter((id) => !ids.has(id));
+        const dupSample = floodIds.filter((id, i) => floodIds.indexOf(id) !== i).slice(0, 3);
+        console.error(`[FLUSH_SCOPED_WAIT_DIAGNOSTIC] returned=${floodIds.length} unique ids=${uniqueIds.size} duplicate ids=${duplicateIds} landed=${floodLanded} ids missing from the DB=${missingIds.length} sample duplicate ids=${JSON.stringify(dupSample)}`);
+      }
       assert.equal(floodLanded, totalFlood, `every flooded write must land eventually (${floodLanded}/${totalFlood})`);
       console.log(`2. reload from Postgres: awaited write + all ${floodLanded} flooded writes present - nothing lost.`);
 

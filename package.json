@@ -25,6 +25,7 @@
     "test:message-usage": "npm run build && node scripts/test-message-usage.js && node scripts/test-message-usage-endpoint.js",
     "test:event-loop-lag": "npm run build && node scripts/test-event-loop-lag.js",
     "test:baileys-status-ack-patch": "npm run build && node scripts/test-baileys-status-ack-patch.js",
+    "test:outbox-id-uniqueness": "npm run build && node scripts/test-outbox-id-uniqueness.js",
     "test:baileys-reconnect": "npm run build && node scripts/test-baileys-reconnect.js",
     "test:snapshot-fast-path": "npm run build && node scripts/test-snapshot-fast-path.js",
     "test:outbox-ordering": "npm run build && node scripts/test-outbox-ordering.js",

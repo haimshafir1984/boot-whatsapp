@@ -125,3 +125,4 @@ test-snapshot-fast-path.js
 test-event-loop-lag.js
 test-baileys-reconnect.js
 test-baileys-status-ack-patch.js
+test-outbox-id-uniqueness.js
