@@ -124,7 +124,7 @@ scenario('date range: from is inclusive, to is exclusive', () => {
   assert.equal(U.computeMessageUsage(rows, campaigns).totals.delivered, 3);
 });
 
-scenario('days and months are cut in Israel time (winter UTC+2, summer UTC+3)', () => {
+scenario('days are cut in Israel time (winter UTC+2, summer UTC+3)', () => {
   const rows = [
     row({ createdAt: '2026-11-07T21:59:00.000Z' }),   // 23:59 on the 7th in Israel (UTC+2)
     row({ createdAt: '2026-11-07T22:01:00.000Z' }),   // 00:01 on the 8th
@@ -139,8 +139,6 @@ scenario('days and months are cut in Israel time (winter UTC+2, summer UTC+3)', 
   assert.equal(days['2026-11-30'], 1);
   assert.equal(days['2026-12-01'], 1);
   assert.equal(days['2026-08-01'], 1);
-  const months = Object.fromEntries(usage.byMonth.map((m) => [m.month, m.deliveredService]));
-  assert.deepEqual(months, { '2026-08': 1, '2026-11': 3, '2026-12': 1 }, JSON.stringify(months));   // 31 July 21:30Z is already August in Israel
 });
 
 scenario('unparseable dates are skipped, not counted and not crashing', () => {
@@ -150,7 +148,7 @@ scenario('unparseable dates are skipped, not counted and not crashing', () => {
 
 // ── prices and the report ───────────────────────────────────────────────────────
 
-const P = { serviceUsd: 0.005, templateUsd: 0.04, freeServicePerMonth: 1000, usdIlsRate: null };
+const P = { serviceUsd: 0.005, templateUsd: 0.04, usdIlsRate: null };
 function usageOf(n, extra = {}) {
   // n delivered service messages in November 2026, spread over one campaign
   const rows = [];
@@ -167,48 +165,34 @@ scenario('priceUsage: service and template messages have their own price', () =>
 scenario('readUsagePrices: defaults, overrides, and garbage falls back to the default', () => {
   const d = U.readUsagePrices({});
   assert.equal(d.serviceUsd, U.DEFAULT_SERVICE_PRICE_USD);
-  assert.equal(d.freeServicePerMonth, 1000);
   assert.equal(d.usdIlsRate, null);
-  const o = U.readUsagePrices({ META_PRICE_SERVICE_USD: '0.006', META_PRICE_TEMPLATE_USD: '0.035', META_FREE_SERVICE_PER_MONTH: '500', USD_ILS_RATE: '3.7' });
-  assert.deepEqual([o.serviceUsd, o.templateUsd, o.freeServicePerMonth, o.usdIlsRate], [0.006, 0.035, 500, 3.7]);
-  const bad = U.readUsagePrices({ META_PRICE_SERVICE_USD: 'abc', META_PRICE_TEMPLATE_USD: '-1', META_FREE_SERVICE_PER_MONTH: '' });
+  assert.equal('freeServicePerMonth' in d, false, 'the free tier is not part of the calculation');
+  const o = U.readUsagePrices({ META_PRICE_SERVICE_USD: '0.006', META_PRICE_TEMPLATE_USD: '0.035', USD_ILS_RATE: '3.7' });
+  assert.deepEqual([o.serviceUsd, o.templateUsd, o.usdIlsRate], [0.006, 0.035, 3.7]);
+  const bad = U.readUsagePrices({ META_PRICE_SERVICE_USD: 'abc', META_PRICE_TEMPLATE_USD: '-1', META_FREE_SERVICE_PER_MONTH: '500' });
   assert.equal(bad.serviceUsd, U.DEFAULT_SERVICE_PRICE_USD);
   assert.equal(bad.templateUsd, U.DEFAULT_TEMPLATE_PRICE_USD);
-  assert.equal(bad.freeServicePerMonth, 1000);
+  assert.equal('freeServicePerMonth' in bad, false, 'META_FREE_SERVICE_PER_MONTH is ignored');
 });
 
-const input = (id, usage, extra = {}) => ({ clientId: id, clientName: 'client-' + id, disabled: false, scope: 'shared', billed: true, usage, ...extra });
+const input = (id, usage, extra = {}) => ({ clientId: id, clientName: 'client-' + id, disabled: false, billed: true, usage, ...extra });
 
-scenario('buildCostReport: per-link cost is gross and exact; the free tier comes off the total once per number and month', () => {
+scenario('buildCostReport: every delivered message is priced from the FIRST one (no free tier), per link, per client and in total', () => {
   const a = usageOf(1500, { unitPrefix: 'a' });
   const b = usageOf(500, { unitPrefix: 'b' });
   const report = U.buildCostReport([input('a', a), input('b', b)], P);
   const ca = report.clients.find((c) => c.clientId === 'a');
-  assert.equal(ca.costUsd, 7.5);                         // 1500 * 0.005, no free tier here
+  assert.equal(ca.costUsd, 7.5);                         // 1500 * 0.005
   assert.equal(ca.campaigns[0].costUsd, 7.5);
-  assert.equal(report.totals.costGrossUsd, 10);          // 2000 * 0.005
-  assert.equal(report.freeTier.length, 1);               // one number (shared), one month
-  assert.equal(report.freeTier[0].freeMessages, 1000);
-  assert.equal(report.totals.freeTierCreditUsd, 5);
-  assert.equal(report.totals.costNetUsd, 5);
+  assert.equal(report.clients.find((c) => c.clientId === 'b').costUsd, 2.5);
+  assert.equal(report.totals.costUsd, 10);               // 2000 * 0.005, nothing taken off
+  assert.equal('freeTier' in report, false);
+  assert.equal('costNetUsd' in report.totals, false);
 });
 
-scenario('the free tier is per number: a dedicated number gets its own 1,000', () => {
-  const report = U.buildCostReport([
-    input('a', usageOf(1200, { unitPrefix: 'a' })),
-    input('d', usageOf(300, { unitPrefix: 'd' }), { scope: 'phone:555' }),
-  ], P);
-  const byScope = Object.fromEntries(report.freeTier.map((f) => [f.scope, f.freeMessages]));
-  assert.deepEqual(byScope, { shared: 1000, 'phone:555': 300 });
-  assert.equal(report.totals.costGrossUsd, 7.5);
-  assert.equal(report.totals.costNetUsd, 1);            // (1200-1000 + 300-300) * 0.005
-});
-
-scenario('the free tier never makes the net cost negative and applies to service messages only', () => {
+scenario('a small client is not free: 200 messages cost 200 * price, not 0', () => {
   const report = U.buildCostReport([input('a', usageOf(200, { unitPrefix: 'a', templates: 50 }))], P);
-  assert.equal(report.freeTier[0].freeMessages, 200);   // only the 200 service messages
-  assert.equal(report.totals.costGrossUsd, 200 * 0.005 + 50 * 0.04);
-  assert.equal(report.totals.costNetUsd, 50 * 0.04);
+  assert.equal(report.totals.costUsd, 200 * 0.005 + 50 * 0.04);
 });
 
 scenario('an unreachable client is listed, costs nothing and does not break the totals', () => {
@@ -220,12 +204,11 @@ scenario('an unreachable client is listed, costs nothing and does not break the 
   assert.equal(report.totals.delivered, 10);
 });
 
-scenario('a client that is not on Meta (Baileys) is counted but costs 0 and does not use the free tier', () => {
+scenario('a client that is not on Meta (Baileys) is counted but costs 0', () => {
   const report = U.buildCostReport([input('b', usageOf(300, { unitPrefix: 'b' }), { billed: false })], P);
   assert.equal(report.clients[0].totals.delivered, 300);
   assert.equal(report.clients[0].costUsd, 0);
-  assert.equal(report.totals.costGrossUsd, 0);
-  assert.equal(report.freeTier.length, 0);
+  assert.equal(report.totals.costUsd, 0);
 });
 
 scenario('cost per participant, per link and per client', () => {

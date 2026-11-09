@@ -3216,7 +3216,6 @@ export function startAdminServer(storage: Storage): import('http').Server {
         clientId: client.id,
         clientName: client.name,
         disabled: client.provisioningStatus === 'disabled',
-        scope: metaPhoneScope(client),
         billed: client.whatsappProvider === 'META_CLOUD_API',
       };
       try {

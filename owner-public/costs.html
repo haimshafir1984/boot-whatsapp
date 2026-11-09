@@ -147,18 +147,17 @@
       const rate = report.prices.usdIlsRate;
       const t = report.totals;
       cards.append(...[
-        card('עלות נטו (אחרי הקרדיט החינמי)', usd(t.costNetUsd), 'ברוטו ' + usd(t.costGrossUsd) + ' פחות קרדיט ' + usd(t.freeTierCreditUsd)),
-        rate ? card('בשקלים (בקירוב)', '₪' + (t.costNetUsd * rate).toFixed(t.costNetUsd * rate >= 100 ? 0 : 2), 'לפי שער ' + rate) : null,
+        card('עלות כוללת', usd(t.costUsd), 'כל הודעה שנמסרה, מההודעה הראשונה'),
+        rate ? card('בשקלים (בקירוב)', '₪' + (t.costUsd * rate).toFixed(t.costUsd * rate >= 100 ? 0 : 2), 'לפי שער ' + rate) : null,
         card('הודעות שנמסרו', nf.format(t.delivered), 'שירות ' + nf.format(t.deliveredService) + ' · תבניות ' + nf.format(t.deliveredTemplate)),
         card('משתתפות', nf.format(t.participants), 'ייחודיות לכל לקוחה'),
-        card('עלות למשתתפת', t.costPerParticipantUsd === null ? '—' : usdSmall(t.costPerParticipantUsd), 'נטו, ממוצע'),
+        card('עלות למשתתפת', t.costPerParticipantUsd === null ? '—' : usdSmall(t.costPerParticipantUsd), 'ממוצע'),
         card('נשלחו, בלי אישור מסירה', nf.format(t.sentOnly), 'לא מחויבות עד שתיבדק מסירה'),
       ].filter(Boolean));
       const ltr = (text) => el('bdi', { dir: 'ltr', text });
       notes.append(el('div', { class: 'note' }, [
         'מחיר הודעה: ', ltr('$' + report.prices.serviceUsd), ' (שירות), ', ltr('$' + report.prices.templateUsd),
-        ' (תבנית). Meta נותנת ', ltr(nf.format(report.prices.freeServicePerMonth)),
-        ' הודעות שירות חינם בחודש לכל מספר, והקרדיט מופחת מהסכום הכולל בלבד. עלות כל לינק היא ברוטו ומדויקת. אם נבחר חלק מחודש, הקרדיט עלול להיות גבוה ממה ש-Meta תחשב בפועל.',
+        ' (תבנית). העלות מחושבת מההודעה הראשונה: 1,000 ההודעות החינמיות של Meta בחודש לא מופחתות, ולכן הסכום עלול להיות גבוה מעט ממה ש-Meta גובה בפועל.',
       ]));
       if (report.unreachable.length) notes.append(el('div', { class: 'note warn', text: 'לא ניתן היה לקרוא נתונים מ: ' + report.unreachable.join(', ') + '. הסכומים לא כוללים אותן.' }));
       document.getElementById('csv').disabled = false;
