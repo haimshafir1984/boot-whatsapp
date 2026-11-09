@@ -70,6 +70,7 @@ import { IncomingWhatsAppMessage } from './types/whatsapp';
 import { getTwilioEvents, recordTwilioEvent } from './twilioEvents';
 import { isMetaAuthError, notifySystemAlert, systemAlertEmailConfigured, SystemAlert, testSystemAlertEmail } from './systemAlerts';
 import { getPairingCodeBlockedUntil, pairingCodeRateLimitMessage } from './pairingRateLimit';
+import { getEventLoopLagSnapshot, startEventLoopLagMonitor } from './eventLoopLag';
 import {
   defaultMetaCampaignEndAt,
   metaCampaignReservesTrigger,
@@ -1395,6 +1396,7 @@ let adminInboxWorker: { stop: () => Promise<void> } | null = null;
 export function getAdminInboxWorker(): { stop: () => Promise<void> } | null { return adminInboxWorker; }
 
 export function startAdminServer(storage: Storage): import('http').Server {
+  startEventLoopLagMonitor();
   const app = express();
   const publicDir = path.join(__dirname, '..', 'public');
   const ownerPublicDir = path.join(__dirname, '..', 'owner-public');
@@ -1711,6 +1713,8 @@ export function startAdminServer(storage: Storage): import('http').Server {
         configured: twilioConfigured(),
         lastEventAt: lastTwilioEventAt,
       },
+      // Numbers only (no participant data): how long the Node event loop was blocked in the last ~10 minutes.
+      eventLoop: getEventLoopLagSnapshot(),
     });
   });
 

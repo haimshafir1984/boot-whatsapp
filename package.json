@@ -23,6 +23,7 @@
     "test:message-delays": "npm run build && node scripts/test-message-delays.js",
     "test:outbox-claim": "npm run build && node scripts/test-outbox-claim.js",
     "test:message-usage": "npm run build && node scripts/test-message-usage.js && node scripts/test-message-usage-endpoint.js",
+    "test:event-loop-lag": "npm run build && node scripts/test-event-loop-lag.js",
     "test:snapshot-fast-path": "npm run build && node scripts/test-snapshot-fast-path.js",
     "test:outbox-ordering": "npm run build && node scripts/test-outbox-ordering.js",
     "test:migration-safety": "npm run build && node scripts/test-migration-safety.js",

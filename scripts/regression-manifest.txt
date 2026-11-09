@@ -122,3 +122,4 @@ test-button-keys.js
 test-message-usage.js
 test-message-usage-endpoint.js
 test-snapshot-fast-path.js
+test-event-loop-lag.js

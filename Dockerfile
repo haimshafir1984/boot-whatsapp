@@ -43,7 +43,10 @@ EXPOSE 3001
 # Liveness probe. start-period is generous: a large Postgres DB needs time for
 # applyMigrations + loadSnapshot before /health/live can answer. Re-calibrate
 # against the real boot->storage.ready time after the next deploy.
-HEALTHCHECK --interval=15s --timeout=5s --start-period=100s --retries=3 \
+# 2026-11-09: a busy-but-working client (event loop blocked for seconds by a big Excel export / large outbox writes) failed three 5s
+# probes in a row and was killed (exit 137), dropping in-memory conversations and blocking the shared Meta number for ~4.5 minutes.
+# Now 15s per probe and 5 consecutive failures (about 2.5-3 minutes of real unresponsiveness) before the kill. Event-loop lag is on /health.
+HEALTHCHECK --interval=20s --timeout=15s --start-period=100s --retries=5 \
   CMD node -e "require('http').get('http://127.0.0.1:3001/health/live',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
 
 CMD ["node", "dist/index.js"]
