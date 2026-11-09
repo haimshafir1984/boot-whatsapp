@@ -115,11 +115,22 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Keep a diagnostic value to a short, harmless token: letters, digits and basic punctuation only; any run of 7+ digits (phone number, id) becomes '#'. */
-function safeToken(value: unknown, max = 40): string {
+/**
+ * A diagnostic value is logged only if it already looks like a harmless keyword (letters, digits, '_' and '-', at most `max` characters);
+ * anything else (a jid, a phone number, free text with punctuation) is replaced, never partially kept. Allow-listing beats trying to scrub.
+ */
+function safeToken(value: unknown, max = 24): string {
   if (value === undefined || value === null) return '-';
-  const text = String(value).replace(/\d{7,}/g, '#').replace(/[^A-Za-z0-9 ()_:.,#-]/g, '?').trim().slice(0, max);
-  return text || '-';
+  const text = String(value).trim();
+  // A run of 7+ digits is a phone number or an id, never a status/class/type/code keyword (those are 3-digit codes or short words).
+  return text.length > 0 && text.length <= max && /^[A-Za-z0-9_-]+$/.test(text) && !/\d{7,}/.test(text) ? text : '-';
+}
+
+/** The library's own error message ("Stream Errored (ack)", "Connection Closed", ...): letters, spaces, '(', ')', '_' and '-' only, no digits at all. */
+function safeMessage(value: unknown): string {
+  if (value === undefined || value === null) return '-';
+  const text = String(value).trim();
+  return text.length > 0 && text.length <= 60 && /^[A-Za-z ()_-]+$/.test(text) ? text : '(redacted)';
 }
 
 /**
@@ -135,7 +146,7 @@ export function logDisconnectDetail(statusCode: unknown, error: any): void {
     const klass = attrs && typeof attrs === 'object' ? attrs.class : undefined;
     const type = attrs && typeof attrs === 'object' ? attrs.type : undefined;
     const code = attrs && typeof attrs === 'object' ? attrs.code ?? attrs.reason : undefined;
-    console.warn(`[BAILEYS_DISCONNECT] status=${safeToken(statusCode, 12)} message="${safeToken(error?.message, 80)}" node=${safeToken(node)} class=${safeToken(klass)} type=${safeToken(type)} code=${safeToken(code)}`);
+    console.warn(`[BAILEYS_DISCONNECT] status=${safeToken(statusCode, 12)} message="${safeMessage(error?.message)}" node=${safeToken(node)} class=${safeToken(klass)} type=${safeToken(type)} code=${safeToken(code)}`);
   } catch {
     // Diagnostics must never affect the reconnect logic.
   }

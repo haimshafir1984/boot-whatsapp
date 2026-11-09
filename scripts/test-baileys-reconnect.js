@@ -123,13 +123,15 @@ const reset = () => { botState.reconnectAttempts = 0; botState.pairingError = nu
       logDisconnectDetail(undefined, undefined);
       logDisconnectDetail(428, { message: 'Connection Closed' });
       logDisconnectDetail(500, { message: 'boom 972501234567 jid', data: 'not-an-object' });
+      logDisconnectDetail(500, { message: 'Stream Errored (ack)', data: { tag: 'ack', attrs: { class: '972501234567@s.whatsapp.net', type: 'x y', code: 'a'.repeat(40) } } });
       logDisconnectDetail(515, { message: 'x', data: { attrs: { code: '1234567890123' } } });
       logDisconnectDetail(500, { get message() { throw new Error('hostile getter'); } });
     } finally { q.restore(); }
     const lines = q.lines.filter((l) => l.includes('[BAILEYS_DISCONNECT]'));
-    assert.equal(lines.length, 4, 'the hostile one is swallowed, the other four are logged');
+    assert.equal(lines.length, 5, 'the hostile one is swallowed, the other five are logged');
     assert.match(lines[0], /status=- message="-"/);
-    assert.match(lines[2], /boom # jid/);
+    assert.match(lines[2], /message="\(redacted\)"/, 'a message with digits is never partly kept');
+    assert.match(lines[3], /message="Stream Errored \(ack\)" node=ack class=- type=- code=-/, 'free-text attributes are replaced, not scrubbed');
     assert.doesNotMatch(lines.join('\n'), /972501234567|1234567890123/);
   });
 
