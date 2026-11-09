@@ -115,6 +115,32 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Keep a diagnostic value to a short, harmless token: letters, digits and basic punctuation only; any run of 7+ digits (phone number, id) becomes '#'. */
+function safeToken(value: unknown, max = 40): string {
+  if (value === undefined || value === null) return '-';
+  const text = String(value).replace(/\d{7,}/g, '#').replace(/[^A-Za-z0-9 ()_:.,#-]/g, '?').trim().slice(0, max);
+  return text || '-';
+}
+
+/**
+ * Why did the socket close? The status code alone does not tell: a 500 can be "Stream Errored (ack)" (WhatsApp closing the stream because a
+ * stanza was never acknowledged, Baileys issue #2858, ~every 50 minutes) or something else. Logs only the library's own message and the
+ * tag / class / type / code of the error node, never a stanza id, jid, phone number or message text. Never throws.
+ */
+export function logDisconnectDetail(statusCode: unknown, error: any): void {
+  try {
+    const data = error?.data;
+    const attrs = data && typeof data === 'object' ? (data.attrs ?? data) : null;
+    const node = data && typeof data === 'object' ? data.tag : undefined;
+    const klass = attrs && typeof attrs === 'object' ? attrs.class : undefined;
+    const type = attrs && typeof attrs === 'object' ? attrs.type : undefined;
+    const code = attrs && typeof attrs === 'object' ? attrs.code ?? attrs.reason : undefined;
+    console.warn(`[BAILEYS_DISCONNECT] status=${safeToken(statusCode, 12)} message="${safeToken(error?.message, 80)}" node=${safeToken(node)} class=${safeToken(klass)} type=${safeToken(type)} code=${safeToken(code)}`);
+  } catch {
+    // Diagnostics must never affect the reconnect logic.
+  }
+}
+
 /** At most this many diagnostic lines per minute about messages that reached the socket but were not processed (keeps a noisy chat from flooding the log). */
 const SKIPPED_LOG_PER_MINUTE = 30;
 
@@ -125,7 +151,10 @@ export class BaileysProvider implements WhatsAppProvider {
   private pairingRequestTerminal = false;
   private intentionalClose = false;
   private readonly storage: Storage;
-  private readonly pairingPhone?: string;
+  // Set only while a pairing-code attempt is in progress; cleared once the socket is open (see handleConnectionUpdate). It used to stay set
+  // for the whole life of the provider, which made every later non-515 disconnect look like a failed one-shot pairing and suppressed the
+  // reconnect (the watchdog restarted the connection only after 3-4 minutes, observed 9.11.2026).
+  private pairingPhone?: string;
   private skippedLogWindowStart = 0;
   private skippedLogCount = 0;
 
@@ -305,6 +334,8 @@ export class BaileysProvider implements WhatsAppProvider {
       clearPairingCodeRateLimit();
       botState.pairingAttempted = false;
       this.pairingRequestTerminal = false;
+      // The pairing attempt (if any) succeeded: from now on a disconnect is an ordinary disconnect, not a failed one-shot pairing.
+      this.pairingPhone = undefined;
       botState.authenticated = true;
       botState.ready = true;
       botState.notReadySince = null;
@@ -327,6 +358,7 @@ export class BaileysProvider implements WhatsAppProvider {
       const loggedOut = statusCode === baileys.DisconnectReason.loggedOut;
       const restartRequired = statusCode === baileys.DisconnectReason.restartRequired;
       console.warn(`Baileys disconnected. status=${statusCode ?? 'unknown'}`);
+      logDisconnectDetail(statusCode, update.lastDisconnect?.error);
       botState.listeningReason = loggedOut
         ? 'connection failed: החיבור ל-WhatsApp התנתק. יש לסרוק QR מחדש.'
         : restartRequired
