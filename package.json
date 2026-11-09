@@ -4,7 +4,7 @@
   "description": "Personal WhatsApp automation bot - saves contacts and sends vCard reply",
   "main": "dist/index.js",
   "scripts": {
-    "postinstall": "node scripts/patch-baileys-prelogin-ack.js",
+    "postinstall": "node scripts/patch-baileys-prelogin-ack.js && node scripts/patch-baileys-status-ack.js",
     "build": "tsc",
     "test:service-bot": "npm run build && node scripts/test-service-bot-flow.js && node scripts/test-service-bot-ui.js",
     "start": "node dist/index.js",
@@ -24,6 +24,7 @@
     "test:outbox-claim": "npm run build && node scripts/test-outbox-claim.js",
     "test:message-usage": "npm run build && node scripts/test-message-usage.js && node scripts/test-message-usage-endpoint.js",
     "test:event-loop-lag": "npm run build && node scripts/test-event-loop-lag.js",
+    "test:baileys-status-ack-patch": "npm run build && node scripts/test-baileys-status-ack-patch.js",
     "test:baileys-reconnect": "npm run build && node scripts/test-baileys-reconnect.js",
     "test:snapshot-fast-path": "npm run build && node scripts/test-snapshot-fast-path.js",
     "test:outbox-ordering": "npm run build && node scripts/test-outbox-ordering.js",

@@ -3,6 +3,7 @@ FROM node:20-slim AS builder
 WORKDIR /app
 COPY package*.json ./
 COPY scripts/patch-baileys-prelogin-ack.js ./scripts/patch-baileys-prelogin-ack.js
+COPY scripts/patch-baileys-status-ack.js ./scripts/patch-baileys-status-ack.js
 RUN npm ci
 # tsc only needs tsconfig + src (tsconfig "include": ["src/**/*"]). Copying just
 # those keeps this layer's cache from being busted by unrelated root files
