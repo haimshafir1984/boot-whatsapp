@@ -121,3 +121,4 @@ test-v1-button-jump-recovery.js
 test-button-keys.js
 test-message-usage.js
 test-message-usage-endpoint.js
+test-snapshot-fast-path.js

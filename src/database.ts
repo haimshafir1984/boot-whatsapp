@@ -1,5 +1,6 @@
 import { Pool, PoolClient } from 'pg';
 import { emptyStorageData, StorageData, StorageTableName } from './storage';
+import { notifySystemAlert } from './systemAlerts';
 
 export interface DatabaseHealth {
   enabled: boolean;
@@ -362,10 +363,11 @@ class PostgresStorageBackend implements StorageBackend {
         this.queuedDirtyRowIds = {};
         try {
           const snapshotStartedAt = Date.now();
-          const snapshot = cloneSnapshotForTables(this.persistedSnapshot, source, dirtyTables, dirtyRowIds);
+          const planned = cloneSnapshotForTablesPlanned(this.persistedSnapshot, source, dirtyTables, dirtyRowIds);
+          const snapshot = planned.snapshot;
           const snapshotMs = Date.now() - snapshotStartedAt;
           const commitStartedAt = Date.now();
-          await writeSnapshotDelta(this.pool, this.persistedSnapshot, snapshot, dirtyTables, dirtyRowIds);
+          await writeSnapshotDelta(this.pool, this.persistedSnapshot, snapshot, dirtyTables, dirtyRowIds, planned.outboxPositions);
           const commitMs = Date.now() - commitStartedAt;
           if (snapshotMs + commitMs >= 250) console.warn(`[POSTGRES_BATCH_SLOW] snapshot_ms=${snapshotMs} commit_ms=${commitMs} tables=${dirtyTables === 'all' ? 'all' : [...dirtyTables].join(',')}`);
           this.persistedSnapshot = snapshot;
@@ -538,7 +540,23 @@ export function cloneSnapshotForTables(
   dirtyTables: DirtyTables,
   dirtyRowIds: DirtyRowIdsByTable = {},
 ): StorageData {
-  if (!previous || dirtyTables === 'all') return cloneSnapshot(data);
+  return cloneSnapshotForTablesPlanned(previous, data, dirtyTables, dirtyRowIds).snapshot;
+}
+
+/**
+ * Same as cloneSnapshotForTables, plus (only when the OUTBOX_SNAPSHOT_FAST path
+ * produced the outbox copy) the id -> position map of the touched outbox rows.
+ * The writer takes it as an explicit argument; without it the writer uses the
+ * original full comparison.
+ */
+export function cloneSnapshotForTablesPlanned(
+  previous: StorageData | null,
+  data: StorageData,
+  dirtyTables: DirtyTables,
+  dirtyRowIds: DirtyRowIdsByTable = {},
+): { snapshot: StorageData; outboxPositions?: ReadonlyMap<string, number> } {
+  if (!previous || dirtyTables === 'all') return { snapshot: cloneSnapshot(data) };
+  let outboxPositions: ReadonlyMap<string, number> | undefined;
   const source = data as unknown as Record<string, unknown>;
   const next = { ...previous } as unknown as Record<string, unknown>;
   const copy = (field: string) => {
@@ -583,19 +601,36 @@ export function cloneSnapshotForTables(
     // Row-tracked tables were still deep-copying their ENTIRE history for
     // every single status update. Reuse only frozen previous rows, never live
     // objects. New/changed rows are cloned before the first await.
-    if (tracked && tracked !== 'all' && ['outboxMessages', 'campaignResults', 'contactQueue', 'contactsList'].includes(field)) {
+    if (field === 'outboxMessages' && tracked && tracked !== 'all' && outboxFastEnabled()) {
       const rows = source[field] as Array<Record<string, any>>;
       const oldRows = next[field] as Array<Record<string, any>>;
-      const keyOf = (row: Record<string, any>) => String(field === 'contactsList' ? row.phone : row.id);
-      const old = new Map(oldRows.map(row => [keyOf(row), row]));
-      if (rows.filter(row => !tracked.has(keyOf(row))).length !== oldRows.filter(row => !tracked.has(keyOf(row))).length) {
-        next[field] = sanitizeJsonForPostgres(JSON.parse(JSON.stringify(rows)));
+      const fast = cloneOutboxRowsFast(rows, oldRows, tracked);
+      if (fast) {
+        if (outboxShadowDue()) {
+          const legacy = cloneTrackedRowsFull(field, rows, oldRows, tracked);
+          if (!sameRowArrays(legacy, fast.rows)) {
+            // Safety net: write the full copy this batch and stop using the fast path in this process.
+            outboxFastDisabled = true;
+            console.error(`[SNAPSHOT_FAST_MISMATCH] outbox fast copy differed from the full copy (rows=${rows.length}); using the full copy and disabling the fast path`);
+            // The disabling is per process and is lost on restart, so surface it: a silent return of the slowdown would go unnoticed.
+            notifySystemAlert({
+              key: 'snapshot-fast-mismatch',
+              severity: 'warning',
+              title: 'OUTBOX_SNAPSHOT_FAST mismatch',
+              message: 'The fast outbox snapshot differed from the full copy; the fast path was disabled in this process until restart.',
+              details: { outboxRows: rows.length },
+            });
+            next[field] = legacy;
+            return;
+          }
+        }
+        next[field] = fast.rows;
+        outboxPositions = fast.positions;
         return;
       }
-      next[field] = rows.map(row => {
-        const id = keyOf(row);
-        return !tracked.has(id) && old.has(id) ? old.get(id) : sanitizeJsonForPostgres(JSON.parse(JSON.stringify(row)));
-      });
+    }
+    if (tracked && tracked !== 'all' && ['outboxMessages', 'campaignResults', 'contactQueue', 'contactsList'].includes(field)) {
+      next[field] = cloneTrackedRowsFull(field, source[field] as Array<Record<string, any>>, next[field] as Array<Record<string, any>>, tracked);
       return;
     }
     next[field] = sanitizeJsonForPostgres(JSON.parse(JSON.stringify(source[field] ?? null)));
@@ -610,7 +645,119 @@ export function cloneSnapshotForTables(
   for (const field of Object.keys(source)) {
     if (!MAPPED_FIELDS.has(field)) copy(field);
   }
-  return next as unknown as StorageData;
+  return { snapshot: next as unknown as StorageData, outboxPositions };
+}
+
+/** The original row-tracked copy: O(all rows) per call. Reuses frozen previous rows for untouched ids. */
+function cloneTrackedRowsFull(
+  field: string,
+  rows: Array<Record<string, any>>,
+  oldRows: Array<Record<string, any>>,
+  tracked: ReadonlySet<string>,
+): Array<Record<string, any>> {
+  const keyOf = (row: Record<string, any>) => String(field === 'contactsList' ? row.phone : row.id);
+  const old = new Map(oldRows.map(row => [keyOf(row), row]));
+  if (rows.filter(row => !tracked.has(keyOf(row))).length !== oldRows.filter(row => !tracked.has(keyOf(row))).length) {
+    return sanitizeJsonForPostgres(JSON.parse(JSON.stringify(rows))) as Array<Record<string, any>>;
+  }
+  return rows.map(row => {
+    const id = keyOf(row);
+    return !tracked.has(id) && old.has(id) ? old.get(id)! : sanitizeJsonForPostgres(JSON.parse(JSON.stringify(row))) as Record<string, any>;
+  });
+}
+
+// ---- outbox fast path (OUTBOX_SNAPSHOT_FAST=1) -------------------------------------------------------------
+// outboxMessages is append-only in memory (single push in storage.ts), so a row's position in the live array equals its position in the
+// previous frozen copy. The per-batch cost then depends on the touched rows, not on the whole history. Anything that does not look
+// exactly like that returns null and the caller uses the original full pass.
+
+interface OutboxIndex { ids: string[]; pos: Map<string, number>; }
+const outboxIndexes = new WeakMap<object, OutboxIndex>();
+let outboxFastDisabled = false;
+let outboxShadowCounter = 0;
+
+function outboxFastEnabled(): boolean {
+  return process.env.OUTBOX_SNAPSHOT_FAST === '1' && !outboxFastDisabled;
+}
+
+function outboxShadowDue(): boolean {
+  const every = Math.max(1, Number(process.env.OUTBOX_SNAPSHOT_SHADOW_EVERY) || 50);
+  outboxShadowCounter += 1;
+  return every === 1 || outboxShadowCounter % every === 1;
+}
+
+/** Test hook: restore the module state between scenarios. */
+export function resetOutboxFastStateForTests(): void {
+  outboxFastDisabled = false;
+  outboxShadowCounter = 0;
+}
+
+export function isOutboxFastDisabledForTests(): boolean {
+  return outboxFastDisabled;
+}
+
+function sameRowArrays(a: Array<Record<string, any>>, b: Array<Record<string, any>>): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i] && JSON.stringify(a[i]) !== JSON.stringify(b[i])) return false;
+  }
+  return true;
+}
+
+function getOutboxIndex(live: Array<Record<string, any>>): OutboxIndex | null {
+  let entry = outboxIndexes.get(live);
+  if (entry) {
+    const last = entry.ids.length - 1;
+    if (live.length < entry.ids.length || (last >= 0 && live[last]?.id !== entry.ids[last])) entry = undefined;
+  }
+  if (!entry) entry = { ids: [], pos: new Map() };
+  for (let k = entry.ids.length; k < live.length; k += 1) {
+    const id = live[k]?.id;
+    if (typeof id !== 'string' || entry.pos.has(id)) { outboxIndexes.delete(live); return null; }
+    entry.ids.push(id);
+    entry.pos.set(id, k);
+  }
+  // Exact consistency check against in-place replacement or reordering of rows that were already indexed: one string-reference
+  // comparison per row (no cloning, no allocation), so any change of order or identity anywhere is detected on every batch,
+  // independent of the shadow interval.
+  const n = entry.ids.length;
+  for (let k = 0; k < n; k += 1) {
+    if (live[k]?.id !== entry.ids[k]) { outboxIndexes.delete(live); return null; }
+  }
+  outboxIndexes.set(live, entry);
+  return entry;
+}
+
+function cloneOutboxRowsFast(
+  live: Array<Record<string, any>>,
+  oldRows: Array<Record<string, any>>,
+  tracked: ReadonlySet<string>,
+): { rows: Array<Record<string, any>>; positions: ReadonlyMap<string, number> } | null {
+  if (!Array.isArray(live) || !Array.isArray(oldRows) || live.length < oldRows.length) return null;
+  const index = getOutboxIndex(live);
+  if (!index) return null;
+  const positions = new Map<string, number>();
+  let newlyAdded = 0;
+  for (const id of tracked) {
+    const pos = index.pos.get(id);
+    if (pos === undefined) return null; // marked but not (or no longer) in the live array
+    positions.set(id, pos);
+    if (pos >= oldRows.length) newlyAdded += 1;
+    else if (oldRows[pos]?.id !== id) return null; // previous copy is not aligned with the live array
+  }
+  // Every row beyond the previous copy must be one of the touched rows, otherwise it would be missing.
+  if (newlyAdded !== live.length - oldRows.length) return null;
+  // Exact alignment of the previous copy with the live array (ids only; see getOutboxIndex).
+  for (let k = 0; k < oldRows.length; k += 1) {
+    if (oldRows[k]?.id !== index.ids[k]) return null;
+  }
+  const rows = oldRows.slice();
+  rows.length = live.length;
+  for (const [id, pos] of positions) {
+    rows[pos] = sanitizeJsonForPostgres(JSON.parse(JSON.stringify(live[pos]))) as Record<string, any>;
+    if (rows[pos]?.id !== id) return null;
+  }
+  return { rows, positions };
 }
 
 // Exported for test scripts that verify the dirty-table skip logic against a
@@ -865,7 +1012,7 @@ async function writeSnapshot(pool: Pool, data: StorageData): Promise<void> {
  * Runtime persistence updates normalized tables only. app_state remains an
  * import/rollback checkpoint; startup and exports overlay these tables onto it.
  */
-export async function writeSnapshotDelta(pool: Pool, previous: StorageData | null, data: StorageData, dirtyTables: DirtyTables, dirtyRowIds: DirtyRowIdsByTable): Promise<void> {
+export async function writeSnapshotDelta(pool: Pool, previous: StorageData | null, data: StorageData, dirtyTables: DirtyTables, dirtyRowIds: DirtyRowIdsByTable, outboxPositions?: ReadonlyMap<string, number>): Promise<void> {
   // A table absent from dirtyTables was provably untouched by whatever mutated
   // `data` since `previous` was captured (persist() call sites name every table
   // they change; see StorageTableName in storage.ts). Skipping its diff entirely
@@ -921,7 +1068,7 @@ export async function writeSnapshotDelta(pool: Pool, previous: StorageData | nul
       await syncRowsDelta(client, 'twilio_templates', previous?.twilioTemplates ?? [], data.twilioTemplates, (item) => item.id, (item) => [item.id, item.status, item, nullableDate(item.updatedAt)]);
     }
     if (isDirty('outboxMessages')) {
-      await syncOutboxMessagesDelta(client, previous?.outboxMessages ?? [], data.outboxMessages ?? [], rowIdsFor('outboxMessages'));
+      await syncOutboxMessagesDelta(client, previous?.outboxMessages ?? [], data.outboxMessages ?? [], rowIdsFor('outboxMessages'), previous ? outboxPositions : undefined);
     }
     if (isDirty('conversationStateSnapshot')) {
       const touched = rowIdsFor('conversationStateSnapshot');
@@ -1024,10 +1171,34 @@ async function syncRowsDeltaTracked<T extends Record<string, any>>(
   keyOf: (row: T) => string,
   values: (row: T) => unknown[],
   touchedIds: DirtyRowIds,
+  positions?: ReadonlyMap<string, number>,
 ): Promise<void> {
   const fullSync = () => syncRowsDelta(pool, table, previousRows, nextRows, keyOf, values);
 
   if (touchedIds === 'all') return fullSync();
+
+  // Positions handed over by the clone step: look up each touched row directly, no pass over the rest.
+  // Anything that does not line up exactly (checked BEFORE the first write) falls back to the full comparison below.
+  if (positions && positions.size === touchedIds.size && nextRows.length >= previousRows.length) {
+    let appended = 0;
+    let aligned = true;
+    for (const key of touchedIds) {
+      const pos = positions.get(key);
+      if (pos === undefined || nextRows[pos] === undefined || keyOf(nextRows[pos]) !== key) { aligned = false; break; }
+      if (pos >= previousRows.length) appended += 1;
+      else if (keyOf(previousRows[pos]) !== key) { aligned = false; break; }
+    }
+    if (aligned && appended === nextRows.length - previousRows.length) {
+      for (const key of touchedIds) {
+        const pos = positions.get(key)!;
+        const row = nextRows[pos];
+        const previousRow = pos < previousRows.length ? previousRows[pos] : undefined;
+        if (previousRow && sameJson(previousRow, row)) continue;
+        await upsertRow(pool, table, values(row));
+      }
+      return;
+    }
+  }
 
   const untouchedPreviousCount = previousRows.filter((row) => !touchedIds.has(keyOf(row))).length;
   const untouchedNextCount = nextRows.filter((row) => !touchedIds.has(keyOf(row))).length;
@@ -1051,8 +1222,8 @@ async function syncRowsDeltaTracked<T extends Record<string, any>>(
   }
 }
 
-export async function syncOutboxMessagesDelta(pool: Pool | PoolClient, previousRows: StorageData['outboxMessages'], nextRows: StorageData['outboxMessages'], touchedIds: DirtyRowIds): Promise<void> {
-  return syncRowsDeltaTracked(pool, 'outbox_messages', previousRows, nextRows, (item) => item.id, outboxMessageParams, touchedIds);
+export async function syncOutboxMessagesDelta(pool: Pool | PoolClient, previousRows: StorageData['outboxMessages'], nextRows: StorageData['outboxMessages'], touchedIds: DirtyRowIds, positions?: ReadonlyMap<string, number>): Promise<void> {
+  return syncRowsDeltaTracked(pool, 'outbox_messages', previousRows, nextRows, (item) => item.id, outboxMessageParams, touchedIds, positions);
 }
 
 export async function syncCampaignResultsDelta(pool: Pool | PoolClient, previousRows: StorageData['campaignResults'], nextRows: StorageData['campaignResults'], touchedIds: DirtyRowIds): Promise<void> {

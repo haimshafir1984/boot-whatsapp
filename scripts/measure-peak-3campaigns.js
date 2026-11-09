@@ -39,6 +39,8 @@
  *                         writes docs/results-data/peak-<label>-gt.jsonl (+ -msgs.json). Analyse with: node scripts/lib/analyze-gateway-trace.js <label>
  *   --text-ms 150 --media-ms 900 --delivered-ms 1500 --delivered-image-ms 2500 --read-frac 0.6 --status-tail 0.03 --status-dup 0.05 --failed-status 0.005
  *   --history H --seed-conversations M                                 gateway inbox history never pruned / expired conversations per client
+ *   --client-outbox-history N   N finished outbox rows (12 per flow unit, delivered+read, 1 continuation per unit) put into EVERY client's outbox_messages
+ *                         before it starts: the accumulated history of a client that already ran a big campaign (experiment: docs/outbox-growth-experiment-2026-11-08.md)
  *   --fault LIST          comma separated kind@S[:a[:b[:c]]]  (S = seconds after start, after --scale)
  *        client-down@S:D:SEL   kill-client@S:SEL   term-client@S:SEL      SEL = A|B|C|idle0|idle1|...|all
  *        kill-gateway@S   term-gateway@S   db-outage@S:D
@@ -104,7 +106,7 @@ const O = {
   gatewayPoolMax: num('gateway-pool-max', 0), pgTrace: has('pg-trace'), replyAfterDelivered: has('reply-after-delivered'), signedButtons: has('signed-buttons'),
   textMs: num('text-ms', 150), mediaMs: num('media-ms', 900), deliveredMs: num('delivered-ms', 1500), deliveredImageMs: num('delivered-image-ms', 2500), readFrac: num('read-frac', 0.6),
   statusTail: num('status-tail', 0.03), statusDup: num('status-dup', 0.05), failedStatus: num('failed-status', 0.005),
-  history: num('history', 0), seedConv: num('seed-conversations', 0), timeoutS: num('timeout', 1200), seed: num('seed', 4242),
+  history: num('history', 0), seedConv: num('seed-conversations', 0), clientOutboxHistory: num('client-outbox-history', 0), timeoutS: num('timeout', 1200), seed: num('seed', 4242),
   fault: opt('fault', ''),
   campaignFile: raw('campaign-file') || '',
   realN: sc(num('real-n', 60)), realPeak: sc(num('real-peak', 40)),
@@ -432,7 +434,7 @@ function onMetaSend(j) {
   if (!harnessSelfTest.ok) throw new Error('peak harness analysis self-test failed: ' + JSON.stringify(harnessSelfTest.results));
   const hist = monitorEventLoopDelay({ resolution: 10 }); hist.enable();
   await ensureInboxTestDb();
-  const admin = new Pool({ connectionString: inboxTestUrl(), max: 4 });
+  const admin = new Pool({ connectionString: inboxTestUrl(), max: 4 }); admin.on('error', () => {});
   const ident = await assertInboxTestDb(admin);
   const maxConn = Number((await admin.query('show max_connections')).rows[0].max_connections);
   if (O.clients * 14 > maxConn - 20) console.warn(`[warn] PostgreSQL max_connections=${maxConn}; ${O.clients} clients may exhaust it (each opens a storage pool and an inbox pool). Lower --clients if clients fail to start.`);
@@ -481,6 +483,23 @@ function onMetaSend(j) {
         select 'whatsapp:9726' || lpad(g::text, 8, '0'), 'expired-decision', '9726' || lpad(g::text, 8, '0'), 'seed', 'old' || g, now() + interval '20 hours',
                jsonb_build_object('kind','expired-decision','senderJid','whatsapp:9726' || lpad(g::text, 8, '0'),'senderPhone','9726' || lpad(g::text, 8, '0'),'campaignId','seed','campaignResultId','old' || g,'stepId','x','timestamp',(extract(epoch from now())*1000)::bigint), now()
           from generate_series(1, $1) g`, [O.seedConv]);
+    if (O.clientOutboxHistory > 0) {
+      // finished rows shaped like the ones a real flow leaves (see docs/outbox-growth-experiment-2026-11-08.md): 12 rows per unit, delivered + read,
+      // an attempt log, and the continuation (with the campaign id) on the first row of each unit only
+      await admin.query(`insert into ${schema}.outbox_messages(id, kind, recipient, status, attempts, provider_message_id, created_at, updated_at, data)
+        select 'seedbox-' || g, 'text', '9725' || lpad((g / 12)::text, 8, '0'), 'sent', 1, 'wamid.SEED' || g, t, t + interval '3 seconds',
+               jsonb_build_object('id', 'seedbox-' || g, 'kind', 'text', 'to', '9725' || lpad((g / 12)::text, 8, '0'),
+                 'text', 'הודעת היסטוריה מספר ' || g || ' - טקסט באורך דומה להודעה אמיתית בקמפיין, כדי שגודל השורה יהיה מציאותי',
+                 'status', 'sent', 'attempts', 1, 'createdAt', to_char(t at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'), 'updatedAt', to_char((t + interval '3 seconds') at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+                 'providerMessageId', 'wamid.SEED' || g, 'attemptId', 'att-seed-' || g,
+                 'attemptLog', jsonb_build_array(jsonb_build_object('attemptId', 'att-seed-' || g, 'startedAt', to_char(t at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'), 'status', 'accepted',
+                    'endedAt', to_char((t + interval '1 second') at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'), 'providerMessageId', 'wamid.SEED' || g, 'deliveryStatus', 'read')),
+                 'flowRef', jsonb_build_object('unitId', 'seedunit-' || (g / 12), 'index', g % 12),
+                 'deliveryStatus', 'read', 'deliveryUpdatedAt', to_char((t + interval '5 seconds') at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+               || case when g % 12 = 0 then jsonb_build_object('continuation', jsonb_build_object('state', 'done', 'updatedAt', to_char(t at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+                    'descriptor', jsonb_build_object('kind', 'reply_chain', 'campaignId', 'seed', 'campaignResultId', 'old' || (g / 12), 'senderJid', 'whatsapp:9725' || lpad((g / 12)::text, 8, '0')))) else '{}'::jsonb end
+        from (select g, now() - interval '30 hours' + (g * interval '5 seconds') as t from generate_series(1, $1) g) x`, [O.clientOutboxHistory]);
+    }
     clients.push({ i, schema, url, port: await freePort(), proxyPort: await freePort(), token: `${RUN}-c${i}-owner`, dir });
   }
 
@@ -531,7 +550,7 @@ function onMetaSend(j) {
     ...(O.gatewayTrace ? { GATEWAY_TRACE: '1' } : {}), ...(O.statusBatch !== 'off' ? { META_STATUS_BATCH: O.statusBatch } : {}), ...(O.statusBatchMax > 0 ? { META_STATUS_BATCH_MAX: String(O.statusBatchMax) } : {}) };
   {
     const { createInboxPool, migrateInboxSchema } = require(path.join(dist, 'inbox', 'schema'));
-    const gp = createInboxPool(gwInboxUrl, { max: 2 }); await migrateInboxSchema(gp);
+    const gp = createInboxPool(gwInboxUrl, { max: 2 }); gp.on('error', () => {}); await migrateInboxSchema(gp);
     await gp.query(`insert into inbox_senders(namespace, role, sender_key, sender_phone, next_seq) select $1, 'gateway', $2 || ':972509' || lpad(g::text, 6, '0'), '972509' || lpad(g::text, 6, '0'), 1000000 from generate_series(0, 1999) g`, [RUN, PN]);
     if (O.history > 0) await gp.query(`insert into inbox_items(namespace, role, phone_number_id, message_id, sender_key, sender_phone, sender_seq, status, payload, received_at, updated_at, resolution, attempts)
       select $1, 'gateway', $2, 'hist' || n, $2 || ':972509' || lpad((n % 2000)::text, 6, '0'), '972509' || lpad((n % 2000)::text, 6, '0'), n, case when n % 2 = 0 then 'held' else 'failed' end, $3::jsonb, clock_timestamp() - interval '1 day', clock_timestamp() - interval '1 hour', 'exhausted', 60
@@ -592,7 +611,7 @@ function onMetaSend(j) {
   // ---- timeline (every 30s)
   const timeline = []; let lastTl = Date.now(); let cpuPrev = os.cpus().map((c) => ({ ...c.times }));
   const hostCpuBusy = () => { const cur = os.cpus().map((c) => ({ ...c.times })); let busy = 0, total = 0; cur.forEach((c, i) => { const p = cpuPrev[i]; const d = (k) => c[k] - p[k]; const tot = d('user') + d('nice') + d('sys') + d('idle') + d('irq'); total += tot; busy += tot - d('idle'); }); cpuPrev = cur; return total ? Math.round(100 * busy / total) : 0; };
-  const gp = new Pool({ connectionString: gwInboxUrl, max: 1 });
+  const gp = new Pool({ connectionString: gwInboxUrl, max: 1 }); gp.on('error', () => {});
   const hostBusy = [];
   const tlTimer = setInterval(async () => {
     const now = Date.now(); const from = lastTl; lastTl = now; const busy = hostCpuBusy(); hostBusy.push(busy);
