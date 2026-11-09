@@ -44,6 +44,8 @@
     .badge { border-radius: 99px; padding: 2px 8px; font-size: .72rem; font-weight: 600; margin-right: 6px; background: #e5e7eb; color: #374151; }
     .badge.bad { background: #fee2e2; color: #991b1b; }
     .badge.free { background: #dcfce7; color: #166534; }
+    button.dl { margin-right: 8px; padding: 2px 10px; font-size: .75rem; font-weight: 600; border-radius: 6px; border: 1px solid #1d4ed8; background: #fff; color: #1d4ed8; cursor: pointer; }
+    button.dl:disabled { opacity: .4; cursor: not-allowed; }
     .muted { color: #9ca3af; }
     .actions { display: flex; gap: 8px; margin: 14px 0; }
     .actions button { border: 1px solid #d1d5db; background: #fff; border-radius: 7px; padding: 8px 12px; cursor: pointer; font-size: .84rem; }
@@ -169,8 +171,13 @@
       const body = el('tbody');
       for (const client of report.clients) {
         const open = expanded.has(client.clientId);
+        // Per-client download: clicking it must not also expand/collapse the row.
+        const dl = el('button', { class: 'dl', type: 'button', title: 'הורדת הנתונים של ' + client.clientName + ' כ-CSV', text: 'הורדה' });
+        dl.disabled = !client.reachable;
+        dl.addEventListener('click', (event) => { event.stopPropagation(); downloadCsv([client], client.clientName); });
         const nameCell = el('td', null, [
           (open ? '▾ ' : '▸ ') + client.clientName,
+          dl,
           client.disabled ? el('span', { class: 'badge', text: 'מושבתת' }) : null,
           !client.billed ? el('span', { class: 'badge free', text: 'לא Meta - ללא חיוב' }) : null,
           !client.reachable ? el('span', { class: 'badge bad', text: 'לא זמינה' + (client.error ? ': ' + client.error : '') }) : null,
@@ -241,20 +248,28 @@
       load(range, f + (t ? ' עד ' + t : ' ואילך'));
     });
 
-    document.getElementById('csv').addEventListener('click', () => {
+    // One CSV for the given clients (all of them, or just one). Same columns either way; a single-client file also ends with a totals row.
+    function downloadCsv(clients, fileLabel) {
       if (!report) return;
       const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
       const lines = [['לקוחה', 'לינק (קמפיין)', 'משפט טריגר', 'הודעות שנמסרו', 'הודעות שירות', 'הודעות תבנית', 'משתתפות', 'עלות ברוטו USD', 'עלות למשתתפת USD', 'ללא אישור מסירה', 'נכשלו'].map(q).join(',')];
-      for (const client of report.clients) {
+      for (const client of clients) {
         if (!client.campaigns.length) lines.push([client.clientName, '', '', 0, 0, 0, 0, 0, '', 0, 0].map(q).join(','));
         for (const c of client.campaigns) {
           lines.push([client.clientName, c.name, c.triggerPhrase || '', c.delivered, c.deliveredService, c.deliveredTemplate, c.participants, client.billed ? c.costUsd : 0, c.costPerParticipantUsd ?? '', c.sentOnly, c.failed].map(q).join(','));
         }
       }
+      if (clients.length === 1 && clients[0].reachable) {
+        const c = clients[0], t = c.totals;
+        lines.push([c.clientName, 'סה"כ', '', t.delivered, t.deliveredService, t.deliveredTemplate, t.participants, c.billed ? c.costUsd : 0, c.costPerParticipantUsd ?? '', t.sentOnly, t.failed ?? ''].map(q).join(','));
+      }
+      const safe = String(fileLabel || '').replace(/[\\/:*?"<>|]+/g, ' ').trim();
       const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
-      const link = el('a', { href: URL.createObjectURL(blob), download: 'message-costs-' + new Date().toISOString().slice(0, 10) + '.csv' });
+      const name = 'message-costs' + (safe ? ' - ' + safe : '') + ' - ' + (lastRange || '').replace(/[\\/:*?"<>|]+/g, ' ') + ' - ' + new Date().toISOString().slice(0, 10) + '.csv';
+      const link = el('a', { href: URL.createObjectURL(blob), download: name });
       document.body.append(link); link.click(); link.remove();
-    });
+    }
+    document.getElementById('csv').addEventListener('click', () => { if (report) downloadCsv(report.clients, ''); });
 
     load(rangeFor('month'), 'החודש');
   </script>
