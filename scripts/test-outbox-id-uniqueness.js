@@ -17,6 +17,9 @@ const { Pool } = require('pg');
 const { createPostgresBackend, loadStorageSnapshot } = require('../dist/database');
 const { emptyStorageData, Storage } = require('../dist/storage');
 
+const systemAlerts = require('../dist/systemAlerts');
+const alertsSeen = [];
+systemAlerts.notifySystemAlert = (alert) => { alertsSeen.push(alert); };   // storage calls it through the module object, so this captures every alert
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'outbox-id-'));
 const results = [];
 async function scenario(name, fn) {
@@ -55,6 +58,7 @@ const legacyRow = (i) => ({ id: `mw${i.toString(36)}abcd`, kind: 'text', to: `wh
     let second;
     try { second = s.enqueueOutboxMessage({ kind: 'text', to: 'whatsapp:972500000005', text: 'second' }); } finally { crypto.randomUUID = real; }
     assert.equal(second.id, '11111111-1111-4111-8111-111111111111');
+    assert.ok(alertsSeen.some((a) => a.key === 'outbox-id-collision' && a.severity === 'critical'), 'the prevented clash is reported');
     assert.equal(s.data.outboxMessages.length, 2);
     assert.equal(s.data.outboxMessages.find((m) => m.id === first.id).text, 'first', 'the first message is intact');
   });
@@ -90,6 +94,34 @@ const legacyRow = (i) => ({ id: `mw${i.toString(36)}abcd`, kind: 'text', to: `wh
     const n = s.enqueueOutboxMessage({ kind: 'text', to: 'whatsapp:972500000011', text: 'z' });
     assert.equal(s.data.outboxMessages.length, 2);
     assert.notEqual(n.id, legacyRow(9).id);
+  });
+
+  await scenario('a runtime input that carries its own id / status / attempts cannot choose the row id or overwrite another row', async () => {
+    const s = mem('h');
+    const first = s.enqueueOutboxMessage({ kind: 'text', to: 'whatsapp:972500000012', text: 'first' });
+    const hostile = s.enqueueOutboxMessage({ kind: 'text', to: 'whatsapp:972500000013', text: 'second', id: first.id, status: 'sent', attempts: 9, createdAt: '2000-01-01T00:00:00.000Z' });
+    assert.notEqual(hostile.id, first.id);
+    assert.equal(hostile.status, 'queued');
+    assert.equal(hostile.attempts, 0);
+    assert.notEqual(hostile.createdAt, '2000-01-01T00:00:00.000Z');
+    assert.equal(s.data.outboxMessages.length, 2);
+    assert.equal(s.data.outboxMessages.find((m) => m.id === first.id).text, 'first');
+  });
+
+  await scenario('rows that already share an id are reported when the index is built (sizes differ), and new messages still get unique ids', async () => {
+    const s = mem('i');
+    s.data.outboxMessages.push(legacyRow(1), { ...legacyRow(2), id: legacyRow(1).id });
+    alertsSeen.length = 0;
+    const m = s.enqueueOutboxMessage({ kind: 'text', to: 'whatsapp:972500000014', text: 'x' });
+    assert.match(m.id, /^[0-9a-f]{8}-/);
+    const alert = alertsSeen.find((a) => a.key === 'outbox-duplicate-ids-existing');
+    assert.ok(alert, 'the pre-existing duplicate id is reported');
+    assert.equal(alert.severity, 'critical');
+    assert.equal(alert.details.rows - alert.details.uniqueIds, 1);
+    assert.equal(s.data.outboxMessages.length, 3);
+    alertsSeen.length = 0;
+    s.enqueueOutboxMessage({ kind: 'text', to: 'whatsapp:972500000015', text: 'y' });
+    assert.equal(alertsSeen.length, 0, 'not re-reported on every enqueue');
   });
 
   await scenario('the clash check stays cheap on a 28,000-row outbox (no O(n) scan per message)', async () => {

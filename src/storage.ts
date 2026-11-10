@@ -1101,13 +1101,15 @@ export class Storage {
     if (existing) return this.copyOutboxMessage(existing);
 
     const now = new Date().toISOString();
+    // The managed fields come AFTER the caller's input: TypeScript forbids passing them, but a runtime object (a JS caller, a cast, a parsed
+    // payload) must still never be able to choose the row's id and overwrite another row.
     const message: OutboxMessage = {
+      ...input,
       id: this.newOutboxId(),
       status: 'queued',
       attempts: 0,
       createdAt: now,
       updatedAt: now,
-      ...input,
     };
     this.data.outboxMessages.push(message);
     if (this.outboxIdSet && this.outboxIdSetSource === this.data.outboxMessages) {
@@ -1131,6 +1133,17 @@ export class Storage {
       this.outboxIdSet = new Set(rows.map((row) => row.id));
       this.outboxIdSetSource = rows;
       this.outboxIdSetLength = rows.length;
+      // A Set collapses duplicates, so compare sizes: two rows already sharing an id (possible in a JSON store or after an old collision) are a
+      // defect to investigate, not something to hide. PostgreSQL's primary key cannot hold such a pair.
+      if (this.outboxIdSet.size !== rows.length) {
+        notifySystemAlert({
+          key: 'outbox-duplicate-ids-existing',
+          severity: 'critical',
+          title: 'Outbox contains rows with the same id',
+          message: `${rows.length - this.outboxIdSet.size} outbox row(s) share an id with another row. Status updates for such rows may be applied to the wrong message; investigate.`,
+          details: { rows: rows.length, uniqueIds: this.outboxIdSet.size },
+        });
+      }
     }
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const id = crypto.randomUUID();

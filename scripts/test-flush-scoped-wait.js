@@ -97,11 +97,14 @@ async function main() {
       const FLOOD_DURATION_MS = 1200;
       let floodCount = 0;
       let floodEndedAt = 0;
+      const floodExpected = new Map();   // id -> the recipient and text that id was returned for (an id check alone misses an overwritten row)
       const floodIds = [];   // ids returned by enqueue: lets a failing run say WHICH row is missing and whether two writes shared an id (9.11.2026)
       const floodStartedAt = Date.now();
       const flood = (async () => {
         while (Date.now() - floodStartedAt < FLOOD_DURATION_MS) {
-          floodIds.push(storage.enqueueOutboxMessage({ kind: 'text', to: `whatsapp:97250flood${floodCount}`, text: `flood-${floodCount}` }).id);
+          const expectedTo = `whatsapp:97250flood${floodCount}`; const expectedText = `flood-${floodCount}`;
+          floodIds.push(storage.enqueueOutboxMessage({ kind: 'text', to: expectedTo, text: expectedText }).id);
+          floodExpected.set(floodIds[floodIds.length - 1], { to: expectedTo, text: expectedText });
           floodCount += 1;
           await tick();
         }
@@ -135,6 +138,15 @@ async function main() {
       const ids = new Set(reloaded.outboxMessages.map((m) => m.id));
       assert.ok(ids.has(mine.id), 'the awaited write must be durable in Postgres');
       const floodLanded = reloaded.outboxMessages.filter((m) => m.to.startsWith('whatsapp:97250flood')).length;
+      // Whatever the count says, every returned id must hold the recipient and text it was returned for (a duplicated id leaves one row that
+      // belongs to the LAST writer, so the count can look right while an earlier message was replaced).
+      const byId = new Map(reloaded.outboxMessages.map((m) => [m.id, m]));
+      const wrongContent = [...floodExpected].filter(([id, want]) => { const got = byId.get(id); return got && (got.to !== want.to || got.text !== want.text); });
+      const mineRow = byId.get(mine.id);
+      if (!mineRow || mineRow.to !== 'whatsapp:972500000001' || mineRow.text !== 'my message') console.error(`[FLUSH_SCOPED_WAIT_DIAGNOSTIC] the awaited write "mine" holds the wrong content: ${JSON.stringify(mineRow ? { to: mineRow.to, text: mineRow.text } : null)}`);
+      if (wrongContent.length) console.error(`[FLUSH_SCOPED_WAIT_DIAGNOSTIC] ${wrongContent.length} row(s) hold another message's recipient/text (overwritten by a shared id); first: ${JSON.stringify(wrongContent[0])}`);
+      assert.equal(wrongContent.length, 0, `${wrongContent.length} flooded rows hold another message's content`);
+      assert.ok(mineRow && mineRow.to === 'whatsapp:972500000001' && mineRow.text === 'my message', 'the awaited write must hold its own recipient and text');
       if (floodLanded !== totalFlood) {
         // Diagnose before failing: a duplicated id (two writes, one row) and a genuinely missing row look the same in the count.
         const uniqueIds = new Set(floodIds);
