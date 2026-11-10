@@ -138,7 +138,7 @@ function safeMessage(value: unknown): string {
  * stanza was never acknowledged, Baileys issue #2858, ~every 50 minutes) or something else. Logs only the library's own message and the
  * tag / class / type / code of the error node, never a stanza id, jid, phone number or message text. Never throws.
  */
-export function logDisconnectDetail(statusCode: unknown, error: any): void {
+export function logDisconnectDetail(statusCode: unknown, error: any, connectedSec?: number | null): void {
   try {
     const data = error?.data;
     const attrs = data && typeof data === 'object' ? (data.attrs ?? data) : null;
@@ -146,7 +146,26 @@ export function logDisconnectDetail(statusCode: unknown, error: any): void {
     const klass = attrs && typeof attrs === 'object' ? attrs.class : undefined;
     const type = attrs && typeof attrs === 'object' ? attrs.type : undefined;
     const code = attrs && typeof attrs === 'object' ? attrs.code ?? attrs.reason : undefined;
-    console.warn(`[BAILEYS_DISCONNECT] status=${safeToken(statusCode, 12)} message="${safeMessage(error?.message)}" node=${safeToken(node)} class=${safeToken(klass)} type=${safeToken(type)} code=${safeToken(code)}`);
+    console.warn(`[BAILEYS_DISCONNECT] status=${safeToken(statusCode, 12)} message="${safeMessage(error?.message)}" node=${safeToken(node)} class=${safeToken(klass)} type=${safeToken(type)} code=${safeToken(code)} connectedSec=${safeSeconds(connectedSec)}`);
+  } catch {
+    // Diagnostics must never affect the reconnect logic.
+  }
+}
+
+/** Seconds the socket had been open when it closed, as a plain non-negative integer; "-" when unknown. */
+function safeSeconds(value: unknown): string {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? String(Math.round(value)) : '-';
+}
+
+/**
+ * The raw WebSocket close event (code and reason). A status=428 "Connection Terminated" is Baileys reporting a socket that closed with no
+ * stream error at all, so this is the only place the close code (1006 abnormal, 1000 normal, 1001 going away, ...) can be seen. Never throws.
+ */
+export function logWsClose(code: unknown, reason: unknown, connectedSec?: number | null): void {
+  try {
+    const text = Buffer.isBuffer(reason) ? reason.toString('utf8') : typeof reason === 'string' ? reason : '';
+    const shown = text.trim() === '' ? '-' : safeMessage(text);
+    console.warn(`[BAILEYS_WS_CLOSE] code=${safeToken(code, 8)} reason="${shown}" connectedSec=${safeSeconds(connectedSec)}`);
   } catch {
     // Diagnostics must never affect the reconnect logic.
   }
@@ -168,6 +187,8 @@ export class BaileysProvider implements WhatsAppProvider {
   private pairingPhone?: string;
   private skippedLogWindowStart = 0;
   private skippedLogCount = 0;
+  /** When the current socket reached "open" (null while not connected); used only for the disconnect diagnostics. */
+  private connectedAtMs: number | null = null;
 
   constructor(storage: Storage, pairingPhone?: string) {
     this.storage = storage;
@@ -222,6 +243,9 @@ export class BaileysProvider implements WhatsAppProvider {
       await this.handleMessages(event.messages ?? []);
     });
     const rawSocket = (this.socket as any).ws;
+    rawSocket?.on?.('close', (code: unknown, reason: unknown) => {
+      logWsClose(code, reason, this.connectedAtMs === null ? null : (Date.now() - this.connectedAtMs) / 1000);
+    });
     rawSocket?.on?.('CB:notification,type:companion_reg_refresh', (node: any) => {
       console.warn(`Baileys received companion_reg_refresh during pairing (id=${node?.attrs?.id || 'unknown'}); acknowledging through the patched pre-login handler.`);
     });
@@ -347,6 +371,7 @@ export class BaileysProvider implements WhatsAppProvider {
       this.pairingRequestTerminal = false;
       // The pairing attempt (if any) succeeded: from now on a disconnect is an ordinary disconnect, not a failed one-shot pairing.
       this.pairingPhone = undefined;
+      this.connectedAtMs = Date.now();
       botState.authenticated = true;
       botState.ready = true;
       botState.notReadySince = null;
@@ -369,7 +394,8 @@ export class BaileysProvider implements WhatsAppProvider {
       const loggedOut = statusCode === baileys.DisconnectReason.loggedOut;
       const restartRequired = statusCode === baileys.DisconnectReason.restartRequired;
       console.warn(`Baileys disconnected. status=${statusCode ?? 'unknown'}`);
-      logDisconnectDetail(statusCode, update.lastDisconnect?.error);
+      logDisconnectDetail(statusCode, update.lastDisconnect?.error, this.connectedAtMs === null ? null : (Date.now() - this.connectedAtMs) / 1000);
+      this.connectedAtMs = null;
       botState.listeningReason = loggedOut
         ? 'connection failed: החיבור ל-WhatsApp התנתק. יש לסרוק QR מחדש.'
         : restartRequired

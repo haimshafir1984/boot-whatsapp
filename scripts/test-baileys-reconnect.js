@@ -18,7 +18,7 @@ process.env.STORAGE_PATH = path.join(dir, 'storage.json');
 process.env.SESSION_PATH = path.join(dir, 'session');
 const { Storage } = require('../dist/storage');
 const { botState } = require('../dist/botState');
-const { BaileysProvider, logDisconnectDetail } = require('../dist/providers/BaileysProvider');
+const { BaileysProvider, logDisconnectDetail, logWsClose } = require('../dist/providers/BaileysProvider');
 
 const fakeBaileys = { DisconnectReason: { loggedOut: 401, restartRequired: 515 } };
 const results = [];
@@ -133,6 +133,39 @@ const reset = () => { botState.reconnectAttempts = 0; botState.pairingError = nu
     assert.match(lines[2], /message="\(redacted\)"/, 'a message with digits is never partly kept');
     assert.match(lines[3], /message="Stream Errored \(ack\)" node=ack class=- type=- code=-/, 'free-text attributes are replaced, not scrubbed');
     assert.doesNotMatch(lines.join('\n'), /972501234567|1234567890123/);
+  });
+
+  await scenario('the disconnect line carries how long the socket had been open (connectedSec); an unknown or odd value becomes -', async () => {
+    const q = quiet();
+    try {
+      logDisconnectDetail(428, { message: 'Connection Terminated' }, 2941.6);
+      logDisconnectDetail(428, { message: 'Connection Terminated' }, null);
+      logDisconnectDetail(428, { message: 'Connection Terminated' }, -5);
+      logDisconnectDetail(428, { message: 'Connection Terminated' }, NaN);
+    } finally { q.restore(); }
+    const lines = q.lines.filter((l) => l.includes('[BAILEYS_DISCONNECT]'));
+    assert.equal(lines.length, 4);
+    assert.match(lines[0], /connectedSec=2942$/);
+    for (const l of lines.slice(1)) assert.match(l, /connectedSec=-$/);
+  });
+
+  await scenario('the raw WebSocket close line logs code, a sanitized reason and connectedSec, and never throws', async () => {
+    const q = quiet();
+    try {
+      logWsClose(1006, Buffer.from(''), 61.2);
+      logWsClose(1001, Buffer.from('Going Away'), 10);
+      logWsClose(1011, Buffer.from('error for 972501234567@s.whatsapp.net'), 5);
+      logWsClose('1006\n injected', 'x'.repeat(200), undefined);
+      logWsClose(undefined, { toString() { throw new Error('hostile'); } }, 1);
+      logWsClose(1000, undefined, null);
+    } finally { q.restore(); }
+    const lines = q.lines.filter((l) => l.includes('[BAILEYS_WS_CLOSE]'));
+    assert.equal(lines.length, 6, 'every call logged, none threw');
+    assert.equal(lines[0], '[BAILEYS_WS_CLOSE] code=1006 reason="-" connectedSec=61');
+    assert.equal(lines[1], '[BAILEYS_WS_CLOSE] code=1001 reason="Going Away" connectedSec=10');
+    assert.match(lines[2], /reason="\(redacted\)"/);
+    assert.match(lines[3], /code=- reason="\(redacted\)" connectedSec=-/);
+    assert.doesNotMatch(lines.join('\n'), /972501234567|whatsapp\.net|injected/);
   });
 
   await scenario('the existing "Baileys disconnected. status=N" line is unchanged (external greps depend on it)', async () => {
