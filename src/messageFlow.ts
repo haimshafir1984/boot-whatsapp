@@ -1846,6 +1846,17 @@ async function handleMessage(
       }
     }
 
+    // A "message that waits for a reply" step (e.g. "send a photo of your table") must accept a photo/video/document with no caption as the
+    // answer. email_capture shares the 'wait-reply' pending kind but needs real text, so it is excluded.
+    if (!replyBody && pending.kind === 'wait-reply') {
+      const label = mediaReplyLabel(message.media?.kind);
+      const waitStep = pending.flow.find((item) => item.id === pending.stepId);
+      if (label && waitStep?.kind === 'wait_reply') {
+        replyBody = label;
+        console.log(`[MSG] media accepted as reply for pending wait-reply kind=${message.media?.kind} via=${source} from=${senderJid}`);
+      }
+    }
+
     if (!replyBody) {
       console.log(`[MSG] non-text message ignored for pending ${pending.kind} via=${source} from=${senderJid}`);
       return;
@@ -3352,6 +3363,11 @@ async function handleWaitReplyInner(
     });
     keepHumanHandoffOpen(senderJid, campaignId, campaignResultId, senderPhone, humanHandoff);
   }
+}
+
+/** Stored as the "answer" label when a wait-reply step is answered with a caption-less photo/video/document. Other media (voice, sticker) is still ignored. */
+export function mediaReplyLabel(kind: string | undefined): string | undefined {
+  return kind === 'image' || kind === 'video' || kind === 'document' || kind === 'media' ? `[${kind}]` : undefined;
 }
 
 function normalizeCapturedEmail(value: string): string | null {
