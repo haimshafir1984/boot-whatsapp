@@ -3915,14 +3915,16 @@ async function runScoreResultAction(
 ): Promise<void> {
   const endText = rule?.endText?.trim() || step.fallbackText?.trim();
   const nextStepId = rule?.nextStepId || step.fallbackNextStepId;
-  if (rule?.fileId) {
+  const resultFileId = rule ? rule.fileId : step.fallbackFileId;
+  const resultFileAsSticker = rule ? rule.fileAsSticker : step.fallbackFileAsSticker;
+  if (resultFileId) {
     await sendDecisionFile(
       transport,
       storage,
       senderJid,
-      rule.fileId,
+      resultFileId,
       endText,
-      rule.fileAsSticker,
+      resultFileAsSticker,
       campaignId,
       campaignResultId,
       senderPhone,

@@ -139,6 +139,8 @@ export interface DecisionFlowStep {
   options?: DecisionFlowOption[];
   resultRules?: ScoreResultRule[];
   fallbackText?: string;
+  fallbackFileId?: string;
+  fallbackFileAsSticker?: boolean;
   fallbackNextStepId?: string;
   /** Reply sent when an email-capture answer is not a valid email address. */
   emailInvalidText?: string;

@@ -1132,6 +1132,10 @@ function sanitizeDecisionFlow(
         if (typeof item.fallbackText === 'string' && item.fallbackText.trim()) {
           step.fallbackText = item.fallbackText.trim().slice(0, 2000);
         }
+        if (typeof item.fallbackFileId === 'string' && item.fallbackFileId.trim()) {
+          step.fallbackFileId = item.fallbackFileId.trim().slice(0, 80);
+          if (typeof item.fallbackFileAsSticker === 'boolean') step.fallbackFileAsSticker = item.fallbackFileAsSticker;
+        }
         if (typeof item.fallbackNextStepId === 'string' && item.fallbackNextStepId.trim()) {
           step.fallbackNextStepId = item.fallbackNextStepId.trim().slice(0, 80);
         }
