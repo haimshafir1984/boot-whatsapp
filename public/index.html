@@ -3571,7 +3571,7 @@
       const res = await fetch('/api/files');
       appFiles = await res.json();
       renderCampaignFiles();
-      document.querySelectorAll('[data-option-file], [data-completion-file], [data-step-file]').forEach(select => {
+      document.querySelectorAll('[data-option-file], [data-completion-file], [data-step-file], [data-rule-file]').forEach(select => {
         const selected = select.value || select.dataset.selectedFile || '';
         select.innerHTML = fileOptions(selected);
         select.value = appFiles.some(file => file.id === selected) ? selected : '';
@@ -3611,8 +3611,9 @@
     if (!file) return;
     const errEl = document.getElementById('modalError');
     const toastId = input.id === 'clientFileUpload' ? 'filesToast' : 'modalError';
-    const inlineStatus = input.closest('[data-message-file]')?.querySelector('[data-step-file-upload-status]');
-    const stepFileSelect = input.closest('[data-message-file]')?.querySelector('[data-step-file]');
+    const uploadWrap = input.closest('[data-message-file], [data-rule-file-wrap]');
+    const inlineStatus = uploadWrap?.querySelector('[data-step-file-upload-status]');
+    const stepFileSelect = uploadWrap?.querySelector('[data-step-file], [data-rule-file]');
     if (errEl) errEl.textContent = '';
     if (inlineStatus) inlineStatus.textContent = '\u05de\u05e2\u05dc\u05d4...';
     if (file.type.startsWith('image/') && file.size > 5 * 1024 * 1024) {
@@ -3987,6 +3988,16 @@
             <textarea data-rule-end-text rows="2" oninput="updateCampaignConversationPreview()" placeholder="&#1492;&#1493;&#1491;&#1506;&#1492; &#1513;&#1514;&#1497;&#1513;&#1500;&#1495; &#1488;&#1501; &#1492;&#1499;&#1500;&#1500; &#1502;&#1514;&#1511;&#1497;&#1497;&#1501;">${esc(rule.endText || '')}</textarea>
             <select data-rule-next data-selected-next="${esc(rule.nextStepId || '')}" onchange="updateCampaignConversationPreview()"></select>
             <button type="button" class="btn-small" onclick="removeScoreResultRule(this)">&#1502;&#1495;&#1511; &#1499;&#1500;&#1500;</button>
+          </div>
+          <div class="decision-next-row" data-rule-file-wrap style="margin-top:8px">
+            <label>תמונה / קובץ לתוצאה הזו</label>
+            <select data-rule-file data-selected-file="${esc(rule.fileId || '')}" onchange="updateCampaignConversationPreview()">${fileOptions(rule.fileId || '')}</select>
+            <div class="inline-file-upload">
+              <button type="button" class="btn-small" onclick="this.closest('[data-rule-file-wrap]').querySelector('[data-step-file-upload]').click()">העלה קובץ</button>
+              <input data-step-file-upload type="file" accept=".pdf,image/jpeg,image/png,image/webp,video/mp4,audio/mpeg,audio/mp4,audio/aac,audio/ogg,.mp3,.m4a,.aac,.ogg,.amr" style="display:none" onchange="uploadCampaignFile(this)" />
+              <span data-step-file-upload-status></span>
+            </div>
+            <label class="decision-inline-check"><input data-rule-file-sticker type="checkbox" ${rule.fileAsSticker ? 'checked' : ''} onchange="updateCampaignConversationPreview()" /> שלח כמדבקה</label>
           </div>
         </div>
       </div>
@@ -4475,6 +4486,11 @@
               if (Number.isFinite(max)) clean.max = max;
               if (endText) clean.endText = endText;
               if (nextStepId) clean.nextStepId = nextStepId;
+              const ruleFileId = rule.querySelector('[data-rule-file]')?.value || '';
+              if (ruleFileId) {
+                clean.fileId = ruleFileId;
+                if (rule.querySelector('[data-rule-file-sticker]')?.checked) clean.fileAsSticker = true;
+              }
               return clean;
             })
             .filter(rule => rule.type === 'majority' ? Number.isFinite(rule.value) : (Number.isFinite(rule.min) || Number.isFinite(rule.max)));
