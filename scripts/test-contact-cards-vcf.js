@@ -45,6 +45,13 @@ async function run(storage, mode, failFile, cards, phone) {
       const m = await run(storage, 'vcf', false, two, '972500000041');
       assert.strictEqual(m.sent.filter((x) => x.type === 'file').length, 0, 'Meta: no .vcf file (Meta cannot deliver it)');
       assert.strictEqual(m.sent.filter((x) => x.type === 'cards').length, 1, 'Meta: one combined native card instead');
+      process.env.PUBLIC_BASE_URL = 'https://client.example.test';
+      const withBase = await run(storage, 'vcf', false, two, '972500000042');
+      const sentFiles = withBase.sent.filter((x) => x.type === 'file');
+      assert.strictEqual(sentFiles.length, 1, 'Meta with PUBLIC_BASE_URL: one .vcf document (sent by link in the provider)');
+      assert.ok(/Dana, Eli\.vcf$/.test(sentFiles[0].name), 'the file is named after the contacts: ' + sentFiles[0].name);
+      assert.strictEqual((sentFiles[0].body.match(/BEGIN:VCARD/g) || []).length, 2);
+      assert.strictEqual(withBase.sent.filter((x) => x.type === 'cards').length, 0);
       console.log('Contact cards VCF mode (Meta) tests passed.');
       return;
     }

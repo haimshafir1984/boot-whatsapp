@@ -78,13 +78,12 @@ function idFor(campaignId: string, content: string): string {
   return createHmac('sha256', secretKey()).update(`vcf-link|${campaignId}|${digest}`).digest().subarray(0, 16).toString('base64url');
 }
 
-/** Creates (or reuses) the file for this contact set and returns its public URL, or null when no public base URL is configured. */
-export function issueVcfLink(campaignId: string | undefined, contacts: VcfLinkContact[]): string | null {
+/** Stores `content` as a link file (one per scope + content) and returns its public URL, or null when no public base URL is configured. */
+export function issueVcfLinkForContent(scope: string, content: string): string | null {
   const base = publicBaseUrl();
   if (!base) return null;
-  const content = buildVcfFileContent(contacts);
   if (!content || Buffer.byteLength(content, 'utf8') > MAX_FILE_BYTES) throw new Error('VCF link: contact set is empty or too large');
-  const id = idFor(campaignId || 'default', content);
+  const id = idFor(scope || 'default', content);
   const file = path.join(linksDir(), `${id}.vcf`);
   let write = true;
   try {
@@ -98,6 +97,11 @@ export function issueVcfLink(campaignId: string | undefined, contacts: VcfLinkCo
     fs.renameSync(tmp, file);
   }
   return `${base}/vcf/${id}.vcf`;
+}
+
+/** Creates (or reuses) the file for this contact set and returns its public URL, or null when no public base URL is configured. */
+export function issueVcfLink(campaignId: string | undefined, contacts: VcfLinkContact[]): string | null {
+  return issueVcfLinkForContent(campaignId || 'default', buildVcfFileContent(contacts));
 }
 
 /** Returns the file content for a request path segment, or null (unknown id, wrong shape, or expired). */
@@ -136,9 +140,7 @@ export function mountVcfLinkRoutes(app: Express): void {
   app.get('/vcf/:file', limit, (req, res) => {
     const content = readVcfLink(String(req.params.file || ''));
     if (!content) { res.status(404).send('Not found'); return; }
-    // `?as=` is only for the vcf_experiment mode (what content type Meta accepts when it fetches a document by link).
-    const asType = ({ msword: 'application/msword', plain: 'text/plain', octet: 'application/octet-stream', pdf: 'application/pdf' } as Record<string, string>)[String(req.query.as || '')];
-    res.setHeader('Content-Type', asType || 'text/vcard; charset=utf-8');
+    res.setHeader('Content-Type', 'text/vcard; charset=utf-8');
     res.setHeader('Content-Disposition', 'inline; filename="contacts.vcf"');
     res.setHeader('Cache-Control', 'public, max-age=300');
     res.setHeader('Referrer-Policy', 'no-referrer');

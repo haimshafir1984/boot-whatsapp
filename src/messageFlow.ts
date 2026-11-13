@@ -1,5 +1,5 @@
 import { config } from './config';
-import { issueVcfLink } from './vcfLink';
+import { issueVcfLink, publicBaseUrl } from './vcfLink';
 import { runCampaignWork, stopCampaignWork, hasCampaignWork, guardCampaignTransport, assertCampaignWorkActive, campaignWorkSleep, CampaignWorkCancelledError } from './campaignWork';
 import { ProviderSendError, classifySendError, isUncertainSendError } from './sendOutcome';
 import { runWithSendAttempt } from './sendAttempt';
@@ -436,7 +436,7 @@ export function replyBehaviorFromSettings(settings: {
 
 /** The completion delivery the trigger path builds from campaign settings (same fields); the recovery controller needs it for a replay. */
 export function completionFromSettings(settings: Parameters<typeof contactCardsFromSettings>[0] & {
-  completionLinks?: CompletionLink[]; completionFileIds?: string[]; contactCardSendMode?: 'separate' | 'combined' | 'vcf' | 'vcf_link' | 'vcf_experiment';
+  completionLinks?: CompletionLink[]; completionFileIds?: string[]; contactCardSendMode?: 'separate' | 'combined' | 'vcf' | 'vcf_link';
   contactCardPlacement?: 'after_completion' | 'before_questions'; contactCardIntroText?: string;
   contactCardWaitForConfirmation?: boolean; contactCardConfirmationTimeoutMinutes?: number;
 }): CompletionDelivery {
@@ -458,7 +458,7 @@ export interface CompletionDelivery {
   fileIds?: string[];
   contactCards?: CompletionContactCard[];
   contactCard?: CompletionContactCard;
-  contactCardSendMode?: 'separate' | 'combined' | 'vcf' | 'vcf_link' | 'vcf_experiment';
+  contactCardSendMode?: 'separate' | 'combined' | 'vcf' | 'vcf_link';
   contactCardPlacement?: 'after_completion' | 'before_questions';
   contactCardIntroText?: string;
   contactCardWaitForConfirmation?: boolean;
@@ -2660,7 +2660,7 @@ async function sendCompletionLinks(
 function contactCardsFromSettings(settings: {
   sendContactCard?: boolean;
   contactCards?: CompletionContactCard[];
-  contactCardSendMode?: 'separate' | 'combined' | 'vcf' | 'vcf_link' | 'vcf_experiment';
+  contactCardSendMode?: 'separate' | 'combined' | 'vcf' | 'vcf_link';
   contactCardName?: string;
   contactCardPhone?: string;
   contactCardEmail?: string;
@@ -2749,49 +2749,10 @@ async function sendCompletionContactCards(
   campaignId?: string,
   campaignResultId?: string,
   senderPhone?: string,
-  _sendMode: 'separate' | 'combined' | 'vcf' | 'vcf_link' | 'vcf_experiment' = 'separate',
+  _sendMode: 'separate' | 'combined' | 'vcf' | 'vcf_link' = 'separate',
 ): Promise<void> {
   const cards = uniqueContactCards(contactCards ?? []).slice(0, 2);
   if (!cards.length) return;
-
-  if (_sendMode === 'vcf_experiment' && cards.length > 1 && transport.sendDocumentVariant) {
-    // TEMPORARY: send the same two-contact .vcf in several ways so the participant (the owner, testing) can see which one WhatsApp shows as a real VCF.
-    const expContacts = cards
-      .filter((contactCard) => contactCard.enabled)
-      .map((contactCard) => ({
-        name: (contactCard.name || 'Contact').trim(),
-        phone: normalizeVCardPhone((contactCard.phone || '').trim()),
-        email: (contactCard.email || '').trim(),
-        organization: (contactCard.organization || '').trim(),
-      }))
-      .filter((card) => card.name || card.phone || card.email);
-    if (expContacts.length > 1) {
-      fs.mkdirSync(config.UPLOADS_PATH, { recursive: true });
-      const expPath = path.join(config.UPLOADS_PATH, 'contact-cards-experiment.vcf');
-      fs.writeFileSync(expPath, buildMultiVCard(expContacts), 'utf8');
-      let linkUrl: string | null = null;
-      try { linkUrl = issueVcfLink(campaignId, expContacts); } catch { /* link variants are skipped */ }
-      const variants: Array<{ key: string; filename: string; mimeType?: string; linkUrl?: string }> = [
-        { key: 'A', filename: 'A-msword.vcf', mimeType: 'application/msword' },
-        { key: 'B', filename: 'B-excel.vcf', mimeType: 'application/vnd.ms-excel' },
-        { key: 'C', filename: 'C-pdf.vcf', mimeType: 'application/pdf' },
-        ...(linkUrl ? [
-          { key: 'D', filename: 'D-link.vcf', linkUrl },
-          { key: 'E', filename: 'E-link-msword.vcf', linkUrl: `${linkUrl}?as=msword` },
-        ] : []),
-      ];
-      for (const variant of variants) {
-        try {
-          await waitBeforeBotReplyTo(senderJid);
-          await transport.sendDocumentVariant(senderJid, expPath, variant);
-          console.log(`   [VCF_EXPERIMENT] variant=${variant.key} sent`);
-        } catch (err) {
-          console.warn(`   [VCF_EXPERIMENT] variant=${variant.key} FAILED: ${String((err as Error)?.message || err).slice(0, 300)}`);
-        }
-      }
-      return;
-    }
-  }
 
   if (_sendMode === 'vcf_link' && cards.length > 1) {
     // Several contacts -> one link to a .vcf served from this client's public domain (works on Meta, where a .vcf file cannot be sent).
@@ -2829,9 +2790,9 @@ ${url}`);
     }
   }
 
-  // Meta's Cloud API cannot deliver a real .vcf: media upload rejects text/vcard (#100), and text/plain arrives renamed to ".vcf.txt".
-  // So on Meta the 'vcf' mode goes straight to the combined native card below.
-  if (_sendMode === 'vcf' && cards.length > 1 && transport.sendFile && config.WHATSAPP_PROVIDER !== 'META_CLOUD_API') {
+  // On Meta a .vcf cannot be uploaded (text/vcard is rejected, #100) but a document sent by link shows as a real VCF, so
+  // MetaCloudProvider.sendFile sends .vcf files by link (needs PUBLIC_BASE_URL). Without it, 'vcf' goes to the combined native card below.
+  if (_sendMode === 'vcf' && cards.length > 1 && transport.sendFile && (config.WHATSAPP_PROVIDER !== 'META_CLOUD_API' || publicBaseUrl())) {
     // One .vcf file holding every contact: the recipient taps once and saves them all.
     const vcfCards = cards
       .filter((contactCard) => contactCard.enabled)
@@ -2845,12 +2806,14 @@ ${url}`);
     if (vcfCards.length > 1) {
       try {
         fs.mkdirSync(config.UPLOADS_PATH, { recursive: true });
-        const fileName = ['contact-cards', campaignId || 'default', campaignResultId || senderPhone || 'contact']
-          .join('-').replace(/[^a-z0-9.-]+/gi, '-').slice(0, 120) + '.vcf';
-        const filePath = path.join(config.UPLOADS_PATH, fileName);
-        fs.writeFileSync(filePath, buildMultiVCard(vcfCards), 'utf8');
+        const vcfContent = buildMultiVCard(vcfCards);
         const names = vcfCards.map((card) => card.name || card.phone || card.email);
-        const displayFileName = `${names.join(', ').replace(/[\/:*?"<>|]+/g, '-').slice(0, 80)}.vcf`;
+        const displayFileName = `${names.join(', ').replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80)}.vcf`;
+        // The file's basename is the name the participant sees, so it lives in its own folder (one per contact set).
+        const folder = path.join(config.UPLOADS_PATH, 'contact-cards', createHash('sha256').update(vcfContent).digest('hex').slice(0, 16));
+        fs.mkdirSync(folder, { recursive: true });
+        const filePath = path.join(folder, displayFileName);
+        fs.writeFileSync(filePath, vcfContent, 'utf8');
         await sendFileWithRetry(transport, senderJid, filePath, undefined, {}, displayFileName);
         console.log('   Contact cards sent as one VCF file.');
         for (const name of names) recordContactCardEvent(storage, campaignId, campaignResultId, senderPhone, `contact card: ${name}`);

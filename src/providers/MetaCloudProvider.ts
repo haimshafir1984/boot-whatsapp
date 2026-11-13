@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { issueVcfLinkForContent } from '../vcfLink';
 import { config } from '../config';
 import { metaApiAlert, notifyClientSystemAlert } from '../systemAlerts';
 import { IncomingWhatsAppMessage, InteractiveListItem, WhatsAppProvider, WhatsAppSendResult } from '../types/whatsapp';
@@ -96,6 +97,13 @@ export class MetaCloudProvider implements WhatsAppProvider {
     const mimeType = mimeTypeForFile(fileName);
     const recipient = normalizePhone(to);
     const type = mimeType.startsWith('image/') ? 'image' : mimeType.startsWith('video/') ? 'video' : mimeType.startsWith('audio/') ? 'audio' : 'document';
+    if (path.extname(fileName).toLowerCase() === '.vcf') {
+      // Meta's media upload rejects text/vcard, but a document sent BY LINK keeps its .vcf name and shows as a real VCF file
+      // (verified on a phone, 13.11.2026). The link serves the content with Content-Type text/vcard.
+      const url = issueVcfLinkForContent('doc', fs.readFileSync(filePath, 'utf8'));
+      if (!url) throw new ProviderSendError('VCF documents need PUBLIC_BASE_URL (Meta cannot upload text/vcard)', 'rejected_permanent', { status: 400 });
+      return await this.postMessages({ messaging_product: 'whatsapp', to: recipient, type: 'document', document: { link: url, filename: fileName } });
+    }
     const cacheKey = metaMediaCacheKey(filePath);
     const cached = getCachedMetaMedia(cacheKey);
     let mediaId = cached?.id || await this.uploadAndCacheMedia(cacheKey, filePath, mimeType, fileName);
@@ -139,15 +147,6 @@ export class MetaCloudProvider implements WhatsAppProvider {
     const fileName = path.basename(filePath);
     await this.uploadAndCacheMedia(cacheKey, filePath, mimeTypeForFile(fileName), fileName);
     return 'uploaded';
-  }
-
-  /** TEMPORARY experiment (vcf_experiment mode): a document whose declared type / delivery differs, to find what Meta accepts for a real .vcf. */
-  async sendDocumentVariant(to: string, filePath: string, variant: { filename: string; mimeType?: string; linkUrl?: string }): Promise<WhatsAppSendResult> {
-    this.assertConfigured();
-    const media: Record<string, string> = { filename: variant.filename };
-    if (variant.linkUrl) media.link = variant.linkUrl;
-    else media.id = await this.uploadMedia(filePath, variant.mimeType || 'application/octet-stream', variant.filename);
-    return await this.postMessages({ messaging_product: 'whatsapp', to: normalizePhone(to), type: 'document', document: media });
   }
 
   async sendContactCard(to: string, vcard: string, displayName: string): Promise<WhatsAppSendResult> {
