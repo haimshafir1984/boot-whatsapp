@@ -932,7 +932,7 @@ function conversationSettings(
     contactCardPlacement: input?.contactCardPlacement === 'before_questions'
       ? 'before_questions'
       : (defaults.contactCardPlacement ?? 'after_completion'),
-    contactCardSendMode: input?.contactCardSendMode === 'combined' || input?.contactCardSendMode === 'separate'
+    contactCardSendMode: input?.contactCardSendMode === 'combined' || input?.contactCardSendMode === 'separate' || input?.contactCardSendMode === 'vcf'
       ? input.contactCardSendMode
       : (defaults.contactCardSendMode ?? 'separate'),
     contactCards,

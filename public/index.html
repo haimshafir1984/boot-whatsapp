@@ -1985,6 +1985,7 @@
                 <select id="fContactCardSendMode" onchange="updateCampaignConversationPreview()">
                   <option value="separate">&#1499;&#1500; &#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1489;&#1504;&#1508;&#1512;&#1491;</option>
                   <option value="combined">&#1513;&#1504;&#1497; &#1488;&#1504;&#1513;&#1497; &#1511;&#1513;&#1512; &#1489;&#1499;&#1512;&#1496;&#1497;&#1505; &#1488;&#1495;&#1491; (Meta)</option>
+                <option value="vcf">קובץ VCF אחד (שמירה של כולם בלחיצה אחת)</option>
                 </select>
                 <div class="hint">&#1504;&#1497;&#1514;&#1503; &#1500;&#1513;&#1500;&#1493;&#1495; &#1506;&#1491; &#1513;&#1504;&#1497; &#1488;&#1504;&#1513;&#1497; &#1511;&#1513;&#1512;. &#1492;&#1501; &#1497;&#1497;&#1513;&#1500;&#1495;&#1493; &#1488;&#1495;&#1491; &#1488;&#1495;&#1512;&#1497; &#1492;&#1513;&#1504;&#1497;.</div>
               </div>
@@ -3329,7 +3330,7 @@
       else decisionFlow.push(contactStep);
     }
     const contactSendMode = document.getElementById('fContactCardSendMode');
-    if (contactSendMode) contactSendMode.value = isMetaCloudProvider() && settings.contactCardSendMode === 'combined' ? 'combined' : 'separate';
+    if (contactSendMode) contactSendMode.value = normalizeContactSendMode(settings.contactCardSendMode);
     const contactPlacement = document.getElementById('fContactCardPlacement');
     if (contactPlacement) contactPlacement.value = settings.contactCardPlacement || 'after_completion';
     document.getElementById('fContactCardWaitForConfirmation').checked = Boolean(settings.contactCardWaitForConfirmation);
@@ -3788,6 +3789,7 @@
               <select data-flow-contact-send-mode onchange="syncFlowContactSendMode(this)">
                 <option value="separate">&#1499;&#1500; &#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1489;&#1504;&#1508;&#1512;&#1491;</option>
                 <option value="combined">&#1513;&#1504;&#1497; &#1488;&#1504;&#1513;&#1497; &#1511;&#1513;&#1512; &#1489;&#1499;&#1512;&#1496;&#1497;&#1505; &#1488;&#1495;&#1491; (Meta)</option>
+                <option value="vcf">קובץ VCF אחד (שמירה של כולם בלחיצה אחת)</option>
               </select>
             </div>
           </div>
@@ -4273,9 +4275,14 @@
     updateCampaignConversationPreview();
   }
 
+  function normalizeContactSendMode(value) {
+    if (value === 'vcf') return 'vcf';
+    return isMetaCloudProvider() && value === 'combined' ? 'combined' : 'separate';
+  }
+
   function syncFlowContactSendMode(select) {
     const globalSelect = document.getElementById('fContactCardSendMode');
-    const mode = isMetaCloudProvider() && select?.value === 'combined' ? 'combined' : 'separate';
+    const mode = normalizeContactSendMode(select?.value);
     if (globalSelect) globalSelect.value = mode;
     if (select) select.value = mode;
     updateCampaignConversationPreview();
@@ -4341,7 +4348,7 @@
             combinedOption.hidden = !isMetaCloudProvider();
             combinedOption.disabled = !isMetaCloudProvider();
           }
-          sendMode.value = isMetaCloudProvider() && document.getElementById('fContactCardSendMode')?.value === 'combined' ? 'combined' : 'separate';
+          sendMode.value = normalizeContactSendMode(document.getElementById('fContactCardSendMode')?.value);
         }
       }
       const title = step.querySelector('.decision-step-title');
@@ -4719,7 +4726,7 @@
         .filter(Boolean),
       sendContactCard: flowHasContactCard,
       contactCardPlacement: flowHasContactCard ? 'before_questions' : 'after_completion',
-      contactCardSendMode: isMetaCloudProvider() && document.getElementById('fContactCardSendMode')?.value === 'combined' ? 'combined' : 'separate',
+      contactCardSendMode: normalizeContactSendMode(document.getElementById('fContactCardSendMode')?.value),
       contactCards,
       contactCardName: primaryContactCard.name || '',
       contactCardPhone: primaryContactCard.phone || '',

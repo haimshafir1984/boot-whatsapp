@@ -108,6 +108,7 @@ function getMimeType(filePath: string): string {
   if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
   if (ext === '.webp') return 'image/webp';
   if (ext === '.mp4') return 'video/mp4';
+  if (ext === '.vcf') return 'text/vcard';
   return 'application/octet-stream';
 }
 

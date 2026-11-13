@@ -435,7 +435,7 @@ export function replyBehaviorFromSettings(settings: {
 
 /** The completion delivery the trigger path builds from campaign settings (same fields); the recovery controller needs it for a replay. */
 export function completionFromSettings(settings: Parameters<typeof contactCardsFromSettings>[0] & {
-  completionLinks?: CompletionLink[]; completionFileIds?: string[]; contactCardSendMode?: 'separate' | 'combined';
+  completionLinks?: CompletionLink[]; completionFileIds?: string[]; contactCardSendMode?: 'separate' | 'combined' | 'vcf';
   contactCardPlacement?: 'after_completion' | 'before_questions'; contactCardIntroText?: string;
   contactCardWaitForConfirmation?: boolean; contactCardConfirmationTimeoutMinutes?: number;
 }): CompletionDelivery {
@@ -457,7 +457,7 @@ export interface CompletionDelivery {
   fileIds?: string[];
   contactCards?: CompletionContactCard[];
   contactCard?: CompletionContactCard;
-  contactCardSendMode?: 'separate' | 'combined';
+  contactCardSendMode?: 'separate' | 'combined' | 'vcf';
   contactCardPlacement?: 'after_completion' | 'before_questions';
   contactCardIntroText?: string;
   contactCardWaitForConfirmation?: boolean;
@@ -2659,7 +2659,7 @@ async function sendCompletionLinks(
 function contactCardsFromSettings(settings: {
   sendContactCard?: boolean;
   contactCards?: CompletionContactCard[];
-  contactCardSendMode?: 'separate' | 'combined';
+  contactCardSendMode?: 'separate' | 'combined' | 'vcf';
   contactCardName?: string;
   contactCardPhone?: string;
   contactCardEmail?: string;
@@ -2748,12 +2748,44 @@ async function sendCompletionContactCards(
   campaignId?: string,
   campaignResultId?: string,
   senderPhone?: string,
-  _sendMode: 'separate' | 'combined' = 'separate',
+  _sendMode: 'separate' | 'combined' | 'vcf' = 'separate',
 ): Promise<void> {
   const cards = uniqueContactCards(contactCards ?? []).slice(0, 2);
   if (!cards.length) return;
 
-  if (_sendMode === 'combined' && cards.length > 1 && transport.sendContactCards) {
+  if (_sendMode === 'vcf' && cards.length > 1 && transport.sendFile) {
+    // One .vcf file holding every contact: the recipient taps once and saves them all.
+    const vcfCards = cards
+      .filter((contactCard) => contactCard.enabled)
+      .map((contactCard) => ({
+        name: (contactCard.name || 'Contact').trim(),
+        phone: normalizeVCardPhone((contactCard.phone || '').trim()),
+        email: (contactCard.email || '').trim(),
+        organization: (contactCard.organization || '').trim(),
+      }))
+      .filter((card) => card.name || card.phone || card.email);
+    if (vcfCards.length > 1) {
+      try {
+        fs.mkdirSync(config.UPLOADS_PATH, { recursive: true });
+        const fileName = ['contact-cards', campaignId || 'default', campaignResultId || senderPhone || 'contact']
+          .join('-').replace(/[^a-z0-9.-]+/gi, '-').slice(0, 120) + '.vcf';
+        const filePath = path.join(config.UPLOADS_PATH, fileName);
+        fs.writeFileSync(filePath, buildMultiVCard(vcfCards), 'utf8');
+        const names = vcfCards.map((card) => card.name || card.phone || card.email);
+        const displayFileName = `${names.join(', ').replace(/[\/:*?"<>|]+/g, '-').slice(0, 80)}.vcf`;
+        await sendFileWithRetry(transport, senderJid, filePath, undefined, {}, displayFileName);
+        console.log('   Contact cards sent as one VCF file.');
+        for (const name of names) recordContactCardEvent(storage, campaignId, campaignResultId, senderPhone, `contact card: ${name}`);
+        return;
+      } catch (err) {
+        // R3: never fall back after an uncertain outcome - the file may already have been delivered.
+        if (isUncertainOutcome(err)) throw err;
+        console.warn('   VCF file send failed, falling back to native contact cards:', err);
+      }
+    }
+  }
+
+  if ((_sendMode === 'combined' || _sendMode === 'vcf') && cards.length > 1 && transport.sendContactCards) {
     const combinedContacts = cards
       .filter((contactCard) => contactCard.enabled)
       .map((contactCard) => {
@@ -2875,6 +2907,10 @@ function recordContactCardEvent(
     type: 'completion_file_sent',
     label: label.slice(0, 120),
   });
+}
+
+function buildMultiVCard(contacts: Array<{ name: string; phone: string; email: string; organization: string }>): string {
+  return contacts.map((contact) => buildVCard(contact)).join('');
 }
 
 function buildVCard(contact: { name: string; phone: string; email: string; organization: string }): string {
