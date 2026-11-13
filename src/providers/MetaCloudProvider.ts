@@ -337,9 +337,11 @@ function normalizePhone(value: string): string {
   return value.trim().replace(/^whatsapp:/i, '').replace(/^\+/, '').split('@')[0].replace(/\D/g, '');
 }
 
+// Meta's media upload does not accept text/vcard (error #100: only a short list of document types). A .vcf is therefore uploaded as text/plain
+// (accepted) and sent as a document whose filename keeps the .vcf extension.
 function mimeTypeForFile(fileName: string): string {
   const ext = path.extname(fileName).toLowerCase();
-  return ({ '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.jfif': 'image/jpeg', '.jpe': 'image/jpeg', '.pjpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.3gp': 'video/3gpp', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.amr': 'audio/amr', '.pdf': 'application/pdf', '.vcf': 'text/vcard' } as Record<string, string>)[ext] || 'application/octet-stream';
+  return ({ '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.jfif': 'image/jpeg', '.jpe': 'image/jpeg', '.pjpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.3gp': 'video/3gpp', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.amr': 'audio/amr', '.pdf': 'application/pdf', '.vcf': 'text/plain' } as Record<string, string>)[ext] || 'application/octet-stream';
 }
 
 export function buildMetaContactFromVCard(vcard: string, fallbackName: string): Record<string, unknown> | null {
