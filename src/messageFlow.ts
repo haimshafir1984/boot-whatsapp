@@ -436,7 +436,7 @@ export function replyBehaviorFromSettings(settings: {
 
 /** The completion delivery the trigger path builds from campaign settings (same fields); the recovery controller needs it for a replay. */
 export function completionFromSettings(settings: Parameters<typeof contactCardsFromSettings>[0] & {
-  completionLinks?: CompletionLink[]; completionFileIds?: string[]; contactCardSendMode?: 'separate' | 'combined' | 'vcf' | 'vcf_link';
+  completionLinks?: CompletionLink[]; completionFileIds?: string[]; contactCardSendMode?: 'separate' | 'combined' | 'vcf' | 'vcf_link' | 'vcf_experiment';
   contactCardPlacement?: 'after_completion' | 'before_questions'; contactCardIntroText?: string;
   contactCardWaitForConfirmation?: boolean; contactCardConfirmationTimeoutMinutes?: number;
 }): CompletionDelivery {
@@ -458,7 +458,7 @@ export interface CompletionDelivery {
   fileIds?: string[];
   contactCards?: CompletionContactCard[];
   contactCard?: CompletionContactCard;
-  contactCardSendMode?: 'separate' | 'combined' | 'vcf' | 'vcf_link';
+  contactCardSendMode?: 'separate' | 'combined' | 'vcf' | 'vcf_link' | 'vcf_experiment';
   contactCardPlacement?: 'after_completion' | 'before_questions';
   contactCardIntroText?: string;
   contactCardWaitForConfirmation?: boolean;
@@ -2660,7 +2660,7 @@ async function sendCompletionLinks(
 function contactCardsFromSettings(settings: {
   sendContactCard?: boolean;
   contactCards?: CompletionContactCard[];
-  contactCardSendMode?: 'separate' | 'combined' | 'vcf' | 'vcf_link';
+  contactCardSendMode?: 'separate' | 'combined' | 'vcf' | 'vcf_link' | 'vcf_experiment';
   contactCardName?: string;
   contactCardPhone?: string;
   contactCardEmail?: string;
@@ -2749,10 +2749,49 @@ async function sendCompletionContactCards(
   campaignId?: string,
   campaignResultId?: string,
   senderPhone?: string,
-  _sendMode: 'separate' | 'combined' | 'vcf' | 'vcf_link' = 'separate',
+  _sendMode: 'separate' | 'combined' | 'vcf' | 'vcf_link' | 'vcf_experiment' = 'separate',
 ): Promise<void> {
   const cards = uniqueContactCards(contactCards ?? []).slice(0, 2);
   if (!cards.length) return;
+
+  if (_sendMode === 'vcf_experiment' && cards.length > 1 && transport.sendDocumentVariant) {
+    // TEMPORARY: send the same two-contact .vcf in several ways so the participant (the owner, testing) can see which one WhatsApp shows as a real VCF.
+    const expContacts = cards
+      .filter((contactCard) => contactCard.enabled)
+      .map((contactCard) => ({
+        name: (contactCard.name || 'Contact').trim(),
+        phone: normalizeVCardPhone((contactCard.phone || '').trim()),
+        email: (contactCard.email || '').trim(),
+        organization: (contactCard.organization || '').trim(),
+      }))
+      .filter((card) => card.name || card.phone || card.email);
+    if (expContacts.length > 1) {
+      fs.mkdirSync(config.UPLOADS_PATH, { recursive: true });
+      const expPath = path.join(config.UPLOADS_PATH, 'contact-cards-experiment.vcf');
+      fs.writeFileSync(expPath, buildMultiVCard(expContacts), 'utf8');
+      let linkUrl: string | null = null;
+      try { linkUrl = issueVcfLink(campaignId, expContacts); } catch { /* link variants are skipped */ }
+      const variants: Array<{ key: string; filename: string; mimeType?: string; linkUrl?: string }> = [
+        { key: 'A', filename: 'A-msword.vcf', mimeType: 'application/msword' },
+        { key: 'B', filename: 'B-excel.vcf', mimeType: 'application/vnd.ms-excel' },
+        { key: 'C', filename: 'C-pdf.vcf', mimeType: 'application/pdf' },
+        ...(linkUrl ? [
+          { key: 'D', filename: 'D-link.vcf', linkUrl },
+          { key: 'E', filename: 'E-link-msword.vcf', linkUrl: `${linkUrl}?as=msword` },
+        ] : []),
+      ];
+      for (const variant of variants) {
+        try {
+          await waitBeforeBotReplyTo(senderJid);
+          await transport.sendDocumentVariant(senderJid, expPath, variant);
+          console.log(`   [VCF_EXPERIMENT] variant=${variant.key} sent`);
+        } catch (err) {
+          console.warn(`   [VCF_EXPERIMENT] variant=${variant.key} FAILED: ${String((err as Error)?.message || err).slice(0, 300)}`);
+        }
+      }
+      return;
+    }
+  }
 
   if (_sendMode === 'vcf_link' && cards.length > 1) {
     // Several contacts -> one link to a .vcf served from this client's public domain (works on Meta, where a .vcf file cannot be sent).

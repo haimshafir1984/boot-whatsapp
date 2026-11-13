@@ -141,6 +141,15 @@ export class MetaCloudProvider implements WhatsAppProvider {
     return 'uploaded';
   }
 
+  /** TEMPORARY experiment (vcf_experiment mode): a document whose declared type / delivery differs, to find what Meta accepts for a real .vcf. */
+  async sendDocumentVariant(to: string, filePath: string, variant: { filename: string; mimeType?: string; linkUrl?: string }): Promise<WhatsAppSendResult> {
+    this.assertConfigured();
+    const media: Record<string, string> = { filename: variant.filename };
+    if (variant.linkUrl) media.link = variant.linkUrl;
+    else media.id = await this.uploadMedia(filePath, variant.mimeType || 'application/octet-stream', variant.filename);
+    return await this.postMessages({ messaging_product: 'whatsapp', to: normalizePhone(to), type: 'document', document: media });
+  }
+
   async sendContactCard(to: string, vcard: string, displayName: string): Promise<WhatsAppSendResult> {
     return await this.sendContactCards(to, [{ vcard, displayName }], displayName);
   }

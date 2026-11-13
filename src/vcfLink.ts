@@ -136,7 +136,9 @@ export function mountVcfLinkRoutes(app: Express): void {
   app.get('/vcf/:file', limit, (req, res) => {
     const content = readVcfLink(String(req.params.file || ''));
     if (!content) { res.status(404).send('Not found'); return; }
-    res.setHeader('Content-Type', 'text/vcard; charset=utf-8');
+    // `?as=` is only for the vcf_experiment mode (what content type Meta accepts when it fetches a document by link).
+    const asType = ({ msword: 'application/msword', plain: 'text/plain', octet: 'application/octet-stream', pdf: 'application/pdf' } as Record<string, string>)[String(req.query.as || '')];
+    res.setHeader('Content-Type', asType || 'text/vcard; charset=utf-8');
     res.setHeader('Content-Disposition', 'inline; filename="contacts.vcf"');
     res.setHeader('Cache-Control', 'public, max-age=300');
     res.setHeader('Referrer-Policy', 'no-referrer');

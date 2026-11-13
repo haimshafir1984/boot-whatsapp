@@ -40,6 +40,7 @@ export interface WhatsAppTransport {
   sendFile?(to: string, filePath: string, caption?: string, options?: { asSticker?: boolean }): Promise<void | WhatsAppSendResult>;
   sendContactCard?(to: string, vcard: string, displayName: string): Promise<void | WhatsAppSendResult>;
   sendContactCards?(to: string, contacts: Array<{ vcard: string; displayName: string }>, displayName: string): Promise<void | WhatsAppSendResult>;
+  sendDocumentVariant?(to: string, filePath: string, variant: { filename: string; mimeType?: string; linkUrl?: string }): Promise<void | WhatsAppSendResult>;
   sendContentTemplate?(to: string, contentSid: string, contentVariables?: Record<string, string>): Promise<void | WhatsAppSendResult>;
   sendTemplateMessage?(to: string, templateName: string, languageCode: string, bodyParameters?: string[]): Promise<void | WhatsAppSendResult>;
   sendInteractiveButtons?(to: string, text: string, buttons: Array<{ id: string; text: string }>): Promise<void | WhatsAppSendResult>;

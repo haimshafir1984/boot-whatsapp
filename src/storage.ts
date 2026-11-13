@@ -61,7 +61,7 @@ export interface CampaignConversationSettings {
   completionFileIds?: string[];
   sendContactCard?: boolean;
   contactCardPlacement?: 'after_completion' | 'before_questions';
-  contactCardSendMode?: 'separate' | 'combined' | 'vcf' | 'vcf_link';
+  contactCardSendMode?: 'separate' | 'combined' | 'vcf' | 'vcf_link' | 'vcf_experiment';
   contactCards?: ContactCard[];
   contactCardName?: string;
   contactCardPhone?: string;
@@ -201,7 +201,7 @@ export interface AdminSettings {
   completionFileIds: string[];
   sendContactCard?: boolean;
   contactCardPlacement?: 'after_completion' | 'before_questions';
-  contactCardSendMode?: 'separate' | 'combined' | 'vcf' | 'vcf_link';
+  contactCardSendMode?: 'separate' | 'combined' | 'vcf' | 'vcf_link' | 'vcf_experiment';
   contactCards?: ContactCard[];
   contactCardName?: string;
   contactCardPhone?: string;
