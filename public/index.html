@@ -1985,7 +1985,8 @@
                 <select id="fContactCardSendMode" onchange="updateCampaignConversationPreview()">
                   <option value="separate">&#1499;&#1500; &#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1489;&#1504;&#1508;&#1512;&#1491;</option>
                   <option value="combined">&#1513;&#1504;&#1497; &#1488;&#1504;&#1513;&#1497; &#1511;&#1513;&#1512; &#1489;&#1499;&#1512;&#1496;&#1497;&#1505; &#1488;&#1495;&#1491; (Meta)</option>
-                <option value="vcf">קובץ VCF אחד (שמירה של כולם בלחיצה אחת)</option>
+                <option value="vcf">קובץ VCF אחד (Baileys בלבד; ב-Meta נשלח כרטיס משולב)</option>
+                <option value="vcf_link">קישור להורדת VCF אחד (מומלץ ל-Meta; דורש PUBLIC_BASE_URL)</option>
                 </select>
                 <div class="hint">&#1504;&#1497;&#1514;&#1503; &#1500;&#1513;&#1500;&#1493;&#1495; &#1506;&#1491; &#1513;&#1504;&#1497; &#1488;&#1504;&#1513;&#1497; &#1511;&#1513;&#1512;. &#1492;&#1501; &#1497;&#1497;&#1513;&#1500;&#1495;&#1493; &#1488;&#1495;&#1491; &#1488;&#1495;&#1512;&#1497; &#1492;&#1513;&#1504;&#1497;.</div>
               </div>
@@ -3789,7 +3790,8 @@
               <select data-flow-contact-send-mode onchange="syncFlowContactSendMode(this)">
                 <option value="separate">&#1499;&#1500; &#1488;&#1497;&#1513; &#1511;&#1513;&#1512; &#1489;&#1504;&#1508;&#1512;&#1491;</option>
                 <option value="combined">&#1513;&#1504;&#1497; &#1488;&#1504;&#1513;&#1497; &#1511;&#1513;&#1512; &#1489;&#1499;&#1512;&#1496;&#1497;&#1505; &#1488;&#1495;&#1491; (Meta)</option>
-                <option value="vcf">קובץ VCF אחד (שמירה של כולם בלחיצה אחת)</option>
+                <option value="vcf">קובץ VCF אחד (Baileys בלבד; ב-Meta נשלח כרטיס משולב)</option>
+                <option value="vcf_link">קישור להורדת VCF אחד (מומלץ ל-Meta; דורש PUBLIC_BASE_URL)</option>
               </select>
             </div>
           </div>
@@ -4276,7 +4278,7 @@
   }
 
   function normalizeContactSendMode(value) {
-    if (value === 'vcf') return 'vcf';
+    if (value === 'vcf' || value === 'vcf_link') return value;
     return isMetaCloudProvider() && value === 'combined' ? 'combined' : 'separate';
   }
 

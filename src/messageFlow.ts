@@ -1,4 +1,5 @@
 import { config } from './config';
+import { issueVcfLink } from './vcfLink';
 import { runCampaignWork, stopCampaignWork, hasCampaignWork, guardCampaignTransport, assertCampaignWorkActive, campaignWorkSleep, CampaignWorkCancelledError } from './campaignWork';
 import { ProviderSendError, classifySendError, isUncertainSendError } from './sendOutcome';
 import { runWithSendAttempt } from './sendAttempt';
@@ -435,7 +436,7 @@ export function replyBehaviorFromSettings(settings: {
 
 /** The completion delivery the trigger path builds from campaign settings (same fields); the recovery controller needs it for a replay. */
 export function completionFromSettings(settings: Parameters<typeof contactCardsFromSettings>[0] & {
-  completionLinks?: CompletionLink[]; completionFileIds?: string[]; contactCardSendMode?: 'separate' | 'combined' | 'vcf';
+  completionLinks?: CompletionLink[]; completionFileIds?: string[]; contactCardSendMode?: 'separate' | 'combined' | 'vcf' | 'vcf_link';
   contactCardPlacement?: 'after_completion' | 'before_questions'; contactCardIntroText?: string;
   contactCardWaitForConfirmation?: boolean; contactCardConfirmationTimeoutMinutes?: number;
 }): CompletionDelivery {
@@ -457,7 +458,7 @@ export interface CompletionDelivery {
   fileIds?: string[];
   contactCards?: CompletionContactCard[];
   contactCard?: CompletionContactCard;
-  contactCardSendMode?: 'separate' | 'combined' | 'vcf';
+  contactCardSendMode?: 'separate' | 'combined' | 'vcf' | 'vcf_link';
   contactCardPlacement?: 'after_completion' | 'before_questions';
   contactCardIntroText?: string;
   contactCardWaitForConfirmation?: boolean;
@@ -2659,7 +2660,7 @@ async function sendCompletionLinks(
 function contactCardsFromSettings(settings: {
   sendContactCard?: boolean;
   contactCards?: CompletionContactCard[];
-  contactCardSendMode?: 'separate' | 'combined' | 'vcf';
+  contactCardSendMode?: 'separate' | 'combined' | 'vcf' | 'vcf_link';
   contactCardName?: string;
   contactCardPhone?: string;
   contactCardEmail?: string;
@@ -2748,12 +2749,50 @@ async function sendCompletionContactCards(
   campaignId?: string,
   campaignResultId?: string,
   senderPhone?: string,
-  _sendMode: 'separate' | 'combined' | 'vcf' = 'separate',
+  _sendMode: 'separate' | 'combined' | 'vcf' | 'vcf_link' = 'separate',
 ): Promise<void> {
   const cards = uniqueContactCards(contactCards ?? []).slice(0, 2);
   if (!cards.length) return;
 
-  if (_sendMode === 'vcf' && cards.length > 1 && transport.sendFile) {
+  if (_sendMode === 'vcf_link' && cards.length > 1) {
+    // Several contacts -> one link to a .vcf served from this client's public domain (works on Meta, where a .vcf file cannot be sent).
+    const linkContacts = cards
+      .filter((contactCard) => contactCard.enabled)
+      .map((contactCard) => ({
+        name: (contactCard.name || 'Contact').trim(),
+        phone: normalizeVCardPhone((contactCard.phone || '').trim()),
+        email: (contactCard.email || '').trim(),
+        organization: (contactCard.organization || '').trim(),
+      }))
+      .filter((card) => card.name || card.phone || card.email);
+    if (linkContacts.length > 1) {
+      let url: string | null = null;
+      try {
+        url = issueVcfLink(campaignId, linkContacts);
+      } catch (err) {
+        console.warn('   VCF link could not be created, falling back to native contact cards:', err);
+      }
+      if (!url) {
+        console.warn('   [VCF_LINK_UNAVAILABLE] PUBLIC_BASE_URL is not set or the file could not be written; sending native contact cards instead.');
+      } else {
+        try {
+          await sendBotMessage(transport, senderJid, `לשמירת כל אנשי הקשר בלחיצה אחת:
+${url}`);
+          console.log('   Contact cards sent as a VCF link.');
+          for (const card of linkContacts) recordContactCardEvent(storage, campaignId, campaignResultId, senderPhone, `contact card: ${card.name || card.phone || card.email}`);
+          return;
+        } catch (err) {
+          // R3: after an uncertain outcome the link may already have been delivered - never add cards on top of it.
+          if (isUncertainOutcome(err)) throw err;
+          console.warn('   VCF link message failed, falling back to native contact cards:', err);
+        }
+      }
+    }
+  }
+
+  // Meta's Cloud API cannot deliver a real .vcf: media upload rejects text/vcard (#100), and text/plain arrives renamed to ".vcf.txt".
+  // So on Meta the 'vcf' mode goes straight to the combined native card below.
+  if (_sendMode === 'vcf' && cards.length > 1 && transport.sendFile && config.WHATSAPP_PROVIDER !== 'META_CLOUD_API') {
     // One .vcf file holding every contact: the recipient taps once and saves them all.
     const vcfCards = cards
       .filter((contactCard) => contactCard.enabled)
@@ -2785,7 +2824,7 @@ async function sendCompletionContactCards(
     }
   }
 
-  if ((_sendMode === 'combined' || _sendMode === 'vcf') && cards.length > 1 && transport.sendContactCards) {
+  if ((_sendMode === 'combined' || _sendMode === 'vcf' || _sendMode === 'vcf_link') && cards.length > 1 && transport.sendContactCards) {
     const combinedContacts = cards
       .filter((contactCard) => contactCard.enabled)
       .map((contactCard) => {

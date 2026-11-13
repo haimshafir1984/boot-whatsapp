@@ -4,6 +4,7 @@
  * Serves static files and exposes a REST API for settings and campaigns.
  */
 
+import { mountVcfLinkRoutes } from './vcfLink';
 import { decideGatewayButton, interactiveReplyId, loadGatewayButtonKeys, loadClientButtonKeys, verifyClientButton } from './buttonVerify';
 import { deriveRouteKey, isV1ButtonId } from './buttonToken';
 import { buttonLeaseValidUntil, grantButtonLease, leasePushIntervalMs, leaseTtlMs } from './buttonLease';
@@ -932,7 +933,7 @@ function conversationSettings(
     contactCardPlacement: input?.contactCardPlacement === 'before_questions'
       ? 'before_questions'
       : (defaults.contactCardPlacement ?? 'after_completion'),
-    contactCardSendMode: input?.contactCardSendMode === 'combined' || input?.contactCardSendMode === 'separate' || input?.contactCardSendMode === 'vcf'
+    contactCardSendMode: input?.contactCardSendMode === 'combined' || input?.contactCardSendMode === 'separate' || input?.contactCardSendMode === 'vcf' || input?.contactCardSendMode === 'vcf_link'
       ? input.contactCardSendMode
       : (defaults.contactCardSendMode ?? 'separate'),
     contactCards,
@@ -1665,6 +1666,8 @@ export function startAdminServer(storage: Storage): import('http').Server {
   // touches nothing — no storage, no getCampaigns()/queue stats/failed deliveries —
   // so it still answers 200 fast when the event loop is busy or storage is mid
   // migration. The heavy /health below stays for the dashboard.
+  mountVcfLinkRoutes(app);
+
   app.get('/health/live', (_req, res) => {
     res.status(200).json({ ok: true, live: true });
   });

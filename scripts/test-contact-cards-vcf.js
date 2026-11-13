@@ -2,6 +2,8 @@
 /** contactCardSendMode 'vcf': several contacts go out as ONE .vcf file (one tap saves them all); fallback to native cards if the file fails. */
 process.env.NODE_ENV = 'test';
 process.env.BOT_REPLY_DELAY_MS = '0';
+const META = process.argv.includes('--meta');
+if (META) process.env.WHATSAPP_PROVIDER = 'META_CLOUD_API';
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -39,6 +41,13 @@ async function run(storage, mode, failFile, cards, phone) {
   try {
     const storage = new Storage(path.join(dir, 'storage.json'));
     const two = [{ enabled: true, name: 'Dana', phone: '0501234567' }, { enabled: true, name: 'Eli', phone: '0527654321', email: 'e@x.co' }];
+    if (META) {
+      const m = await run(storage, 'vcf', false, two, '972500000041');
+      assert.strictEqual(m.sent.filter((x) => x.type === 'file').length, 0, 'Meta: no .vcf file (Meta cannot deliver it)');
+      assert.strictEqual(m.sent.filter((x) => x.type === 'cards').length, 1, 'Meta: one combined native card instead');
+      console.log('Contact cards VCF mode (Meta) tests passed.');
+      return;
+    }
     let tr = await run(storage, 'vcf', false, two, '972500000031');
     const files = tr.sent.filter((x) => x.type === 'file');
     assert.strictEqual(files.length, 1, 'one vcf file');
