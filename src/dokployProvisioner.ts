@@ -613,6 +613,8 @@ export class DokployProvisioner {
       'CONVERSATION_STATE_PATH=./data/conversation-state.json',
       'OWNER_STORAGE_PATH=./data/owner/clients.json',
       'PORT=3001',
+      // The client's own public address; used for links the client serves itself (the one-file VCF sent to Meta clients, see src/vcfLink.ts).
+      `PUBLIC_BASE_URL=${escapeEnvValue(clientBaseUrl(this.config, name))}`,
     ];
     if (current.serviceExpiresAt) {
       envLines.push(`CLIENT_SERVICE_EXPIRES_AT=${escapeEnvValue(current.serviceExpiresAt)}`);

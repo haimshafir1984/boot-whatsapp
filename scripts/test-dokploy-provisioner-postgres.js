@@ -81,6 +81,7 @@ let current = {
   assert(envSave.body.env.includes('DATABASE_URL="postgres://postgres:'), 'DATABASE_URL should be configured');
   assert(envSave.body.env.includes('@client-test-client-baileys-12345678-postgres-abc123:5432/postgres"'), 'DATABASE_URL should point at the created PostgreSQL service');
   assert(envSave.body.env.includes('STORAGE_PATH=./data/contacts.json'), 'JSON storage path should remain for uploads/rollback compatibility');
+  assert(/PUBLIC_BASE_URL="?https:\/\/client-test-client-baileys-12345678\.clients\.example\.test"?(\n|$)/.test(envSave.body.env), 'PUBLIC_BASE_URL should be the client public address');
 
   assert.strictEqual(current.dokployPostgresId, 'pg_1');
   assert.strictEqual(current.dokployPostgresAppName, 'client-test-client-baileys-12345678-postgres-abc123');
